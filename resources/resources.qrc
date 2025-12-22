@@ -7,39 +7,65 @@
         <file>icons/flush.svg</file>
         <file>icons/settings.svg</file>
         <file>icons/back.svg</file>
+        <!-- Espresso profiles -->
         <file>profiles/default.json</file>
-        <file>profiles/blooming_espresso.json</file>
-        <file>profiles/turbo_shot.json</file>
-        <file>profiles/easy_blooming_active_pressure_decline.json</file>
-        <file>profiles/rao_allonge.json</file>
-        <file>profiles/londonium.json</file>
-        <file>profiles/advanced_spring_lever.json</file>
-        <file>profiles/cremina.json</file>
-        <file>profiles/classic_italian_espresso.json</file>
         <file>profiles/best_practice.json</file>
         <file>profiles/best_practice_light.json</file>
+        <file>profiles/best_overall_pressure.json</file>
+        <file>profiles/blooming_espresso.json</file>
+        <file>profiles/blooming_allonge.json</file>
+        <file>profiles/easy_blooming_active_pressure_decline.json</file>
+        <file>profiles/classic_italian_espresso.json</file>
+        <file>profiles/italian_australian.json</file>
+        <file>profiles/80s_espresso.json</file>
+        <file>profiles/rao_allonge.json</file>
+        <file>profiles/adaptive_espresso.json</file>
+        <file>profiles/adaptive_allonge.json</file>
+        <!-- Lever profiles -->
+        <file>profiles/londonium.json</file>
+        <file>profiles/advanced_spring_lever.json</file>
+        <file>profiles/weiss_advanced_spring_lever.json</file>
+        <file>profiles/cremina.json</file>
+        <file>profiles/traditional_lever_9bar.json</file>
+        <file>profiles/two_spring_lever_9bar.json</file>
+        <file>profiles/low_pressure_lever_6bar.json</file>
+        <!-- Flow profiles -->
         <file>profiles/flow_profile_milky.json</file>
         <file>profiles/flow_profile_straight_espresso.json</file>
-        <file>profiles/damians_lrv3.json</file>
-        <file>profiles/damians_lrv2.json</file>
-        <file>profiles/damians_lm_leva.json</file>
-        <file>profiles/damians_q.json</file>
+        <file>profiles/gentle_and_sweet.json</file>
+        <file>profiles/gentle_flat_25ml.json</file>
+        <file>profiles/gentle_preinfusion_flow.json</file>
+        <file>profiles/gentler_traditional_84bar.json</file>
+        <file>profiles/hybrid_pourover_espresso.json</file>
+        <file>profiles/innovative_long_preinfusion.json</file>
+        <file>profiles/preinfuse_45ml.json</file>
+        <file>profiles/trendy_6bar_low_pressure.json</file>
+        <!-- E61 profiles -->
+        <file>profiles/e61_classic_9bar.json</file>
+        <file>profiles/e61_gently_10bar.json</file>
+        <file>profiles/e61_rocketing_10bar.json</file>
+        <file>profiles/e61_fast_preinfusion.json</file>
+        <!-- Turbo profiles -->
         <file>profiles/turbobloom.json</file>
         <file>profiles/turboturbo.json</file>
-        <file>profiles/extractamundo_dos.json</file>
-        <file>profiles/i_got_your_back.json</file>
-        <file>profiles/espresso_forge_dark.json</file>
-        <file>profiles/espresso_forge_light.json</file>
-        <file>profiles/weiss_advanced_spring_lever.json</file>
+        <file>profiles/turbo_shot.json</file>
+        <!-- A-Flow profiles -->
         <file>profiles/aflow_dark.json</file>
         <file>profiles/aflow_medium.json</file>
         <file>profiles/aflow_like_dflow.json</file>
         <file>profiles/aflow_very_dark.json</file>
-        <file>profiles/80s_espresso.json</file>
-        <file>profiles/blooming_allonge.json</file>
+        <!-- Damian's profiles -->
+        <file>profiles/damians_lrv3.json</file>
+        <file>profiles/damians_lrv2.json</file>
+        <file>profiles/damians_lm_leva.json</file>
+        <file>profiles/damians_q.json</file>
+        <!-- Other espresso profiles -->
+        <file>profiles/extractamundo_dos.json</file>
+        <file>profiles/i_got_your_back.json</file>
+        <file>profiles/espresso_forge_dark.json</file>
+        <file>profiles/espresso_forge_light.json</file>
         <file>profiles/7g_basket.json</file>
-        <file>profiles/adaptive_espresso.json</file>
-        <file>profiles/adaptive_allonge.json</file>
+        <!-- Filter/Pour over profiles -->
         <file>profiles/filter_2.json</file>
         <file>profiles/filter_20.json</file>
         <file>profiles/filter_21.json</file>
@@ -50,8 +76,10 @@
         <file>profiles/v60_20g.json</file>
         <file>profiles/v60_22g.json</file>
         <file>profiles/kalita_20g.json</file>
+        <!-- Manual profiles -->
         <file>profiles/manual_flow.json</file>
         <file>profiles/manual_pressure.json</file>
+        <!-- Tea profiles -->
         <file>profiles/tea_black.json</file>
         <file>profiles/tea_oolong.json</file>
         <file>profiles/tea_oolong_dark.json</file>
@@ -67,10 +95,19 @@
         <file>profiles/tea_pressurized.json</file>
         <file>profiles/tea_no_pressure.json</file>
         <file>profiles/tea_in_basket.json</file>
+        <!-- Steam profile -->
         <file>profiles/steam_only.json</file>
+        <!-- Cleaning profiles -->
         <file>profiles/cleaning_forward_flush.json</file>
         <file>profiles/cleaning_forward_flush_x5.json</file>
         <file>profiles/weber_spring_clean.json</file>
+        <!-- Calibration/Test profiles -->
         <file>profiles/flow_calibration.json</file>
+        <file>profiles/test_leak.json</file>
+        <file>profiles/test_low_pressure_leak.json</file>
+        <file>profiles/test_pressure_calibration.json</file>
+        <file>profiles/test_pressure_release.json</file>
+        <file>profiles/test_temperature.json</file>
+        <file>profiles/test_temperature_calibration.json</file>
     </qresource>
 </RCC>

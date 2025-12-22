@@ -7,12 +7,10 @@ ChartView {
     antialiasing: true
     backgroundColor: "transparent"
     plotAreaColor: Qt.rgba(0, 0, 0, 0.3)
-    legend.visible: true
-    legend.labelColor: Theme.textSecondaryColor
-    legend.alignment: Qt.AlignBottom
+    legend.visible: false  // Using custom legend below
 
     margins.top: 10
-    margins.bottom: 10
+    margins.bottom: 60  // Extra space for custom legend
     margins.left: 10
     margins.right: 10
 
@@ -309,6 +307,96 @@ ChartView {
                 // Smoothly expand to give 25% headroom beyond current data
                 currentMaxTime = Math.max(maxDataTime * 1.25, currentMaxTime + 1)
             }
+        }
+    }
+
+    // Custom legend at bottom
+    Column {
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin: 8
+        spacing: 4
+
+        // Legend items row
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 24
+
+            // Pressure
+            Row {
+                spacing: 6
+                Rectangle {
+                    width: 24
+                    height: 4
+                    radius: 2
+                    color: Theme.pressureColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                    text: "Pressure"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: 13
+                }
+            }
+
+            // Flow
+            Row {
+                spacing: 6
+                Rectangle {
+                    width: 24
+                    height: 4
+                    radius: 2
+                    color: Theme.flowColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                    text: "Flow"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: 13
+                }
+            }
+
+            // Temperature
+            Row {
+                spacing: 6
+                Rectangle {
+                    width: 24
+                    height: 4
+                    radius: 2
+                    color: Theme.temperatureColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                    text: "Temp"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: 13
+                }
+            }
+
+            // Weight
+            Row {
+                spacing: 6
+                Rectangle {
+                    width: 24
+                    height: 4
+                    radius: 2
+                    color: Theme.weightColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                    text: "Weight"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: 13
+                }
+            }
+        }
+
+        // Explanation text
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Solid = actual  · · · Dashed = target"
+            color: Qt.rgba(255, 255, 255, 0.5)
+            font.pixelSize: 11
         }
     }
 }

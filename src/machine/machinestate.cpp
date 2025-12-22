@@ -150,6 +150,10 @@ void MachineState::updatePhase() {
                              m_phase == Phase::Ending);
 
         if (isInEspresso && !wasInEspresso) {
+            // Auto-tare scale at start of espresso cycle
+            if (m_scale && m_scale->isConnected()) {
+                m_scale->tare();
+            }
             emit espressoCycleStarted();
         }
 
