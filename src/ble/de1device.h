@@ -85,6 +85,9 @@ public slots:
                         double hotWaterTemp, int hotWaterVolume,
                         double groupTemp);
 
+    // MMR write (for advanced settings like steam flow)
+    void writeMMR(uint32_t address, uint32_t value);
+
 signals:
     void connectedChanged();
     void connectingChanged();
@@ -114,6 +117,7 @@ private:
     void parseShotSample(const QByteArray& data);
     void parseWaterLevel(const QByteArray& data);
     void parseVersion(const QByteArray& data);
+    void parseMMRResponse(const QByteArray& data);
 
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
     void queueCommand(std::function<void()> command);

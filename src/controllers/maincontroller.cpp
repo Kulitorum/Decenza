@@ -123,6 +123,87 @@ void MainController::uploadCurrentProfile() {
     }
 }
 
+void MainController::applySteamSettings() {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    // Send shot settings (includes steam temp/timeout)
+    m_device->setShotSettings(
+        m_settings->steamTemperature(),
+        m_settings->steamTimeout(),
+        m_settings->waterTemperature(),
+        m_settings->waterVolume(),
+        93.0  // Group temp (could be from settings too)
+    );
+
+    // Send steam flow via MMR
+    m_device->writeMMR(0x803828, m_settings->steamFlow());
+
+    qDebug() << "Applied steam settings: temp=" << m_settings->steamTemperature()
+             << "timeout=" << m_settings->steamTimeout()
+             << "flow=" << m_settings->steamFlow();
+}
+
+void MainController::applyHotWaterSettings() {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    // Send shot settings (includes water temp/volume)
+    m_device->setShotSettings(
+        m_settings->steamTemperature(),
+        m_settings->steamTimeout(),
+        m_settings->waterTemperature(),
+        m_settings->waterVolume(),
+        93.0  // Group temp
+    );
+
+    qDebug() << "Applied hot water settings: temp=" << m_settings->waterTemperature()
+             << "volume=" << m_settings->waterVolume();
+}
+
+void MainController::setSteamTemperatureImmediate(double temp) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    m_settings->setSteamTemperature(temp);
+
+    // Send all shot settings with updated temperature
+    m_device->setShotSettings(
+        temp,
+        m_settings->steamTimeout(),
+        m_settings->waterTemperature(),
+        m_settings->waterVolume(),
+        93.0
+    );
+
+    qDebug() << "Steam temperature set to:" << temp;
+}
+
+void MainController::setSteamFlowImmediate(int flow) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    m_settings->setSteamFlow(flow);
+
+    // Send steam flow via MMR (can be changed in real-time)
+    m_device->writeMMR(0x803828, flow);
+
+    qDebug() << "Steam flow set to:" << flow;
+}
+
+void MainController::setSteamTimeoutImmediate(int timeout) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    m_settings->setSteamTimeout(timeout);
+
+    // Send all shot settings with updated timeout
+    m_device->setShotSettings(
+        m_settings->steamTemperature(),
+        timeout,
+        m_settings->waterTemperature(),
+        m_settings->waterVolume(),
+        93.0
+    );
+
+    qDebug() << "Steam timeout set to:" << timeout;
+}
+
 void MainController::onShotStarted() {
     m_shotStartTime = 0;
     if (m_shotDataModel) {

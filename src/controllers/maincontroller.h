@@ -34,6 +34,14 @@ public slots:
     void refreshProfiles();
     void uploadCurrentProfile();
 
+    void applySteamSettings();
+    void applyHotWaterSettings();
+
+    // Real-time steam setting updates
+    void setSteamTemperatureImmediate(double temp);
+    void setSteamFlowImmediate(int flow);
+    void setSteamTimeoutImmediate(int timeout);
+
     void onShotStarted();
     void onShotEnded();
 

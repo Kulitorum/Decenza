@@ -85,6 +85,18 @@ ApplicationWindow {
         pageStack.replace(idlePage)
     }
 
+    function goToEspresso() {
+        pageStack.replace(espressoPage)
+    }
+
+    function goToSteam() {
+        pageStack.replace(steamPage)
+    }
+
+    function goToHotWater() {
+        pageStack.replace(hotWaterPage)
+    }
+
     function goToSettings() {
         pageStack.push(settingsPage)
     }

@@ -278,7 +278,21 @@ void DE1Device::subscribeToNotifications() {
         qDebug() << "DE1Device: ReadFromMMR characteristic NOT FOUND";
     }
 
-    // Read version
+    // Subscribe to Temperatures notifications (required for operations)
+    if (m_characteristics.contains(DE1::Characteristic::TEMPERATURES)) {
+        qDebug() << "DE1Device: Subscribing to Temperatures";
+        QLowEnergyCharacteristic c = m_characteristics[DE1::Characteristic::TEMPERATURES];
+        QLowEnergyDescriptor notification = c.descriptor(
+            QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
+        if (notification.isValid()) {
+            m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
+        } else {
+            qDebug() << "DE1Device: Temperatures CCCD not valid";
+        }
+    } else {
+        qDebug() << "DE1Device: Temperatures characteristic NOT FOUND";
+    }
+
     // Read version
     if (m_characteristics.contains(DE1::Characteristic::VERSION)) {
         qDebug() << "DE1Device: Reading firmware version";
@@ -305,8 +319,11 @@ void DE1Device::subscribeToNotifications() {
 }
 
 void DE1Device::onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    // Uncomment for debugging:
-    // qDebug() << "DE1Device: Characteristic changed:" << c.uuid().toString() << "size:" << value.size();
+    // Only log state changes and MMR responses (not the frequent shot samples)
+    if (c.uuid() != DE1::Characteristic::SHOT_SAMPLE &&
+        c.uuid() != DE1::Characteristic::WATER_LEVELS) {
+        qDebug() << "DE1Device: Notification from" << c.uuid().toString() << "data:" << value.toHex();
+    }
 
     if (c.uuid() == DE1::Characteristic::STATE_INFO) {
         parseStateInfo(value);
@@ -316,12 +333,14 @@ void DE1Device::onCharacteristicChanged(const QLowEnergyCharacteristic& c, const
         parseWaterLevel(value);
     } else if (c.uuid() == DE1::Characteristic::VERSION) {
         parseVersion(value);
+    } else if (c.uuid() == DE1::Characteristic::READ_FROM_MMR) {
+        parseMMRResponse(value);
     }
 }
 
 void DE1Device::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    Q_UNUSED(c)
-    Q_UNUSED(value)
+    // Reduce log noise - only log non-routine writes
+    // qDebug() << "DE1Device::onCharacteristicWritten" << c.uuid().toString() << "data:" << value.toHex();
     m_writePending = false;
     processCommandQueue();
 }
@@ -334,6 +353,12 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
 
     bool stateChanged = (newState != m_state);
     bool subStateChanged = (newSubState != m_subState);
+
+    // Only log when state actually changes
+    if (stateChanged || subStateChanged) {
+        qDebug() << "DE1Device: State changed to" << DE1::stateToString(newState)
+                 << "/" << DE1::subStateToString(newSubState);
+    }
 
     m_state = newState;
     m_subState = newSubState;
@@ -416,9 +441,33 @@ void DE1Device::parseVersion(const QByteArray& data) {
     sendInitialSettings();
 }
 
-void DE1Device::writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data) {
-    if (!m_service || !m_characteristics.contains(uuid)) return;
+void DE1Device::parseMMRResponse(const QByteArray& data) {
+    if (data.size() < 4) return;
 
+    // MMR response format:
+    // Byte 0: Length
+    // Bytes 1-3: Address (big endian)
+    // Bytes 4+: Data (little endian)
+    const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
+    uint32_t address = (d[1] << 16) | (d[2] << 8) | d[3];
+
+    if (data.size() >= 8) {
+        uint32_t value = d[4] | (d[5] << 8) | (d[6] << 16) | (d[7] << 24);
+        qDebug() << "DE1Device: MMR response - address:" << QString::number(address, 16)
+                 << "value:" << value << "(0x" + QString::number(value, 16) + ")";
+
+        if (address == DE1::MMR::GHC_INFO) {
+            qDebug() << "  GHC Info: Present=" << ((value & 0x1) != 0)
+                     << "Active=" << ((value & 0x2) != 0);
+        }
+    }
+}
+
+void DE1Device::writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data) {
+    if (!m_service || !m_characteristics.contains(uuid)) {
+        qWarning() << "DE1Device: Cannot write - not connected";
+        return;
+    }
     m_writePending = true;
     m_service->writeCharacteristic(m_characteristics[uuid], data);
 }
@@ -440,24 +489,30 @@ void DE1Device::processCommandQueue() {
 // Machine control methods
 void DE1Device::requestState(DE1::State state) {
     QByteArray data(1, static_cast<char>(state));
+    qDebug() << "DE1Device::requestState" << static_cast<int>(state)
+             << "(" << DE1::stateToString(state) << ") data:" << data.toHex();
     queueCommand([this, data]() {
         writeCharacteristic(DE1::Characteristic::REQUESTED_STATE, data);
     });
 }
 
 void DE1Device::startEspresso() {
+    qDebug() << "DE1Device::startEspresso called";
     requestState(DE1::State::Espresso);
 }
 
 void DE1Device::startSteam() {
+    qDebug() << "DE1Device::startSteam called";
     requestState(DE1::State::Steam);
 }
 
 void DE1Device::startHotWater() {
+    qDebug() << "DE1Device::startHotWater called";
     requestState(DE1::State::HotWater);
 }
 
 void DE1Device::startFlush() {
+    qDebug() << "DE1Device::startFlush called";
     requestState(DE1::State::HotWaterRinse);
 }
 
@@ -494,10 +549,37 @@ void DE1Device::uploadProfile(const Profile& profile) {
     });
 }
 
+void DE1Device::writeMMR(uint32_t address, uint32_t value) {
+    // MMR Write format (20 bytes):
+    // Byte 0: Length (0x04 for 4-byte value)
+    // Bytes 1-3: Address (big endian)
+    // Bytes 4-7: Value (little endian)
+    // Bytes 8-19: Padding (zeros)
+    QByteArray data(20, 0);
+    data[0] = 0x04;  // Length: 4 bytes
+    data[1] = (address >> 16) & 0xFF;  // Address high byte
+    data[2] = (address >> 8) & 0xFF;   // Address mid byte
+    data[3] = address & 0xFF;          // Address low byte
+    data[4] = value & 0xFF;            // Value byte 0 (little endian)
+    data[5] = (value >> 8) & 0xFF;     // Value byte 1
+    data[6] = (value >> 16) & 0xFF;    // Value byte 2
+    data[7] = (value >> 24) & 0xFF;    // Value byte 3
+
+    queueCommand([this, data]() {
+        writeCharacteristic(DE1::Characteristic::WRITE_TO_MMR, data);
+    });
+}
+
 void DE1Device::sendInitialSettings() {
     // This mimics de1app's later_new_de1_connection_setup
     // Send a basic profile and shot settings to trigger machine wake-up response
     qDebug() << "DE1Device: Sending initial profile and settings";
+
+    // CRITICAL: Set fan temperature threshold via MMR
+    // This tells the machine at what temperature the fan should activate
+    // Setting this allows the fan to go quiet when temps are stable
+    // Default value: 60°C (de1app default from machine.tcl)
+    writeMMR(DE1::MMR::FAN_THRESHOLD, 60);
 
     // Send a basic profile header (5 bytes)
     // HeaderV=1, NumFrames=1, NumPreinfuse=0, MinPressure=0, MaxFlow=6.0
@@ -547,7 +629,7 @@ void DE1Device::sendInitialSettings() {
     QByteArray mmrRead(20, 0);
     mmrRead[0] = 0x00;   // Len = 0 (read 4 bytes)
     mmrRead[1] = 0x80;   // Address high byte
-    mmrRead[2] = 0x38;   // Address mid byte  
+    mmrRead[2] = 0x38;   // Address mid byte
     mmrRead[3] = 0x1C;   // Address low byte (GHC info)
 
     queueCommand([this, mmrRead]() {

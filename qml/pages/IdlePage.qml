@@ -112,15 +112,15 @@ Page {
             ActionButton {
                 text: "Steam"
                 iconSource: "qrc:/icons/steam.svg"
-                enabled: MachineState.isReady && DE1Device.connected
-                onClicked: DE1Device.startSteam()
+                enabled: DE1Device.connected
+                onClicked: root.goToSteam()
             }
 
             ActionButton {
                 text: "Hot Water"
                 iconSource: "qrc:/icons/water.svg"
-                enabled: MachineState.isReady && DE1Device.connected
-                onClicked: DE1Device.startHotWater()
+                enabled: DE1Device.connected
+                onClicked: root.goToHotWater()
             }
 
             ActionButton {

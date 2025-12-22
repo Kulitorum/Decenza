@@ -3,6 +3,9 @@
 #include <QObject>
 #include <QSettings>
 #include <QString>
+#include <QVariantList>
+#include <QJsonArray>
+#include <QJsonObject>
 
 class Settings : public QObject {
     Q_OBJECT
@@ -19,6 +22,11 @@ class Settings : public QObject {
     // Steam settings
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
     Q_PROPERTY(int steamTimeout READ steamTimeout WRITE setSteamTimeout NOTIFY steamTimeoutChanged)
+    Q_PROPERTY(int steamFlow READ steamFlow WRITE setSteamFlow NOTIFY steamFlowChanged)
+
+    // Steam cup presets
+    Q_PROPERTY(QVariantList steamCupPresets READ steamCupPresets NOTIFY steamCupPresetsChanged)
+    Q_PROPERTY(int selectedSteamCup READ selectedSteamCup WRITE setSelectedSteamCup NOTIFY selectedSteamCupChanged)
 
     // Hot water settings
     Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged)
@@ -56,6 +64,20 @@ public:
     int steamTimeout() const;
     void setSteamTimeout(int timeout);
 
+    int steamFlow() const;
+    void setSteamFlow(int flow);
+
+    // Steam cup presets
+    QVariantList steamCupPresets() const;
+    int selectedSteamCup() const;
+    void setSelectedSteamCup(int index);
+
+    Q_INVOKABLE void addSteamCupPreset(const QString& name, int duration, int flow);
+    Q_INVOKABLE void updateSteamCupPreset(int index, const QString& name, int duration, int flow);
+    Q_INVOKABLE void removeSteamCupPreset(int index);
+    Q_INVOKABLE void moveSteamCupPreset(int from, int to);
+    Q_INVOKABLE QVariantMap getSteamCupPreset(int index) const;
+
     // Hot water settings
     double waterTemperature() const;
     void setWaterTemperature(double temp);
@@ -79,6 +101,9 @@ signals:
     void targetWeightChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
+    void steamFlowChanged();
+    void steamCupPresetsChanged();
+    void selectedSteamCupChanged();
     void waterTemperatureChanged();
     void waterVolumeChanged();
     void skinChanged();

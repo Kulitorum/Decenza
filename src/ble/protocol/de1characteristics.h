@@ -128,6 +128,7 @@ namespace MMR {
     constexpr uint32_t FIRMWARE_VERSION     = 0x800010;
     constexpr uint32_t FAN_THRESHOLD        = 0x803808;
     constexpr uint32_t GHC_INFO             = 0x80381C;
+    constexpr uint32_t GHC_MODE             = 0x803820;
     constexpr uint32_t STEAM_FLOW           = 0x803828;
     constexpr uint32_t SERIAL_NUMBER        = 0x803830;
     constexpr uint32_t HEATER_VOLTAGE       = 0x803834;
