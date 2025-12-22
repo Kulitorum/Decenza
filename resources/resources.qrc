@@ -1,0 +1,12 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>icons/espresso.svg</file>
+        <file>icons/steam.svg</file>
+        <file>icons/water.svg</file>
+        <file>icons/flush.svg</file>
+        <file>icons/settings.svg</file>
+        <file>icons/back.svg</file>
+        <file>profiles/default.json</file>
+    </qresource>
+</RCC>

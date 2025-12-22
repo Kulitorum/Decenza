@@ -1,0 +1,40 @@
+{
+    "title": "Default Espresso",
+    "author": "DE1 Qt App",
+    "notes": "Simple pressure profiled espresso",
+    "beverage_type": "espresso",
+    "target_weight": 36.0,
+    "target_volume": 36.0,
+    "preinfuse_frame_count": 1,
+    "steps": [
+        {
+            "name": "Preinfusion",
+            "temperature": 93.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 4.0,
+            "flow": 2.0,
+            "seconds": 15.0,
+            "volume": 0,
+            "exit_if": true,
+            "exit_type": "pressure_over",
+            "exit_pressure_over": 3.0,
+            "exit_pressure_under": 0,
+            "exit_flow_over": 0,
+            "exit_flow_under": 0
+        },
+        {
+            "name": "Extraction",
+            "temperature": 93.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 9.0,
+            "flow": 2.0,
+            "seconds": 45.0,
+            "volume": 0,
+            "exit_if": false
+        }
+    ]
+}
