@@ -75,8 +75,17 @@ void DecentScale::onServiceStateChanged(QLowEnergyService::ServiceState state) {
 
         setConnected(true);
 
-        // Enable weight notifications
-        sendCommand(QByteArray::fromHex("030A0102"));  // Enable weight updates
+        // Wake sequence matching official de1app timing:
+        // - Wake immediately
+        // - Wake again after 200ms
+        // - Enable weight notifications after 300ms
+        // - Wake again after 500ms (retry for reliability)
+        wake();
+        QTimer::singleShot(200, this, &DecentScale::wake);
+        QTimer::singleShot(300, this, [this]() {
+            sendCommand(QByteArray::fromHex("030A0102"));  // Enable weight updates
+        });
+        QTimer::singleShot(500, this, &DecentScale::wake);
     }
 }
 
@@ -150,8 +159,9 @@ void DecentScale::sleep() {
 }
 
 void DecentScale::wake() {
-    // Command 0A 01 01 enables LCD
-    sendCommand(QByteArray::fromHex("0A0101"));
+    // Command 0A 01 01 00 01 enables LCD (grams mode)
+    // Must match official de1app: 03 0A 01 01 00 01 [xor]
+    sendCommand(QByteArray::fromHex("0A01010001"));
 }
 
 void DecentScale::setLed(int r, int g, int b) {

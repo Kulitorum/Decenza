@@ -2,6 +2,7 @@
 
 #include "../scaledevice.h"
 #include <QLowEnergyCharacteristic>
+#include <QTimer>
 
 class DecentScale : public ScaleDevice {
     Q_OBJECT

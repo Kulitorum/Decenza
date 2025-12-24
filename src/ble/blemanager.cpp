@@ -351,15 +351,24 @@ void BLEManager::tryDirectConnectToScale() {
         return;
     }
 
-    qDebug() << "Trying to reconnect to scale:" << m_savedScaleAddress;
+    qDebug() << "Trying direct connect to wake scale:" << m_savedScaleAddress << "type:" << m_savedScaleType;
 
-    // Set flag to look for our saved scale during scan
-    m_scanningForScales = true;
+    // Create a QBluetoothDeviceInfo from just the address - this allows us to
+    // connect directly to a sleeping scale without scanning. The BLE connection
+    // request itself will wake the scale (this is how the official de1app works).
+    QBluetoothAddress address(m_savedScaleAddress);
+    QBluetoothDeviceInfo deviceInfo(address, m_savedScaleType, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
+
+    // Start timeout timer
     m_scaleConnectionTimer->start();
 
-    // Start a scan - when we find our saved scale address, we'll connect to it
-    // This is more reliable than trying to create a QBluetoothDeviceInfo from just the address,
-    // since Qt's BLE stack on Android needs proper device metadata from a scan
+    // Emit scaleDiscovered to trigger connection via main.cpp handler
+    // The direct BLE connect request will wake the sleeping scale
+    emit scaleDiscovered(deviceInfo, m_savedScaleType);
+
+    // Also start scanning as fallback - if direct connect fails, we might find
+    // the scale through regular discovery (e.g., if it woke up from button press)
+    m_scanningForScales = true;
     if (!m_scanning) {
         startScan();
     }

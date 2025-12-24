@@ -86,9 +86,13 @@ void SkaleScale::onServiceStateChanged(QLowEnergyService::ServiceState state) {
 
         setConnected(true);
 
-        // Initialize: enable grams and LCD
+        // Wake sequence with retries (matching official de1app pattern)
+        // - Enable grams and LCD immediately
+        // - Retry LCD enable at 200ms and 500ms for reliability
         enableGrams();
         enableLcd();
+        QTimer::singleShot(200, this, &SkaleScale::enableLcd);
+        QTimer::singleShot(500, this, &SkaleScale::enableLcd);
     }
 }
 

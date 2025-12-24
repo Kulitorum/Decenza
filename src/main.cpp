@@ -4,6 +4,7 @@
 #include <QQuickStyle>
 #include <QIcon>
 #include <QTimer>
+#include <QGuiApplication>
 #include <memory>
 
 #ifdef Q_OS_ANDROID
@@ -173,6 +174,44 @@ int main(int argc, char *argv[])
         activity.callMethod<void>("setRequestedOrientation", "(I)V", 0);
     }
 #endif
+
+    // Cross-platform lifecycle handling: sleep/wake devices when app is suspended/resumed
+    // This handles cases like swiping away from Recent Apps (Android/iOS) or minimizing (desktop)
+    QObject::connect(&app, &QGuiApplication::applicationStateChanged,
+                     [&de1Device, &scale, &bleManager, &settings](Qt::ApplicationState state) {
+        static bool wasSuspended = false;
+
+        if (state == Qt::ApplicationSuspended) {
+            // App is being suspended (mobile) - sleep devices immediately
+            qDebug() << "App suspended - putting devices to sleep";
+            wasSuspended = true;
+
+            if (scale && scale->isConnected()) {
+                scale->sleep();
+            }
+            if (de1Device.isConnected()) {
+                de1Device.goToSleep();
+            }
+        }
+        else if (state == Qt::ApplicationActive && wasSuspended) {
+            // App resumed from suspended state - wake devices
+            qDebug() << "App resumed - waking devices";
+            wasSuspended = false;
+
+            // Wake DE1 (it wakes automatically on reconnect, but ensure it's awake)
+            if (de1Device.isConnected()) {
+                de1Device.wakeUp();
+            }
+
+            // Try to reconnect/wake scale
+            if (scale && scale->isConnected()) {
+                scale->wake();
+            } else if (!settings.scaleAddress().isEmpty()) {
+                // Scale disconnected while suspended - try to reconnect
+                QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToScale);
+            }
+        }
+    });
 
     return app.exec();
 }
