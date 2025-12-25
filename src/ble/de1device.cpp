@@ -488,7 +488,13 @@ void DE1Device::parseShotSample(const QByteArray& data) {
 void DE1Device::parseWaterLevel(const QByteArray& data) {
     if (data.size() < 2) return;
 
-    m_waterLevel = BinaryCodec::decodeU16P8(BinaryCodec::decodeShortBE(data, 0));
+    // Convert raw sensor reading to percentage
+    // Raw value is U16P8 format (divide by 256 to get mm)
+    double rawMm = BinaryCodec::decodeU16P8(BinaryCodec::decodeShortBE(data, 0));
+    // Apply sensor offset correction (sensor is mounted 5mm above water intake)
+    double correctedMm = rawMm + 5.0;
+    // Convert to percentage (40mm = 100% full per de1app calibration)
+    m_waterLevel = qBound(0.0, (correctedMm / 40.0) * 100.0, 100.0);
     emit waterLevelChanged();
 }
 
