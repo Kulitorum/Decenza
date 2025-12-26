@@ -85,7 +85,11 @@ QString BLEManager::getScaleType(const QString& address) const {
 }
 
 void BLEManager::startScan() {
-    if (m_scanning) return;
+    qDebug() << "BLEManager::startScan called, already scanning:" << m_scanning;
+    if (m_scanning) {
+        qDebug() << "Scan already in progress, skipping";
+        return;
+    }
 
     // Check and request Bluetooth permission on Android
     requestBluetoothPermission();

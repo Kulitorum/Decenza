@@ -256,18 +256,22 @@ ApplicationWindow {
 
     // Start BLE scanning (called after first-run dialog or on subsequent launches)
     function startBluetoothScan() {
-        // Try direct connect first if we have a saved scale
+        console.log("Starting Bluetooth scan, hasSavedScale:", BLEManager.hasSavedScale)
+        // Try direct connect first if we have a saved scale (this also starts scanning)
         if (BLEManager.hasSavedScale) {
             BLEManager.tryDirectConnectToScale()
         }
-        // Start scanning after a short delay
+        // Always start scanning after a delay (startScan is safe to call multiple times)
         scanDelayTimer.start()
     }
 
     Timer {
         id: scanDelayTimer
-        interval: 500
-        onTriggered: BLEManager.startScan()
+        interval: 1000  // Give direct connect time, then ensure scan is running
+        onTriggered: {
+            console.log("Scan timer triggered, starting scan")
+            BLEManager.startScan()
+        }
     }
 
     // Status bar overlay (hidden during screensaver)
