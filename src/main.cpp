@@ -14,6 +14,7 @@
 #endif
 
 #include "core/settings.h"
+#include "core/batterymanager.h"
 #include "ble/blemanager.h"
 #include "ble/de1device.h"
 #include "ble/scaledevice.h"
@@ -77,6 +78,9 @@ int main(int argc, char *argv[])
     MachineState machineState(&de1Device);
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel);
     ScreensaverVideoManager screensaverManager(&settings);
+    BatteryManager batteryManager;
+    batteryManager.setDE1Device(&de1Device);
+    batteryManager.setSettings(&settings);
 
     // FlowScale fallback timer - wait 30 seconds for physical scale before using FlowScale
     QTimer flowScaleFallbackTimer;
@@ -207,6 +211,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("MainController", &mainController);
     context->setContextProperty("ScreensaverManager", &screensaverManager);
+    context->setContextProperty("BatteryManager", &batteryManager);
     context->setContextProperty("BuildNumber", BUILD_NUMBER_STRING);
 
     // Register types for QML (use different names to avoid conflict with context properties)

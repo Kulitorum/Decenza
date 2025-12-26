@@ -608,7 +608,191 @@ Page {
                     }
                 }
 
-                // Spacer (future: color scheme editor)
+                // Battery / Charging settings
+                Rectangle {
+                    Layout.preferredWidth: 300
+                    Layout.fillHeight: true
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 15
+                        spacing: 10
+
+                        Text {
+                            text: "Battery Charging"
+                            color: Theme.textColor
+                            font.pixelSize: 16
+                            font.bold: true
+                        }
+
+                        Text {
+                            text: "Control the USB charger output from the DE1"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Item { height: 5 }
+
+                        // Battery status
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Text {
+                                text: "Battery:"
+                                color: Theme.textSecondaryColor
+                            }
+
+                            Text {
+                                text: BatteryManager.batteryPercent + "%"
+                                color: BatteryManager.batteryPercent < 20 ? Theme.errorColor :
+                                       BatteryManager.batteryPercent < 50 ? Theme.warningColor :
+                                       Theme.successColor
+                                font.bold: true
+                            }
+
+                            Rectangle {
+                                width: 30
+                                height: 14
+                                radius: 2
+                                color: "transparent"
+                                border.color: Theme.textSecondaryColor
+                                border.width: 1
+
+                                Rectangle {
+                                    x: 2
+                                    y: 2
+                                    width: (parent.width - 4) * BatteryManager.batteryPercent / 100
+                                    height: parent.height - 4
+                                    radius: 1
+                                    color: BatteryManager.batteryPercent < 20 ? Theme.errorColor :
+                                           BatteryManager.batteryPercent < 50 ? Theme.warningColor :
+                                           Theme.successColor
+                                }
+
+                                // Battery terminal
+                                Rectangle {
+                                    x: parent.width
+                                    y: 4
+                                    width: 3
+                                    height: 6
+                                    radius: 1
+                                    color: Theme.textSecondaryColor
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: BatteryManager.isCharging ? "Charging" : "Not charging"
+                                color: BatteryManager.isCharging ? Theme.successColor : Theme.textSecondaryColor
+                                font.pixelSize: 12
+                            }
+                        }
+
+                        Item { height: 10 }
+
+                        // Smart charging mode selector
+                        Text {
+                            text: "Smart Charging Mode"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 12
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Repeater {
+                                model: [
+                                    { value: 0, label: "Off", desc: "Always charging" },
+                                    { value: 1, label: "On", desc: "55-65%" },
+                                    { value: 2, label: "Night", desc: "90-95%" }
+                                ]
+
+                                delegate: Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 50
+                                    radius: 6
+                                    color: BatteryManager.chargingMode === modelData.value ?
+                                           Theme.primaryColor : Theme.backgroundColor
+                                    border.color: BatteryManager.chargingMode === modelData.value ?
+                                                  Theme.primaryColor : Theme.textSecondaryColor
+                                    border.width: 1
+
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        spacing: 2
+
+                                        Text {
+                                            text: modelData.label
+                                            color: BatteryManager.chargingMode === modelData.value ?
+                                                   "white" : Theme.textColor
+                                            font.pixelSize: 14
+                                            font.bold: true
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+
+                                        Text {
+                                            text: modelData.desc
+                                            color: BatteryManager.chargingMode === modelData.value ?
+                                                   Qt.rgba(1, 1, 1, 0.7) : Theme.textSecondaryColor
+                                            font.pixelSize: 10
+                                            Layout.alignment: Qt.AlignHCenter
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: BatteryManager.chargingMode = modelData.value
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { height: 5 }
+
+                        // Explanation text
+                        Text {
+                            text: BatteryManager.chargingMode === 0 ?
+                                  "Charger is always on. Battery stays at 100%." :
+                                  BatteryManager.chargingMode === 1 ?
+                                  "Cycles between 55-65% to extend battery lifespan." :
+                                  "Keeps battery at 90-95% when active. Allows deeper discharge when sleeping."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 11
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Item { Layout.fillHeight: true }
+
+                        // Manual charger toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: BatteryManager.chargingMode === 0
+
+                            Text {
+                                text: "USB Charger"
+                                color: Theme.textColor
+                                font.pixelSize: 14
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Switch {
+                                checked: DE1Device.usbChargerOn
+                                onClicked: DE1Device.setUsbChargerOn(checked)
+                            }
+                        }
+                    }
+                }
+
+                // Spacer
                 Item { Layout.fillWidth: true }
             }
         }

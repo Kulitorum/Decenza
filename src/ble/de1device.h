@@ -41,6 +41,7 @@ class DE1Device : public QObject {
     Q_PROPERTY(double temperature READ temperature NOTIFY shotSampleReceived)
     Q_PROPERTY(double waterLevel READ waterLevel NOTIFY waterLevelChanged)
     Q_PROPERTY(QString firmwareVersion READ firmwareVersion NOTIFY firmwareVersionChanged)
+    Q_PROPERTY(bool usbChargerOn READ usbChargerOn NOTIFY usbChargerOnChanged)
 
 public:
     explicit DE1Device(QObject* parent = nullptr);
@@ -62,6 +63,7 @@ public:
     double mixTemperature() const { return m_mixTemp; }
     double waterLevel() const { return m_waterLevel; }
     QString firmwareVersion() const { return m_firmwareVersion; }
+    bool usbChargerOn() const { return m_usbChargerOn; }
 
     // Simulation mode for GUI development without hardware
     bool simulationMode() const { return m_simulationMode; }
@@ -97,6 +99,9 @@ public slots:
     // MMR write (for advanced settings like steam flow)
     void writeMMR(uint32_t address, uint32_t value);
 
+    // USB charger control
+    void setUsbChargerOn(bool on);
+
 signals:
     void connectedChanged();
     void connectingChanged();
@@ -109,6 +114,7 @@ signals:
     void initialSettingsComplete();
     void errorOccurred(const QString& error);
     void simulationModeChanged();
+    void usbChargerOnChanged();
 
 private slots:
     void onControllerConnected();
@@ -152,6 +158,7 @@ private:
     bool m_writePending = false;
     bool m_connecting = false;
     bool m_simulationMode = false;
+    bool m_usbChargerOn = true;  // Default on (safe default like de1app)
 
     // Retry logic for service discovery failures
     QBluetoothDeviceInfo m_pendingDevice;

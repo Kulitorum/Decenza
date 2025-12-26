@@ -727,10 +727,28 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value) {
     });
 }
 
+void DE1Device::setUsbChargerOn(bool on) {
+    if (m_usbChargerOn == on) {
+        return;
+    }
+    m_usbChargerOn = on;
+    qDebug() << "DE1Device: Setting USB charger" << (on ? "ON" : "OFF");
+    writeMMR(DE1::MMR::USB_CHARGER, on ? 1 : 0);
+    emit usbChargerOnChanged();
+}
+
 void DE1Device::sendInitialSettings() {
     // This mimics de1app's later_new_de1_connection_setup
     // Send a basic profile and shot settings to trigger machine wake-up response
     qDebug() << "DE1Device: Sending initial profile and settings";
+
+    // Ensure USB charger is ON at startup (safe default like de1app)
+    // This prevents the tablet from dying if it was left with charger off
+    if (!m_usbChargerOn) {
+        m_usbChargerOn = true;
+        writeMMR(DE1::MMR::USB_CHARGER, 1);
+        emit usbChargerOnChanged();
+    }
 
     // CRITICAL: Set fan temperature threshold via MMR
     // This tells the machine at what temperature the fan should activate
