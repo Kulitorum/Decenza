@@ -102,6 +102,14 @@ ApplicationWindow {
     Component.onCompleted: {
         updateScale()
         console.log("Auto-sleep setting:", root.autoSleepMinutes, "minutes (0 = never)")
+
+        // Check for first run and show welcome dialog or start scanning
+        var firstRunComplete = Settings.value("firstRunComplete", false)
+        if (!firstRunComplete) {
+            firstRunDialog.open()
+        } else {
+            startBluetoothScan()
+        }
     }
 
     function updateScale() {
@@ -213,6 +221,53 @@ ApplicationWindow {
             }
             bleErrorDialog.open()
         }
+    }
+
+    // First-run welcome dialog
+    Dialog {
+        id: firstRunDialog
+        title: "Welcome to DE1 Controller"
+        modal: true
+        anchors.centerIn: parent
+        closePolicy: Popup.NoAutoClose
+
+        Column {
+            spacing: 20
+            width: 400
+
+            Label {
+                text: "Before we begin, please make sure your Bluetooth scale is powered on and ready to pair.\n\nThe app will search for your DE1 espresso machine and compatible scales."
+                wrapMode: Text.Wrap
+                width: parent.width
+                font.pixelSize: 16
+            }
+
+            Button {
+                text: "Continue"
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: {
+                    Settings.setValue("firstRunComplete", true)
+                    firstRunDialog.close()
+                    startBluetoothScan()
+                }
+            }
+        }
+    }
+
+    // Start BLE scanning (called after first-run dialog or on subsequent launches)
+    function startBluetoothScan() {
+        // Try direct connect first if we have a saved scale
+        if (BLEManager.hasSavedScale) {
+            BLEManager.tryDirectConnectToScale()
+        }
+        // Start scanning after a short delay
+        scanDelayTimer.start()
+    }
+
+    Timer {
+        id: scanDelayTimer
+        interval: 500
+        onTriggered: BLEManager.startScan()
     }
 
     // Status bar overlay (hidden during screensaver)

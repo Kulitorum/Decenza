@@ -42,7 +42,7 @@ public:
 public slots:
     Q_INVOKABLE void tryDirectConnectToScale();
     Q_INVOKABLE void scanForScales();  // User-initiated scale scan
-    void startScan();  // Internal: scans for DE1 only
+    Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
     void stopScan();
     void clearDevices();
 

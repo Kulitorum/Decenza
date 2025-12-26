@@ -163,12 +163,10 @@ int main(int argc, char *argv[])
     QString savedScaleType = settings.scaleType();
     if (!savedScaleAddr.isEmpty() && !savedScaleType.isEmpty()) {
         bleManager.setSavedScaleAddress(savedScaleAddr, savedScaleType);
-        // Try direct connect first to wake sleeping scale
-        QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToScale);
     }
 
-    // Start scanning (will also find scales if direct connect fails)
-    QTimer::singleShot(1000, &bleManager, &BLEManager::startScan);
+    // BLE scanning is now started from QML after first-run dialog is dismissed
+    // This allows the user to turn on their scale before we start scanning
 
     // Connect FlowScale weight updates to MainController (for when no physical scale)
     QObject::connect(&flowScale, &ScaleDevice::weightChanged,
