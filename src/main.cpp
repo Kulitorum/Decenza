@@ -78,8 +78,18 @@ int main(int argc, char *argv[])
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel);
     ScreensaverVideoManager screensaverManager(&settings);
 
-    // Set FlowScale as default (used when no physical scale connected)
-    machineState.setScale(&flowScale);
+    // FlowScale fallback timer - wait 30 seconds for physical scale before using FlowScale
+    QTimer flowScaleFallbackTimer;
+    flowScaleFallbackTimer.setSingleShot(true);
+    flowScaleFallbackTimer.setInterval(30000);  // 30 seconds
+    QObject::connect(&flowScaleFallbackTimer, &QTimer::timeout,
+                     [&machineState, &physicalScale, &flowScale]() {
+        if (!physicalScale || !physicalScale->isConnected()) {
+            qDebug() << "No physical scale found after 30 seconds, falling back to FlowScale";
+            machineState.setScale(&flowScale);
+        }
+    });
+    flowScaleFallbackTimer.start();
 
     // Set up QML engine
     QQmlApplicationEngine engine;
@@ -95,7 +105,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &flowScaleFallbackTimer](const QBluetoothDeviceInfo& device, const QString& type) {
         // Don't connect if we already have a connected scale
         if (physicalScale && physicalScale->isConnected()) {
             return;
@@ -116,6 +126,9 @@ int main(int argc, char *argv[])
         }
 
         qDebug() << "Auto-connecting to" << type << "scale:" << device.name() << "at" << device.address().toString();
+
+        // Stop the FlowScale fallback timer since we found a physical scale
+        flowScaleFallbackTimer.stop();
 
         // Save scale address for future direct wake connections
         settings.setScaleAddress(device.address().toString());
