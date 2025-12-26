@@ -134,16 +134,7 @@ Rectangle {
             }
         }
 
-        // Build number
-        Text {
-            text: "#" + BuildNumber
-            color: Theme.textSecondaryColor
-            font.pixelSize: 18
-            font.bold: true
-            opacity: 0.6
-        }
-
-        // Separator before DE1 status
+        // Separator
         Rectangle {
             width: 1
             height: 30

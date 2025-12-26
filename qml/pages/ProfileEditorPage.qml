@@ -217,15 +217,18 @@ Page {
             anchors.rightMargin: Theme.scaled(20)
             spacing: Theme.scaled(15)
 
-            // Back button - handle unsaved changes
+            // Back button (large hitbox, icon aligned left)
             RoundButton {
-                Layout.preferredWidth: 100
+                Layout.preferredWidth: 80
                 Layout.preferredHeight: 70
+                flat: true
                 icon.source: "qrc:/icons/back.svg"
                 icon.width: 28
                 icon.height: 28
-                flat: true
                 icon.color: "white"
+                display: AbstractButton.IconOnly
+                leftPadding: 0
+                rightPadding: 52
                 onClicked: {
                     if (profileModified) {
                         exitDialog.open()
