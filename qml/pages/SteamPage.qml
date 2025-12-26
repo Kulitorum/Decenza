@@ -113,14 +113,18 @@ Page {
                     }
                 }
 
-                TouchSlider {
+                ValueInput {
                     id: steamingFlowSlider
                     Layout.fillWidth: true
                     from: 40
                     to: 250
                     stepSize: 5
+                    decimals: 0
                     value: Settings.steamFlow
-                    onMoved: MainController.setSteamFlowImmediate(value)
+                    suffix: ""
+                    onValueModified: function(newValue) {
+                        MainController.setSteamFlowImmediate(newValue)
+                    }
                 }
             }
 
@@ -342,19 +346,18 @@ Page {
                         }
                     }
 
-                    TouchSlider {
+                    ValueInput {
                         id: durationSlider
                         Layout.fillWidth: true
                         from: 1
                         to: 120
                         stepSize: 1
+                        decimals: 0
+                        suffix: "s"
                         value: getCurrentCupDuration()
-                        onPressedChanged: {
-                            if (!pressed) {
-                                // Save when slider is released
-                                Settings.steamTimeout = value
-                                saveCurrentCup(value, flowSlider.value)
-                            }
+                        onValueModified: function(newValue) {
+                            Settings.steamTimeout = newValue
+                            saveCurrentCup(newValue, flowSlider.value)
                         }
                     }
                 }
@@ -388,20 +391,18 @@ Page {
                         }
                     }
 
-                    TouchSlider {
+                    ValueInput {
                         id: flowSlider
                         Layout.fillWidth: true
                         from: 40
                         to: 250
                         stepSize: 5
+                        decimals: 0
+                        suffix: ""
                         value: getCurrentCupFlow()
-                        onMoved: MainController.setSteamFlowImmediate(value)
-                        onPressedChanged: {
-                            if (!pressed) {
-                                // Save when slider is released
-                                MainController.setSteamFlowImmediate(value)
-                                saveCurrentCup(durationSlider.value, value)
-                            }
+                        onValueModified: function(newValue) {
+                            MainController.setSteamFlowImmediate(newValue)
+                            saveCurrentCup(durationSlider.value, newValue)
                         }
                     }
 
@@ -441,14 +442,18 @@ Page {
                         }
                     }
 
-                    TouchSlider {
+                    ValueInput {
                         id: steamTempSlider
                         Layout.fillWidth: true
                         from: 120
                         to: 170
                         stepSize: 1
+                        decimals: 0
+                        suffix: "°C"
                         value: Settings.steamTemperature
-                        onMoved: MainController.setSteamTemperatureImmediate(value)
+                        onValueModified: function(newValue) {
+                            MainController.setSteamTemperatureImmediate(newValue)
+                        }
                     }
 
                     Text {

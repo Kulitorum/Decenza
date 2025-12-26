@@ -9,47 +9,63 @@ Page {
     background: Rectangle { color: "black" }
 
     property int videoFailCount: 0
-    property bool videoPlaying: false
+    property bool mediaPlaying: false
+    property bool isCurrentItemImage: false
     property string lastFailedSource: ""
+    property string currentImageSource: ""
 
     Component.onCompleted: {
-        playNextVideo()
+        playNextMedia()
     }
 
-    // Listen for new videos becoming available (downloaded)
+    // Listen for new media becoming available (downloaded)
     Connections {
         target: ScreensaverManager
         function onVideoReady(path) {
-            // A video just finished downloading - try to play if we're showing fallback
-            if (!videoPlaying) {
-                console.log("[Screensaver] New video ready, starting playback")
-                playNextVideo()
+            // Media just finished downloading - try to play if we're showing fallback
+            if (!mediaPlaying) {
+                console.log("[Screensaver] New media ready, starting playback")
+                playNextMedia()
             }
         }
         function onCatalogUpdated() {
             // Catalog loaded - try to play if we're showing fallback
-            if (!videoPlaying && ScreensaverManager.itemCount > 0) {
+            if (!mediaPlaying && ScreensaverManager.itemCount > 0) {
                 console.log("[Screensaver] Catalog updated, trying playback")
-                playNextVideo()
+                playNextMedia()
             }
         }
     }
 
-    function playNextVideo() {
+    function playNextMedia() {
         if (!ScreensaverManager.enabled) {
             return
         }
 
         var source = ScreensaverManager.getNextVideoSource()
         if (source && source.length > 0) {
-            console.log("[Screensaver] Playing:", source)
-            videoPlaying = true
-            mediaPlayer.source = source
-            mediaPlayer.play()
+            isCurrentItemImage = ScreensaverManager.currentItemIsImage
+            console.log("[Screensaver] Playing " + (isCurrentItemImage ? "image" : "video") + ":", source)
+
+            if (isCurrentItemImage) {
+                // Display image with fade transition
+                mediaPlayer.stop()
+                currentImageSource = source
+                mediaPlaying = true
+                imageDisplayTimer.restart()
+            } else {
+                // Play video
+                imageDisplayTimer.stop()
+                currentImageSource = ""
+                mediaPlaying = true
+                mediaPlayer.source = source
+                mediaPlayer.play()
+            }
         } else {
-            // No cached videos yet - show fallback, wait for downloads
-            console.log("[Screensaver] No cached videos yet, showing fallback")
-            videoPlaying = false
+            // No cached media yet - show fallback, wait for downloads
+            console.log("[Screensaver] No cached media yet, showing fallback")
+            mediaPlaying = false
+            isCurrentItemImage = false
         }
     }
 
@@ -64,14 +80,30 @@ Page {
 
         if (videoFailCount >= 5) {
             console.log("[Screensaver] Too many failures, showing fallback")
-            videoPlaying = false
+            mediaPlaying = false
             mediaPlayer.stop()
-            videoFailCount = 0  // Reset for when new videos download
+            videoFailCount = 0  // Reset for when new media downloads
             return
         }
 
-        // Try next cached video
-        playNextVideo()
+        // Try next cached media
+        playNextMedia()
+    }
+
+    // Timer for image display duration
+    Timer {
+        id: imageDisplayTimer
+        interval: ScreensaverManager.imageDisplayDuration * 1000
+        repeat: false
+        onTriggered: {
+            // Mark current image as played for LRU tracking
+            if (currentImageSource.length > 0) {
+                ScreensaverManager.markVideoPlayed(currentImageSource)
+            }
+            videoFailCount = 0
+            lastFailedSource = ""
+            playNextMedia()
+        }
     }
 
     MediaPlayer {
@@ -83,10 +115,10 @@ Page {
             if (mediaStatus === MediaPlayer.EndOfMedia) {
                 // Mark current video as played for LRU tracking
                 ScreensaverManager.markVideoPlayed(source.toString())
-                // Play next video (reset fail count on success)
+                // Play next media (reset fail count on success)
                 videoFailCount = 0
                 lastFailedSource = ""
-                playNextVideo()
+                playNextMedia()
             } else if (mediaStatus === MediaPlayer.InvalidMedia ||
                        mediaStatus === MediaPlayer.NoMedia) {
                 handleVideoFailure()
@@ -109,14 +141,48 @@ Page {
         id: videoOutput
         anchors.fill: parent
         fillMode: VideoOutput.PreserveAspectCrop
-        visible: videoPlaying
+        visible: mediaPlaying && !isCurrentItemImage
     }
 
-    // Fallback: show a subtle animation while no cached videos
+    // Image display with cross-fade transition
+    Item {
+        id: imageContainer
+        anchors.fill: parent
+        visible: mediaPlaying && isCurrentItemImage
+
+        // Two images for cross-fade effect
+        Image {
+            id: imageDisplay1
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            source: currentImageSource
+            opacity: 1.0
+            asynchronous: true
+
+            Behavior on opacity {
+                NumberAnimation { duration: 1000; easing.type: Easing.InOutQuad }
+            }
+        }
+
+        Image {
+            id: imageDisplay2
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            source: ""
+            opacity: 0.0
+            asynchronous: true
+
+            Behavior on opacity {
+                NumberAnimation { duration: 1000; easing.type: Easing.InOutQuad }
+            }
+        }
+    }
+
+    // Fallback: show a subtle animation while no cached media
     Rectangle {
         id: fallbackBackground
         anchors.fill: parent
-        visible: !videoPlaying || mediaPlayer.playbackState !== MediaPlayer.PlayingState
+        visible: !mediaPlaying || (!isCurrentItemImage && mediaPlayer.playbackState !== MediaPlayer.PlayingState)
         z: 1
 
         Rectangle {
@@ -144,7 +210,7 @@ Page {
         }
     }
 
-    // Credits display at bottom (one-liner for current video)
+    // Credits display at bottom (one-liner for current media)
     Rectangle {
         z: 2
         anchors.left: parent.left
@@ -153,11 +219,13 @@ Page {
         height: 40
         color: Qt.rgba(0, 0, 0, 0.5)
         visible: ScreensaverManager.currentVideoAuthor.length > 0 &&
-                 mediaPlayer.playbackState === MediaPlayer.PlayingState
+                 (mediaPlayer.playbackState === MediaPlayer.PlayingState ||
+                  (isCurrentItemImage && mediaPlaying))
 
         Text {
             anchors.centerIn: parent
-            text: "Video by " + ScreensaverManager.currentVideoAuthor + " (Pexels)"
+            text: (isCurrentItemImage ? "Photo by " : "Video by ") +
+                  ScreensaverManager.currentVideoAuthor + " (Pexels)"
             color: "white"
             opacity: 0.7
             font.pixelSize: 14
@@ -242,8 +310,11 @@ Page {
     Keys.onPressed: wake()
 
     function wake() {
-        // Stop video
+        // Stop media playback
         mediaPlayer.stop()
+        imageDisplayTimer.stop()
+        mediaPlaying = false
+        isCurrentItemImage = false
 
         // Wake up the DE1
         if (DE1Device.connected) {
@@ -268,6 +339,9 @@ Page {
             var state = DE1Device.stateString
             if (state !== "Sleep" && state !== "GoingToSleep") {
                 mediaPlayer.stop()
+                imageDisplayTimer.stop()
+                mediaPlaying = false
+                isCurrentItemImage = false
                 if (ScaleDevice && ScaleDevice.connected) {
                     ScaleDevice.wake()
                 } else {

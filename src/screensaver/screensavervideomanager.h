@@ -15,21 +15,27 @@
 
 class Settings;
 
+// Media type for catalog items
+enum class MediaType {
+    Video,
+    Image
+};
+
 // Represents a video category from the categories manifest
 struct VideoCategory {
     QString id;
     QString name;
-    QString bucket;
 
-    bool isValid() const { return !id.isEmpty() && !bucket.isEmpty(); }
+    bool isValid() const { return !id.isEmpty(); }
 };
 
-// Represents a single video item from the catalog
+// Represents a single media item from the catalog (video or image)
 struct VideoItem {
     int id = 0;
-    QString path;           // Relative path (e.g., "7592894_ROMAN%20ODINTSOV_48s_orig.mp4")
+    MediaType type = MediaType::Video;
+    QString path;           // Relative path (e.g., "1234567_Author_30s.mp4" or "7654321_Author.jpg")
     QString absoluteUrl;    // Full URL if provided directly
-    int durationSeconds = 0;
+    int durationSeconds = 0;  // For videos; images use global setting
     QString author;
     QString authorUrl;
     QString sourceUrl;      // Pexels URL or other source
@@ -37,6 +43,8 @@ struct VideoItem {
     qint64 bytes = 0;
 
     bool isValid() const { return !path.isEmpty() || !absoluteUrl.isEmpty(); }
+    bool isImage() const { return type == MediaType::Image; }
+    bool isVideo() const { return type == MediaType::Video; }
 };
 
 // Represents a cached video file
@@ -75,6 +83,10 @@ class ScreensaverVideoManager : public QObject {
     // Current video info (for credits display)
     Q_PROPERTY(QString currentVideoAuthor READ currentVideoAuthor NOTIFY currentVideoChanged)
     Q_PROPERTY(QString currentVideoSourceUrl READ currentVideoSourceUrl NOTIFY currentVideoChanged)
+    Q_PROPERTY(bool currentItemIsImage READ currentItemIsImage NOTIFY currentVideoChanged)
+
+    // Image display settings
+    Q_PROPERTY(int imageDisplayDuration READ imageDisplayDuration WRITE setImageDisplayDuration NOTIFY imageDisplayDurationChanged)
 
     // Credits list for all videos
     Q_PROPERTY(QVariantList creditsList READ creditsList NOTIFY catalogUpdated)
@@ -105,6 +117,8 @@ public:
 
     QString currentVideoAuthor() const { return m_currentVideoAuthor; }
     QString currentVideoSourceUrl() const { return m_currentVideoSourceUrl; }
+    bool currentItemIsImage() const { return m_currentItemIsImage; }
+    int imageDisplayDuration() const { return m_imageDisplayDuration; }
 
     QVariantList creditsList() const;
 
@@ -115,6 +129,7 @@ public:
     void setStreamingFallbackEnabled(bool enabled);
     void setMaxCacheBytes(qint64 bytes);
     void setSelectedCategoryId(const QString& categoryId);
+    void setImageDisplayDuration(int seconds);
 
 public slots:
     // Category management
@@ -156,6 +171,7 @@ signals:
     void currentVideoChanged();
     void videoReady(const QString& localPath);
     void downloadError(const QString& message);
+    void imageDisplayDurationChanged();
 
 private slots:
     void onCategoriesReplyFinished();
@@ -195,7 +211,7 @@ private:
     int selectNextVideoIndex();
 
     // Migration
-    void migrateToScaledVideos();
+    void migrateToNewBucketStructure();
 
 private:
     Settings* m_settings;
@@ -238,8 +254,11 @@ private:
     int m_lastPlayedIndex = -1;
     QString m_currentVideoAuthor;
     QString m_currentVideoSourceUrl;
+    bool m_currentItemIsImage = false;
+    int m_imageDisplayDuration = 10;  // seconds to display each image
 
     // Constants
+    static const QString BASE_URL;
     static const QString CATEGORIES_URL;
     static const QString DEFAULT_CATALOG_URL;
     static const QString DEFAULT_CATEGORY_ID;

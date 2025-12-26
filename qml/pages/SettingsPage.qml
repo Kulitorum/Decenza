@@ -465,24 +465,6 @@ Page {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
-                    property var sleepValues: [0, 15, 30, 45, 60, 90, 120, 180, 240]
-                    property int currentMinutes: Settings.value("autoSleepMinutes", 0)
-
-                    function minutesToIndex(mins) {
-                        for (var i = 0; i < sleepValues.length; i++) {
-                            if (sleepValues[i] === mins) return i
-                        }
-                        return 0
-                    }
-
-                    function formatTime(mins) {
-                        if (mins === 0) return "Never"
-                        if (mins < 60) return mins + " min"
-                        var hours = mins / 60
-                        if (hours === 1) return "1 hour"
-                        return hours + " hours"
-                    }
-
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 15
@@ -503,24 +485,18 @@ Page {
 
                         Item { Layout.fillHeight: true }
 
-                        Text {
-                            text: parent.parent.formatTime(parent.parent.currentMinutes)
-                            color: Theme.primaryColor
-                            font.pixelSize: 24
-                            font.bold: true
-                            Layout.alignment: Qt.AlignHCenter
-                        }
-
-                        Slider {
+                        ValueInput {
+                            id: sleepInput
                             Layout.fillWidth: true
                             from: 0
-                            to: 8
+                            to: 240
                             stepSize: 1
-                            value: parent.parent.minutesToIndex(parent.parent.currentMinutes)
-                            onMoved: {
-                                var mins = parent.parent.sleepValues[Math.round(value)]
-                                parent.parent.currentMinutes = mins
-                                Settings.setValue("autoSleepMinutes", mins)
+                            decimals: 0
+                            value: Settings.value("autoSleepMinutes", 0)
+                            displayText: value === 0 ? "Never" : (value + " min")
+
+                            onValueModified: function(newValue) {
+                                Settings.setValue("autoSleepMinutes", newValue)
                             }
                         }
 
@@ -626,16 +602,17 @@ Page {
                             Layout.fillHeight: true
                             clip: true
                             model: ScreensaverManager.categories
-                            spacing: 4
+                            spacing: 2
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                             delegate: ItemDelegate {
                                 width: ListView.view.width
-                                height: 44
+                                height: 36
                                 highlighted: modelData.id === ScreensaverManager.selectedCategoryId
 
                                 background: Rectangle {
                                     color: parent.highlighted ? Theme.primaryColor :
-                                           parent.hovered ? Qt.darker(Theme.surfaceColor, 1.1) : "transparent"
+                                           parent.hovered ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
                                     radius: 6
                                 }
 

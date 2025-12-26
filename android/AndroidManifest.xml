@@ -17,6 +17,7 @@
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
         android:label="DE1 Controller"
+        android:icon="@drawable/icon"
         android:theme="@style/AppTheme"
         android:allowBackup="true">
 

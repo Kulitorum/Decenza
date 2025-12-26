@@ -10,17 +10,27 @@
 #include <QRandomGenerator>
 #include <QFileInfo>
 
+// New unified S3 bucket structure
+const QString ScreensaverVideoManager::BASE_URL =
+    "https://decent-de1-media.s3.eu-north-1.amazonaws.com";
+
 const QString ScreensaverVideoManager::CATEGORIES_URL =
-    "https://decent-de1-categories.s3.eu-north-1.amazonaws.com/categories.json";
+    "https://decent-de1-media.s3.eu-north-1.amazonaws.com/categories.json";
 
 const QString ScreensaverVideoManager::DEFAULT_CATALOG_URL =
-    "https://decent-de1-media.s3.eu-north-1.amazonaws.com/pexels_videos_scaled/catalog.json";
+    "https://decent-de1-media.s3.eu-north-1.amazonaws.com/catalogs/landscapes.json";
 
 const QString ScreensaverVideoManager::DEFAULT_CATEGORY_ID = "landscapes";
 
-// Old full-res URL for migration detection
+// Old URLs for migration detection
+const QString OLD_CATEGORIES_URL =
+    "https://decent-de1-categories.s3.eu-north-1.amazonaws.com/categories.json";
+
 const QString OLD_FULLRES_CATALOG_URL =
     "https://decent-de1-media.s3.eu-north-1.amazonaws.com/pexels_videos/catalog.json";
+
+const QString OLD_SCALED_CATALOG_URL =
+    "https://decent-de1-media.s3.eu-north-1.amazonaws.com/pexels_videos_scaled/catalog.json";
 
 ScreensaverVideoManager::ScreensaverVideoManager(Settings* settings, QObject* parent)
     : QObject(parent)
@@ -40,9 +50,10 @@ ScreensaverVideoManager::ScreensaverVideoManager(Settings* settings, QObject* pa
     m_maxCacheBytes = m_settings->value("screensaver/maxCacheBytes", 2LL * 1024 * 1024 * 1024).toLongLong();
     m_lastETag = m_settings->value("screensaver/lastETag", "").toString();
     m_selectedCategoryId = m_settings->value("screensaver/categoryId", DEFAULT_CATEGORY_ID).toString();
+    m_imageDisplayDuration = m_settings->value("screensaver/imageDisplayDuration", 10).toInt();
 
-    // Migration: switch from full-res to scaled videos
-    migrateToScaledVideos();
+    // Migration: switch from old bucket structure to new unified bucket
+    migrateToNewBucketStructure();
 
     // Load cache index
     loadCacheIndex();
@@ -65,18 +76,22 @@ ScreensaverVideoManager::~ScreensaverVideoManager()
     saveCacheIndex();
 }
 
-void ScreensaverVideoManager::migrateToScaledVideos()
+void ScreensaverVideoManager::migrateToNewBucketStructure()
 {
-    // Check if user is still on the old full-res catalog URL
-    if (m_catalogUrl != OLD_FULLRES_CATALOG_URL) {
-        return;  // Already migrated or using custom URL
+    // Check if user is on any old catalog URL structure
+    bool needsMigration = (m_catalogUrl == OLD_FULLRES_CATALOG_URL ||
+                           m_catalogUrl == OLD_SCALED_CATALOG_URL ||
+                           m_catalogUrl.contains("pexels_videos"));
+
+    if (!needsMigration) {
+        return;  // Already migrated or using new structure
     }
 
-    qDebug() << "[Screensaver] Migrating from full-res to scaled videos...";
+    qDebug() << "[Screensaver] Migrating to new bucket structure...";
 
-    // Delete all cached full-res videos
+    // Delete all cached files (new bucket has different paths)
     QDir cacheDir(m_cacheDir);
-    QStringList cachedFiles = cacheDir.entryList(QStringList() << "*.mp4", QDir::Files);
+    QStringList cachedFiles = cacheDir.entryList(QStringList() << "*.mp4" << "*.jpg" << "*.jpeg" << "*.png", QDir::Files);
 
     qint64 freedBytes = 0;
     for (const QString& file : cachedFiles) {
@@ -84,17 +99,20 @@ void ScreensaverVideoManager::migrateToScaledVideos()
         QFileInfo fi(filePath);
         freedBytes += fi.size();
         QFile::remove(filePath);
-        qDebug() << "[Screensaver] Deleted full-res cache file:" << file;
+        qDebug() << "[Screensaver] Deleted cache file:" << file;
     }
 
     // Also delete the cache index file
     QFile::remove(m_cacheDir + "/cache_index.json");
 
-    qDebug() << "[Screensaver] Cleared" << cachedFiles.size() << "full-res videos,"
+    qDebug() << "[Screensaver] Cleared" << cachedFiles.size() << "cached files,"
              << (freedBytes / 1024 / 1024) << "MB freed";
 
-    // Update to new scaled catalog URL
-    m_catalogUrl = DEFAULT_CATALOG_URL;
+    // Update to new catalog URL structure
+    m_catalogUrl = buildCatalogUrlForCategory(m_selectedCategoryId);
+    if (m_catalogUrl.isEmpty()) {
+        m_catalogUrl = DEFAULT_CATALOG_URL;
+    }
     m_settings->setValue("screensaver/catalogUrl", m_catalogUrl);
 
     // Clear ETag to force fresh catalog fetch
@@ -183,9 +201,21 @@ void ScreensaverVideoManager::setSelectedCategoryId(const QString& categoryId)
             qDebug() << "[Screensaver] Category changed to:" << categoryId
                      << "New catalog URL:" << m_catalogUrl;
 
-            // Refresh catalog for new category (keep cache - videos are identified by sha256)
+            // Refresh catalog for new category (keep cache - media identified by sha256)
             refreshCatalog();
         }
+    }
+}
+
+void ScreensaverVideoManager::setImageDisplayDuration(int seconds)
+{
+    if (seconds < 1) seconds = 1;
+    if (seconds > 300) seconds = 300;  // Max 5 minutes
+
+    if (m_imageDisplayDuration != seconds) {
+        m_imageDisplayDuration = seconds;
+        m_settings->setValue("screensaver/imageDisplayDuration", seconds);
+        emit imageDisplayDurationChanged();
     }
 }
 
@@ -196,9 +226,10 @@ QVariantList ScreensaverVideoManager::categories() const
         QVariantMap item;
         item["id"] = cat.id;
         item["name"] = cat.name;
-        item["bucket"] = cat.bucket;
         result.append(item);
+        qDebug() << "[Screensaver] Category for QML:" << cat.id << cat.name;
     }
+    qDebug() << "[Screensaver] Returning" << result.size() << "categories to QML";
     return result;
 }
 
@@ -214,12 +245,11 @@ QString ScreensaverVideoManager::selectedCategoryName() const
 
 QString ScreensaverVideoManager::buildCatalogUrlForCategory(const QString& categoryId) const
 {
-    for (const VideoCategory& cat : m_categories) {
-        if (cat.id == categoryId) {
-            return QString("https://%1.s3.eu-north-1.amazonaws.com/videos/catalog.json").arg(cat.bucket);
-        }
+    // New unified bucket structure: catalogs/{categoryId}.json
+    if (categoryId.isEmpty()) {
+        return DEFAULT_CATALOG_URL;
     }
-    return QString();  // Category not found
+    return QString("%1/catalogs/%2.json").arg(BASE_URL, categoryId);
 }
 
 // Category management
@@ -237,6 +267,8 @@ void ScreensaverVideoManager::refreshCategories()
 
     QNetworkRequest request{QUrl(CATEGORIES_URL)};
     request.setRawHeader("Accept", "application/json");
+    request.setRawHeader("Cache-Control", "no-cache");
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
 
     m_categoriesReply = m_networkManager->get(request);
     connect(m_categoriesReply, &QNetworkReply::finished,
@@ -292,7 +324,6 @@ void ScreensaverVideoManager::parseCategories(const QByteArray& data)
         VideoCategory cat;
         cat.id = obj["id"].toString();
         cat.name = obj["name"].toString();
-        cat.bucket = obj["bucket"].toString();
 
         if (cat.isValid()) {
             newCategories.append(cat);
@@ -305,16 +336,24 @@ void ScreensaverVideoManager::parseCategories(const QByteArray& data)
 
     // Update catalog URL based on selected category
     QString newCatalogUrl = buildCatalogUrlForCategory(m_selectedCategoryId);
-    if (!newCatalogUrl.isEmpty()) {
-        if (m_catalogUrl != newCatalogUrl) {
-            m_catalogUrl = newCatalogUrl;
-            m_lastETag.clear();
-            m_settings->setValue("screensaver/catalogUrl", m_catalogUrl);
-            m_settings->setValue("screensaver/lastETag", "");
-            emit catalogUrlChanged();
+    if (m_catalogUrl != newCatalogUrl) {
+        m_catalogUrl = newCatalogUrl;
+        m_lastETag.clear();
+        m_settings->setValue("screensaver/catalogUrl", m_catalogUrl);
+        m_settings->setValue("screensaver/lastETag", "");
+        emit catalogUrlChanged();
+    }
+
+    // Validate selected category exists, fallback to first if not
+    bool categoryExists = false;
+    for (const VideoCategory& cat : m_categories) {
+        if (cat.id == m_selectedCategoryId) {
+            categoryExists = true;
+            break;
         }
-    } else if (!m_categories.isEmpty()) {
-        // Selected category not found, use first available
+    }
+
+    if (!categoryExists && !m_categories.isEmpty()) {
         m_selectedCategoryId = m_categories.first().id;
         m_settings->setValue("screensaver/categoryId", m_selectedCategoryId);
         emit selectedCategoryIdChanged();
@@ -457,6 +496,14 @@ VideoItem ScreensaverVideoManager::parseVideoItem(const QJsonObject& obj)
     item.sha256 = obj["sha256"].toString();
     item.bytes = obj["bytes"].toVariant().toLongLong();
 
+    // Parse media type (default to video for backwards compatibility)
+    QString typeStr = obj["type"].toString().toLower();
+    if (typeStr == "image") {
+        item.type = MediaType::Image;
+    } else {
+        item.type = MediaType::Video;
+    }
+
     // Try different URL/path fields
     if (obj.contains("path")) {
         item.path = obj["path"].toString();
@@ -505,14 +552,8 @@ QString ScreensaverVideoManager::derivePathFromLocalPath(const QString& localPat
 
 QString ScreensaverVideoManager::getBaseUrl() const
 {
-    // Extract base URL from catalog URL (directory containing catalog.json)
-    QUrl url(m_catalogUrl);
-    QString path = url.path();
-    int lastSlash = path.lastIndexOf('/');
-    if (lastSlash > 0) {
-        url.setPath(path.left(lastSlash + 1));
-    }
-    return url.toString();
+    // New unified bucket structure uses BASE_URL/media/ for all media files
+    return BASE_URL + "/media/";
 }
 
 QString ScreensaverVideoManager::buildVideoUrl(const VideoItem& item) const
@@ -521,14 +562,8 @@ QString ScreensaverVideoManager::buildVideoUrl(const VideoItem& item) const
         return item.absoluteUrl;
     }
 
-    QString baseUrl = getBaseUrl();
-    // Ensure proper URL joining
-    if (!baseUrl.endsWith('/')) {
-        baseUrl += '/';
-    }
-
     // The path should already be URL-encoded from the catalog
-    return baseUrl + item.path;
+    return getBaseUrl() + item.path;
 }
 
 // Cache management
@@ -639,9 +674,26 @@ void ScreensaverVideoManager::evictLruIfNeeded(qint64 neededBytes)
 QString ScreensaverVideoManager::getCachePath(const VideoItem& item) const
 {
     // Use hash of full URL for unique filename across categories
-    QString videoUrl = buildVideoUrl(item);
-    QString urlHash = QString(QCryptographicHash::hash(videoUrl.toUtf8(), QCryptographicHash::Md5).toHex()).left(12);
-    return m_cacheDir + "/" + QString::number(item.id) + "_" + urlHash + ".mp4";
+    QString mediaUrl = buildVideoUrl(item);
+    QString urlHash = QString(QCryptographicHash::hash(mediaUrl.toUtf8(), QCryptographicHash::Md5).toHex()).left(12);
+
+    // Determine extension based on media type and original path
+    QString extension;
+    if (item.isImage()) {
+        // Preserve original image extension
+        QString pathLower = item.path.toLower();
+        if (pathLower.endsWith(".png")) {
+            extension = ".png";
+        } else if (pathLower.endsWith(".jpeg")) {
+            extension = ".jpeg";
+        } else {
+            extension = ".jpg";  // Default for images
+        }
+    } else {
+        extension = ".mp4";
+    }
+
+    return m_cacheDir + "/" + QString::number(item.id) + "_" + urlHash + extension;
 }
 
 bool ScreensaverVideoManager::isVideoCached(const VideoItem& item) const
@@ -730,6 +782,8 @@ void ScreensaverVideoManager::stopBackgroundDownload()
     m_downloadQueue.clear();
 
     if (m_downloadReply) {
+        // Disconnect signals before aborting to prevent onDownloadFinished from being called
+        m_downloadReply->disconnect(this);
         m_downloadReply->abort();
         m_downloadReply->deleteLater();
         m_downloadReply = nullptr;
@@ -948,22 +1002,23 @@ QString ScreensaverVideoManager::getNextVideoSource()
 {
     int index = selectNextVideoIndex();
     if (index < 0) {
-        qDebug() << "[Screensaver] No cached videos available yet";
+        qDebug() << "[Screensaver] No cached media available yet";
         return QString();
     }
 
     const VideoItem& item = m_catalog[index];
     m_lastPlayedIndex = index;
 
-    // Update current video info for credits display
+    // Update current media info for credits display and type
     m_currentVideoAuthor = item.author;
     m_currentVideoSourceUrl = item.sourceUrl.isEmpty() ? item.authorUrl : item.sourceUrl;
+    m_currentItemIsImage = item.isImage();
     emit currentVideoChanged();
 
-    // Return cached video path (keyed by video URL)
+    // Return cached media path (keyed by media URL)
     QString cacheKey = buildVideoUrl(item);
     QString localPath = m_cacheIndex[cacheKey].localPath;
-    qDebug() << "[Screensaver] Playing cached video:" << localPath;
+    qDebug() << "[Screensaver] Playing cached" << (item.isImage() ? "image:" : "video:") << localPath;
     return QUrl::fromLocalFile(localPath).toString();
 }
 
