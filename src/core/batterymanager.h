@@ -50,6 +50,6 @@ private:
 
     int m_batteryPercent = 100;
     bool m_isCharging = true;
-    int m_chargingMode = Off;  // Default: charger always on
+    int m_chargingMode = On;  // Default: smart charging (55-65%)
     bool m_discharging = false;  // Track charge/discharge cycle
 };

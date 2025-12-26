@@ -32,7 +32,7 @@ void BatteryManager::setSettings(Settings* settings) {
     m_settings = settings;
     if (m_settings) {
         // Load charging mode from settings
-        m_chargingMode = m_settings->value("smartBatteryCharging", Off).toInt();
+        m_chargingMode = m_settings->value("smartBatteryCharging", On).toInt();
         emit chargingModeChanged();
     }
 }
