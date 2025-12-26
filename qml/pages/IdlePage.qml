@@ -35,7 +35,11 @@ Page {
                 text: "Espresso"
                 iconSource: "qrc:/icons/espresso.svg"
                 enabled: DE1Device.connected
-                onClicked: root.goToProfileEditor()
+                onClicked: {
+                    activePresetFunction = (activePresetFunction === "espresso") ? "" : "espresso"
+                }
+                onPressAndHold: root.goToProfileSelector()
+                onDoubleClicked: root.goToProfileSelector()
             }
 
             ActionButton {
@@ -53,14 +57,22 @@ Page {
                 text: "Hot Water"
                 iconSource: "qrc:/icons/water.svg"
                 enabled: DE1Device.connected
-                onClicked: root.goToHotWater()
+                onClicked: {
+                    activePresetFunction = (activePresetFunction === "hotwater") ? "" : "hotwater"
+                }
+                onPressAndHold: root.goToHotWater()
+                onDoubleClicked: root.goToHotWater()
             }
 
             ActionButton {
                 text: "Flush"
                 iconSource: "qrc:/icons/flush.svg"
-                enabled: MachineState.isReady && DE1Device.connected
-                onClicked: DE1Device.startFlush()
+                enabled: DE1Device.connected
+                onClicked: {
+                    activePresetFunction = (activePresetFunction === "flush") ? "" : "flush"
+                }
+                onPressAndHold: root.goToFlush()
+                onDoubleClicked: root.goToFlush()
             }
         }
 
@@ -97,6 +109,113 @@ Page {
                 Behavior on opacity { NumberAnimation { duration: 150 } }
             }
         }
+
+        // Espresso profile preset row with animation
+        Item {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredHeight: activePresetFunction === "espresso" ? espressoPresetRow.implicitHeight : 0
+            Layout.preferredWidth: espressoPresetRow.implicitWidth
+            clip: true
+
+            Behavior on Layout.preferredHeight {
+                NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+            }
+
+            PresetPillRow {
+                id: espressoPresetRow
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: activePresetFunction === "espresso"
+                opacity: visible ? 1.0 : 0.0
+
+                presets: Settings.favoriteProfiles
+                selectedIndex: Settings.selectedFavoriteProfile
+
+                onPresetSelected: function(index) {
+                    Settings.selectedFavoriteProfile = index
+                    var preset = Settings.getFavoriteProfile(index)
+                    if (preset && preset.filename) {
+                        MainController.loadProfile(preset.filename)
+                    }
+                }
+
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+            }
+        }
+
+        // Hot water preset row with animation
+        Item {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredHeight: activePresetFunction === "hotwater" ? hotWaterPresetRow.implicitHeight : 0
+            Layout.preferredWidth: hotWaterPresetRow.implicitWidth
+            clip: true
+
+            Behavior on Layout.preferredHeight {
+                NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+            }
+
+            PresetPillRow {
+                id: hotWaterPresetRow
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: activePresetFunction === "hotwater"
+                opacity: visible ? 1.0 : 0.0
+
+                presets: Settings.waterCupPresets
+                selectedIndex: Settings.selectedWaterCup
+
+                onPresetSelected: function(index) {
+                    Settings.selectedWaterCup = index
+                    var preset = Settings.getWaterCupPreset(index)
+                    if (preset) {
+                        Settings.hotWaterVolume = preset.volume
+                    }
+                    MainController.applyHotWaterSettings()
+                    // Start hot water immediately after selecting preset
+                    if (MachineState.isReady) {
+                        DE1Device.startHotWater()
+                    }
+                }
+
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+            }
+        }
+
+        // Flush preset row with animation
+        Item {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredHeight: activePresetFunction === "flush" ? flushPresetRow.implicitHeight : 0
+            Layout.preferredWidth: flushPresetRow.implicitWidth
+            clip: true
+
+            Behavior on Layout.preferredHeight {
+                NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+            }
+
+            PresetPillRow {
+                id: flushPresetRow
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: activePresetFunction === "flush"
+                opacity: visible ? 1.0 : 0.0
+
+                presets: Settings.flushPresets
+                selectedIndex: Settings.selectedFlushPreset
+
+                onPresetSelected: function(index) {
+                    Settings.selectedFlushPreset = index
+                    var preset = Settings.getFlushPreset(index)
+                    if (preset) {
+                        Settings.flushFlow = preset.flow
+                        Settings.flushSeconds = preset.seconds
+                    }
+                    MainController.applyFlushSettings()
+                    // Start flush immediately after selecting preset
+                    if (MachineState.isReady) {
+                        DE1Device.startFlush()
+                    }
+                }
+
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+            }
+        }
     }
 
     // Top info section
@@ -105,55 +224,8 @@ Page {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Theme.standardMargin
-        anchors.topMargin: Theme.scaled(60)  // Leave room for status bar
+        anchors.topMargin: 80  // Leave room for status bar
         spacing: Theme.scaled(20)
-
-        // Profile selector
-        Rectangle {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: Theme.scaled(600)
-            Layout.preferredHeight: Theme.scaled(60)
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.smallMargin
-                spacing: Theme.scaled(12)
-
-                Text {
-                    text: "Profile:"
-                    color: Theme.textSecondaryColor
-                    font: Theme.bodyFont
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: MainController.currentProfileName
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    elide: Text.ElideRight
-                }
-
-                Button {
-                    text: "Change"
-                    onClicked: profileDialog.open()
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(100)
-                        implicitHeight: Theme.scaled(40)
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                        radius: Theme.scaled(8)
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
-        }
 
         // Status section
         RowLayout {
@@ -279,34 +351,6 @@ Page {
                 flat: true
                 icon.color: Theme.textColor
                 onClicked: root.goToSettings()
-            }
-        }
-    }
-
-    // Profile selection dialog
-    Dialog {
-        id: profileDialog
-        title: "Select Profile"
-        anchors.centerIn: parent
-        width: Theme.scaled(500)
-        height: Theme.scaled(500)
-        modal: true
-        standardButtons: Dialog.Cancel
-
-        ListView {
-            anchors.fill: parent
-            clip: true
-            model: MainController.availableProfiles
-            delegate: ItemDelegate {
-                width: parent ? parent.width : 0
-                height: Theme.scaled(36)
-                text: modelData.title
-                font: Theme.bodyFont
-                highlighted: modelData.title === MainController.currentProfileName
-                onClicked: {
-                    MainController.loadProfile(modelData.name)
-                    profileDialog.close()
-                }
             }
         }
     }

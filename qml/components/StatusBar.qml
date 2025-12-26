@@ -7,15 +7,15 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.standardMargin
-        anchors.rightMargin: Theme.standardMargin
-        spacing: Theme.scaled(10)
+        anchors.leftMargin: 10
+        anchors.rightMargin: 20
+        spacing: 15
 
         // Page title (from root.currentPageTitle)
         Text {
             text: root.currentPageTitle
             color: Theme.textColor
-            font.pixelSize: Theme.scaled(16)
+            font.pixelSize: 20
             font.bold: true
             Layout.preferredWidth: implicitWidth
             elide: Text.ElideRight
@@ -23,8 +23,8 @@ Rectangle {
 
         // Separator after title (if title exists)
         Rectangle {
-            width: Theme.scaled(1)
-            height: parent.height * 0.5
+            width: 1
+            height: 30
             color: Theme.textSecondaryColor
             opacity: 0.3
             visible: root.currentPageTitle !== ""
@@ -34,13 +34,13 @@ Rectangle {
         Text {
             text: DE1Device.stateString
             color: Theme.textColor
-            font.pixelSize: Theme.scaled(14)
+            font: Theme.bodyFont
         }
 
         Text {
             text: " - " + DE1Device.subStateString
             color: Theme.textSecondaryColor
-            font.pixelSize: Theme.scaled(14)
+            font: Theme.bodyFont
             visible: MachineState.isFlowing
         }
 
@@ -50,13 +50,13 @@ Rectangle {
         Text {
             text: DE1Device.temperature.toFixed(1) + "°C"
             color: Theme.temperatureColor
-            font.pixelSize: Theme.scaled(14)
+            font: Theme.bodyFont
         }
 
         // Separator
         Rectangle {
-            width: Theme.scaled(1)
-            height: parent.height * 0.5
+            width: 1
+            height: 30
             color: Theme.textSecondaryColor
             opacity: 0.3
         }
@@ -65,13 +65,13 @@ Rectangle {
         Text {
             text: DE1Device.waterLevel.toFixed(0) + "%"
             color: DE1Device.waterLevel > 20 ? Theme.primaryColor : Theme.warningColor
-            font.pixelSize: Theme.scaled(14)
+            font: Theme.bodyFont
         }
 
         // Separator
         Rectangle {
-            width: Theme.scaled(1)
-            height: parent.height * 0.5
+            width: 1
+            height: 30
             color: Theme.textSecondaryColor
             opacity: 0.3
         }
@@ -80,27 +80,27 @@ Rectangle {
         Rectangle {
             visible: BLEManager.scaleConnectionFailed || (BLEManager.hasSavedScale && (!ScaleDevice || !ScaleDevice.connected))
             color: BLEManager.scaleConnectionFailed ? Theme.errorColor : "transparent"
-            radius: Theme.scaled(4)
-            Layout.preferredHeight: parent.height * 0.7
-            Layout.preferredWidth: scaleWarningRow.implicitWidth + Theme.scaled(16)
+            radius: 4
+            Layout.preferredHeight: 40
+            Layout.preferredWidth: scaleWarningRow.implicitWidth + 16
 
             Row {
                 id: scaleWarningRow
                 anchors.centerIn: parent
-                spacing: Theme.scaled(5)
+                spacing: 5
 
                 Text {
                     text: BLEManager.scaleConnectionFailed ? "Scale not found" :
                           (ScaleDevice && ScaleDevice.connected ? "" : "Scale...")
                     color: BLEManager.scaleConnectionFailed ? "white" : Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
                 Text {
                     text: "[Scan]"
                     color: Theme.accentColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.bodyFont.pixelSize
                     font.underline: true
                     visible: BLEManager.scaleConnectionFailed
                     anchors.verticalCenter: parent.verticalCenter
@@ -116,21 +116,21 @@ Rectangle {
 
         // Scale connected indicator
         Row {
-            spacing: Theme.scaled(5)
+            spacing: 5
             visible: ScaleDevice && ScaleDevice.connected
 
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
-                width: Theme.scaled(8)
-                height: Theme.scaled(8)
-                radius: Theme.scaled(4)
+                width: 8
+                height: 8
+                radius: 4
                 color: Theme.weightColor
             }
 
             Text {
                 text: MachineState.scaleWeight.toFixed(1) + "g"
                 color: Theme.weightColor
-                font.pixelSize: Theme.scaled(14)
+                font: Theme.bodyFont
             }
         }
 
@@ -138,35 +138,35 @@ Rectangle {
         Text {
             text: "#" + BuildNumber
             color: Theme.textSecondaryColor
-            font.pixelSize: Theme.scaled(18)
+            font.pixelSize: 18
             font.bold: true
             opacity: 0.6
         }
 
         // Separator before DE1 status
         Rectangle {
-            width: Theme.scaled(1)
-            height: parent.height * 0.5
+            width: 1
+            height: 30
             color: Theme.textSecondaryColor
             opacity: 0.3
         }
 
         // Connection indicator
         Row {
-            spacing: Theme.scaled(5)
+            spacing: 5
 
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
-                width: Theme.scaled(10)
-                height: Theme.scaled(10)
-                radius: Theme.scaled(5)
+                width: 10
+                height: 10
+                radius: 5
                 color: DE1Device.connected ? Theme.successColor : Theme.errorColor
             }
 
             Text {
                 text: DE1Device.connected ? "Online" : "Offline"
                 color: DE1Device.connected ? Theme.successColor : Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(14)
+                font: Theme.bodyFont
             }
         }
     }

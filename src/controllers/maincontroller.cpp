@@ -364,6 +364,21 @@ void MainController::applyHotWaterSettings() {
              << "volume=" << m_settings->waterVolume();
 }
 
+void MainController::applyFlushSettings() {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    // Flush flow rate at MMR 0x803840, value × 10
+    // Flush timeout at MMR 0x803848, value × 10
+    int flowValue = static_cast<int>(m_settings->flushFlow() * 10);
+    int secondsValue = static_cast<int>(m_settings->flushSeconds() * 10);
+
+    m_device->writeMMR(0x803840, flowValue);
+    m_device->writeMMR(0x803848, secondsValue);
+
+    qDebug() << "Applied flush settings: flow=" << m_settings->flushFlow()
+             << "seconds=" << m_settings->flushSeconds();
+}
+
 void MainController::setSteamTemperatureImmediate(double temp) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 

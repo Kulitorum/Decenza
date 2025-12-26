@@ -49,19 +49,9 @@ Page {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.standardMargin
-        anchors.topMargin: 60
+        anchors.topMargin: 80
+        anchors.bottomMargin: 80  // Space for bottom bar
         spacing: 15
-
-        // Header
-        RowLayout {
-            Layout.fillWidth: true
-            Text {
-                Layout.fillWidth: true
-                text: isSteaming ? "Steaming" : "Steam Settings"
-                color: Theme.textColor
-                font: Theme.headingFont
-            }
-        }
 
         // === STEAMING VIEW ===
         ColumnLayout {
@@ -121,8 +111,9 @@ Page {
                     stepSize: 5
                     decimals: 0
                     value: Settings.steamFlow
-                    suffix: ""
+                    displayText: flowToDisplay(value)
                     onValueModified: function(newValue) {
+                        steamingFlowSlider.value = newValue
                         MainController.setSteamFlowImmediate(newValue)
                     }
                 }
@@ -173,7 +164,7 @@ Page {
                         }
                         Item { Layout.fillWidth: true }
                         Text {
-                            text: "Drag to reorder, long-press to edit"
+                            text: "Drag to reorder, hold to rename"
                             color: Theme.textSecondaryColor
                             font: Theme.labelFont
                         }
@@ -318,44 +309,37 @@ Page {
                 }
             }
 
-            // Duration Slider (per-cup, auto-saves)
+            // Duration (per-cup, auto-saves)
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 80
+                Layout.preferredHeight: 100
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
-                ColumnLayout {
+                RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 4
+                    anchors.margins: 16
+                    spacing: 16
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text {
-                            text: "Duration"
-                            color: Theme.textColor
-                            font: Theme.bodyFont
-                        }
-                        Item { Layout.fillWidth: true }
-                        Text {
-                            text: durationSlider.value.toFixed(0) + "s"
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.bodyFont.pixelSize
-                            font.bold: true
-                        }
+                    Text {
+                        text: "Duration"
+                        color: Theme.textColor
+                        font: Theme.bodyFont
                     }
+
+                    Item { Layout.fillWidth: true }
 
                     ValueInput {
                         id: durationSlider
-                        Layout.fillWidth: true
                         from: 1
                         to: 120
                         stepSize: 1
                         decimals: 0
-                        suffix: "s"
+                        suffix: " s"
                         value: getCurrentCupDuration()
+                        valueColor: Theme.primaryColor
                         onValueModified: function(newValue) {
+                            durationSlider.value = newValue
                             Settings.steamTimeout = newValue
                             saveCurrentCup(newValue, flowSlider.value)
                         }
@@ -363,103 +347,91 @@ Page {
                 }
             }
 
-            // Steam Flow Slider (per-cup, auto-saves)
+            // Steam Flow (per-cup, auto-saves)
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 80
+                Layout.preferredHeight: 100
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
-                ColumnLayout {
+                RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 4
+                    anchors.margins: 16
+                    spacing: 16
 
-                    RowLayout {
-                        Layout.fillWidth: true
+                    Column {
                         Text {
                             text: "Steam Flow"
                             color: Theme.textColor
                             font: Theme.bodyFont
                         }
-                        Item { Layout.fillWidth: true }
                         Text {
-                            text: flowToDisplay(flowSlider.value)
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.bodyFont.pixelSize
-                            font.bold: true
+                            text: "Low = flat, High = foamy"
+                            color: Theme.textSecondaryColor
+                            font: Theme.labelFont
                         }
                     }
 
+                    Item { Layout.fillWidth: true }
+
                     ValueInput {
                         id: flowSlider
-                        Layout.fillWidth: true
                         from: 40
                         to: 250
                         stepSize: 5
                         decimals: 0
-                        suffix: ""
                         value: getCurrentCupFlow()
+                        displayText: flowToDisplay(value)
+                        valueColor: Theme.primaryColor
                         onValueModified: function(newValue) {
+                            flowSlider.value = newValue
                             MainController.setSteamFlowImmediate(newValue)
                             saveCurrentCup(durationSlider.value, newValue)
                         }
                     }
-
-                    Text {
-                        text: "Low = flat milk, High = foamy"
-                        color: Theme.textSecondaryColor
-                        font: Theme.labelFont
-                    }
                 }
             }
 
-            // Temperature Slider (global setting)
+            // Temperature (global setting)
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 80
+                Layout.preferredHeight: 100
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
-                ColumnLayout {
+                RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 4
+                    anchors.margins: 16
+                    spacing: 16
 
-                    RowLayout {
-                        Layout.fillWidth: true
+                    Column {
                         Text {
-                            text: "Steam Temperature"
+                            text: "Temperature"
                             color: Theme.textColor
                             font: Theme.bodyFont
                         }
-                        Item { Layout.fillWidth: true }
                         Text {
-                            text: steamTempSlider.value.toFixed(0) + "°C"
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.bodyFont.pixelSize
-                            font.bold: true
+                            text: "Higher = drier steam"
+                            color: Theme.textSecondaryColor
+                            font: Theme.labelFont
                         }
                     }
 
+                    Item { Layout.fillWidth: true }
+
                     ValueInput {
                         id: steamTempSlider
-                        Layout.fillWidth: true
                         from: 120
                         to: 170
                         stepSize: 1
                         decimals: 0
                         suffix: "°C"
                         value: Settings.steamTemperature
+                        valueColor: Theme.temperatureColor
                         onValueModified: function(newValue) {
+                            steamTempSlider.value = newValue
                             MainController.setSteamTemperatureImmediate(newValue)
                         }
-                    }
-
-                    Text {
-                        text: "Higher = drier steam (global setting)"
-                        color: Theme.textSecondaryColor
-                        font: Theme.labelFont
                     }
                 }
             }
@@ -487,8 +459,8 @@ Page {
 
             // Back button
             RoundButton {
-                Layout.preferredWidth: 50
-                Layout.preferredHeight: 50
+                Layout.preferredWidth: 100
+                Layout.preferredHeight: 70
                 icon.source: "qrc:/icons/back.svg"
                 icon.width: 28
                 icon.height: 28

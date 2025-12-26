@@ -148,6 +148,16 @@ ApplicationWindow {
         }
 
         Component {
+            id: profileSelectorPage
+            ProfileSelectorPage {}
+        }
+
+        Component {
+            id: flushPage
+            FlushPage {}
+        }
+
+        Component {
             id: screensaverPage
             ScreensaverPage {}
         }
@@ -211,7 +221,7 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 50
+        height: 70
         z: 100
         visible: !pageStack.currentItem || pageStack.currentItem.objectName !== "screensaverPage"
     }
@@ -277,6 +287,14 @@ ApplicationWindow {
 
     function goToProfileEditor() {
         pageStack.push(profileEditorPage)
+    }
+
+    function goToProfileSelector() {
+        pageStack.push(profileSelectorPage)
+    }
+
+    function goToFlush() {
+        pageStack.push(flushPage)
     }
 
     function goToScreensaver() {

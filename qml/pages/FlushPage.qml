@@ -5,33 +5,38 @@ import DE1App
 import "../components"
 
 Page {
-    objectName: "hotWaterPage"
+    objectName: "flushPage"
     background: Rectangle { color: Theme.backgroundColor }
 
     Component.onCompleted: {
-        root.currentPageTitle = "Hot Water"
-        MainController.applyHotWaterSettings()
+        root.currentPageTitle = "Flush"
+        MainController.applyFlushSettings()
     }
 
-    property bool isDispensing: MachineState.phase === MachineStateType.Phase.HotWater
-    property int editingCupIndex: -1
+    property bool isFlushing: MachineState.phase === MachineStateType.Phase.Flushing
+    property int editingPresetIndex: -1
 
-    // Get current cup's volume
-    function getCurrentCupVolume() {
-        var preset = Settings.getWaterCupPreset(Settings.selectedWaterCup)
-        return preset ? preset.volume : 200
+    // Get current preset values
+    function getCurrentPresetFlow() {
+        var preset = Settings.getFlushPreset(Settings.selectedFlushPreset)
+        return preset ? preset.flow : 6.0
     }
 
-    function getCurrentCupName() {
-        var preset = Settings.getWaterCupPreset(Settings.selectedWaterCup)
+    function getCurrentPresetSeconds() {
+        var preset = Settings.getFlushPreset(Settings.selectedFlushPreset)
+        return preset ? preset.seconds : 5.0
+    }
+
+    function getCurrentPresetName() {
+        var preset = Settings.getFlushPreset(Settings.selectedFlushPreset)
         return preset ? preset.name : ""
     }
 
-    // Save current cup with new volume
-    function saveCurrentCup(volume) {
-        var name = getCurrentCupName()
+    // Save current preset with new values
+    function saveCurrentPreset(flow, seconds) {
+        var name = getCurrentPresetName()
         if (name) {
-            Settings.updateWaterCupPreset(Settings.selectedWaterCup, name, volume)
+            Settings.updateFlushPreset(Settings.selectedFlushPreset, name, flow, seconds)
         }
     }
 
@@ -42,9 +47,9 @@ Page {
         anchors.bottomMargin: 80  // Space for bottom bar
         spacing: 15
 
-        // === DISPENSING VIEW ===
+        // === FLUSHING VIEW ===
         ColumnLayout {
-            visible: isDispensing
+            visible: isFlushing
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 20
@@ -57,17 +62,12 @@ Page {
                 font: Theme.timerFont
             }
 
-            // Temperature display
-            CircularGauge {
+            // Progress indicator
+            Text {
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 200
-                Layout.preferredHeight: 200
-                value: DE1Device.temperature
-                minValue: 60
-                maxValue: 100
-                unit: "°C"
-                color: Theme.primaryColor
-                label: "Water Temp"
+                text: "Rinsing group head..."
+                color: Theme.textSecondaryColor
+                font: Theme.bodyFont
             }
 
             Item { Layout.fillHeight: true }
@@ -88,12 +88,12 @@ Page {
 
         // === SETTINGS VIEW ===
         ColumnLayout {
-            visible: !isDispensing
+            visible: !isFlushing
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 12
 
-            // Cup Presets Section
+            // Presets Section
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 90
@@ -108,7 +108,7 @@ Page {
                     RowLayout {
                         Layout.fillWidth: true
                         Text {
-                            text: "Cup Preset"
+                            text: "Flush Preset"
                             color: Theme.textColor
                             font.pixelSize: Theme.bodyFont.pixelSize
                             font.bold: true
@@ -121,58 +121,58 @@ Page {
                         }
                     }
 
-                    // Cup preset buttons with drag-and-drop
+                    // Preset buttons with drag-and-drop
                     Row {
-                        id: cupPresetsRow
+                        id: presetsRow
                         Layout.fillWidth: true
                         spacing: 8
 
                         property int draggedIndex: -1
 
                         Repeater {
-                            id: cupRepeater
-                            model: Settings.waterCupPresets
+                            id: presetRepeater
+                            model: Settings.flushPresets
 
                             Item {
-                                id: cupDelegate
-                                width: cupPill.width
+                                id: presetDelegate
+                                width: presetPill.width
                                 height: 36
 
-                                property int cupIndex: index
+                                property int presetIndex: index
 
                                 Rectangle {
-                                    id: cupPill
-                                    width: cupText.implicitWidth + 24
+                                    id: presetPill
+                                    width: presetText.implicitWidth + 24
                                     height: 36
                                     radius: 18
-                                    color: cupDelegate.cupIndex === Settings.selectedWaterCup ? Theme.primaryColor : Theme.backgroundColor
-                                    border.color: cupDelegate.cupIndex === Settings.selectedWaterCup ? Theme.primaryColor : Theme.textSecondaryColor
+                                    color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.backgroundColor
+                                    border.color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     Drag.active: dragArea.drag.active
-                                    Drag.source: cupDelegate
+                                    Drag.source: presetDelegate
                                     Drag.hotSpot.x: width / 2
                                     Drag.hotSpot.y: height / 2
 
                                     states: State {
                                         when: dragArea.drag.active
-                                        ParentChange { target: cupPill; parent: cupPresetsRow }
-                                        AnchorChanges { target: cupPill; anchors.verticalCenter: undefined }
+                                        ParentChange { target: presetPill; parent: presetsRow }
+                                        AnchorChanges { target: presetPill; anchors.verticalCenter: undefined }
                                     }
 
                                     Text {
-                                        id: cupText
+                                        id: presetText
                                         anchors.centerIn: parent
                                         text: modelData.name
-                                        color: cupDelegate.cupIndex === Settings.selectedWaterCup ? "white" : Theme.textColor
+                                        color: presetDelegate.presetIndex === Settings.selectedFlushPreset ? "white" : Theme.textColor
                                         font: Theme.bodyFont
                                     }
 
                                     MouseArea {
                                         id: dragArea
                                         anchors.fill: parent
-                                        drag.target: cupPill
+                                        drag.target: presetPill
                                         drag.axis: Drag.XAxis
 
                                         property bool held: false
@@ -187,20 +187,22 @@ Page {
                                         onReleased: {
                                             holdTimer.stop()
                                             if (!moved && !held) {
-                                                // Simple click - select the cup
-                                                Settings.selectedWaterCup = cupDelegate.cupIndex
-                                                volumeInput.value = modelData.volume
-                                                Settings.waterVolume = modelData.volume
-                                                MainController.applyHotWaterSettings()
+                                                // Simple click - select the preset
+                                                Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                                flowInput.value = modelData.flow
+                                                secondsInput.value = modelData.seconds
+                                                Settings.flushFlow = modelData.flow
+                                                Settings.flushSeconds = modelData.seconds
+                                                MainController.applyFlushSettings()
                                             }
-                                            cupPill.Drag.drop()
-                                            cupPresetsRow.draggedIndex = -1
+                                            presetPill.Drag.drop()
+                                            presetsRow.draggedIndex = -1
                                         }
 
                                         onPositionChanged: {
                                             if (drag.active) {
                                                 moved = true
-                                                cupPresetsRow.draggedIndex = cupDelegate.cupIndex
+                                                presetsRow.draggedIndex = presetDelegate.presetIndex
                                             }
                                         }
 
@@ -210,9 +212,9 @@ Page {
                                             onTriggered: {
                                                 if (!dragArea.moved) {
                                                     dragArea.held = true
-                                                    editingCupIndex = cupDelegate.cupIndex
-                                                    editCupNameInput.text = modelData.name
-                                                    editCupPopup.open()
+                                                    editingPresetIndex = presetDelegate.presetIndex
+                                                    editPresetNameInput.text = modelData.name
+                                                    editPresetPopup.open()
                                                 }
                                             }
                                         }
@@ -222,10 +224,10 @@ Page {
                                 DropArea {
                                     anchors.fill: parent
                                     onEntered: function(drag) {
-                                        var fromIndex = drag.source.cupIndex
-                                        var toIndex = cupDelegate.cupIndex
+                                        var fromIndex = drag.source.presetIndex
+                                        var toIndex = presetDelegate.presetIndex
                                         if (fromIndex !== toIndex) {
-                                            Settings.moveWaterCupPreset(fromIndex, toIndex)
+                                            Settings.moveFlushPreset(fromIndex, toIndex)
                                         }
                                     }
                                 }
@@ -250,14 +252,14 @@ Page {
 
                             MouseArea {
                                 anchors.fill: parent
-                                onClicked: addCupDialog.open()
+                                onClicked: addPresetDialog.open()
                             }
                         }
                     }
                 }
             }
 
-            // Volume (per-cup, auto-saves)
+            // Duration (per-preset, auto-saves)
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 100
@@ -270,7 +272,7 @@ Page {
                     spacing: 16
 
                     Text {
-                        text: "Volume"
+                        text: "Duration"
                         color: Theme.textColor
                         font: Theme.bodyFont
                     }
@@ -278,25 +280,25 @@ Page {
                     Item { Layout.fillWidth: true }
 
                     ValueInput {
-                        id: volumeInput
-                        value: getCurrentCupVolume()
-                        from: 50
-                        to: 500
-                        stepSize: 10
-                        suffix: " ml"
+                        id: secondsInput
+                        value: getCurrentPresetSeconds()
+                        from: 1
+                        to: 30
+                        stepSize: 0.5
+                        suffix: " s"
                         valueColor: Theme.primaryColor
 
                         onValueModified: function(newValue) {
-                            volumeInput.value = newValue
-                            Settings.waterVolume = newValue
-                            saveCurrentCup(newValue)
-                            MainController.applyHotWaterSettings()
+                            secondsInput.value = newValue
+                            Settings.flushSeconds = newValue
+                            saveCurrentPreset(flowInput.value, newValue)
+                            MainController.applyFlushSettings()
                         }
                     }
                 }
             }
 
-            // Temperature (global setting)
+            // Flow Rate (per-preset, auto-saves)
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 100
@@ -309,7 +311,7 @@ Page {
                     spacing: 16
 
                     Text {
-                        text: "Temperature"
+                        text: "Flow Rate"
                         color: Theme.textColor
                         font: Theme.bodyFont
                     }
@@ -317,18 +319,19 @@ Page {
                     Item { Layout.fillWidth: true }
 
                     ValueInput {
-                        id: temperatureInput
-                        value: Settings.waterTemperature
-                        from: 40
-                        to: 100
-                        stepSize: 1
-                        suffix: "°C"
-                        valueColor: Theme.temperatureColor
+                        id: flowInput
+                        value: getCurrentPresetFlow()
+                        from: 2
+                        to: 10
+                        stepSize: 0.5
+                        suffix: " mL/s"
+                        valueColor: Theme.flowColor
 
                         onValueModified: function(newValue) {
-                            temperatureInput.value = newValue
-                            Settings.waterTemperature = newValue
-                            MainController.applyHotWaterSettings()
+                            flowInput.value = newValue
+                            Settings.flushFlow = newValue
+                            saveCurrentPreset(newValue, secondsInput.value)
+                            MainController.applyFlushSettings()
                         }
                     }
                 }
@@ -341,16 +344,19 @@ Page {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: 300
                 Layout.preferredHeight: 80
-                text: "START"
+                text: "START FLUSH"
                 enabled: MachineState.isReady
-                onClicked: DE1Device.startHotWater()
+                onClicked: {
+                    MainController.applyFlushSettings()
+                    DE1Device.startFlush()
+                }
             }
         }
     }
 
     // Bottom bar
     Rectangle {
-        visible: !isDispensing
+        visible: !isFlushing
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -372,13 +378,13 @@ Page {
                 flat: true
                 icon.color: "white"
                 onClicked: {
-                    MainController.applyHotWaterSettings()
+                    MainController.applyFlushSettings()
                     root.goToIdle()
                 }
             }
 
             Text {
-                text: getCurrentCupName() || "No cup"
+                text: getCurrentPresetName() || "Flush"
                 color: "white"
                 font.pixelSize: 20
                 font.bold: true
@@ -387,7 +393,7 @@ Page {
             Item { Layout.fillWidth: true }
 
             Text {
-                text: volumeInput.value.toFixed(0) + " ml"
+                text: secondsInput.value.toFixed(1) + "s"
                 color: "white"
                 font: Theme.bodyFont
             }
@@ -395,27 +401,27 @@ Page {
             Rectangle { width: 1; height: 30; color: "white"; opacity: 0.3 }
 
             Text {
-                text: temperatureInput.value.toFixed(0) + "°C"
+                text: flowInput.value.toFixed(1) + " mL/s"
                 color: "white"
                 font: Theme.bodyFont
             }
         }
     }
 
-    // Tap anywhere to stop (when dispensing)
+    // Tap anywhere to stop (when flushing)
     MouseArea {
         anchors.fill: parent
         z: -1
-        visible: isDispensing
+        visible: isFlushing
         onClicked: {
             DE1Device.stopOperation()
             root.goToIdle()
         }
     }
 
-    // Edit cup preset popup
+    // Edit preset popup
     Popup {
-        id: editCupPopup
+        id: editPresetPopup
         anchors.centerIn: parent
         width: 300
         height: 180
@@ -433,15 +439,15 @@ Page {
             spacing: 12
 
             Text {
-                text: "Edit Cup Preset"
+                text: "Edit Flush Preset"
                 color: Theme.textColor
                 font: Theme.subtitleFont
             }
 
             TextField {
-                id: editCupNameInput
+                id: editPresetNameInput
                 Layout.fillWidth: true
-                placeholderText: "Cup name"
+                placeholderText: "Preset name"
                 font: Theme.bodyFont
             }
 
@@ -452,8 +458,8 @@ Page {
                 Button {
                     text: "Delete"
                     onClicked: {
-                        Settings.removeWaterCupPreset(editingCupIndex)
-                        editCupPopup.close()
+                        Settings.removeFlushPreset(editingPresetIndex)
+                        editPresetPopup.close()
                     }
                     background: Rectangle {
                         implicitWidth: 80
@@ -474,7 +480,7 @@ Page {
 
                 Button {
                     text: "Cancel"
-                    onClicked: editCupPopup.close()
+                    onClicked: editPresetPopup.close()
                     background: Rectangle {
                         implicitWidth: 70
                         implicitHeight: 36
@@ -493,9 +499,9 @@ Page {
                 Button {
                     text: "Save"
                     onClicked: {
-                        var preset = Settings.getWaterCupPreset(editingCupIndex)
-                        Settings.updateWaterCupPreset(editingCupIndex, editCupNameInput.text, preset.volume)
-                        editCupPopup.close()
+                        var preset = Settings.getFlushPreset(editingPresetIndex)
+                        Settings.updateFlushPreset(editingPresetIndex, editPresetNameInput.text, preset.flow, preset.seconds)
+                        editPresetPopup.close()
                     }
                     background: Rectangle {
                         implicitWidth: 70
@@ -515,10 +521,10 @@ Page {
         }
     }
 
-    // Add cup dialog
+    // Add preset dialog
     Dialog {
-        id: addCupDialog
-        title: "Add Cup Preset"
+        id: addPresetDialog
+        title: "Add Flush Preset"
         anchors.centerIn: parent
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
@@ -527,23 +533,23 @@ Page {
             spacing: 12
 
             TextField {
-                id: newCupNameInput
+                id: newPresetNameInput
                 Layout.preferredWidth: 200
-                placeholderText: "Cup name"
+                placeholderText: "Preset name"
                 font: Theme.bodyFont
             }
         }
 
         onAccepted: {
-            if (newCupNameInput.text.length > 0) {
-                Settings.addWaterCupPreset(newCupNameInput.text, 200)
-                newCupNameInput.text = ""
+            if (newPresetNameInput.text.length > 0) {
+                Settings.addFlushPreset(newPresetNameInput.text, 6.0, 5.0)
+                newPresetNameInput.text = ""
             }
         }
 
         onOpened: {
-            newCupNameInput.text = ""
-            newCupNameInput.forceActiveFocus()
+            newPresetNameInput.text = ""
+            newPresetNameInput.forceActiveFocus()
         }
     }
 }

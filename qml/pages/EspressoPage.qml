@@ -68,8 +68,8 @@ Page {
 
             // Back button
             RoundButton {
-                Layout.preferredWidth: 50
-                Layout.preferredHeight: 50
+                Layout.preferredWidth: 100
+                Layout.preferredHeight: 70
                 icon.source: "qrc:/icons/back.svg"
                 icon.width: 28
                 icon.height: 28

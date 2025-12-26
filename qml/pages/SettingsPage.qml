@@ -79,7 +79,7 @@ Page {
     TabBar {
         id: tabBar
         anchors.top: parent.top
-        anchors.topMargin: Theme.scaled(60)
+        anchors.topMargin: 80
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.leftMargin: Theme.standardMargin
@@ -813,7 +813,7 @@ Page {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: 70
-        color: Theme.surfaceColor
+        color: Theme.primaryColor
 
         RowLayout {
             anchors.fill: parent
@@ -823,14 +823,21 @@ Page {
 
             // Back button
             RoundButton {
-                Layout.preferredWidth: 50
-                Layout.preferredHeight: 50
+                Layout.preferredWidth: 100
+                Layout.preferredHeight: 70
                 icon.source: "qrc:/icons/back.svg"
                 icon.width: 28
                 icon.height: 28
                 flat: true
-                icon.color: Theme.textColor
+                icon.color: "white"
                 onClicked: root.goToIdle()
+            }
+
+            Text {
+                text: "Settings"
+                color: "white"
+                font.pixelSize: 20
+                font.bold: true
             }
 
             Item { Layout.fillWidth: true }

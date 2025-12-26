@@ -1,8 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Effects
-import QtQuick.Window
 import DE1App
 
 Item {
@@ -297,31 +295,8 @@ Item {
         dim: false
         closePolicy: Popup.CloseOnPressOutside
 
-        background: Item {
-            // Capture and blur the background
-            property var appWindow: ApplicationWindow.window
-
-            ShaderEffectSource {
-                id: blurSource
-                anchors.fill: parent
-                sourceItem: parent.appWindow ? parent.appWindow.contentItem : null
-                sourceRect: parent.appWindow ? Qt.rect(0, 0, parent.appWindow.width, parent.appWindow.height) : Qt.rect(0, 0, 0, 0)
-                visible: false
-            }
-
-            MultiEffect {
-                anchors.fill: parent
-                source: blurSource
-                blurEnabled: true
-                blurMax: 64
-                blur: 10
-            }
-
-            // Slight darkening overlay
-            Rectangle {
-                anchors.fill: parent
-                color: "#40000000"
-            }
+        background: Rectangle {
+            color: "#80000000"
         }
 
         // Content

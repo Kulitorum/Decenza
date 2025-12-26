@@ -28,9 +28,23 @@ class Settings : public QObject {
     Q_PROPERTY(QVariantList steamCupPresets READ steamCupPresets NOTIFY steamCupPresetsChanged)
     Q_PROPERTY(int selectedSteamCup READ selectedSteamCup WRITE setSelectedSteamCup NOTIFY selectedSteamCupChanged)
 
+    // Profile favorites
+    Q_PROPERTY(QVariantList favoriteProfiles READ favoriteProfiles NOTIFY favoriteProfilesChanged)
+    Q_PROPERTY(int selectedFavoriteProfile READ selectedFavoriteProfile WRITE setSelectedFavoriteProfile NOTIFY selectedFavoriteProfileChanged)
+
     // Hot water settings
     Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged)
     Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged)
+
+    // Hot water cup presets
+    Q_PROPERTY(QVariantList waterCupPresets READ waterCupPresets NOTIFY waterCupPresetsChanged)
+    Q_PROPERTY(int selectedWaterCup READ selectedWaterCup WRITE setSelectedWaterCup NOTIFY selectedWaterCupChanged)
+
+    // Flush presets
+    Q_PROPERTY(QVariantList flushPresets READ flushPresets NOTIFY flushPresetsChanged)
+    Q_PROPERTY(int selectedFlushPreset READ selectedFlushPreset WRITE setSelectedFlushPreset NOTIFY selectedFlushPresetChanged)
+    Q_PROPERTY(double flushFlow READ flushFlow WRITE setFlushFlow NOTIFY flushFlowChanged)
+    Q_PROPERTY(double flushSeconds READ flushSeconds WRITE setFlushSeconds NOTIFY flushSecondsChanged)
 
     // UI settings
     Q_PROPERTY(QString skin READ skin WRITE setSkin NOTIFY skinChanged)
@@ -78,12 +92,51 @@ public:
     Q_INVOKABLE void moveSteamCupPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamCupPreset(int index) const;
 
+    // Profile favorites (max 5)
+    QVariantList favoriteProfiles() const;
+    int selectedFavoriteProfile() const;
+    void setSelectedFavoriteProfile(int index);
+
+    Q_INVOKABLE void addFavoriteProfile(const QString& name, const QString& filename);
+    Q_INVOKABLE void removeFavoriteProfile(int index);
+    Q_INVOKABLE void moveFavoriteProfile(int from, int to);
+    Q_INVOKABLE QVariantMap getFavoriteProfile(int index) const;
+    Q_INVOKABLE bool isFavoriteProfile(const QString& filename) const;
+
     // Hot water settings
     double waterTemperature() const;
     void setWaterTemperature(double temp);
 
     int waterVolume() const;
     void setWaterVolume(int volume);
+
+    // Hot water cup presets
+    QVariantList waterCupPresets() const;
+    int selectedWaterCup() const;
+    void setSelectedWaterCup(int index);
+
+    Q_INVOKABLE void addWaterCupPreset(const QString& name, int volume);
+    Q_INVOKABLE void updateWaterCupPreset(int index, const QString& name, int volume);
+    Q_INVOKABLE void removeWaterCupPreset(int index);
+    Q_INVOKABLE void moveWaterCupPreset(int from, int to);
+    Q_INVOKABLE QVariantMap getWaterCupPreset(int index) const;
+
+    // Flush presets
+    QVariantList flushPresets() const;
+    int selectedFlushPreset() const;
+    void setSelectedFlushPreset(int index);
+
+    double flushFlow() const;
+    void setFlushFlow(double flow);
+
+    double flushSeconds() const;
+    void setFlushSeconds(double seconds);
+
+    Q_INVOKABLE void addFlushPreset(const QString& name, double flow, double seconds);
+    Q_INVOKABLE void updateFlushPreset(int index, const QString& name, double flow, double seconds);
+    Q_INVOKABLE void removeFlushPreset(int index);
+    Q_INVOKABLE void moveFlushPreset(int from, int to);
+    Q_INVOKABLE QVariantMap getFlushPreset(int index) const;
 
     // UI settings
     QString skin() const;
@@ -108,8 +161,16 @@ signals:
     void steamFlowChanged();
     void steamCupPresetsChanged();
     void selectedSteamCupChanged();
+    void favoriteProfilesChanged();
+    void selectedFavoriteProfileChanged();
     void waterTemperatureChanged();
     void waterVolumeChanged();
+    void waterCupPresetsChanged();
+    void selectedWaterCupChanged();
+    void flushPresetsChanged();
+    void selectedFlushPresetChanged();
+    void flushFlowChanged();
+    void flushSecondsChanged();
     void skinChanged();
     void currentProfileChanged();
     void valueChanged(const QString& key);

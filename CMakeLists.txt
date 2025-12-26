@@ -168,7 +168,9 @@ set(QML_FILES
     qml/pages/HotWaterPage.qml
     qml/pages/SettingsPage.qml
     qml/pages/ProfileEditorPage.qml
+    qml/pages/ProfileSelectorPage.qml
     qml/pages/ScreensaverPage.qml
+    qml/pages/FlushPage.qml
     qml/components/ActionButton.qml
     qml/components/CircularGauge.qml
     qml/components/ConnectionIndicator.qml

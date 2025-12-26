@@ -47,6 +47,7 @@ public slots:
 
     void applySteamSettings();
     void applyHotWaterSettings();
+    void applyFlushSettings();
 
     // Real-time steam setting updates
     void setSteamTemperatureImmediate(double temp);

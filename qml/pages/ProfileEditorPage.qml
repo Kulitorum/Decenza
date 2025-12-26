@@ -52,7 +52,7 @@ Page {
     // Main content area
     Item {
         anchors.top: parent.top
-        anchors.topMargin: Theme.scaled(60)
+        anchors.topMargin: 80
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: bottomBar.top
@@ -209,7 +209,7 @@ Page {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: Theme.scaled(70)
-        color: Theme.surfaceColor
+        color: Theme.primaryColor
 
         RowLayout {
             anchors.fill: parent
@@ -217,101 +217,80 @@ Page {
             anchors.rightMargin: Theme.scaled(20)
             spacing: Theme.scaled(15)
 
-            // Back button
+            // Back button - handle unsaved changes
             RoundButton {
-                Layout.preferredWidth: Theme.scaled(50)
-                Layout.preferredHeight: Theme.scaled(50)
+                Layout.preferredWidth: 100
+                Layout.preferredHeight: 70
                 icon.source: "qrc:/icons/back.svg"
-                icon.width: Theme.scaled(28)
-                icon.height: Theme.scaled(28)
+                icon.width: 28
+                icon.height: 28
                 flat: true
-                icon.color: Theme.textColor
-                onClicked: root.goToIdle()
-            }
-
-            // Target weight
-            RowLayout {
-                spacing: Theme.scaled(10)
-
-                Text {
-                    text: "Target:"
-                    color: Theme.textSecondaryColor
-                    font: Theme.bodyFont
-                }
-
-                ValueInput {
-                    id: targetWeightInput
-                    Layout.preferredWidth: Theme.scaled(140)
-                    from: 20
-                    to: 60
-                    stepSize: 1
-                    decimals: 0
-                    value: profile ? profile.target_weight : 36
-                    suffix: "g"
-                    valueColor: Theme.weightColor
-                    accentColor: Theme.weightColor
-                    onValueModified: function(newValue) {
-                        if (profile) {
-                            profile.target_weight = newValue
-                            MainController.targetWeight = newValue
-                            uploadProfile()
-                        }
+                icon.color: "white"
+                onClicked: {
+                    if (profileModified) {
+                        exitDialog.open()
+                    } else {
+                        root.goBack()
                     }
                 }
+            }
+
+            // Profile name
+            Text {
+                text: profile ? profile.title : "Profile"
+                color: "white"
+                font.pixelSize: 20
+                font.bold: true
             }
 
             Item { Layout.fillWidth: true }
 
             // Modified indicator
             Text {
-                text: profileModified ? "Modified" : ""
-                color: Theme.warningColor
-                font: Theme.captionFont
+                text: profileModified ? "\u2022 Modified" : ""
+                color: "#FFCC00"
+                font: Theme.bodyFont
                 visible: profileModified
             }
 
-            // Info text
+            Rectangle { width: 1; height: 30; color: "white"; opacity: 0.3; visible: profile }
+
+            // Frame count
             Text {
                 text: profile ? profile.steps.length + " frames" : ""
-                color: Theme.textSecondaryColor
-                font: Theme.captionFont
+                color: "white"
+                font: Theme.bodyFont
             }
 
-            // Save button
-            Button {
-                text: "Save"
-                enabled: profileModified && originalProfileName !== ""
-                onClicked: saveProfile()
-                background: Rectangle {
-                    implicitWidth: Theme.scaled(80)
-                    implicitHeight: Theme.scaled(40)
-                    radius: Theme.scaled(8)
-                    color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    opacity: parent.enabled ? 1.0 : 0.4
-                }
-                contentItem: Text {
-                    text: parent.text
-                    font: Theme.bodyFont
-                    color: "white"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
+            Rectangle { width: 1; height: 30; color: "white"; opacity: 0.3; visible: profile }
+
+            // Target weight
+            Text {
+                text: profile ? profile.target_weight.toFixed(0) + "g" : ""
+                color: "white"
+                font: Theme.bodyFont
             }
 
-            // Save As button
+            // Done button
             Button {
-                text: "Save As..."
-                onClicked: saveAsDialog.open()
+                text: "Done"
+                onClicked: {
+                    if (profileModified) {
+                        exitDialog.open()
+                    } else {
+                        root.goBack()
+                    }
+                }
                 background: Rectangle {
                     implicitWidth: Theme.scaled(100)
                     implicitHeight: Theme.scaled(40)
                     radius: Theme.scaled(8)
-                    color: parent.down ? Qt.darker(Theme.accentColor, 1.2) : Theme.accentColor
+                    color: parent.down ? Qt.darker("white", 1.2) : "white"
                 }
                 contentItem: Text {
                     text: parent.text
                     font: Theme.bodyFont
-                    color: "white"
+                    color: Theme.primaryColor
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -375,6 +354,7 @@ Page {
         onAccepted: {
             if (saveAsFilenameField.text.length > 0 && saveAsTitleField.text.length > 0) {
                 saveProfileAs(saveAsFilenameField.text, saveAsTitleField.text)
+                root.goBack()
             }
         }
 
@@ -382,6 +362,106 @@ Page {
             saveAsTitleField.text = profile ? profile.title : ""
             saveAsFilenameField.text = originalProfileName || "my_profile"
             saveAsTitleField.forceActiveFocus()
+        }
+    }
+
+    // Exit dialog for unsaved changes
+    Dialog {
+        id: exitDialog
+        title: "Unsaved Changes"
+        anchors.centerIn: parent
+        width: Theme.scaled(480)
+        padding: Theme.scaled(20)
+        modal: true
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: Theme.scaled(20)
+
+            Text {
+                text: "You have unsaved changes to this profile.\nWhat would you like to do?"
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(10)
+
+                Button {
+                    text: "Discard"
+                    onClicked: {
+                        // Reload original profile to discard changes
+                        if (originalProfileName) {
+                            MainController.loadProfile(originalProfileName)
+                        }
+                        exitDialog.close()
+                        root.goBack()
+                    }
+                    background: Rectangle {
+                        implicitWidth: Theme.scaled(90)
+                        implicitHeight: Theme.scaled(40)
+                        radius: Theme.scaled(8)
+                        color: parent.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    text: "Save As..."
+                    onClicked: {
+                        exitDialog.close()
+                        saveAsDialog.open()
+                    }
+                    background: Rectangle {
+                        implicitWidth: Theme.scaled(100)
+                        implicitHeight: Theme.scaled(40)
+                        radius: Theme.scaled(8)
+                        color: parent.down ? Qt.darker(Theme.accentColor, 1.2) : Theme.accentColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Button {
+                    text: "Save"
+                    enabled: originalProfileName !== ""
+                    onClicked: {
+                        saveProfile()
+                        exitDialog.close()
+                        root.goBack()
+                    }
+                    background: Rectangle {
+                        implicitWidth: Theme.scaled(80)
+                        implicitHeight: Theme.scaled(40)
+                        radius: Theme.scaled(8)
+                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        opacity: parent.enabled ? 1.0 : 0.4
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
         }
     }
 
@@ -947,25 +1027,32 @@ Page {
         uploadProfile()
     }
 
-    Component.onCompleted: {
-        // Load current profile if not set
-        if (!profile) {
-            profile = {
-                title: MainController.currentProfileName || "New Profile",
-                steps: [],
-                target_weight: MainController.targetWeight || 36,
-                espresso_temperature: 93,
-                mode: "frame_based"
-            }
-            // Try to load actual profile data
-            var loadedProfile = MainController.getCurrentProfile()
-            if (loadedProfile) {
-                profile = loadedProfile
-            }
+    function loadCurrentProfile() {
+        profile = {
+            title: MainController.currentProfileName || "New Profile",
+            steps: [],
+            target_weight: MainController.targetWeight || 36,
+            espresso_temperature: 93,
+            mode: "frame_based"
+        }
+        // Try to load actual profile data
+        var loadedProfile = MainController.getCurrentProfile()
+        if (loadedProfile) {
+            profile = loadedProfile
         }
         // Track the original profile name for saving
         originalProfileName = MainController.currentProfileName || ""
         profileModified = false
+        selectedStepIndex = -1
         updatePageTitle()
+    }
+
+    // Reload profile when page becomes active (StackView reactivation)
+    StackView.onActivating: {
+        loadCurrentProfile()
+    }
+
+    Component.onCompleted: {
+        loadCurrentProfile()
     }
 }

@@ -24,6 +24,65 @@ Settings::Settings(QObject* parent)
 
         m_settings.setValue("steam/cupPresets", QJsonDocument(defaultPresets).toJson());
     }
+
+    // Initialize default favorite profiles if none exist
+    if (!m_settings.contains("profile/favorites")) {
+        QJsonArray defaultFavorites;
+
+        QJsonObject adaptive;
+        adaptive["name"] = "Adaptive v2";
+        adaptive["filename"] = "Adaptive v2";
+        defaultFavorites.append(adaptive);
+
+        QJsonObject blooming;
+        blooming["name"] = "blooming espresso";
+        blooming["filename"] = "blooming espresso";
+        defaultFavorites.append(blooming);
+
+        m_settings.setValue("profile/favorites", QJsonDocument(defaultFavorites).toJson());
+    }
+
+    // Initialize default water cup presets if none exist
+    if (!m_settings.contains("water/cupPresets")) {
+        QJsonArray defaultPresets;
+
+        QJsonObject cup;
+        cup["name"] = "Cup";
+        cup["volume"] = 200;
+        defaultPresets.append(cup);
+
+        QJsonObject mug;
+        mug["name"] = "Mug";
+        mug["volume"] = 350;
+        defaultPresets.append(mug);
+
+        m_settings.setValue("water/cupPresets", QJsonDocument(defaultPresets).toJson());
+    }
+
+    // Initialize default flush presets if none exist
+    if (!m_settings.contains("flush/presets")) {
+        QJsonArray defaultPresets;
+
+        QJsonObject quick;
+        quick["name"] = "Quick";
+        quick["flow"] = 6.0;
+        quick["seconds"] = 3.0;
+        defaultPresets.append(quick);
+
+        QJsonObject normal;
+        normal["name"] = "Normal";
+        normal["flow"] = 6.0;
+        normal["seconds"] = 5.0;
+        defaultPresets.append(normal);
+
+        QJsonObject thorough;
+        thorough["name"] = "Thorough";
+        thorough["flow"] = 6.0;
+        thorough["seconds"] = 10.0;
+        defaultPresets.append(thorough);
+
+        m_settings.setValue("flush/presets", QJsonDocument(defaultPresets).toJson());
+    }
 }
 
 // Machine settings
@@ -228,6 +287,126 @@ QVariantMap Settings::getSteamCupPreset(int index) const {
     return QVariantMap();
 }
 
+// Profile favorites
+QVariantList Settings::favoriteProfiles() const {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QVariantList result;
+    for (const QJsonValue& v : arr) {
+        result.append(v.toObject().toVariantMap());
+    }
+    return result;
+}
+
+int Settings::selectedFavoriteProfile() const {
+    return m_settings.value("profile/selectedFavorite", 0).toInt();
+}
+
+void Settings::setSelectedFavoriteProfile(int index) {
+    if (selectedFavoriteProfile() != index) {
+        m_settings.setValue("profile/selectedFavorite", index);
+        emit selectedFavoriteProfileChanged();
+    }
+}
+
+void Settings::addFavoriteProfile(const QString& name, const QString& filename) {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    // Max 5 favorites
+    if (arr.size() >= 5) {
+        return;
+    }
+
+    // Don't add duplicates
+    for (const QJsonValue& v : arr) {
+        if (v.toObject()["filename"].toString() == filename) {
+            return;
+        }
+    }
+
+    QJsonObject favorite;
+    favorite["name"] = name;
+    favorite["filename"] = filename;
+    arr.append(favorite);
+
+    m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
+    emit favoriteProfilesChanged();
+}
+
+void Settings::removeFavoriteProfile(int index) {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        arr.removeAt(index);
+        m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
+
+        // Adjust selected if needed
+        int selected = selectedFavoriteProfile();
+        if (selected >= arr.size() && arr.size() > 0) {
+            setSelectedFavoriteProfile(arr.size() - 1);
+        } else if (arr.size() == 0) {
+            setSelectedFavoriteProfile(0);
+        }
+
+        emit favoriteProfilesChanged();
+    }
+}
+
+void Settings::moveFavoriteProfile(int from, int to) {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (from >= 0 && from < arr.size() && to >= 0 && to < arr.size() && from != to) {
+        QJsonValue item = arr[from];
+        arr.removeAt(from);
+        arr.insert(to, item);
+        m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
+
+        // Update selection to follow the moved item if it was selected
+        int selected = selectedFavoriteProfile();
+        if (selected == from) {
+            setSelectedFavoriteProfile(to);
+        } else if (from < selected && to >= selected) {
+            setSelectedFavoriteProfile(selected - 1);
+        } else if (from > selected && to <= selected) {
+            setSelectedFavoriteProfile(selected + 1);
+        }
+
+        emit favoriteProfilesChanged();
+    }
+}
+
+QVariantMap Settings::getFavoriteProfile(int index) const {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        return arr[index].toObject().toVariantMap();
+    }
+    return QVariantMap();
+}
+
+bool Settings::isFavoriteProfile(const QString& filename) const {
+    QByteArray data = m_settings.value("profile/favorites").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    for (const QJsonValue& v : arr) {
+        if (v.toObject()["filename"].toString() == filename) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Hot water settings
 double Settings::waterTemperature() const {
     return m_settings.value("water/temperature", 85.0).toDouble();
@@ -249,6 +428,248 @@ void Settings::setWaterVolume(int volume) {
         m_settings.setValue("water/volume", volume);
         emit waterVolumeChanged();
     }
+}
+
+// Hot water cup presets
+QVariantList Settings::waterCupPresets() const {
+    QByteArray data = m_settings.value("water/cupPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QVariantList result;
+    for (const QJsonValue& v : arr) {
+        result.append(v.toObject().toVariantMap());
+    }
+    return result;
+}
+
+int Settings::selectedWaterCup() const {
+    return m_settings.value("water/selectedCup", 0).toInt();
+}
+
+void Settings::setSelectedWaterCup(int index) {
+    if (selectedWaterCup() != index) {
+        m_settings.setValue("water/selectedCup", index);
+        emit selectedWaterCupChanged();
+    }
+}
+
+void Settings::addWaterCupPreset(const QString& name, int volume) {
+    QByteArray data = m_settings.value("water/cupPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QJsonObject preset;
+    preset["name"] = name;
+    preset["volume"] = volume;
+    arr.append(preset);
+
+    m_settings.setValue("water/cupPresets", QJsonDocument(arr).toJson());
+    emit waterCupPresetsChanged();
+}
+
+void Settings::updateWaterCupPreset(int index, const QString& name, int volume) {
+    QByteArray data = m_settings.value("water/cupPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        QJsonObject preset;
+        preset["name"] = name;
+        preset["volume"] = volume;
+        arr[index] = preset;
+
+        m_settings.setValue("water/cupPresets", QJsonDocument(arr).toJson());
+        emit waterCupPresetsChanged();
+    }
+}
+
+void Settings::removeWaterCupPreset(int index) {
+    QByteArray data = m_settings.value("water/cupPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        arr.removeAt(index);
+        m_settings.setValue("water/cupPresets", QJsonDocument(arr).toJson());
+
+        // Adjust selected cup if needed
+        int selected = selectedWaterCup();
+        if (selected >= arr.size() && arr.size() > 0) {
+            setSelectedWaterCup(arr.size() - 1);
+        }
+
+        emit waterCupPresetsChanged();
+    }
+}
+
+void Settings::moveWaterCupPreset(int from, int to) {
+    QByteArray data = m_settings.value("water/cupPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (from >= 0 && from < arr.size() && to >= 0 && to < arr.size() && from != to) {
+        QJsonValue item = arr[from];
+        arr.removeAt(from);
+        arr.insert(to, item);
+        m_settings.setValue("water/cupPresets", QJsonDocument(arr).toJson());
+
+        // Update selected cup to follow the moved item if it was selected
+        int selected = selectedWaterCup();
+        if (selected == from) {
+            setSelectedWaterCup(to);
+        } else if (from < selected && to >= selected) {
+            setSelectedWaterCup(selected - 1);
+        } else if (from > selected && to <= selected) {
+            setSelectedWaterCup(selected + 1);
+        }
+
+        emit waterCupPresetsChanged();
+    }
+}
+
+QVariantMap Settings::getWaterCupPreset(int index) const {
+    QByteArray data = m_settings.value("water/cupPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        return arr[index].toObject().toVariantMap();
+    }
+    return QVariantMap();
+}
+
+// Flush presets
+QVariantList Settings::flushPresets() const {
+    QByteArray data = m_settings.value("flush/presets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QVariantList result;
+    for (const QJsonValue& v : arr) {
+        result.append(v.toObject().toVariantMap());
+    }
+    return result;
+}
+
+int Settings::selectedFlushPreset() const {
+    return m_settings.value("flush/selectedPreset", 0).toInt();
+}
+
+void Settings::setSelectedFlushPreset(int index) {
+    if (selectedFlushPreset() != index) {
+        m_settings.setValue("flush/selectedPreset", index);
+        emit selectedFlushPresetChanged();
+    }
+}
+
+double Settings::flushFlow() const {
+    return m_settings.value("flush/flow", 6.0).toDouble();
+}
+
+void Settings::setFlushFlow(double flow) {
+    if (flushFlow() != flow) {
+        m_settings.setValue("flush/flow", flow);
+        emit flushFlowChanged();
+    }
+}
+
+double Settings::flushSeconds() const {
+    return m_settings.value("flush/seconds", 5.0).toDouble();
+}
+
+void Settings::setFlushSeconds(double seconds) {
+    if (flushSeconds() != seconds) {
+        m_settings.setValue("flush/seconds", seconds);
+        emit flushSecondsChanged();
+    }
+}
+
+void Settings::addFlushPreset(const QString& name, double flow, double seconds) {
+    QByteArray data = m_settings.value("flush/presets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QJsonObject preset;
+    preset["name"] = name;
+    preset["flow"] = flow;
+    preset["seconds"] = seconds;
+    arr.append(preset);
+
+    m_settings.setValue("flush/presets", QJsonDocument(arr).toJson());
+    emit flushPresetsChanged();
+}
+
+void Settings::updateFlushPreset(int index, const QString& name, double flow, double seconds) {
+    QByteArray data = m_settings.value("flush/presets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        QJsonObject preset;
+        preset["name"] = name;
+        preset["flow"] = flow;
+        preset["seconds"] = seconds;
+        arr[index] = preset;
+
+        m_settings.setValue("flush/presets", QJsonDocument(arr).toJson());
+        emit flushPresetsChanged();
+    }
+}
+
+void Settings::removeFlushPreset(int index) {
+    QByteArray data = m_settings.value("flush/presets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        arr.removeAt(index);
+        m_settings.setValue("flush/presets", QJsonDocument(arr).toJson());
+
+        // Adjust selected if needed
+        int selected = selectedFlushPreset();
+        if (selected >= arr.size() && arr.size() > 0) {
+            setSelectedFlushPreset(arr.size() - 1);
+        }
+
+        emit flushPresetsChanged();
+    }
+}
+
+void Settings::moveFlushPreset(int from, int to) {
+    QByteArray data = m_settings.value("flush/presets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (from >= 0 && from < arr.size() && to >= 0 && to < arr.size() && from != to) {
+        QJsonValue item = arr[from];
+        arr.removeAt(from);
+        arr.insert(to, item);
+        m_settings.setValue("flush/presets", QJsonDocument(arr).toJson());
+
+        // Update selected to follow the moved item if it was selected
+        int selected = selectedFlushPreset();
+        if (selected == from) {
+            setSelectedFlushPreset(to);
+        } else if (from < selected && to >= selected) {
+            setSelectedFlushPreset(selected - 1);
+        } else if (from > selected && to <= selected) {
+            setSelectedFlushPreset(selected + 1);
+        }
+
+        emit flushPresetsChanged();
+    }
+}
+
+QVariantMap Settings::getFlushPreset(int index) const {
+    QByteArray data = m_settings.value("flush/presets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < arr.size()) {
+        return arr[index].toObject().toVariantMap();
+    }
+    return QVariantMap();
 }
 
 // UI settings
