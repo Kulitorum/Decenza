@@ -23,6 +23,7 @@ QtObject {
     readonly property color successColor: "#00ff88"
     readonly property color warningColor: "#ffaa00"
     readonly property color errorColor: "#ff4444"
+    readonly property color borderColor: "#3a3a4e"
 
     // Chart line colors (from DE1app dark theme)
     readonly property color pressureColor: "#18c37e"       // Green - actual pressure
