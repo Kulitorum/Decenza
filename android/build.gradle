@@ -1,0 +1,71 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.6.0'
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'io.github.kulitorum.decenza_de1'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 28
+        targetSdk 34
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Copy AAB with versioned filename after bundle task completes
+tasks.whenTaskAdded { task ->
+    if (task.name == 'bundleRelease') {
+        task.doLast {
+            def versionName = android.defaultConfig.versionName ?: "1.0.0"
+            def bundleDir = file("${buildDir}/outputs/bundle/release")
+            def sourceFile = new File(bundleDir, "${rootProject.name}-release.aab")
+
+            // Try alternative name if first doesn't exist
+            if (!sourceFile.exists()) {
+                sourceFile = new File(bundleDir, "android-build-Decenza_DE1-release.aab")
+            }
+
+            if (sourceFile.exists()) {
+                def destFile = new File(bundleDir, "Decenza_DE1-${versionName}.aab")
+                copy {
+                    from sourceFile
+                    into bundleDir
+                    rename { "Decenza_DE1-${versionName}.aab" }
+                }
+                println ""
+                println "=========================================="
+                println "VERSIONED AAB CREATED:"
+                println "${destFile.absolutePath}"
+                println "=========================================="
+                println ""
+            }
+        }
+    }
+}
+
+dependencies {
+}
