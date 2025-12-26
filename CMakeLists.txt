@@ -236,11 +236,14 @@ if(ANDROID)
     add_android_openssl_libraries(Decenza_DE1)
 
     # Custom target to copy AAB with versioned filename
+    # Run after building AAB: cmake --build . --target aab_versioned
     add_custom_target(aab_versioned
-        COMMAND ${CMAKE_COMMAND} -E copy
-            "${CMAKE_BINARY_DIR}/android-build/build/outputs/bundle/release/android-build-release.aab"
-            "${CMAKE_BINARY_DIR}/Decenza_DE1-1.0.${NEXT_BUILD_NUMBER}.aab"
-        COMMENT "Creating versioned AAB: Decenza_DE1-1.0.${NEXT_BUILD_NUMBER}.aab"
+        COMMAND ${CMAKE_COMMAND}
+            -DBUILD_NUMBER_FILE=${BUILD_NUMBER_FILE}
+            -DBUILD_DIR=${CMAKE_BINARY_DIR}
+            -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -P ${CMAKE_SOURCE_DIR}/cmake/CopyVersionedAAB.cmake
+        COMMENT "Creating versioned AAB..."
         VERBATIM
     )
 endif()
