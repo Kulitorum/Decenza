@@ -7,6 +7,7 @@
 class DE1Device;
 class ScaleDevice;
 class Profile;
+class Settings;
 
 class MachineState : public QObject {
     Q_OBJECT
@@ -33,7 +34,8 @@ public:
         Ending,
         Steaming,
         HotWater,
-        Flushing
+        Flushing,
+        Refill
     };
     Q_ENUM(Phase)
 
@@ -47,6 +49,7 @@ public:
     double targetWeight() const { return m_targetWeight; }
 
     void setScale(ScaleDevice* scale);
+    void setSettings(Settings* settings);
     void setTargetWeight(double weight);
 
     // Scale accessors (forward from current scale)
@@ -83,6 +86,7 @@ private:
 
     DE1Device* m_device = nullptr;
     ScaleDevice* m_scale = nullptr;
+    Settings* m_settings = nullptr;
 
     Phase m_phase = Phase::Disconnected;
     double m_shotTime = 0.0;

@@ -1,6 +1,7 @@
 #include "machinestate.h"
 #include "../ble/de1device.h"
 #include "../ble/scaledevice.h"
+#include "../core/settings.h"
 #include <QDateTime>
 #include <QDebug>
 
@@ -64,6 +65,10 @@ void MachineState::setScale(ScaleDevice* scale) {
         // Emit immediately so QML picks up current weight
         emit scaleWeightChanged();
     }
+}
+
+void MachineState::setSettings(Settings* settings) {
+    m_settings = settings;
 }
 
 void MachineState::setTargetWeight(double weight) {
@@ -146,6 +151,10 @@ void MachineState::updatePhase() {
             m_phase = Phase::Flushing;
             break;
 
+        case DE1::State::Refill:
+            m_phase = Phase::Refill;
+            break;
+
         default:
             m_phase = Phase::Idle;
             break;
@@ -173,6 +182,14 @@ void MachineState::updatePhase() {
             startShotTimer();
             m_stopAtWeightTriggered = false;
             m_tareCompleted = false;  // Don't check weight until tare happens
+
+            // Auto-tare for Hot Water (espresso tares at frame 0 via MainController)
+            if (m_phase == Phase::HotWater) {
+                QTimer::singleShot(100, this, [this]() {
+                    tareScale();
+                    qDebug() << "=== TARE: Hot Water started ===";
+                });
+            }
         } else if (!isFlowing() && wasFlowing) {
             stopShotTimer();
         }
@@ -197,7 +214,10 @@ void MachineState::updatePhase() {
 }
 
 void MachineState::onScaleWeightChanged(double weight) {
-    if (isFlowing() && m_device->state() == DE1::State::Espresso) {
+    if (!isFlowing()) return;
+
+    DE1::State state = m_device->state();
+    if (state == DE1::State::Espresso || state == DE1::State::HotWater) {
         checkStopAtWeight(weight);
     }
 }
@@ -205,20 +225,35 @@ void MachineState::onScaleWeightChanged(double weight) {
 void MachineState::checkStopAtWeight(double weight) {
     if (m_stopAtWeightTriggered) return;
     if (!m_tareCompleted) return;  // Don't check until tare has happened
-    if (m_targetWeight <= 0) return;
+
+    // Determine target based on current state
+    double target = 0;
+    DE1::State state = m_device ? m_device->state() : DE1::State::Sleep;
+
+    if (state == DE1::State::HotWater && m_settings) {
+        target = m_settings->waterVolume();  // ml ≈ g for water
+    } else {
+        target = m_targetWeight;  // Espresso target
+    }
+
+    if (target <= 0) return;
 
     // Account for flow rate and lag (simple implementation)
     double flowRate = m_scale ? m_scale->flowRate() : 0;
-    // Cap flow rate to reasonable espresso range (max ~10 g/s)
-    if (flowRate > 10.0) flowRate = 10.0;
+    // Cap flow rate to reasonable range (max ~10 g/s for espresso, higher for water)
+    double maxFlowRate = (state == DE1::State::HotWater) ? 20.0 : 10.0;
+    if (flowRate > maxFlowRate) flowRate = maxFlowRate;
     if (flowRate < 0) flowRate = 0;
-    double lagCompensation = flowRate * 0.5;  // 500ms lag estimate
 
-    if (weight >= (m_targetWeight - lagCompensation)) {
+    // Hot water has higher flow rate, needs more lag compensation
+    double lagSeconds = (state == DE1::State::HotWater) ? 0.9 : 0.5;
+    double lagCompensation = flowRate * lagSeconds;
+
+    if (weight >= (target - lagCompensation)) {
         m_stopAtWeightTriggered = true;
         emit targetWeightReached();
 
-        // Stop the shot
+        // Stop the operation
         if (m_device) {
             m_device->stopOperation();
         }

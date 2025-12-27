@@ -14,7 +14,7 @@ Page {
     }
     StackView.onActivated: root.currentPageTitle = "Flush"
 
-    property bool isFlushing: MachineState.phase === MachineStateType.Phase.Flushing
+    property bool isFlushing: MachineState.phase === MachineStateType.Phase.Flushing || root.debugLiveView
     property int editingPresetIndex: -1
 
     // Get current preset values
@@ -55,36 +55,44 @@ Page {
             Layout.fillHeight: true
             spacing: 20
 
-            // Timer
-            Text {
-                Layout.alignment: Qt.AlignHCenter
-                text: MachineState.shotTime.toFixed(1) + "s"
-                color: Theme.textColor
-                font: Theme.timerFont
-            }
+            Item { Layout.fillHeight: true }
 
-            // Progress indicator
-            Text {
-                Layout.alignment: Qt.AlignHCenter
-                text: "Rinsing group head..."
-                color: Theme.textSecondaryColor
-                font: Theme.bodyFont
+            // Timer with progress bar
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: childrenRect.height
+
+                Column {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 8
+
+                    Text {
+                        id: flushProgressText
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: MachineState.shotTime.toFixed(1) + "s / " + Settings.flushSeconds.toFixed(0) + "s"
+                        color: Theme.textColor
+                        font: Theme.timerFont
+                    }
+
+                    // Progress bar
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: flushProgressText.width
+                        height: 8
+                        radius: 4
+                        color: Theme.surfaceColor
+
+                        Rectangle {
+                            width: parent.width * Math.min(1, MachineState.shotTime / Settings.flushSeconds)
+                            height: parent.height
+                            radius: 4
+                            color: Theme.primaryColor
+                        }
+                    }
+                }
             }
 
             Item { Layout.fillHeight: true }
-
-            // Stop button
-            ActionButton {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 300
-                Layout.preferredHeight: 80
-                text: "STOP"
-                backgroundColor: Theme.accentColor
-                onClicked: {
-                    DE1Device.stopOperation()
-                    root.goToIdle()
-                }
-            }
         }
 
         // === SETTINGS VIEW ===
@@ -371,16 +379,6 @@ Page {
         }
     }
 
-    // Tap anywhere to stop (when flushing)
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        visible: isFlushing
-        onClicked: {
-            DE1Device.stopOperation()
-            root.goToIdle()
-        }
-    }
 
     // Edit preset popup
     Popup {

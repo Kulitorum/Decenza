@@ -34,6 +34,15 @@ void SkaleScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void SkaleScale::onControllerConnected() {
+    qDebug() << "SkaleScale: Controller connected, discovering services...";
+    connect(m_controller, &QLowEnergyController::discoveryFinished,
+            this, [this]() {
+        qDebug() << "SkaleScale: Service discovery finished, service found:" << (m_service != nullptr);
+        if (!m_service) {
+            qWarning() << "SkaleScale: Skale service not found!";
+            emit errorOccurred("Skale service not found");
+        }
+    });
     m_controller->discoverServices();
 }
 

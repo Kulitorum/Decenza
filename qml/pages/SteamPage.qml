@@ -11,7 +11,7 @@ Page {
     Component.onCompleted: root.currentPageTitle = "Steam"
     StackView.onActivated: root.currentPageTitle = "Steam"
 
-    property bool isSteaming: MachineState.phase === MachineStateType.Phase.Steaming
+    property bool isSteaming: MachineState.phase === MachineStateType.Phase.Steaming || root.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
 
     // Helper to format flow as readable value (handles undefined/NaN)
@@ -61,51 +61,57 @@ Page {
             Layout.fillHeight: true
             spacing: 20
 
-            // Timer
-            Text {
+            Item { Layout.fillHeight: true }
+
+            // Timer with target
+            Column {
                 Layout.alignment: Qt.AlignHCenter
-                text: MachineState.shotTime.toFixed(1) + "s"
-                color: Theme.textColor
-                font: Theme.timerFont
+                spacing: 8
+
+                Text {
+                    id: steamProgressText
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: MachineState.shotTime.toFixed(1) + "s / " + Settings.steamTimeout + "s"
+                    color: Theme.textColor
+                    font: Theme.timerFont
+                }
+
+                // Progress bar
+                Rectangle {
+                    width: steamProgressText.width
+                    height: 8
+                    radius: 4
+                    color: Theme.surfaceColor
+
+                    Rectangle {
+                        width: parent.width * Math.min(1, MachineState.shotTime / Settings.steamTimeout)
+                        height: parent.height
+                        radius: 4
+                        color: Theme.primaryColor
+                    }
+                }
             }
 
-            // Temperature display
-            CircularGauge {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 200
-                Layout.preferredHeight: 200
-                value: DE1Device.temperature
-                minValue: 100
-                maxValue: 180
-                unit: "°C"
-                color: Theme.temperatureColor
-                label: "Steam Temp"
-            }
+            Item { Layout.fillHeight: true }
 
-            // Real-time flow slider (can adjust while steaming)
+            // Full-width Steam Flow control
             ColumnLayout {
                 Layout.fillWidth: true
-                Layout.leftMargin: 20
-                Layout.rightMargin: 20
-                spacing: 5
+                Layout.leftMargin: 40
+                Layout.rightMargin: 40
+                spacing: 12
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Steam Flow"
-                        color: Theme.textColor
-                        font: Theme.bodyFont
-                    }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        text: flowToDisplay(steamingFlowSlider.value)
-                        color: Theme.primaryColor
-                        font: Theme.bodyFont
-                    }
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Steam Flow"
+                    color: Theme.textSecondaryColor
+                    font: Theme.bodyFont
                 }
 
                 ValueInput {
                     id: steamingFlowSlider
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 80
                     from: 40
                     to: 250
                     stepSize: 5
@@ -117,22 +123,16 @@ Page {
                         MainController.setSteamFlowImmediate(newValue)
                     }
                 }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Low = flat, High = foamy"
+                    color: Theme.textSecondaryColor
+                    font: Theme.labelFont
+                }
             }
 
             Item { Layout.fillHeight: true }
-
-            // Stop button
-            ActionButton {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 300
-                Layout.preferredHeight: 100
-                text: "STOP"
-                backgroundColor: Theme.accentColor
-                onClicked: {
-                    DE1Device.stopOperation()
-                    root.goToIdle()
-                }
-            }
         }
 
         // === SETTINGS VIEW ===
@@ -472,16 +472,6 @@ Page {
         }
     }
 
-    // Tap anywhere to stop (only when steaming)
-    MouseArea {
-        visible: isSteaming
-        anchors.fill: parent
-        z: -1
-        onClicked: {
-            DE1Device.stopOperation()
-            root.goToIdle()
-        }
-    }
 
     // Edit Pitcher Popup (rename/delete)
     Popup {

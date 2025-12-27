@@ -299,6 +299,122 @@ ApplicationWindow {
         }
     }
 
+    // Water tank refill dialog
+    Dialog {
+        id: refillDialog
+        title: "Refill Water Tank"
+        modal: true
+        anchors.centerIn: parent
+        closePolicy: Popup.NoAutoClose
+
+        Column {
+            spacing: Theme.spacingMedium
+            width: Theme.dialogWidth
+
+            Label {
+                text: "The water tank is empty.\n\nPlease refill the water tank and press OK to continue."
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+            }
+
+            Button {
+                text: "OK"
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: refillDialog.close()
+            }
+        }
+    }
+
+    // Show/hide refill dialog based on machine state
+    Connections {
+        target: MachineState
+        function onPhaseChanged() {
+            if (MachineState.phase === MachineStateType.Phase.Refill) {
+                refillDialog.open()
+            } else if (refillDialog.opened) {
+                refillDialog.close()
+            }
+        }
+    }
+
+    // Completion overlay
+    property string completionMessage: ""
+    property string completionType: ""  // "steam", "hotwater", "flush"
+
+    Rectangle {
+        id: completionOverlay
+        anchors.fill: parent
+        color: Theme.backgroundColor
+        opacity: 0
+        visible: opacity > 0
+        z: 500
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 20
+
+            // Checkmark circle
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 120
+                height: 120
+                radius: 60
+                color: "transparent"
+                border.color: Theme.primaryColor
+                border.width: 4
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "\u2713"  // Checkmark
+                    font.pixelSize: 60
+                    font.bold: true
+                    color: Theme.primaryColor
+                }
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: completionMessage
+                color: Theme.textSecondaryColor
+                font: Theme.bodyFont
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: {
+                    if (completionType === "hotwater") {
+                        return Math.max(0, ScaleDevice.weight).toFixed(0) + "g"
+                    } else {
+                        return MachineState.shotTime.toFixed(1) + "s"
+                    }
+                }
+                color: Theme.textColor
+                font: Theme.timerFont
+            }
+        }
+
+        Behavior on opacity {
+            NumberAnimation { duration: 200 }
+        }
+    }
+
+    Timer {
+        id: completionTimer
+        interval: 3000
+        onTriggered: {
+            completionOverlay.opacity = 0
+            pageStack.replace(idlePage)
+        }
+    }
+
+    function showCompletion(message, type) {
+        completionMessage = message
+        completionType = type
+        completionOverlay.opacity = 1
+        completionTimer.start()
+    }
+
     // First-run welcome dialog
     Dialog {
         id: firstRunDialog
@@ -364,6 +480,8 @@ ApplicationWindow {
     Connections {
         target: MachineState
 
+        property int previousPhase: -1
+
         function onPhaseChanged() {
             // Don't navigate while a transition is in progress
             if (pageStack.busy) return
@@ -371,7 +489,16 @@ ApplicationWindow {
             let phase = MachineState.phase
             let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
 
-            // Only auto-navigate during active operations
+            // Check if we just finished an operation (was active, now idle/ready)
+            let wasActive = (previousPhase === MachineStateType.Phase.Steaming ||
+                            previousPhase === MachineStateType.Phase.HotWater ||
+                            previousPhase === MachineStateType.Phase.Flushing)
+            let isNowIdle = (phase === MachineStateType.Phase.Idle ||
+                            phase === MachineStateType.Phase.Ready ||
+                            phase === MachineStateType.Phase.Sleep ||
+                            phase === MachineStateType.Phase.Heating)
+
+            // Navigate to active operation pages
             if (phase === MachineStateType.Phase.EspressoPreheating ||
                 phase === MachineStateType.Phase.Preinfusion ||
                 phase === MachineStateType.Phase.Pouring ||
@@ -383,12 +510,30 @@ ApplicationWindow {
                 if (currentPage !== "steamPage") {
                     pageStack.replace(steamPage)
                 }
-            } else if (phase === MachineStateType.Phase.HotWater ||
-                       phase === MachineStateType.Phase.Flushing) {
+            } else if (phase === MachineStateType.Phase.HotWater) {
                 if (currentPage !== "hotWaterPage") {
                     pageStack.replace(hotWaterPage)
                 }
+            } else if (phase === MachineStateType.Phase.Flushing) {
+                if (currentPage !== "flushPage") {
+                    pageStack.replace(flushPage)
+                }
+            } else if (wasActive && isNowIdle) {
+                // Operation finished - show completion then return to idle
+                debugLiveView = false  // Reset debug mode
+
+                if (previousPhase === MachineStateType.Phase.Steaming) {
+                    showCompletion("Steam Complete", "steam")
+                } else if (previousPhase === MachineStateType.Phase.HotWater) {
+                    showCompletion("Hot Water Complete", "hotwater")
+                } else if (previousPhase === MachineStateType.Phase.Flushing) {
+                    showCompletion("Flush Complete", "flush")
+                } else {
+                    pageStack.replace(idlePage)
+                }
             }
+
+            previousPhase = phase
         }
     }
 
@@ -461,6 +606,46 @@ ApplicationWindow {
         onClicked: function(mouse) { mouse.accepted = false }
     }
 
+    // Debug page cycling (only in simulation mode)
+    property var debugPages: ["idle", "steam", "hotWater", "flush"]
+    property int debugPageIndex: 0
+    property bool debugLiveView: false  // Forces live view on debug pages
+
+    function cycleDebugPage() {
+        debugPageIndex = (debugPageIndex + 1) % debugPages.length
+        var page = debugPages[debugPageIndex]
+        console.log("Debug: switching to", page, "page (live view)")
+        debugLiveView = (page !== "idle")  // Show live view for non-idle pages
+        switch (page) {
+            case "idle": pageStack.replace(idlePage); break
+            case "steam": pageStack.replace(steamPage); break
+            case "hotWater": pageStack.replace(hotWaterPage); break
+            case "flush": pageStack.replace(flushPage); break
+        }
+    }
+
+    // Double-tap detector for debug mode
+    MouseArea {
+        visible: DE1Device.simulationMode
+        anchors.fill: parent
+        z: 999  // Below inactivity timer but above most content
+        propagateComposedEvents: true
+
+        property real lastClickTime: 0
+
+        onPressed: function(mouse) {
+            var now = Date.now()
+            if (now - lastClickTime < 300) {
+                // Double-tap detected
+                cycleDebugPage()
+            }
+            lastClickTime = now
+            mouse.accepted = false  // Let the touch through
+        }
+        onReleased: function(mouse) { mouse.accepted = false }
+        onClicked: function(mouse) { mouse.accepted = false }
+    }
+
     // Keyboard shortcut handler (Shift+D for simulation mode)
     Item {
         focus: true
@@ -472,6 +657,11 @@ ApplicationWindow {
                 DE1Device.simulationMode = newState
                 if (ScaleDevice) {
                     ScaleDevice.simulationMode = newState
+                }
+                // Reset debug state when turning off simulation mode
+                if (!newState) {
+                    debugLiveView = false
+                    debugPageIndex = 0
                 }
                 event.accepted = true
             }
@@ -493,7 +683,7 @@ ApplicationWindow {
         Text {
             id: simLabel
             anchors.centerIn: parent
-            text: "⚠ SIMULATION MODE (Shift+D to toggle)"
+            text: "⚠ SIMULATION MODE (Shift+D toggle, double-tap cycle pages)"
             color: "white"
             font.pixelSize: 14
             font.bold: true

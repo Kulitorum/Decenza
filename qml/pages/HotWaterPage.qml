@@ -14,7 +14,7 @@ Page {
     }
     StackView.onActivated: root.currentPageTitle = "Hot Water"
 
-    property bool isDispensing: MachineState.phase === MachineStateType.Phase.HotWater
+    property bool isDispensing: MachineState.phase === MachineStateType.Phase.HotWater || root.debugLiveView
     property int editingVesselIndex: -1
 
     // Get current vessel's volume
@@ -50,41 +50,44 @@ Page {
             Layout.fillHeight: true
             spacing: 20
 
-            // Timer
-            Text {
-                Layout.alignment: Qt.AlignHCenter
-                text: MachineState.shotTime.toFixed(1) + "s"
-                color: Theme.textColor
-                font: Theme.timerFont
-            }
+            Item { Layout.fillHeight: true }
 
-            // Temperature display
-            CircularGauge {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 200
-                Layout.preferredHeight: 200
-                value: DE1Device.temperature
-                minValue: 60
-                maxValue: 100
-                unit: "°C"
-                color: Theme.primaryColor
-                label: "Water Temp"
+            // Weight progress with progress bar
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: childrenRect.height
+
+                Column {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 8
+
+                    Text {
+                        id: hotWaterProgressText
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: Math.max(0, ScaleDevice.weight).toFixed(0) + "g / " + Settings.waterVolume + "g"
+                        color: Theme.textColor
+                        font: Theme.timerFont
+                    }
+
+                    // Progress bar
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: hotWaterProgressText.width
+                        height: 8
+                        radius: 4
+                        color: Theme.surfaceColor
+
+                        Rectangle {
+                            width: parent.width * Math.min(1, Math.max(0, ScaleDevice.weight) / Settings.waterVolume)
+                            height: parent.height
+                            radius: 4
+                            color: Theme.primaryColor
+                        }
+                    }
+                }
             }
 
             Item { Layout.fillHeight: true }
-
-            // Stop button
-            ActionButton {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 300
-                Layout.preferredHeight: 80
-                text: "STOP"
-                backgroundColor: Theme.accentColor
-                onClicked: {
-                    DE1Device.stopOperation()
-                    root.goToIdle()
-                }
-            }
         }
 
         // === SETTINGS VIEW ===
@@ -275,13 +278,13 @@ Page {
                     anchors.margins: Theme.scaled(16)
                     spacing: Theme.scaled(8)
 
-                    // Volume (per-vessel, auto-saves)
+                    // Weight (per-vessel, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 16
 
                         Text {
-                            text: "Volume"
+                            text: "Weight"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(24)
                         }
@@ -295,7 +298,7 @@ Page {
                             from: 50
                             to: 500
                             stepSize: 10
-                            suffix: " ml"
+                            suffix: " g"
                             valueColor: Theme.primaryColor
 
                             onValueModified: function(newValue) {
@@ -356,7 +359,7 @@ Page {
         }
 
         Text {
-            text: volumeInput.value.toFixed(0) + " ml"
+            text: volumeInput.value.toFixed(0) + " g"
             color: "white"
             font: Theme.bodyFont
         }
@@ -368,16 +371,6 @@ Page {
         }
     }
 
-    // Tap anywhere to stop (when dispensing)
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        visible: isDispensing
-        onClicked: {
-            DE1Device.stopOperation()
-            root.goToIdle()
-        }
-    }
 
     // Edit vessel preset popup
     Popup {

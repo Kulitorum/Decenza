@@ -59,6 +59,7 @@ int main(int argc, char *argv[])
     FlowScale flowScale;  // Virtual scale using DE1 flow data (always available)
     ShotDataModel shotDataModel;
     MachineState machineState(&de1Device);
+    machineState.setSettings(&settings);
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel);
     ScreensaverVideoManager screensaverManager(&settings);
     BatteryManager batteryManager;
@@ -106,6 +107,9 @@ int main(int argc, char *argv[])
         // If we already have a scale object, just reconnect to it
         if (physicalScale) {
             flowScaleFallbackTimer.stop();  // Stop timer - we found a scale
+            // Re-wire to use physical scale
+            machineState.setScale(physicalScale.get());
+            engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
             physicalScale->connectToDevice(device);
             return;
         }
@@ -134,15 +138,20 @@ int main(int argc, char *argv[])
         QObject::connect(physicalScale.get(), &ScaleDevice::weightChanged,
                          &mainController, &MainController::onScaleWeightChanged);
 
-        // When physical scale disconnects, fall back to FlowScale
+        // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
                          [&physicalScale, &flowScale, &machineState, &engine, &bleManager]() {
-            if (physicalScale && !physicalScale->isConnected()) {
+            if (physicalScale && physicalScale->isConnected()) {
+                // Scale connected - use physical scale
+                machineState.setScale(physicalScale.get());
+                engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
+                qDebug() << "Scale connected - switched to physical scale";
+            } else if (physicalScale) {
+                // Scale disconnected - fall back to FlowScale
                 machineState.setScale(&flowScale);
-                // Update QML context to use FlowScale
                 engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
-                // Show warning popup
                 emit bleManager.scaleDisconnected();
+                qDebug() << "Scale disconnected - switched to FlowScale";
             }
         });
 
