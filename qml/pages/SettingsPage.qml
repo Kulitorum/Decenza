@@ -1725,43 +1725,9 @@ Page {
     }
 
     // Bottom bar with back button
-    Rectangle {
+    BottomBar {
         id: bottomBar
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 70
-        color: Theme.primaryColor
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 20
-            spacing: 15
-
-            // Back button (large hitbox, icon aligned left)
-            RoundButton {
-                Layout.preferredWidth: 80
-                Layout.preferredHeight: 70
-                flat: true
-                icon.source: "qrc:/icons/back.svg"
-                icon.width: 28
-                icon.height: 28
-                icon.color: "white"
-                display: AbstractButton.IconOnly
-                leftPadding: 0
-                rightPadding: 52
-                onClicked: root.goToIdle()
-            }
-
-            Text {
-                text: "Settings"
-                color: "white"
-                font.pixelSize: 20
-                font.bold: true
-            }
-
-            Item { Layout.fillWidth: true }
-        }
+        title: "Settings"
+        onBackClicked: root.goToIdle()
     }
 }

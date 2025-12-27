@@ -447,67 +447,34 @@ Page {
     }
 
     // Bottom bar with back button and ready summary
-    Rectangle {
+    BottomBar {
         visible: !isSteaming
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: Theme.scaled(70)
-        color: Theme.primaryColor
+        title: getCurrentPitcherName() || "No pitcher"
+        onBackClicked: {
+            MainController.applySteamSettings()
+            root.goToIdle()
+        }
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 20
-            spacing: 15
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Theme.spacingMedium
 
-            // Back button (large hitbox, icon aligned left)
-            RoundButton {
-                Layout.preferredWidth: 80
-                Layout.preferredHeight: 70
-                flat: true
-                icon.source: "qrc:/icons/back.svg"
-                icon.width: 28
-                icon.height: 28
-                icon.color: "white"
-                display: AbstractButton.IconOnly
-                leftPadding: 0
-                rightPadding: 52
-                onClicked: {
-                    MainController.applySteamSettings()
-                    root.goToIdle()
-                }
-            }
-
-            // Pitcher name
-            Text {
-                text: getCurrentPitcherName() || "No pitcher"
-                color: "white"
-                font.pixelSize: 20
-                font.bold: true
-            }
-
-            Item { Layout.fillWidth: true }
-
-            // Duration
             Text {
                 text: durationSlider.value.toFixed(0) + "s"
                 color: "white"
                 font: Theme.bodyFont
             }
 
-            Rectangle { width: 1; height: 30; color: "white"; opacity: 0.3 }
+            Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
 
-            // Flow
             Text {
                 text: "Flow " + flowToDisplay(flowSlider.value)
                 color: "white"
                 font: Theme.bodyFont
             }
 
-            Rectangle { width: 1; height: 30; color: "white"; opacity: 0.3 }
+            Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
 
-            // Temp
             Text {
                 text: steamTempSlider.value.toFixed(0) + "°C"
                 color: "white"

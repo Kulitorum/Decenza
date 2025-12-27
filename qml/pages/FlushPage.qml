@@ -345,46 +345,17 @@ Page {
     }
 
     // Bottom bar
-    Rectangle {
+    BottomBar {
         visible: !isFlushing
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: Theme.scaled(70)
-        color: Theme.primaryColor
+        title: getCurrentPresetName() || "Flush"
+        onBackClicked: {
+            MainController.applyFlushSettings()
+            root.goToIdle()
+        }
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 20
-            spacing: 15
-
-            // Back button (large hitbox, icon aligned left)
-            RoundButton {
-                Layout.preferredWidth: 80
-                Layout.preferredHeight: 70
-                flat: true
-                icon.source: "qrc:/icons/back.svg"
-                icon.width: 28
-                icon.height: 28
-                icon.color: "white"
-                display: AbstractButton.IconOnly
-                leftPadding: 0
-                rightPadding: 52
-                onClicked: {
-                    MainController.applyFlushSettings()
-                    root.goToIdle()
-                }
-            }
-
-            Text {
-                text: getCurrentPresetName() || "Flush"
-                color: "white"
-                font.pixelSize: 20
-                font.bold: true
-            }
-
-            Item { Layout.fillWidth: true }
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Theme.spacingMedium
 
             Text {
                 text: secondsInput.value.toFixed(1) + "s"
@@ -392,7 +363,7 @@ Page {
                 font: Theme.bodyFont
             }
 
-            Rectangle { width: 1; height: 30; color: "white"; opacity: 0.3 }
+            Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
 
             Text {
                 text: flowInput.value.toFixed(1) + " mL/s"

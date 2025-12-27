@@ -292,48 +292,15 @@ Page {
     }
 
     // Bottom bar
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 70
-        color: Theme.primaryColor
+    BottomBar {
+        title: "Profiles"
+        onBackClicked: root.goBack()
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 20
-            spacing: 15
-
-            // Back button (large hitbox, icon aligned left)
-            RoundButton {
-                Layout.preferredWidth: 80
-                Layout.preferredHeight: 70
-                flat: true
-                icon.source: "qrc:/icons/back.svg"
-                icon.width: 28
-                icon.height: 28
-                icon.color: "white"
-                display: AbstractButton.IconOnly
-                leftPadding: 0
-                rightPadding: 52
-                onClicked: root.goBack()
-            }
-
-            Text {
-                text: "Profiles"
-                color: "white"
-                font.pixelSize: 20
-                font.bold: true
-            }
-
-            Item { Layout.fillWidth: true }
-
-            Text {
-                text: "Current: " + MainController.currentProfileName
-                color: "white"
-                font: Theme.bodyFont
-            }
+        Text {
+            text: "Current: " + MainController.currentProfileName
+            color: "white"
+            font: Theme.bodyFont
+            anchors.verticalCenter: parent.verticalCenter
         }
     }
 }
