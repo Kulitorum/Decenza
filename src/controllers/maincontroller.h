@@ -22,6 +22,7 @@ class MainController : public QObject {
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(QVariantList availableProfiles READ availableProfiles NOTIFY profilesChanged)
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT)
+    Q_PROPERTY(bool calibrationMode READ isCalibrationMode NOTIFY calibrationModeChanged)
 
 public:
     explicit MainController(Settings* settings, DE1Device* device,
@@ -35,6 +36,7 @@ public:
     void setTargetWeight(double weight);
     QVariantList availableProfiles() const;
     VisualizerUploader* visualizer() const { return m_visualizer; }
+    bool isCalibrationMode() const { return m_calibrationMode; }
 
     const Profile& currentProfile() const { return m_currentProfile; }
 
@@ -55,6 +57,11 @@ public slots:
     void applyHotWaterSettings();
     void applyFlushSettings();
 
+    // Flow sensor calibration
+    Q_INVOKABLE void startCalibrationDispense(double flowRate, double targetWeight);
+    Q_INVOKABLE void startVerificationDispense(double targetWeight);  // Uses FlowScale to stop
+    Q_INVOKABLE void restoreCurrentProfile();
+
     // Real-time steam setting updates
     void setSteamTemperatureImmediate(double temp);
     void setSteamFlowImmediate(int flow);
@@ -69,6 +76,7 @@ signals:
     void profileModifiedChanged();
     void targetWeightChanged();
     void profilesChanged();
+    void calibrationModeChanged();
 
 private slots:
     void onShotSampleReceived(const ShotSample& sample);
@@ -95,6 +103,7 @@ private:
 
     QString m_baseProfileName;
     bool m_profileModified = false;
+    bool m_calibrationMode = false;
 
     QTimer m_settingsTimer;  // Delayed settings application after connection
 };

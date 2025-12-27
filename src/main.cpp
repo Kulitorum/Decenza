@@ -60,6 +60,8 @@ int main(int argc, char *argv[])
     ShotDataModel shotDataModel;
     MachineState machineState(&de1Device);
     machineState.setSettings(&settings);
+    machineState.setFlowScale(&flowScale);  // For calibration - always receives flow samples
+    flowScale.setSettings(&settings);
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel);
     ScreensaverVideoManager screensaverManager(&settings);
     BatteryManager batteryManager;
@@ -183,6 +185,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
+    context->setContextProperty("FlowScale", &flowScale);  // Always available for calibration
     context->setContextProperty("MachineState", &machineState);
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("MainController", &mainController);

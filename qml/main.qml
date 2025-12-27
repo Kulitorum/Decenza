@@ -14,6 +14,9 @@ ApplicationWindow {
     title: "Decenza DE1"
     color: Theme.backgroundColor
 
+    // Flag to prevent navigation during flow calibration
+    property bool calibrationInProgress: false
+
     // Put machine and scale to sleep when closing the app
     onClosing: function(close) {
         // Send scale sleep first (it's faster/simpler)
@@ -498,12 +501,12 @@ ApplicationWindow {
                             phase === MachineStateType.Phase.Sleep ||
                             phase === MachineStateType.Phase.Heating)
 
-            // Navigate to active operation pages
+            // Navigate to active operation pages (skip during calibration mode)
             if (phase === MachineStateType.Phase.EspressoPreheating ||
                 phase === MachineStateType.Phase.Preinfusion ||
                 phase === MachineStateType.Phase.Pouring ||
                 phase === MachineStateType.Phase.Ending) {
-                if (currentPage !== "espressoPage") {
+                if (currentPage !== "espressoPage" && !root.calibrationInProgress) {
                     pageStack.replace(espressoPage)
                 }
             } else if (phase === MachineStateType.Phase.Steaming) {

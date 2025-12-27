@@ -493,6 +493,116 @@ void MainController::setSteamTimeoutImmediate(int timeout) {
     qDebug() << "Steam timeout set to:" << timeout;
 }
 
+void MainController::startCalibrationDispense(double flowRate, double targetWeight) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    // Create a simple calibration profile with a single flow-controlled frame
+    Profile calibrationProfile;
+    calibrationProfile.setTitle("Calibration");
+    calibrationProfile.setTargetWeight(targetWeight);
+    calibrationProfile.setMode(Profile::Mode::FrameBased);
+
+    // Single frame: flow control at the target flow rate
+    // Use volume limit so DE1 stops based on its own flow sensor (what we're calibrating)
+    ProfileFrame frame;
+    frame.name = "Calibration";
+    frame.pump = "flow";           // Flow control mode
+    frame.flow = flowRate;         // Target flow rate in mL/s
+    frame.temperature = m_settings->waterTemperature();  // Use hot water temp
+    frame.sensor = "water";        // Use mix temp sensor (not basket/coffee)
+    frame.transition = "fast";     // Instant transition
+    frame.seconds = 120.0;         // 2 minutes max timeout
+    frame.volume = targetWeight;   // DE1 stops when its flow sensor thinks this much dispensed
+    frame.pressure = 0;            // Not used in flow mode
+    frame.maxFlowOrPressure = 0;   // No limiter needed
+
+    calibrationProfile.addStep(frame);
+    calibrationProfile.setPreinfuseFrameCount(0);  // No preinfusion
+
+    // Disable stop-at-weight during calibration - let DE1's volume limit stop instead
+    // Set a very high target so app's stop-at-weight doesn't interfere
+    if (m_machineState) {
+        m_machineState->setTargetWeight(999);
+    }
+
+    // Enter calibration mode (prevents navigation to espresso page)
+    m_calibrationMode = true;
+    emit calibrationModeChanged();
+
+    // Tare the scale for the user before starting
+    if (m_machineState) {
+        m_machineState->tareScale();
+    }
+
+    // Upload calibration profile (user must press espresso button on DE1)
+    m_device->uploadProfile(calibrationProfile);
+
+    qDebug() << "=== CALIBRATION READY: flow" << flowRate << "mL/s, target" << targetWeight << "g - press espresso button ===";
+}
+
+void MainController::startVerificationDispense(double targetWeight) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    // Create verification profile - uses FlowScale (with calibration factor) to stop
+    Profile verificationProfile;
+    verificationProfile.setTitle("Verification");
+    verificationProfile.setTargetWeight(targetWeight);
+    verificationProfile.setMode(Profile::Mode::FrameBased);
+
+    // Single frame: flow control at medium rate, NO volume limit
+    // FlowScale's calibrated weight will trigger stop-at-weight
+    ProfileFrame frame;
+    frame.name = "Verification";
+    frame.pump = "flow";
+    frame.flow = 6.0;  // Medium flow rate
+    frame.temperature = m_settings->waterTemperature();
+    frame.sensor = "water";
+    frame.transition = "fast";
+    frame.seconds = 120.0;  // Long timeout - FlowScale will stop it
+    frame.volume = 0;       // NO volume limit - let FlowScale stop
+    frame.pressure = 0;
+    frame.maxFlowOrPressure = 0;
+
+    verificationProfile.addStep(frame);
+    verificationProfile.setPreinfuseFrameCount(0);
+
+    // Enable stop-at-weight using FlowScale's calibrated weight
+    if (m_machineState) {
+        m_machineState->setTargetWeight(targetWeight);
+    }
+
+    // Enter calibration mode (prevents navigation)
+    m_calibrationMode = true;
+    emit calibrationModeChanged();
+
+    // Tare the scale
+    if (m_machineState) {
+        m_machineState->tareScale();
+    }
+
+    // Upload profile
+    m_device->uploadProfile(verificationProfile);
+
+    qDebug() << "=== VERIFICATION READY: target" << targetWeight << "g using FlowScale - press espresso button ===";
+}
+
+void MainController::restoreCurrentProfile() {
+    // Exit calibration mode
+    m_calibrationMode = false;
+    emit calibrationModeChanged();
+
+    // Re-upload the user's actual profile after calibration
+    if (m_device && m_device->isConnected()) {
+        uploadCurrentProfile();
+
+        // Also restore the target weight from the profile
+        if (m_machineState) {
+            m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        }
+    }
+    qDebug() << "=== RESTORED PROFILE:" << m_currentProfile.title() << "===";
+}
+
 void MainController::onEspressoCycleStarted() {
     // Clear the graph when entering espresso preheating (new cycle from idle)
     // This preserves preheating data since we only clear at cycle start

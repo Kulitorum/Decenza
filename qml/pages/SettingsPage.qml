@@ -1014,6 +1014,85 @@ Page {
                     }
                 }
 
+                // Flow Sensor Calibration
+                Rectangle {
+                    Layout.preferredWidth: 300
+                    Layout.fillHeight: true
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 15
+                        spacing: 10
+
+                        Text {
+                            text: "Flow Sensor Calibration"
+                            color: Theme.textColor
+                            font.pixelSize: 16
+                            font.bold: true
+                        }
+
+                        Text {
+                            text: "Calibrate the virtual scale for users without a BLE scale"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Item { height: 5 }
+
+                        // Current factor display
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            Text {
+                                text: "Current factor:"
+                                color: Theme.textSecondaryColor
+                            }
+
+                            Text {
+                                text: Settings.flowCalibrationFactor.toFixed(3)
+                                color: Theme.primaryColor
+                                font.bold: true
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+
+                        // Calibration button
+                        Button {
+                            Layout.fillWidth: true
+                            text: "Start Calibration"
+                            enabled: DE1Device.connected
+                            onClicked: flowCalibrationDialog.open()
+                            background: Rectangle {
+                                radius: 6
+                                color: parent.enabled ? Theme.primaryColor : Theme.backgroundColor
+                                border.color: parent.enabled ? Theme.primaryColor : Theme.textSecondaryColor
+                                border.width: 1
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled ? "white" : Theme.textSecondaryColor
+                                font.pixelSize: 14
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        Text {
+                            text: "Requires a separate scale to measure water weight"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+
                 // Spacer
                 Item { Layout.fillWidth: true }
             }
@@ -1722,6 +1801,578 @@ Page {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Flow Calibration Dialog
+    Dialog {
+        id: flowCalibrationDialog
+        modal: true
+        x: (parent.width - width) / 2
+        y: (parent.height - height) / 2 - 30  // Shift up slightly for bottom headroom
+        width: 500
+        height: 540
+        closePolicy: Popup.NoAutoClose
+        padding: 20
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.textSecondaryColor
+            border.width: 1
+        }
+
+        header: Text {
+            text: "Flow Sensor Calibration"
+            color: Theme.textColor
+            font: Theme.subtitleFont
+            padding: 20
+            bottomPadding: 0
+        }
+
+        property int currentStep: 0  // 0=intro, 1-3=tests, 4=results, 5=verification
+        property var testFlows: [3.0, 6.0, 9.0]  // ml/s
+        property var testNames: ["Low", "Medium", "High"]
+        property var measuredWeights: [0, 0, 0]
+        property var flowIntegrals: [0, 0, 0]
+        property bool isDispensing: false
+        property double currentFlowIntegral: 0
+        // Verification step
+        property double verificationTarget: 100
+        property double verificationFlowScaleWeight: 0
+        property double verificationActualWeight: 0
+        property bool verificationComplete: false
+
+        onOpened: {
+            currentStep = 0
+            measuredWeights = [0, 0, 0]
+            flowIntegrals = [0, 0, 0]
+            isDispensing = false
+            currentFlowIntegral = 0
+            verificationFlowScaleWeight = 0
+            verificationActualWeight = 0
+            verificationComplete = false
+        }
+
+        onClosed: {
+            // Clear calibration flag and restore the user's original profile
+            root.calibrationInProgress = false
+            MainController.restoreCurrentProfile()
+        }
+
+        // Track when calibration shot ends
+        Connections {
+            target: MachineState
+            enabled: flowCalibrationDialog.isDispensing
+
+            function onShotEnded() {
+                if (!flowCalibrationDialog.isDispensing) return
+
+                if (flowCalibrationDialog.currentStep === 5) {
+                    // Verification complete - save FlowScale's calibrated weight
+                    flowCalibrationDialog.verificationFlowScaleWeight = FlowScale.weight
+                    flowCalibrationDialog.verificationComplete = true
+                    flowCalibrationDialog.isDispensing = false
+                    console.log("Verification complete: FlowScale=" + FlowScale.weight.toFixed(1) + "g")
+                } else {
+                    // Calibration test - save the raw flow integral
+                    var testIdx = flowCalibrationDialog.currentStep - 1
+                    // Must replace array to trigger QML binding updates
+                    var newIntegrals = flowCalibrationDialog.flowIntegrals.slice()
+                    newIntegrals[testIdx] = FlowScale.rawFlowIntegral
+                    flowCalibrationDialog.flowIntegrals = newIntegrals
+                    flowCalibrationDialog.isDispensing = false
+                    console.log("Calibration test " + (testIdx + 1) + " complete: raw=" + FlowScale.rawFlowIntegral.toFixed(1) + "g")
+                }
+            }
+        }
+
+        // Update current flow integral display from FlowScale
+        Connections {
+            target: FlowScale
+            enabled: flowCalibrationDialog.isDispensing
+
+            function onRawFlowIntegralChanged() {
+                flowCalibrationDialog.currentFlowIntegral = FlowScale.rawFlowIntegral
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 15
+
+            // Step indicator
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 10
+
+                Repeater {
+                    model: 6
+                    Rectangle {
+                        width: 30
+                        height: 30
+                        radius: 15
+                        color: index <= flowCalibrationDialog.currentStep ? Theme.primaryColor : Theme.surfaceColor
+                        border.color: Theme.primaryColor
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: index === 0 ? "!" : (index === 5 ? "✓" : index)
+                            color: index <= flowCalibrationDialog.currentStep ? "white" : Theme.textSecondaryColor
+                            font.bold: true
+                        }
+                    }
+                }
+            }
+
+            // Content based on step
+            StackLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                currentIndex: flowCalibrationDialog.currentStep
+
+                // Step 0: Introduction
+                ColumnLayout {
+                    spacing: 15
+
+                    Text {
+                        text: "Calibrate Your Flow Sensor"
+                        color: Theme.textColor
+                        font.pixelSize: 18
+                        font.bold: true
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Text {
+                        text: "This wizard will dispense water at 3 different flow rates.\n\nYou'll need:\n• A separate scale (kitchen scale, etc.)\n• An empty cup\n• About 300g of water total (100g per test)"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: 14
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
+                        text: "After each test, enter the weight shown on your scale."
+                        color: Theme.textColor
+                        font.pixelSize: 14
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+
+                // Steps 1-3: Test runs
+                Repeater {
+                    model: 3
+
+                    ColumnLayout {
+                        id: testStep
+                        property int testIndex: index  // Capture index for this item
+                        spacing: 15
+
+                        Text {
+                            text: "Test " + (testStep.testIndex + 1) + ": " + flowCalibrationDialog.testNames[testStep.testIndex] + " Flow"
+                            color: Theme.textColor
+                            font.pixelSize: 18
+                            font.bold: true
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+
+                        Text {
+                            text: flowCalibrationDialog.isDispensing ?
+                                  "Dispensing water... (will stop at ~100g)" :
+                                  flowCalibrationDialog.flowIntegrals[testStep.testIndex] > 0 ?
+                                      "Enter the weight from your scale below, then press Next" :
+                                      "1. Place empty cup on your scale (will auto-tare)\n2. Press 'Ready' then press espresso button on DE1"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 14
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        // Dispensing indicator
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            width: 150
+                            height: 150
+                            radius: 75
+                            color: "transparent"
+                            border.color: flowCalibrationDialog.isDispensing ? Theme.primaryColor : Theme.surfaceColor
+                            border.width: 4
+                            visible: flowCalibrationDialog.currentStep === testStep.testIndex + 1
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: flowCalibrationDialog.isDispensing ?
+                                      flowCalibrationDialog.currentFlowIntegral.toFixed(0) + "g\n(raw)" :
+                                      flowCalibrationDialog.flowIntegrals[testStep.testIndex] > 0 ?
+                                          flowCalibrationDialog.flowIntegrals[testStep.testIndex].toFixed(0) + "g\n(raw)" :
+                                          "Ready"
+                                color: flowCalibrationDialog.isDispensing || flowCalibrationDialog.flowIntegrals[testStep.testIndex] > 0 ?
+                                       Theme.primaryColor : Theme.textSecondaryColor
+                                font.pixelSize: 24
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                        }
+
+                        // Weight input (after dispensing)
+                        ColumnLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 10
+                            visible: flowCalibrationDialog.flowIntegrals[testStep.testIndex] > 0
+
+                            Text {
+                                text: "Actual weight from your scale:"
+                                color: Theme.textColor
+                                Layout.alignment: Qt.AlignHCenter
+                            }
+
+                            ValueInput {
+                                id: weightInput
+                                Layout.preferredWidth: 150
+                                Layout.alignment: Qt.AlignHCenter
+                                value: 100
+                                from: 50
+                                to: 200
+                                stepSize: 1
+                                suffix: " g"
+                                valueColor: Theme.primaryColor
+
+                                onValueModified: function(newValue) {
+                                    weightInput.value = newValue
+                                    // Must replace array to trigger QML binding updates
+                                    var newWeights = flowCalibrationDialog.measuredWeights.slice()
+                                    newWeights[testStep.testIndex] = newValue
+                                    flowCalibrationDialog.measuredWeights = newWeights
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+                    }
+                }
+
+                // Step 4: Results
+                ColumnLayout {
+                    spacing: 15
+
+                    Text {
+                        text: "Calibration Results"
+                        color: Theme.textColor
+                        font.pixelSize: 18
+                        font.bold: true
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    // Results table
+                    GridLayout {
+                        columns: 4
+                        rowSpacing: 8
+                        columnSpacing: 20
+                        Layout.alignment: Qt.AlignHCenter
+
+                        Text { text: "Test"; color: Theme.textSecondaryColor; font.bold: true }
+                        Text { text: "Raw Flow"; color: Theme.textSecondaryColor; font.bold: true }
+                        Text { text: "Actual"; color: Theme.textSecondaryColor; font.bold: true }
+                        Text { text: "Factor"; color: Theme.textSecondaryColor; font.bold: true }
+
+                        // Low
+                        Text { text: "Low"; color: Theme.textColor }
+                        Text { text: flowCalibrationDialog.flowIntegrals[0].toFixed(1) + "g"; color: Theme.textColor }
+                        Text { text: flowCalibrationDialog.measuredWeights[0].toFixed(1) + "g"; color: Theme.textColor }
+                        Text {
+                            text: flowCalibrationDialog.flowIntegrals[0] > 0 ?
+                                  (flowCalibrationDialog.measuredWeights[0] / flowCalibrationDialog.flowIntegrals[0]).toFixed(3) : "-"
+                            color: Theme.primaryColor
+                            font.bold: true
+                        }
+
+                        // Medium
+                        Text { text: "Medium"; color: Theme.textColor }
+                        Text { text: flowCalibrationDialog.flowIntegrals[1].toFixed(1) + "g"; color: Theme.textColor }
+                        Text { text: flowCalibrationDialog.measuredWeights[1].toFixed(1) + "g"; color: Theme.textColor }
+                        Text {
+                            text: flowCalibrationDialog.flowIntegrals[1] > 0 ?
+                                  (flowCalibrationDialog.measuredWeights[1] / flowCalibrationDialog.flowIntegrals[1]).toFixed(3) : "-"
+                            color: Theme.primaryColor
+                            font.bold: true
+                        }
+
+                        // High
+                        Text { text: "High"; color: Theme.textColor }
+                        Text { text: flowCalibrationDialog.flowIntegrals[2].toFixed(1) + "g"; color: Theme.textColor }
+                        Text { text: flowCalibrationDialog.measuredWeights[2].toFixed(1) + "g"; color: Theme.textColor }
+                        Text {
+                            text: flowCalibrationDialog.flowIntegrals[2] > 0 ?
+                                  (flowCalibrationDialog.measuredWeights[2] / flowCalibrationDialog.flowIntegrals[2]).toFixed(3) : "-"
+                            color: Theme.primaryColor
+                            font.bold: true
+                        }
+                    }
+
+                    Item { height: 10 }
+
+                    // Average factor
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 15
+
+                        Text {
+                            text: "Average calibration factor:"
+                            color: Theme.textColor
+                            font.pixelSize: 16
+                        }
+
+                        Text {
+                            id: averageFactorText
+                            text: {
+                                var sum = 0
+                                var count = 0
+                                for (var i = 0; i < 3; i++) {
+                                    if (flowCalibrationDialog.flowIntegrals[i] > 0 && flowCalibrationDialog.measuredWeights[i] > 0) {
+                                        sum += flowCalibrationDialog.measuredWeights[i] / flowCalibrationDialog.flowIntegrals[i]
+                                        count++
+                                    }
+                                }
+                                return count > 0 ? (sum / count).toFixed(3) : "-"
+                            }
+                            color: Theme.primaryColor
+                            font.pixelSize: 24
+                            font.bold: true
+                        }
+                    }
+
+                    Item { Layout.fillHeight: true }
+                }
+
+                // Step 5: Verification
+                ColumnLayout {
+                    spacing: 12
+
+                    Text {
+                        text: "Verify Calibration"
+                        color: Theme.textColor
+                        font.pixelSize: 18
+                        font.bold: true
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    // Show saved calibration factor
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 10
+
+                        Text {
+                            text: "Saved factor:"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 14
+                        }
+                        Text {
+                            text: Settings.flowCalibrationFactor.toFixed(3)
+                            color: Theme.primaryColor
+                            font.pixelSize: 16
+                            font.bold: true
+                        }
+                    }
+
+                    // Compact results table
+                    GridLayout {
+                        columns: 4
+                        rowSpacing: 4
+                        columnSpacing: 12
+                        Layout.alignment: Qt.AlignHCenter
+
+                        Text { text: "Test"; color: Theme.textSecondaryColor; font.pixelSize: 12 }
+                        Text { text: "Raw"; color: Theme.textSecondaryColor; font.pixelSize: 12 }
+                        Text { text: "Actual"; color: Theme.textSecondaryColor; font.pixelSize: 12 }
+                        Text { text: "Factor"; color: Theme.textSecondaryColor; font.pixelSize: 12 }
+
+                        Text { text: "Low"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.flowIntegrals[0].toFixed(0) + "g"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.measuredWeights[0].toFixed(0) + "g"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.flowIntegrals[0] > 0 ? (flowCalibrationDialog.measuredWeights[0] / flowCalibrationDialog.flowIntegrals[0]).toFixed(2) : "-"; color: Theme.primaryColor; font.pixelSize: 12 }
+
+                        Text { text: "Med"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.flowIntegrals[1].toFixed(0) + "g"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.measuredWeights[1].toFixed(0) + "g"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.flowIntegrals[1] > 0 ? (flowCalibrationDialog.measuredWeights[1] / flowCalibrationDialog.flowIntegrals[1]).toFixed(2) : "-"; color: Theme.primaryColor; font.pixelSize: 12 }
+
+                        Text { text: "High"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.flowIntegrals[2].toFixed(0) + "g"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.measuredWeights[2].toFixed(0) + "g"; color: Theme.textColor; font.pixelSize: 12 }
+                        Text { text: flowCalibrationDialog.flowIntegrals[2] > 0 ? (flowCalibrationDialog.measuredWeights[2] / flowCalibrationDialog.flowIntegrals[2]).toFixed(2) : "-"; color: Theme.primaryColor; font.pixelSize: 12 }
+                    }
+
+                    Rectangle { height: 1; Layout.fillWidth: true; color: Theme.surfaceColor }
+
+                    Text {
+                        text: flowCalibrationDialog.verificationComplete ?
+                              "Verification complete! Compare the weights below." :
+                              flowCalibrationDialog.isDispensing ?
+                              "Dispensing... FlowScale will stop at " + flowCalibrationDialog.verificationTarget + "g" :
+                              "Dispense " + flowCalibrationDialog.verificationTarget + "g using the new calibration.\nTare your external scale, then press Start."
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: 13
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    // Live weight display during verification
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        width: 150
+                        height: 80
+                        radius: 8
+                        color: Theme.backgroundColor
+                        border.color: flowCalibrationDialog.isDispensing ? Theme.primaryColor : Theme.surfaceColor
+                        border.width: 2
+                        visible: flowCalibrationDialog.isDispensing || flowCalibrationDialog.verificationComplete
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: flowCalibrationDialog.verificationComplete ?
+                                  flowCalibrationDialog.verificationFlowScaleWeight.toFixed(1) + "g\n(FlowScale)" :
+                                  FlowScale.weight.toFixed(1) + "g"
+                            color: Theme.primaryColor
+                            font.pixelSize: 20
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+
+                    // Input for actual weight after verification
+                    ColumnLayout {
+                        visible: flowCalibrationDialog.verificationComplete
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 10
+
+                        Text {
+                            text: "Enter actual weight from your scale:"
+                            color: Theme.textColor
+                            font.pixelSize: 14
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+
+                        ValueInput {
+                            id: verificationWeightInput
+                            value: flowCalibrationDialog.verificationActualWeight > 0 ? flowCalibrationDialog.verificationActualWeight : 100
+                            from: 0
+                            to: 500
+                            decimals: 1
+                            stepSize: 0.5
+                            suffix: "g"
+                            width: 150
+                            Layout.alignment: Qt.AlignHCenter
+                            onValueModified: flowCalibrationDialog.verificationActualWeight = newValue
+                        }
+
+                        // Comparison result
+                        Text {
+                            visible: flowCalibrationDialog.verificationActualWeight > 0
+                            text: {
+                                var diff = flowCalibrationDialog.verificationActualWeight - flowCalibrationDialog.verificationFlowScaleWeight
+                                var pct = (diff / flowCalibrationDialog.verificationFlowScaleWeight * 100).toFixed(1)
+                                if (Math.abs(diff) < 3) {
+                                    return "✓ Excellent! Difference: " + diff.toFixed(1) + "g (" + pct + "%)"
+                                } else if (Math.abs(diff) < 5) {
+                                    return "Good. Difference: " + diff.toFixed(1) + "g (" + pct + "%)"
+                                } else {
+                                    return "Consider re-calibrating. Difference: " + diff.toFixed(1) + "g (" + pct + "%)"
+                                }
+                            }
+                            color: {
+                                var diff = Math.abs(flowCalibrationDialog.verificationActualWeight - flowCalibrationDialog.verificationFlowScaleWeight)
+                                return diff < 3 ? Theme.primaryColor : (diff < 5 ? Theme.textColor : Theme.warningColor)
+                            }
+                            font.pixelSize: 14
+                            font.bold: true
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+                    }
+                }
+            }
+
+            // Navigation buttons
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                Button {
+                    text: "Cancel"
+                    onClicked: flowCalibrationDialog.close()
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Button {
+                    id: calibrationNextButton
+                    text: flowCalibrationDialog.currentStep === 0 ? "Start" :
+                          flowCalibrationDialog.currentStep < 4 ?
+                              (flowCalibrationDialog.isDispensing ? "Waiting..." :
+                               flowCalibrationDialog.flowIntegrals[flowCalibrationDialog.currentStep - 1] > 0 ? "Next" : "Ready") :
+                          flowCalibrationDialog.currentStep === 4 ? "Save and Verify" :
+                          flowCalibrationDialog.isDispensing ? "Waiting..." :
+                          flowCalibrationDialog.verificationComplete ? "Done" : "Start"
+                    enabled: !flowCalibrationDialog.isDispensing
+
+                    contentItem: Text {
+                        text: calibrationNextButton.text
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    onClicked: {
+                        if (flowCalibrationDialog.currentStep === 0) {
+                            // Start first test
+                            flowCalibrationDialog.currentStep = 1
+                        } else if (flowCalibrationDialog.currentStep < 4) {
+                            var testIdx = flowCalibrationDialog.currentStep - 1
+                            if (flowCalibrationDialog.flowIntegrals[testIdx] === 0) {
+                                // Upload calibration profile - user must press espresso button
+                                FlowScale.resetRawFlowIntegral()  // Reset raw integral tracking
+                                flowCalibrationDialog.currentFlowIntegral = 0
+                                flowCalibrationDialog.isDispensing = true
+                                root.calibrationInProgress = true  // Prevent navigation to espresso page
+                                var flowRate = flowCalibrationDialog.testFlows[testIdx]
+                                MainController.startCalibrationDispense(flowRate, 100)  // 100g target for better precision
+                            } else if (flowCalibrationDialog.measuredWeights[testIdx] > 0) {
+                                // Move to next step
+                                flowCalibrationDialog.currentStep++
+                            }
+                        } else if (flowCalibrationDialog.currentStep === 4) {
+                            // Save factor and go to verification
+                            var sum = 0
+                            var count = 0
+                            for (var i = 0; i < 3; i++) {
+                                if (flowCalibrationDialog.flowIntegrals[i] > 0 && flowCalibrationDialog.measuredWeights[i] > 0) {
+                                    sum += flowCalibrationDialog.measuredWeights[i] / flowCalibrationDialog.flowIntegrals[i]
+                                    count++
+                                }
+                            }
+                            if (count > 0) {
+                                Settings.flowCalibrationFactor = sum / count
+                            }
+                            flowCalibrationDialog.currentStep = 5
+                        } else if (flowCalibrationDialog.currentStep === 5) {
+                            if (flowCalibrationDialog.verificationComplete) {
+                                // Done - close dialog
+                                flowCalibrationDialog.close()
+                            } else {
+                                // Start verification dispense
+                                FlowScale.resetWeight()  // Tare FlowScale before verification
+                                flowCalibrationDialog.isDispensing = true
+                                root.calibrationInProgress = true
+                                MainController.startVerificationDispense(flowCalibrationDialog.verificationTarget)
                             }
                         }
                     }

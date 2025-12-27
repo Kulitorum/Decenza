@@ -49,6 +49,7 @@ public:
     double targetWeight() const { return m_targetWeight; }
 
     void setScale(ScaleDevice* scale);
+    void setFlowScale(ScaleDevice* flowScale);  // For calibration - always receives flow samples
     void setSettings(Settings* settings);
     void setTargetWeight(double weight);
 
@@ -86,6 +87,7 @@ private:
 
     DE1Device* m_device = nullptr;
     ScaleDevice* m_scale = nullptr;
+    ScaleDevice* m_flowScale = nullptr;  // FlowScale for calibration (always receives flow samples)
     Settings* m_settings = nullptr;
 
     Phase m_phase = Phase::Disconnected;

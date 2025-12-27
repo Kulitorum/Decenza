@@ -119,6 +119,18 @@ void Settings::setScaleType(const QString& type) {
     }
 }
 
+// Flow sensor calibration
+double Settings::flowCalibrationFactor() const {
+    return m_settings.value("flow/calibrationFactor", 0.78).toDouble();
+}
+
+void Settings::setFlowCalibrationFactor(double factor) {
+    if (flowCalibrationFactor() != factor) {
+        m_settings.setValue("flow/calibrationFactor", factor);
+        emit flowCalibrationFactorChanged();
+    }
+}
+
 // Espresso settings
 double Settings::espressoTemperature() const {
     return m_settings.value("espresso/temperature", 93.0).toDouble();
