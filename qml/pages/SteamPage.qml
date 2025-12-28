@@ -61,6 +61,44 @@ Page {
             Layout.fillHeight: true
             spacing: 20
 
+            // Preset pills for quick switching during steaming
+            Row {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 8
+
+                Repeater {
+                    model: Settings.steamPitcherPresets
+
+                    Rectangle {
+                        width: livePitcherText.implicitWidth + 24
+                        height: 36
+                        radius: 18
+                        color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.surfaceColor
+                        border.color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
+                        border.width: 1
+
+                        Text {
+                            id: livePitcherText
+                            anchors.centerIn: parent
+                            text: modelData.name
+                            color: index === Settings.selectedSteamPitcher ? "white" : Theme.textColor
+                            font: Theme.bodyFont
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                Settings.selectedSteamPitcher = index
+                                var flow = modelData.flow !== undefined ? modelData.flow : 150
+                                Settings.steamTimeout = modelData.duration
+                                Settings.steamFlow = flow
+                                MainController.applySteamSettings()
+                            }
+                        }
+                    }
+                }
+            }
+
             Item { Layout.fillHeight: true }
 
             // Timer with target

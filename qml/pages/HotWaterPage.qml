@@ -50,6 +50,42 @@ Page {
             Layout.fillHeight: true
             spacing: 20
 
+            // Preset pills for quick switching during dispensing
+            Row {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 8
+
+                Repeater {
+                    model: Settings.waterVesselPresets
+
+                    Rectangle {
+                        width: liveVesselText.implicitWidth + 24
+                        height: 36
+                        radius: 18
+                        color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.surfaceColor
+                        border.color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
+                        border.width: 1
+
+                        Text {
+                            id: liveVesselText
+                            anchors.centerIn: parent
+                            text: modelData.name
+                            color: index === Settings.selectedWaterVessel ? "white" : Theme.textColor
+                            font: Theme.bodyFont
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                Settings.selectedWaterVessel = index
+                                Settings.waterVolume = modelData.volume
+                                MainController.applyHotWaterSettings()
+                            }
+                        }
+                    }
+                }
+            }
+
             Item { Layout.fillHeight: true }
 
             // Weight progress with progress bar

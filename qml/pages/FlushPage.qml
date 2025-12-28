@@ -55,6 +55,43 @@ Page {
             Layout.fillHeight: true
             spacing: 20
 
+            // Preset pills for quick switching during flushing
+            Row {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 8
+
+                Repeater {
+                    model: Settings.flushPresets
+
+                    Rectangle {
+                        width: livePresetText.implicitWidth + 24
+                        height: 36
+                        radius: 18
+                        color: index === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.surfaceColor
+                        border.color: index === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
+                        border.width: 1
+
+                        Text {
+                            id: livePresetText
+                            anchors.centerIn: parent
+                            text: modelData.name
+                            color: index === Settings.selectedFlushPreset ? "white" : Theme.textColor
+                            font: Theme.bodyFont
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                Settings.selectedFlushPreset = index
+                                Settings.flushFlow = modelData.flow
+                                Settings.flushSeconds = modelData.seconds
+                                MainController.applyFlushSettings()
+                            }
+                        }
+                    }
+                }
+            }
+
             Item { Layout.fillHeight: true }
 
             // Timer with progress bar
