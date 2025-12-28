@@ -12,27 +12,27 @@ QtObject {
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }
 
-    // Colors
-    readonly property color backgroundColor: "#1a1a2e"
-    readonly property color surfaceColor: "#252538"
-    readonly property color primaryColor: "#4e85f4"
-    readonly property color secondaryColor: "#c0c5e3"
-    readonly property color textColor: "#ffffff"
-    readonly property color textSecondaryColor: "#a0a8b8"
-    readonly property color accentColor: "#e94560"
-    readonly property color successColor: "#00ff88"
-    readonly property color warningColor: "#ffaa00"
-    readonly property color errorColor: "#ff4444"
-    readonly property color borderColor: "#3a3a4e"
+    // Dynamic colors - bind to Settings with fallback defaults
+    property color backgroundColor: Settings.customThemeColors.backgroundColor || "#1a1a2e"
+    property color surfaceColor: Settings.customThemeColors.surfaceColor || "#252538"
+    property color primaryColor: Settings.customThemeColors.primaryColor || "#4e85f4"
+    property color secondaryColor: Settings.customThemeColors.secondaryColor || "#c0c5e3"
+    property color textColor: Settings.customThemeColors.textColor || "#ffffff"
+    property color textSecondaryColor: Settings.customThemeColors.textSecondaryColor || "#a0a8b8"
+    property color accentColor: Settings.customThemeColors.accentColor || "#e94560"
+    property color successColor: Settings.customThemeColors.successColor || "#00ff88"
+    property color warningColor: Settings.customThemeColors.warningColor || "#ffaa00"
+    property color errorColor: Settings.customThemeColors.errorColor || "#ff4444"
+    property color borderColor: Settings.customThemeColors.borderColor || "#3a3a4e"
 
-    // Chart line colors (from DE1app dark theme)
-    readonly property color pressureColor: "#18c37e"       // Green - actual pressure
-    readonly property color pressureGoalColor: "#69fdb3"   // Light green - pressure goal
-    readonly property color flowColor: "#4e85f4"           // Blue - actual flow
-    readonly property color flowGoalColor: "#7aaaff"       // Light blue - flow goal
-    readonly property color temperatureColor: "#e73249"    // Red - actual temperature
-    readonly property color temperatureGoalColor: "#ffa5a6" // Light red - temp goal
-    readonly property color weightColor: "#a2693d"         // Brown - weight
+    // Chart line colors
+    property color pressureColor: Settings.customThemeColors.pressureColor || "#18c37e"
+    property color pressureGoalColor: Settings.customThemeColors.pressureGoalColor || "#69fdb3"
+    property color flowColor: Settings.customThemeColors.flowColor || "#4e85f4"
+    property color flowGoalColor: Settings.customThemeColors.flowGoalColor || "#7aaaff"
+    property color temperatureColor: Settings.customThemeColors.temperatureColor || "#e73249"
+    property color temperatureGoalColor: Settings.customThemeColors.temperatureGoalColor || "#ffa5a6"
+    property color weightColor: Settings.customThemeColors.weightColor || "#a2693d"
 
     // Scaled fonts
     readonly property font headingFont: Qt.font({ pixelSize: scaled(32), bold: true })
@@ -89,4 +89,9 @@ QtObject {
     readonly property color buttonHover: Qt.lighter(primaryColor, 1.1)
     readonly property color buttonPressed: Qt.darker(primaryColor, 1.1)
     readonly property color buttonDisabled: "#555555"
+
+    // Focus indicator styles
+    readonly property color focusColor: primaryColor
+    readonly property int focusBorderWidth: 3
+    readonly property int focusMargin: 2
 }

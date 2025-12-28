@@ -54,6 +54,12 @@ class Settings : public QObject {
     Q_PROPERTY(QString skinPath READ skinPath NOTIFY skinChanged)
     Q_PROPERTY(QString currentProfile READ currentProfile WRITE setCurrentProfile NOTIFY currentProfileChanged)
 
+    // Theme settings
+    Q_PROPERTY(QVariantMap customThemeColors READ customThemeColors WRITE setCustomThemeColors NOTIFY customThemeColorsChanged)
+    Q_PROPERTY(QVariantList colorGroups READ colorGroups WRITE setColorGroups NOTIFY colorGroupsChanged)
+    Q_PROPERTY(QString activeThemeName READ activeThemeName WRITE setActiveThemeName NOTIFY activeThemeNameChanged)
+    Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
+
     // Visualizer settings
     Q_PROPERTY(QString visualizerUsername READ visualizerUsername WRITE setVisualizerUsername NOTIFY visualizerUsernameChanged)
     Q_PROPERTY(QString visualizerPassword READ visualizerPassword WRITE setVisualizerPassword NOTIFY visualizerPasswordChanged)
@@ -160,6 +166,28 @@ public:
     QString currentProfile() const;
     void setCurrentProfile(const QString& profile);
 
+    // Theme settings
+    QVariantMap customThemeColors() const;
+    void setCustomThemeColors(const QVariantMap& colors);
+
+    QVariantList colorGroups() const;
+    void setColorGroups(const QVariantList& groups);
+
+    QString activeThemeName() const;
+    void setActiveThemeName(const QString& name);
+
+    Q_INVOKABLE void setThemeColor(const QString& colorName, const QString& colorValue);
+    Q_INVOKABLE QString getThemeColor(const QString& colorName) const;
+    Q_INVOKABLE void resetThemeToDefault();
+    Q_INVOKABLE QVariantList getPresetThemes() const;
+    Q_INVOKABLE void applyPresetTheme(const QString& name);
+    Q_INVOKABLE bool saveThemeToFile(const QString& filePath);
+    Q_INVOKABLE bool loadThemeFromFile(const QString& filePath);
+    Q_INVOKABLE QVariantMap generatePalette(double hue, double saturation, double lightness) const;
+
+    double screenBrightness() const;
+    void setScreenBrightness(double brightness);
+
     // Visualizer settings
     QString visualizerUsername() const;
     void setVisualizerUsername(const QString& username);
@@ -201,6 +229,10 @@ signals:
     void flushSecondsChanged();
     void skinChanged();
     void currentProfileChanged();
+    void customThemeColorsChanged();
+    void colorGroupsChanged();
+    void activeThemeNameChanged();
+    void screenBrightnessChanged();
     void visualizerUsernameChanged();
     void visualizerPasswordChanged();
     void visualizerAutoUploadChanged();

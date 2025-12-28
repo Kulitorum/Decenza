@@ -1,6 +1,9 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/">
+        <!-- Sounds -->
+        <file>sounds/tick.wav</file>
+        <!-- Icons -->
         <file>icons/espresso.svg</file>
         <file>icons/steam.svg</file>
         <file>icons/water.svg</file>

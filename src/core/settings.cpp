@@ -2,6 +2,10 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QJsonDocument>
+#include <QFile>
+#include <QUrl>
+#include <QtMath>
+#include <QColor>
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
@@ -742,6 +746,304 @@ void Settings::setCurrentProfile(const QString& profile) {
         m_settings.setValue("profile/current", profile);
         emit currentProfileChanged();
     }
+}
+
+// Theme settings
+QVariantMap Settings::customThemeColors() const {
+    QByteArray data = m_settings.value("theme/customColors").toByteArray();
+    if (data.isEmpty()) {
+        return QVariantMap();
+    }
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    return doc.object().toVariantMap();
+}
+
+void Settings::setCustomThemeColors(const QVariantMap& colors) {
+    QJsonObject obj = QJsonObject::fromVariantMap(colors);
+    m_settings.setValue("theme/customColors", QJsonDocument(obj).toJson());
+    emit customThemeColorsChanged();
+}
+
+QVariantList Settings::colorGroups() const {
+    QByteArray data = m_settings.value("theme/colorGroups").toByteArray();
+    if (data.isEmpty()) {
+        return QVariantList();
+    }
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QVariantList result;
+    for (const QJsonValue& v : arr) {
+        result.append(v.toObject().toVariantMap());
+    }
+    return result;
+}
+
+void Settings::setColorGroups(const QVariantList& groups) {
+    QJsonArray arr;
+    for (const QVariant& v : groups) {
+        arr.append(QJsonObject::fromVariantMap(v.toMap()));
+    }
+    m_settings.setValue("theme/colorGroups", QJsonDocument(arr).toJson());
+    emit colorGroupsChanged();
+}
+
+QString Settings::activeThemeName() const {
+    return m_settings.value("theme/activeName", "Default").toString();
+}
+
+void Settings::setActiveThemeName(const QString& name) {
+    if (activeThemeName() != name) {
+        m_settings.setValue("theme/activeName", name);
+        emit activeThemeNameChanged();
+    }
+}
+
+double Settings::screenBrightness() const {
+    return m_settings.value("theme/screenBrightness", 1.0).toDouble();
+}
+
+void Settings::setScreenBrightness(double brightness) {
+    double clamped = qBound(0.0, brightness, 1.0);
+    if (qAbs(screenBrightness() - clamped) > 0.001) {
+        m_settings.setValue("theme/screenBrightness", clamped);
+        emit screenBrightnessChanged();
+    }
+}
+
+void Settings::setThemeColor(const QString& colorName, const QString& colorValue) {
+    QVariantMap colors = customThemeColors();
+    colors[colorName] = colorValue;
+    setCustomThemeColors(colors);
+}
+
+QString Settings::getThemeColor(const QString& colorName) const {
+    QVariantMap colors = customThemeColors();
+    return colors.value(colorName).toString();
+}
+
+void Settings::resetThemeToDefault() {
+    m_settings.remove("theme/customColors");
+    m_settings.remove("theme/colorGroups");
+    setActiveThemeName("Default");
+    emit customThemeColorsChanged();
+    emit colorGroupsChanged();
+}
+
+QVariantList Settings::getPresetThemes() const {
+    QVariantList presets;
+
+    // Default theme (current dark purple)
+    QVariantMap defaultTheme;
+    defaultTheme["name"] = "Default";
+    defaultTheme["description"] = "Original dark purple theme";
+    defaultTheme["primaryColor"] = "#4e85f4";
+    defaultTheme["backgroundColor"] = "#1a1a2e";
+    presets.append(defaultTheme);
+
+    // Ocean theme
+    QVariantMap ocean;
+    ocean["name"] = "Ocean";
+    ocean["description"] = "Deep blue-green";
+    ocean["primaryColor"] = "#00a8cc";
+    ocean["backgroundColor"] = "#0a1628";
+    presets.append(ocean);
+
+    // Forest theme
+    QVariantMap forest;
+    forest["name"] = "Forest";
+    forest["description"] = "Earthy green";
+    forest["primaryColor"] = "#2ecc71";
+    forest["backgroundColor"] = "#1a2f1a";
+    presets.append(forest);
+
+    // Sunset theme
+    QVariantMap sunset;
+    sunset["name"] = "Sunset";
+    sunset["description"] = "Warm red-orange";
+    sunset["primaryColor"] = "#e74c3c";
+    sunset["backgroundColor"] = "#2c1a1a";
+    presets.append(sunset);
+
+    // Monochrome theme
+    QVariantMap mono;
+    mono["name"] = "Monochrome";
+    mono["description"] = "Elegant grayscale";
+    mono["primaryColor"] = "#888888";
+    mono["backgroundColor"] = "#1a1a1a";
+    presets.append(mono);
+
+    return presets;
+}
+
+void Settings::applyPresetTheme(const QString& name) {
+    QVariantList presets = getPresetThemes();
+    for (const QVariant& preset : presets) {
+        QVariantMap theme = preset.toMap();
+        if (theme["name"].toString() == name) {
+            // Extract HSL from primary color and generate full palette
+            QString primaryHex = theme["primaryColor"].toString();
+            QColor primary(primaryHex);
+            double h = primary.hslHueF() * 360.0;
+            double s = primary.hslSaturationF() * 100.0;
+            double l = primary.lightnessF() * 100.0;
+
+            QVariantMap palette = generatePalette(h, s, l);
+            setCustomThemeColors(palette);
+            setActiveThemeName(name);
+            return;
+        }
+    }
+}
+
+bool Settings::saveThemeToFile(const QString& filePath) {
+    QString path = filePath;
+    if (path.startsWith("file:///")) {
+        path = QUrl(path).toLocalFile();
+    }
+
+    QJsonObject root;
+    root["name"] = activeThemeName();
+    root["colors"] = QJsonObject::fromVariantMap(customThemeColors());
+
+    QJsonArray groupsArr;
+    for (const QVariant& g : colorGroups()) {
+        groupsArr.append(QJsonObject::fromVariantMap(g.toMap()));
+    }
+    root["groups"] = groupsArr;
+
+    QFile file(path);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+        file.close();
+        return true;
+    }
+    return false;
+}
+
+bool Settings::loadThemeFromFile(const QString& filePath) {
+    QString path = filePath;
+    if (path.startsWith("file:///")) {
+        path = QUrl(path).toLocalFile();
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+
+    if (!doc.isObject()) {
+        return false;
+    }
+
+    QJsonObject root = doc.object();
+    if (root.contains("name")) {
+        setActiveThemeName(root["name"].toString());
+    }
+    if (root.contains("colors")) {
+        setCustomThemeColors(root["colors"].toObject().toVariantMap());
+    }
+    if (root.contains("groups")) {
+        QVariantList groups;
+        for (const QJsonValue& v : root["groups"].toArray()) {
+            groups.append(v.toObject().toVariantMap());
+        }
+        setColorGroups(groups);
+    }
+
+    return true;
+}
+
+// Helper function to create HSL color string
+static QString hslColor(double h, double s, double l) {
+    // Normalize values
+    h = fmod(h, 360.0);
+    if (h < 0) h += 360.0;
+    s = qBound(0.0, s, 100.0);
+    l = qBound(0.0, l, 100.0);
+
+    // Convert HSL to RGB
+    double c = (1.0 - qAbs(2.0 * l / 100.0 - 1.0)) * s / 100.0;
+    double x = c * (1.0 - qAbs(fmod(h / 60.0, 2.0) - 1.0));
+    double m = l / 100.0 - c / 2.0;
+
+    double r, g, b;
+    if (h < 60) { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+
+    int ri = qRound((r + m) * 255);
+    int gi = qRound((g + m) * 255);
+    int bi = qRound((b + m) * 255);
+
+    return QString("#%1%2%3")
+        .arg(ri, 2, 16, QChar('0'))
+        .arg(gi, 2, 16, QChar('0'))
+        .arg(bi, 2, 16, QChar('0'));
+}
+
+QVariantMap Settings::generatePalette(double baseHue, double baseSat, double baseLight) const {
+    QVariantMap palette;
+
+    // Use color harmony - different hues for different roles
+    const double complementary = baseHue + 180.0;      // Opposite
+    const double triadic1 = baseHue + 120.0;           // Triadic
+    const double triadic2 = baseHue + 240.0;           // Triadic
+    const double splitComp1 = baseHue + 150.0;         // Split-complementary
+    const double splitComp2 = baseHue + 210.0;         // Split-complementary
+    const double analogous1 = baseHue + 30.0;          // Analogous
+    const double analogous2 = baseHue - 30.0;          // Analogous
+
+    // Vibrant saturation range
+    double sat = qBound(60.0, baseSat, 100.0);
+    double light = qBound(45.0, baseLight, 65.0);
+
+    // Core UI colors - use different harmonies for variety!
+    palette["primaryColor"] = hslColor(baseHue, sat, light);
+    palette["accentColor"] = hslColor(complementary, sat, light);
+    palette["secondaryColor"] = hslColor(analogous1, sat * 0.7, 60.0);
+
+    // Backgrounds - GO WILD! Any color, any brightness!
+    double bgLight = 5.0 + fmod(baseHue, 60.0);  // 5-65% based on hue - could be dark OR bright!
+    double surfLight = 10.0 + fmod(baseHue * 1.5, 50.0);  // 10-60%
+    palette["backgroundColor"] = hslColor(complementary, 60.0 + fmod(baseSat, 30.0), bgLight);
+    palette["surfaceColor"] = hslColor(triadic1, 55.0 + fmod(baseSat, 35.0), surfLight);
+    palette["borderColor"] = hslColor(triadic2, 70.0, 40.0 + fmod(baseHue, 30.0));
+
+    // Text - adaptive! Dark text on light bg, light text on dark bg
+    double textLight = (bgLight > 40.0) ? 10.0 : 95.0;  // Dark or light based on background
+    double textSecLight = (bgLight > 40.0) ? 25.0 : 70.0;
+    palette["textColor"] = hslColor(analogous2, 15.0, textLight);
+    palette["textSecondaryColor"] = hslColor(analogous1, 20.0, textSecLight);
+
+    // Status colors - tinted versions of semantic colors
+    palette["successColor"] = hslColor(140.0 + (baseHue * 0.1), 80.0, 50.0);
+    palette["warningColor"] = hslColor(35.0 + (baseHue * 0.1), 90.0, 55.0);
+    palette["errorColor"] = hslColor(fmod(360.0 + baseHue * 0.1, 360.0), 75.0, 55.0);
+
+    // Chart colors - spread across the wheel using golden angle from different starting points
+    const double goldenAngle = 137.5;
+    palette["pressureColor"] = hslColor(triadic1 + goldenAngle * 0, 80.0, 55.0);
+    palette["flowColor"] = hslColor(triadic2 + goldenAngle * 1, 80.0, 55.0);
+    palette["temperatureColor"] = hslColor(complementary + goldenAngle * 2, 80.0, 55.0);
+    palette["weightColor"] = hslColor(splitComp1 + goldenAngle * 3, 65.0, 50.0);
+
+    // Goal variants - lighter, desaturated versions of chart colors
+    palette["pressureGoalColor"] = hslColor(triadic1 + goldenAngle * 0, 55.0, 75.0);
+    palette["flowGoalColor"] = hslColor(triadic2 + goldenAngle * 1, 55.0, 75.0);
+    palette["temperatureGoalColor"] = hslColor(complementary + goldenAngle * 2, 55.0, 75.0);
+
+    // Derived colors
+    palette["focusColor"] = palette["primaryColor"];
+    palette["shadowColor"] = "#40000000";
+
+    return palette;
 }
 
 // Visualizer settings

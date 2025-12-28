@@ -262,15 +262,27 @@ Page {
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
 
+        // Announce tab when changed (accessibility)
+        onCurrentIndexChanged: {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                var tabNames = ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "Accessibility", "Resolution", "Themes"]
+                if (currentIndex >= 0 && currentIndex < tabNames.length) {
+                    AccessibilityManager.announce(tabNames[currentIndex] + " tab")
+                }
+            }
+        }
+
         background: Rectangle {
             color: "transparent"
         }
 
         TabButton {
+            id: bluetoothTab
             text: "Bluetooth"
             width: implicitWidth
             font.pixelSize: 14
             font.bold: tabBar.currentIndex === 0
+            Accessible.name: "Bluetooth tab" + (tabBar.currentIndex === 0 ? ", selected" : "")
             contentItem: Text {
                 text: parent.text
                 font: parent.font
@@ -282,13 +294,21 @@ Page {
                 color: tabBar.currentIndex === 0 ? Theme.surfaceColor : "transparent"
                 radius: 6
             }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Bluetooth tab" + (tabBar.currentIndex === 0 ? ", selected" : "")
+                accessibleItem: bluetoothTab
+                onAccessibleClicked: tabBar.currentIndex = 0
+            }
         }
 
         TabButton {
+            id: preferencesTabButton
             text: "Preferences"
             width: implicitWidth
             font.pixelSize: 14
             font.bold: tabBar.currentIndex === 1
+            Accessible.name: "Preferences tab" + (tabBar.currentIndex === 1 ? ", selected" : "")
             contentItem: Text {
                 text: parent.text
                 font: parent.font
@@ -300,13 +320,21 @@ Page {
                 color: tabBar.currentIndex === 1 ? Theme.surfaceColor : "transparent"
                 radius: 6
             }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Preferences tab" + (tabBar.currentIndex === 1 ? ", selected" : "")
+                accessibleItem: preferencesTabButton
+                onAccessibleClicked: tabBar.currentIndex = 1
+            }
         }
 
         TabButton {
+            id: screensaverTab
             text: "Screensaver"
             width: implicitWidth
             font.pixelSize: 14
             font.bold: tabBar.currentIndex === 2
+            Accessible.name: "Screensaver tab" + (tabBar.currentIndex === 2 ? ", selected" : "")
             contentItem: Text {
                 text: parent.text
                 font: parent.font
@@ -318,13 +346,21 @@ Page {
                 color: tabBar.currentIndex === 2 ? Theme.surfaceColor : "transparent"
                 radius: 6
             }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Screensaver tab" + (tabBar.currentIndex === 2 ? ", selected" : "")
+                accessibleItem: screensaverTab
+                onAccessibleClicked: tabBar.currentIndex = 2
+            }
         }
 
         TabButton {
+            id: visualizerTabButton
             text: "Visualizer"
             width: implicitWidth
             font.pixelSize: 14
             font.bold: tabBar.currentIndex === 3
+            Accessible.name: "Visualizer tab" + (tabBar.currentIndex === 3 ? ", selected" : "")
             contentItem: Text {
                 text: parent.text
                 font: parent.font
@@ -336,14 +372,21 @@ Page {
                 color: tabBar.currentIndex === 3 ? Theme.surfaceColor : "transparent"
                 radius: 6
             }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Visualizer tab" + (tabBar.currentIndex === 3 ? ", selected" : "")
+                accessibleItem: visualizerTabButton
+                onAccessibleClicked: tabBar.currentIndex = 3
+            }
         }
 
         TabButton {
-            text: "Resolution"
+            id: accessibilityTabButton
+            text: "Access"
             width: implicitWidth
-            visible: Qt.platform.os === "windows"
             font.pixelSize: 14
             font.bold: tabBar.currentIndex === 4
+            Accessible.name: "Accessibility tab" + (tabBar.currentIndex === 4 ? ", selected" : "")
             contentItem: Text {
                 text: parent.text
                 font: parent.font
@@ -354,6 +397,65 @@ Page {
             background: Rectangle {
                 color: tabBar.currentIndex === 4 ? Theme.surfaceColor : "transparent"
                 radius: 6
+            }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Accessibility tab" + (tabBar.currentIndex === 4 ? ", selected" : "")
+                accessibleItem: accessibilityTabButton
+                onAccessibleClicked: tabBar.currentIndex = 4
+            }
+        }
+
+        TabButton {
+            id: resolutionTabButton
+            text: "Resolution"
+            width: implicitWidth
+            visible: Qt.platform.os === "windows"
+            font.pixelSize: 14
+            font.bold: tabBar.currentIndex === 5
+            Accessible.name: "Resolution tab" + (tabBar.currentIndex === 5 ? ", selected" : "")
+            contentItem: Text {
+                text: parent.text
+                font: parent.font
+                color: tabBar.currentIndex === 5 ? Theme.primaryColor : Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                color: tabBar.currentIndex === 5 ? Theme.surfaceColor : "transparent"
+                radius: 6
+            }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Resolution tab" + (tabBar.currentIndex === 5 ? ", selected" : "")
+                accessibleItem: resolutionTabButton
+                onAccessibleClicked: tabBar.currentIndex = 5
+            }
+        }
+
+        TabButton {
+            id: themesTabButton
+            text: "Themes"
+            width: implicitWidth
+            font.pixelSize: 14
+            font.bold: tabBar.currentIndex === 6
+            Accessible.name: "Themes tab" + (tabBar.currentIndex === 6 ? ", selected" : "")
+            contentItem: Text {
+                text: parent.text
+                font: parent.font
+                color: tabBar.currentIndex === 6 ? Theme.primaryColor : Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                color: tabBar.currentIndex === 6 ? Theme.surfaceColor : "transparent"
+                radius: 6
+            }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Themes tab" + (tabBar.currentIndex === 6 ? ", selected" : "")
+                accessibleItem: themesTabButton
+                onAccessibleClicked: tabBar.currentIndex = 6
             }
         }
     }
@@ -412,8 +514,9 @@ Page {
 
                             Item { Layout.fillWidth: true }
 
-                            Button {
+                            AccessibleButton {
                                 text: BLEManager.scanning ? "Stop Scan" : "Scan for DE1"
+                                accessibleName: BLEManager.scanning ? "Stop scanning for DE1" : "Scan for DE1 machine"
                                 onClicked: {
                                     console.log("DE1 scan button clicked! scanning=" + BLEManager.scanning)
                                     if (BLEManager.scanning) {
@@ -538,8 +641,9 @@ Page {
 
                             Item { Layout.fillWidth: true }
 
-                            Button {
+                            AccessibleButton {
                                 text: BLEManager.scanning ? "Scanning..." : "Scan for Scales"
+                                accessibleName: BLEManager.scanning ? "Scanning for scales" : "Scan for Bluetooth scales"
                                 enabled: !BLEManager.scanning
                                 onClicked: BLEManager.scanForScales()
                             }
@@ -584,8 +688,9 @@ Page {
 
                             Item { Layout.fillWidth: true }
 
-                            Button {
+                            AccessibleButton {
                                 text: "Forget"
+                                accessibleName: "Forget saved scale"
                                 onClicked: {
                                     Settings.scaleAddress = ""
                                     Settings.scaleType = ""
@@ -612,8 +717,9 @@ Page {
 
                             Item { Layout.fillWidth: true }
 
-                            Button {
+                            AccessibleButton {
                                 text: "Tare"
+                                accessibleName: "Tare scale to zero"
                                 onClicked: {
                                     if (ScaleDevice) ScaleDevice.tare()
                                 }
@@ -700,7 +806,7 @@ Page {
         Item {
             id: preferencesTab
             // Local property to track auto-sleep value
-            property int autoSleepMinutes: Settings.value("autoSleepMinutes", 0)
+            property int autoSleepMinutes: Settings.value("autoSleepMinutes", 60)
 
             RowLayout {
                 anchors.fill: parent
@@ -917,6 +1023,7 @@ Page {
                                 ]
 
                                 delegate: Rectangle {
+                                    id: chargingModeButton
                                     Layout.fillWidth: true
                                     height: 50
                                     radius: 6
@@ -948,9 +1055,12 @@ Page {
                                         }
                                     }
 
-                                    MouseArea {
+                                    AccessibleMouseArea {
                                         anchors.fill: parent
-                                        onClicked: BatteryManager.chargingMode = modelData.value
+                                        accessibleName: modelData.label + " charging mode. " + modelData.desc +
+                                                       (BatteryManager.chargingMode === modelData.value ? ", selected" : "")
+                                        accessibleItem: chargingModeButton
+                                        onAccessibleClicked: BatteryManager.chargingMode = modelData.value
                                     }
                                 }
                             }
@@ -993,9 +1103,10 @@ Page {
                         }
 
                         // Battery drain button for testing
-                        Button {
+                        AccessibleButton {
                             Layout.fillWidth: true
                             text: BatteryDrainer.running ? "DRAINING... (tap to stop)" : "Drain Battery (Test)"
+                            accessibleName: BatteryDrainer.running ? "Stop battery drain test" : "Start battery drain test"
                             background: Rectangle {
                                 radius: 6
                                 color: BatteryDrainer.running ? Theme.errorColor : Theme.backgroundColor
@@ -1063,9 +1174,10 @@ Page {
                         Item { Layout.fillHeight: true }
 
                         // Calibration button
-                        Button {
+                        AccessibleButton {
                             Layout.fillWidth: true
                             text: "Start Calibration"
+                            accessibleName: "Start flow sensor calibration"
                             enabled: DE1Device.connected
                             onClicked: flowCalibrationDialog.open()
                             background: Rectangle {
@@ -1176,8 +1288,9 @@ Page {
                             }
                         }
 
-                        Button {
+                        AccessibleButton {
                             text: "Refresh Categories"
+                            accessibleName: "Refresh screensaver categories"
                             Layout.fillWidth: true
                             enabled: !ScreensaverManager.isFetchingCategories
                             onClicked: ScreensaverManager.refreshCategories()
@@ -1325,14 +1438,16 @@ Page {
                             Layout.fillWidth: true
                             spacing: 10
 
-                            Button {
+                            AccessibleButton {
                                 text: "Refresh Videos"
+                                accessibleName: "Refresh screensaver videos"
                                 onClicked: ScreensaverManager.refreshCatalog()
                                 enabled: !ScreensaverManager.isRefreshing
                             }
 
-                            Button {
+                            AccessibleButton {
                                 text: "Clear Cache"
+                                accessibleName: "Clear video cache"
                                 onClicked: ScreensaverManager.clearCache()
                             }
 
@@ -1511,8 +1626,9 @@ Page {
                             Layout.fillWidth: true
                             spacing: 10
 
-                            Button {
+                            AccessibleButton {
                                 text: "Test Connection"
+                                accessibleName: "Test Visualizer connection"
                                 enabled: usernameField.text.length > 0 && passwordField.text.length > 0
                                 onClicked: {
                                     visualizerTab.testResultMessage = "Testing..."
@@ -1555,16 +1671,18 @@ Page {
 
                         // Sign up link
                         Text {
+                            id: signUpLink
                             text: "Don't have an account? Sign up at visualizer.coffee"
                             color: Theme.primaryColor
                             font.pixelSize: 12
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
 
-                            MouseArea {
+                            AccessibleMouseArea {
                                 anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.openUrlExternally("https://visualizer.coffee/users/sign_up")
+                                accessibleName: "Sign up at visualizer.coffee. Opens web browser"
+                                accessibleItem: signUpLink
+                                onAccessibleClicked: Qt.openUrlExternally("https://visualizer.coffee/users/sign_up")
                             }
                         }
                     }
@@ -1686,15 +1804,17 @@ Page {
                                 }
 
                                 Text {
+                                    id: lastShotLink
                                     text: MainController.visualizer.lastShotUrl
                                     color: Theme.primaryColor
                                     font.pixelSize: 12
                                     visible: MainController.visualizer.lastShotUrl.length > 0
 
-                                    MouseArea {
+                                    AccessibleMouseArea {
                                         anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: Qt.openUrlExternally(MainController.visualizer.lastShotUrl)
+                                        accessibleName: "View last shot on visualizer. Opens web browser"
+                                        accessibleItem: lastShotLink
+                                        onAccessibleClicked: Qt.openUrlExternally(MainController.visualizer.lastShotUrl)
                                     }
                                 }
                             }
@@ -1703,6 +1823,236 @@ Page {
                         Item { Layout.fillHeight: true }
                     }
                 }
+            }
+        }
+
+        // ============ ACCESSIBILITY TAB ============
+        Item {
+            id: accessibilityTab
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 15
+
+                // Main accessibility settings card
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 380
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 15
+                        spacing: 12
+
+                        Text {
+                            text: "Accessibility"
+                            color: Theme.textColor
+                            font.pixelSize: 16
+                            font.bold: true
+                        }
+
+                        Text {
+                            text: "Screen reader support and audio feedback for blind and visually impaired users"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        // Tip about backdoor activation
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: tipText.implicitHeight + 16
+                            radius: 6
+                            color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+                            border.color: Theme.primaryColor
+                            border.width: 1
+
+                            Text {
+                                id: tipText
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                text: "Tip: 4-finger tap anywhere to toggle accessibility on/off"
+                                color: Theme.primaryColor
+                                font.pixelSize: 12
+                                wrapMode: Text.Wrap
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        Item { height: 5 }
+
+                        // Enable toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 15
+
+                            Text {
+                                text: "Enable Accessibility"
+                                color: Theme.textColor
+                                font.pixelSize: 14
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Switch {
+                                checked: AccessibilityManager.enabled
+                                onCheckedChanged: AccessibilityManager.enabled = checked
+                            }
+                        }
+
+                        // TTS toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 15
+                            opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+
+                            Text {
+                                text: "Voice Announcements"
+                                color: Theme.textColor
+                                font.pixelSize: 14
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Switch {
+                                checked: AccessibilityManager.ttsEnabled
+                                enabled: AccessibilityManager.enabled
+                                onCheckedChanged: AccessibilityManager.ttsEnabled = checked
+                            }
+                        }
+
+                        // Tick sound toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 15
+                            opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+
+                            ColumnLayout {
+                                spacing: 2
+                                Text {
+                                    text: "Frame Tick Sound"
+                                    color: Theme.textColor
+                                    font.pixelSize: 14
+                                }
+                                Text {
+                                    text: "Play a tick when extraction frames change"
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: 11
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Switch {
+                                checked: AccessibilityManager.tickEnabled
+                                enabled: AccessibilityManager.enabled
+                                onCheckedChanged: AccessibilityManager.tickEnabled = checked
+                            }
+                        }
+
+                        Item { height: 5 }
+
+                        // Verbosity selector
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+
+                            Text {
+                                text: "Announcement Verbosity"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: 12
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                Repeater {
+                                    model: [
+                                        { value: 0, label: "Minimal", desc: "Start/stop only" },
+                                        { value: 1, label: "Normal", desc: "Milestones" },
+                                        { value: 2, label: "Verbose", desc: "Periodic updates" }
+                                    ]
+
+                                    delegate: Rectangle {
+                                        id: verbosityButton
+                                        Layout.fillWidth: true
+                                        height: 50
+                                        radius: 6
+                                        color: AccessibilityManager.verbosity === modelData.value ?
+                                               Theme.primaryColor : Theme.backgroundColor
+                                        border.color: AccessibilityManager.verbosity === modelData.value ?
+                                                      Theme.primaryColor : Theme.textSecondaryColor
+                                        border.width: 1
+                                        opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+
+                                        ColumnLayout {
+                                            anchors.centerIn: parent
+                                            spacing: 2
+
+                                            Text {
+                                                text: modelData.label
+                                                color: AccessibilityManager.verbosity === modelData.value ?
+                                                       "white" : Theme.textColor
+                                                font.pixelSize: 14
+                                                font.bold: true
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+
+                                            Text {
+                                                text: modelData.desc
+                                                color: AccessibilityManager.verbosity === modelData.value ?
+                                                       Qt.rgba(1, 1, 1, 0.7) : Theme.textSecondaryColor
+                                                font.pixelSize: 10
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                        }
+
+                                        AccessibleMouseArea {
+                                            anchors.fill: parent
+                                            enabled: AccessibilityManager.enabled
+                                            accessibleName: modelData.label + " verbosity. " + modelData.desc +
+                                                           (AccessibilityManager.verbosity === modelData.value ? ", selected" : "")
+                                            accessibleItem: verbosityButton
+                                            onAccessibleClicked: AccessibilityManager.verbosity = modelData.value
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { Layout.fillHeight: true }
+
+                        // Test button
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+
+                            AccessibleButton {
+                                text: "Test Announcement"
+                                accessibleName: "Test speech announcement"
+                                enabled: AccessibilityManager.enabled && AccessibilityManager.ttsEnabled
+                                onClicked: AccessibilityManager.announce("Accessibility is working correctly", true)
+                            }
+
+                            AccessibleButton {
+                                text: "Test Tick"
+                                accessibleName: "Test tick sound"
+                                enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
+                                onClicked: AccessibilityManager.playTick()
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+                    }
+                }
+
+                // Spacer
+                Item { Layout.fillHeight: true }
             }
         }
 
@@ -1861,6 +2211,261 @@ Page {
                                             Window.window.height = modelData.height
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ============ THEMES TAB ============
+        Item {
+            id: themesTab
+
+            // Currently selected color for editing
+            property string selectedColorName: "primaryColor"
+            property color selectedColorValue: Theme.primaryColor
+
+            // Color definitions with display names and categories
+            property var colorDefinitions: [
+                { category: "Core UI", colors: [
+                    { name: "backgroundColor", display: "Background" },
+                    { name: "surfaceColor", display: "Surface" },
+                    { name: "primaryColor", display: "Primary" },
+                    { name: "secondaryColor", display: "Secondary" },
+                    { name: "textColor", display: "Text" },
+                    { name: "textSecondaryColor", display: "Text Secondary" },
+                    { name: "accentColor", display: "Accent" },
+                    { name: "borderColor", display: "Border" }
+                ]},
+                { category: "Status", colors: [
+                    { name: "successColor", display: "Success" },
+                    { name: "warningColor", display: "Warning" },
+                    { name: "errorColor", display: "Error" }
+                ]},
+                { category: "Chart", colors: [
+                    { name: "pressureColor", display: "Pressure" },
+                    { name: "pressureGoalColor", display: "Pressure Goal" },
+                    { name: "flowColor", display: "Flow" },
+                    { name: "flowGoalColor", display: "Flow Goal" },
+                    { name: "temperatureColor", display: "Temperature" },
+                    { name: "temperatureGoalColor", display: "Temp Goal" },
+                    { name: "weightColor", display: "Weight" }
+                ]}
+            ]
+
+            function getColorValue(colorName) {
+                return Theme[colorName] || "#ffffff"
+            }
+
+            function selectColor(colorName) {
+                selectedColorName = colorName
+                selectedColorValue = getColorValue(colorName)
+                colorEditor.setColor(selectedColorValue)
+            }
+
+            function applyColorChange(newColor) {
+                Settings.setThemeColor(selectedColorName, newColor.toString())
+                selectedColorValue = newColor
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: Theme.spacingMedium
+
+                // Left panel - Color list
+                Rectangle {
+                    Layout.preferredWidth: parent.width * 0.4
+                    Layout.fillHeight: true
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.spacingMedium
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: "Theme: " + Settings.activeThemeName
+                            color: Theme.textColor
+                            font: Theme.subtitleFont
+                        }
+
+                        ScrollView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: Theme.spacingSmall
+
+                                Repeater {
+                                    model: themesTab.colorDefinitions
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 4
+
+                                        // Category header
+                                        Text {
+                                            text: modelData.category
+                                            color: Theme.textSecondaryColor
+                                            font: Theme.labelFont
+                                            topPadding: index > 0 ? Theme.spacingSmall : 0
+                                        }
+
+                                        // Color swatches in this category
+                                        Repeater {
+                                            id: colorRepeater
+                                            property var colorList: modelData.colors
+                                            model: colorList.length
+
+                                            ColorSwatch {
+                                                property var colorData: colorRepeater.colorList[index]
+                                                Layout.fillWidth: true
+                                                colorName: colorData.name
+                                                displayName: colorData.display
+                                                colorValue: themesTab.getColorValue(colorData.name)
+                                                selected: themesTab.selectedColorName === colorData.name
+                                                onClicked: themesTab.selectColor(colorData.name)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Bottom buttons
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingSmall
+
+                            Button {
+                                text: "Reset"
+                                onClicked: Settings.resetThemeToDefault()
+                                background: Rectangle {
+                                    color: Theme.errorColor
+                                    radius: Theme.buttonRadius
+                                    opacity: parent.pressed ? 0.8 : 1.0
+                                }
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: "white"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+                    }
+                }
+
+                // Right panel - Color editor
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ScrollView {
+                        anchors.fill: parent
+                        anchors.margins: Theme.spacingMedium
+                        clip: true
+                        contentWidth: availableWidth
+
+                        ColumnLayout {
+                            width: parent.width
+                            spacing: Theme.spacingSmall
+
+                            Text {
+                                text: "Edit: " + themesTab.selectedColorName
+                                color: Theme.textColor
+                                font: Theme.subtitleFont
+                            }
+
+                            ColorEditor {
+                                id: colorEditor
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 140
+
+                                Component.onCompleted: setColor(themesTab.selectedColorValue)
+
+                                onColorChanged: {
+                                    themesTab.applyColorChange(colorEditor.color)
+                                }
+                            }
+
+                            // Preset themes in horizontal scroll
+                            ScrollView {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 44
+                                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                                clip: true
+
+                                Row {
+                                    spacing: Theme.spacingSmall
+
+                                    Repeater {
+                                        model: Settings.getPresetThemes()
+
+                                        Button {
+                                            height: 36
+                                            text: modelData.name
+                                            onClicked: Settings.applyPresetTheme(modelData.name)
+                                            background: Rectangle {
+                                                color: modelData.primaryColor
+                                                radius: Theme.buttonRadius
+                                                opacity: parent.pressed ? 0.8 : 1.0
+                                                border.color: Settings.activeThemeName === modelData.name ? "white" : "transparent"
+                                                border.width: 2
+                                            }
+                                            contentItem: Text {
+                                                text: parent.text
+                                                color: "white"
+                                                horizontalAlignment: Text.AlignHCenter
+                                                verticalAlignment: Text.AlignVCenter
+                                                font: Theme.labelFont
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Random theme button
+                            Button {
+                                Layout.fillWidth: true
+                                text: "Random Theme"
+                                onClicked: {
+                                    var randomHue = Math.random() * 360
+                                    var randomSat = 65 + Math.random() * 20  // 65-85%
+                                    var randomLight = 50 + Math.random() * 10  // 50-60%
+                                    var palette = Settings.generatePalette(randomHue, randomSat, randomLight)
+                                    Settings.customThemeColors = palette
+                                    Settings.setActiveThemeName("Custom")
+                                }
+                                background: Rectangle {
+                                    gradient: Gradient {
+                                        orientation: Gradient.Horizontal
+                                        GradientStop { position: 0.0; color: "#ff6b6b" }
+                                        GradientStop { position: 0.25; color: "#ffd93d" }
+                                        GradientStop { position: 0.5; color: "#6bcb77" }
+                                        GradientStop { position: 0.75; color: "#4d96ff" }
+                                        GradientStop { position: 1.0; color: "#9b59b6" }
+                                    }
+                                    radius: Theme.buttonRadius
+                                    opacity: parent.pressed ? 0.8 : 1.0
+                                }
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: "white"
+                                    font.pixelSize: Theme.bodyFont.pixelSize
+                                    font.bold: true
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
                                 }
                             }
                         }
@@ -2367,14 +2972,15 @@ Page {
                 Layout.fillWidth: true
                 spacing: 10
 
-                Button {
+                AccessibleButton {
                     text: "Cancel"
+                    accessibleName: "Cancel calibration"
                     onClicked: flowCalibrationDialog.close()
                 }
 
                 Item { Layout.fillWidth: true }
 
-                Button {
+                AccessibleButton {
                     id: calibrationNextButton
                     text: flowCalibrationDialog.currentStep === 0 ? "Start" :
                           flowCalibrationDialog.currentStep < 4 ?
@@ -2383,6 +2989,13 @@ Page {
                           flowCalibrationDialog.currentStep === 4 ? "Save and Verify" :
                           flowCalibrationDialog.isDispensing ? "Waiting..." :
                           flowCalibrationDialog.verificationComplete ? "Done" : "Start"
+                    accessibleName: flowCalibrationDialog.currentStep === 0 ? "Start calibration" :
+                          flowCalibrationDialog.currentStep < 4 ?
+                              (flowCalibrationDialog.isDispensing ? "Dispensing water" :
+                               flowCalibrationDialog.flowIntegrals[flowCalibrationDialog.currentStep - 1] > 0 ? "Next step" : "Ready to dispense") :
+                          flowCalibrationDialog.currentStep === 4 ? "Save and verify" :
+                          flowCalibrationDialog.isDispensing ? "Dispensing water" :
+                          flowCalibrationDialog.verificationComplete ? "Done, close dialog" : "Start verification"
                     enabled: !flowCalibrationDialog.isDispensing
 
                     contentItem: Text {
