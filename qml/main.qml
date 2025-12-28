@@ -830,60 +830,18 @@ ApplicationWindow {
         }
     }
 
-    // ============ ACCESSIBILITY BACKDOOR ============
-    // 4-finger tap anywhere to toggle accessibility mode
-    // This allows blind users to enable accessibility without navigating settings
-    // Note: 3-finger is used by Android for screenshots
-
-    // Accessibility activation toast
-    Rectangle {
-        id: accessibilityToast
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
-        anchors.topMargin: Theme.scaled(100)
-        width: accessibilityToastText.implicitWidth + 40
-        height: accessibilityToastText.implicitHeight + 20
-        radius: height / 2
-        color: AccessibilityManager.enabled ? Theme.successColor : "#333333"
-        opacity: 0
-        visible: opacity > 0
-        z: 9999
-
-        Text {
-            id: accessibilityToastText
-            anchors.centerIn: parent
-            text: AccessibilityManager.enabled ? "Accessibility ON" : "Accessibility OFF"
-            color: "white"
-            font.pixelSize: 18
-            font.bold: true
-        }
-
-        Behavior on opacity { NumberAnimation { duration: 150 } }
-
-        Timer {
-            id: accessibilityToastHideTimer
-            interval: 2000
-            onTriggered: accessibilityToast.opacity = 0
-        }
-    }
-
-    // 4-finger touch detection for accessibility toggle
+    // 2-finger swipe detection for back gesture (accessibility)
     MultiPointTouchArea {
         anchors.fill: parent
-        z: -1  // Behind all controls but still captures multi-finger gestures
+        z: -1  // Behind all controls
         minimumTouchPoints: 2
-        maximumTouchPoints: 10
+        maximumTouchPoints: 2
+        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
         property var startPoints: []
 
         onPressed: function(touchPoints) {
-            if (touchPoints.length >= 4) {
-                // 4-finger tap detected - toggle accessibility
-                AccessibilityManager.toggleEnabled()
-                accessibilityToast.opacity = 1
-                accessibilityToastHideTimer.restart()
-            } else if (touchPoints.length === 2) {
-                // Store start positions for 2-finger swipe detection
+            if (touchPoints.length === 2) {
                 startPoints = [{x: touchPoints[0].x, y: touchPoints[0].y},
                                {x: touchPoints[1].x, y: touchPoints[1].y}]
             }

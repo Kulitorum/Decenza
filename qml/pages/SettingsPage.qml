@@ -196,6 +196,9 @@ Page {
         anchors.leftMargin: Theme.standardMargin
         z: 2  // Above content frame
 
+        // Skip global tap handler - we announce via onCurrentIndexChanged
+        property bool accessibilityCustomHandler: true
+
         // Announce tab when changed (accessibility)
         onCurrentIndexChanged: {
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
