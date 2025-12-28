@@ -383,6 +383,89 @@ Events:
 
 ---
 
+## Installing TTS Engines on Android (No Play Store)
+
+If your Android device doesn't have the Google Play Store (e.g., some tablets, degoogled devices, or devices with only F-Droid), you'll need to install a TTS engine manually for text-to-speech to work.
+
+### Prerequisites
+
+- **ADB** (Android Debug Bridge) installed on your computer
+- **USB debugging** enabled on the Android device
+- Device connected via USB
+
+### Option 1: Install RHVoice (Recommended - Open Source)
+
+RHVoice is a free, open-source TTS engine available on F-Droid with good English voice quality.
+
+```bash
+# Download RHVoice from F-Droid
+curl -L -o /tmp/rhvoice.apk "https://f-droid.org/repo/com.github.olga_yakovleva.rhvoice.android_116050.apk"
+
+# Install via ADB
+adb install /tmp/rhvoice.apk
+```
+
+After installation:
+1. Open **Settings → Accessibility → Text-to-speech output**
+2. Select **RHVoice** as the preferred engine
+3. Open RHVoice app to download voice data for your language
+
+### Option 2: Install Aurora Store (Play Store Alternative)
+
+Aurora Store lets you download apps from Google Play without Google Play Services.
+
+```bash
+# Download Aurora Store from F-Droid
+curl -L -o /tmp/aurora.apk "https://f-droid.org/repo/com.aurora.store_61.apk"
+
+# Install via ADB
+adb install /tmp/aurora.apk
+```
+
+Then use Aurora Store to:
+1. Search for "Google Text-to-Speech"
+2. Download and install it
+3. Set it as default in Settings → Accessibility → Text-to-speech output
+
+### Option 3: eSpeak NG (Lightweight, Robotic Voice)
+
+If already installed but not working, try reinstalling:
+
+```bash
+# Check if eSpeak is installed
+adb shell pm list packages | grep espeak
+
+# If present, check current TTS setting
+adb shell settings get secure tts_default_synth
+```
+
+### Verifying TTS Installation
+
+```bash
+# List all TTS-related packages
+adb shell pm list packages | grep -iE "tts|speech|voice"
+
+# Check current default TTS engine
+adb shell settings get secure tts_default_synth
+
+# Check Android version (for APK compatibility)
+adb shell getprop ro.build.version.release
+
+# Check device architecture (for correct APK variant)
+adb shell getprop ro.product.cpu.abi
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| TTS not speaking | Open the TTS app and download voice data |
+| Wrong language | Go to TTS settings and select correct language |
+| Robotic voice | Switch from eSpeak to RHVoice or Google TTS |
+| App won't install | Check Android version compatibility and architecture |
+
+---
+
 ## Resources
 
 - [Qt Accessibility](https://doc.qt.io/qt-6/accessible.html)
