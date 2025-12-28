@@ -67,29 +67,77 @@ android {
 
 }
 
-// Copy AAB with versioned filename after bundle completes
-tasks.whenTaskAdded { task ->
-    if (task.name == 'bundleRelease') {
-        task.doLast {
-            // Read versionName from AndroidManifest.xml (Qt sets it there, not in defaultConfig)
-            def manifestFile = file("${projectDir}/AndroidManifest.xml")
-            def versionName = "1.0.0"
-            if (manifestFile.exists()) {
-                def match = manifestFile.text =~ /android:versionName="([^"]+)"/
-                if (match.find()) {
-                    versionName = match.group(1)
+// Copy APK/AAB with versioned filename after build completes
+gradle.buildFinished { result ->
+    if (result.failure) return
+
+    // Read versionName from AndroidManifest.xml
+    def manifestFile = file("${projectDir}/AndroidManifest.xml")
+    def versionName = "1.0.0"
+    if (manifestFile.exists()) {
+        def match = manifestFile.text =~ /android:versionName="([^"]+)"/
+        if (match.find()) {
+            versionName = match.group(1)
+        }
+    }
+
+    // Sign and copy APK with versioned filename
+    def apkDir = file("${buildDir}/outputs/apk/release")
+    if (apkDir.exists()) {
+        def keystorePath = "C:/CODE/Android APK keystore.jks"
+        def keyAlias = "de1-key"
+        def storePass = System.getenv("QT_ANDROID_KEYSTORE_STORE_PASS") ?: "rZ8!YC5nvrLhc7m1uvNV"
+
+        // Find apksigner in Android SDK
+        def androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT") ?: "C:/Users/Micro/AppData/Local/Android/Sdk"
+        def buildToolsDir = file("${androidHome}/build-tools")
+        def apksigner = null
+        if (buildToolsDir.exists()) {
+            // Get latest build-tools version
+            def versions = buildToolsDir.listFiles()?.sort { it.name }?.reverse()
+            if (versions) {
+                apksigner = new File(versions[0], "apksigner.bat")
+            }
+        }
+
+        apkDir.listFiles()?.each { f ->
+            if (f.name.endsWith('-release-unsigned.apk')) {
+                def dest = new File(apkDir, "Decenza_DE1_${versionName}.apk")
+                if (!dest.exists() || f.lastModified() > dest.lastModified()) {
+                    if (apksigner?.exists()) {
+                        // Sign directly to versioned filename
+                        def signCmd = [apksigner.absolutePath, "sign",
+                                      "--ks", keystorePath,
+                                      "--ks-key-alias", keyAlias,
+                                      "--ks-pass", "pass:${storePass}",
+                                      "--out", dest.absolutePath,
+                                      f.absolutePath]
+                        def proc = signCmd.execute()
+                        proc.waitFor()
+                        if (proc.exitValue() == 0) {
+                            println "\n==========================================\nVERSIONED APK (signed): ${dest.absolutePath}\n==========================================\n"
+                        } else {
+                            println "APK signing failed: ${proc.err.text}"
+                        }
+                    } else {
+                        println "WARNING: apksigner not found, cannot create versioned APK"
+                    }
                 }
             }
+        }
+    }
 
-            def bundleDir = file("${buildDir}/outputs/bundle/release")
-            def keystorePath = "C:/CODE/Android APK keystore.jks"
-            def keyAlias = "de1-key"
-            def storePass = System.getenv("QT_ANDROID_KEYSTORE_STORE_PASS") ?: "rZ8!YC5nvrLhc7m1uvNV"
+    // Copy AAB with versioned filename
+    def bundleDir = file("${buildDir}/outputs/bundle/release")
+    if (bundleDir.exists()) {
+        def keystorePath = "C:/CODE/Android APK keystore.jks"
+        def keyAlias = "de1-key"
+        def storePass = System.getenv("QT_ANDROID_KEYSTORE_STORE_PASS") ?: "rZ8!YC5nvrLhc7m1uvNV"
 
-            bundleDir.listFiles()?.each { f ->
-                if (f.name.endsWith('-release.aab') && !f.name.startsWith('Decenza_DE1-')) {
-                    def dest = new File(bundleDir, "Decenza_DE1-${versionName}.aab")
-                    // Copy the file
+        bundleDir.listFiles()?.each { f ->
+            if (f.name.endsWith('-release.aab') && !f.name.startsWith('Decenza_DE1-')) {
+                def dest = new File(bundleDir, "Decenza_DE1-${versionName}.aab")
+                if (!dest.exists() || f.lastModified() > dest.lastModified()) {
                     def copyCmd = "cmd /c copy /b \"${f.absolutePath}\" \"${dest.absolutePath}\""
                     copyCmd.execute().waitFor()
 

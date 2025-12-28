@@ -112,6 +112,24 @@ Also: Steaming, HotWater, Flushing
 - Mobile: Android (API 28+), iOS (14.0+)
 - Android needs Location permission for BLE scanning
 
+## Android Build & Signing
+
+### Build Process
+- **Build tool**: Qt's `androiddeployqt.exe` handles APK creation and signing
+- **Keystore**: `C:/CODE/Android APK keystore.jks` (configured in Qt Creator, stored in `CMakeLists.txt.user`)
+- **Key alias**: `de1-key`
+- **Signing**: Automatic during release build via `--sign` flag
+
+### Output Files
+- **APK output**: `build/Qt_6_10_1_for_Android_arm64_v8a-Release/android-build-Decenza_DE1/build/outputs/apk/release/`
+- **AAB output**: `build/Qt_6_10_1_for_Android_arm64_v8a-Release/android-build-Decenza_DE1/build/outputs/bundle/release/`
+- **Versioned naming**: Handled in `android/build.gradle` (renames to `Decenza_DE1_<version>.apk/.aab`)
+
+### Gradle Tasks
+- `assembleRelease`: Builds signed APK
+- `bundleRelease`: Builds signed AAB (for Play Store)
+- Post-build renaming tasks in `android/build.gradle` copy and rename outputs with version
+
 ## Git Workflow
 
 - **IMPORTANT**: Always push with tags: `git push && git push --tags`
