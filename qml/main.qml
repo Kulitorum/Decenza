@@ -262,6 +262,11 @@ ApplicationWindow {
         }
 
         Component {
+            id: descalingPage
+            DescalingPage {}
+        }
+
+        Component {
             id: flushPage
             FlushPage {}
         }
@@ -676,6 +681,11 @@ ApplicationWindow {
     function goToProfileSelector() {
         announceNavigation("Select profile")
         pageStack.push(profileSelectorPage)
+    }
+
+    function goToDescaling() {
+        announceNavigation("Descaling wizard")
+        pageStack.push(descalingPage)
     }
 
     function goToFlush() {

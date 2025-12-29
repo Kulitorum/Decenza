@@ -301,9 +301,9 @@ ProfileFrame VisualizerImporter::parseVisualizerStep(const QJsonObject& json) {
 int VisualizerImporter::saveImportedProfile(const Profile& profile) {
     // Returns: 1 = saved, 0 = waiting for user (duplicate), -1 = failed
 
-    // Get profiles directory path
+    // Get downloaded profiles directory path
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    path += "/profiles";
+    path += "/profiles/downloaded";
 
     QDir dir(path);
     if (!dir.exists()) {
@@ -395,9 +395,15 @@ void VisualizerImporter::saveWithNewName(const QString& newTitle) {
     // Update the profile title
     m_pendingProfile.setTitle(newTitle);
 
-    // Generate new filename from the new title
+    // Generate new filename from the new title (save to downloaded folder)
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    path += "/profiles";
+    path += "/profiles/downloaded";
+
+    QDir dir(path);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+
     QString filename = m_controller->titleToFilename(newTitle);
     QString newPath = path + "/" + filename + ".json";
 

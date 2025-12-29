@@ -35,6 +35,9 @@ class Settings : public QObject {
     Q_PROPERTY(QVariantList favoriteProfiles READ favoriteProfiles NOTIFY favoriteProfilesChanged)
     Q_PROPERTY(int selectedFavoriteProfile READ selectedFavoriteProfile WRITE setSelectedFavoriteProfile NOTIFY selectedFavoriteProfileChanged)
 
+    // Selected built-in profiles (shown in "Selected" view)
+    Q_PROPERTY(QStringList selectedBuiltInProfiles READ selectedBuiltInProfiles WRITE setSelectedBuiltInProfiles NOTIFY selectedBuiltInProfilesChanged)
+
     // Hot water settings
     Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged)
     Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged)
@@ -122,6 +125,13 @@ public:
     Q_INVOKABLE QVariantMap getFavoriteProfile(int index) const;
     Q_INVOKABLE bool isFavoriteProfile(const QString& filename) const;
     Q_INVOKABLE bool updateFavoriteProfile(const QString& oldFilename, const QString& newFilename, const QString& newTitle);
+
+    // Selected built-in profiles
+    QStringList selectedBuiltInProfiles() const;
+    void setSelectedBuiltInProfiles(const QStringList& profiles);
+    Q_INVOKABLE void addSelectedBuiltInProfile(const QString& filename);
+    Q_INVOKABLE void removeSelectedBuiltInProfile(const QString& filename);
+    Q_INVOKABLE bool isSelectedBuiltInProfile(const QString& filename) const;
 
     // Hot water settings
     double waterTemperature() const;
@@ -221,6 +231,7 @@ signals:
     void selectedSteamPitcherChanged();
     void favoriteProfilesChanged();
     void selectedFavoriteProfileChanged();
+    void selectedBuiltInProfilesChanged();
     void waterTemperatureChanged();
     void waterVolumeChanged();
     void waterVesselPresetsChanged();

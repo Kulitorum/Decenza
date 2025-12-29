@@ -202,7 +202,7 @@ Page {
         // Announce tab when changed (accessibility)
         onCurrentIndexChanged: {
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                var tabNames = ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "Accessibility", "Themes", "Debug"]
+                var tabNames = IsDebugBuild ? ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "Accessibility", "Themes", "Debug"] : ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "Accessibility", "Themes"]
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
                     AccessibilityManager.announce(tabNames[currentIndex] + " tab")
                 }
@@ -371,6 +371,7 @@ Page {
 
         TabButton {
             id: debugTabButton
+            visible: typeof IsDebugBuild !== "undefined" && IsDebugBuild
             text: "Debug"
             width: implicitWidth
             font.pixelSize: 14
@@ -2459,8 +2460,7 @@ Page {
 
                             ComboBox {
                                 id: resolutionCombo
-                                Layout.fillWidth: true
-                                Layout.maximumWidth: parent.width * 0.5
+                                Layout.preferredWidth: 200
                                 model: resolutionSection.resolutions
                                 textRole: "name"
                                 displayText: Window.window ? (Window.window.width + " × " + Window.window.height) : "Select..."

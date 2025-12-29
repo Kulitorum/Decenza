@@ -76,9 +76,10 @@ Page {
         onClicked: activePresetFunction = ""
     }
 
-    // Main content area - centered
+    // Main content area - centered, offset down to account for top status section
     ColumnLayout {
         anchors.centerIn: parent
+        anchors.verticalCenterOffset: Theme.scaled(50)  // Push down to avoid status overlap
         spacing: Theme.scaled(20)
 
         // Main action buttons row
@@ -310,20 +311,26 @@ Page {
             spacing: Theme.scaled(50)
 
             // Temperature (tap to announce)
-            Column {
+            Item {
                 id: temperatureStatus
-                spacing: Theme.spacingSmall
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: DE1Device.temperature.toFixed(1) + "°C"
-                    color: Theme.temperatureColor
-                    font: Theme.valueFont
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Group Temp"
-                    color: Theme.textSecondaryColor
-                    font: Theme.labelFont
+                width: temperatureColumn.width
+                height: temperatureColumn.height
+
+                Column {
+                    id: temperatureColumn
+                    spacing: Theme.spacingSmall
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: DE1Device.temperature.toFixed(1) + "°C"
+                        color: Theme.temperatureColor
+                        font: Theme.valueFont
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "Group Temp"
+                        color: Theme.textSecondaryColor
+                        font: Theme.labelFont
+                    }
                 }
                 MouseArea {
                     anchors.fill: parent
@@ -336,20 +343,26 @@ Page {
             }
 
             // Water level (tap to announce)
-            Column {
+            Item {
                 id: waterLevelStatus
-                spacing: Theme.spacingSmall
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: DE1Device.waterLevel.toFixed(0) + "%"
-                    color: DE1Device.waterLevel > 20 ? Theme.primaryColor : Theme.warningColor
-                    font: Theme.valueFont
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Water Level"
-                    color: Theme.textSecondaryColor
-                    font: Theme.labelFont
+                width: waterLevelColumn.width
+                height: waterLevelColumn.height
+
+                Column {
+                    id: waterLevelColumn
+                    spacing: Theme.spacingSmall
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: DE1Device.waterLevel.toFixed(0) + "%"
+                        color: DE1Device.waterLevel > 20 ? Theme.primaryColor : Theme.warningColor
+                        font: Theme.valueFont
+                    }
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "Water Level"
+                        color: Theme.textSecondaryColor
+                        font: Theme.labelFont
+                    }
                 }
                 MouseArea {
                     anchors.fill: parent

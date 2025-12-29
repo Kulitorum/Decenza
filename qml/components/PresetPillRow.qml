@@ -8,7 +8,7 @@ FocusScope {
     property var presets: []
     property int selectedIndex: -1
     property int focusedIndex: 0  // Currently focused pill for keyboard nav
-    property real maxWidth: Theme.scaled(900)  // Max width before wrapping
+    property real maxWidth: Theme.scaled(825)  // Max width before wrapping
 
     signal presetSelected(int index)
 
@@ -66,32 +66,24 @@ FocusScope {
     onPresetsChanged: rowsModel = calculateRows()
     onMaxWidthChanged: rowsModel = calculateRows()
 
-    // Group presets into rows, distributing evenly for aesthetics (3/2 instead of 4/1)
+    // Group presets into rows, distributing evenly BY WIDTH for balanced aesthetics
     function calculateRows() {
         if (presets.length === 0) return []
 
         // First pass: calculate pill widths based on actual text width
         var pillWidths = []
+        var totalWidth = 0
         for (var i = 0; i < presets.length; i++) {
             var textWidth = measureTextWidth(presets[i].name || "")
-            pillWidths.push(textWidth + pillPadding)
+            var pillWidth = textWidth + pillPadding
+            pillWidths.push(pillWidth)
+            totalWidth += pillWidth
         }
+        // Add spacing between pills
+        totalWidth += (presets.length - 1) * pillSpacing
 
-        // Count how many rows we need with greedy packing
-        var numRows = 1
-        var rowWidth = 0
-        for (i = 0; i < presets.length; i++) {
-            var neededWidth = rowWidth > 0 ? pillWidths[i] + pillSpacing : pillWidths[i]
-            if (rowWidth + neededWidth > maxWidth) {
-                numRows++
-                rowWidth = pillWidths[i]
-            } else {
-                rowWidth += neededWidth
-            }
-        }
-
-        // If only one row needed, just return all in one row
-        if (numRows === 1) {
+        // If everything fits on one row, just return it
+        if (totalWidth <= maxWidth) {
             var singleRow = []
             for (i = 0; i < presets.length; i++) {
                 singleRow.push({index: i, preset: presets[i], width: pillWidths[i]})
@@ -99,24 +91,57 @@ FocusScope {
             return [singleRow]
         }
 
-        // Distribute pills evenly across rows
-        var pillsPerRow = Math.ceil(presets.length / numRows)
+        // Calculate number of rows needed
+        var numRows = Math.ceil(totalWidth / maxWidth)
+
+        // Target width per row (distribute evenly by width, not count)
+        var targetRowWidth = totalWidth / numRows
+
+        // Fill rows by width, not count
         var rows = []
         var currentRow = []
+        var currentRowWidth = 0
 
         for (i = 0; i < presets.length; i++) {
-            currentRow.push({index: i, preset: presets[i], width: pillWidths[i]})
+            var pillWidth = pillWidths[i]
+            var spacingNeeded = currentRow.length > 0 ? pillSpacing : 0
+            var widthIfAdded = currentRowWidth + spacingNeeded + pillWidth
 
-            if (currentRow.length >= pillsPerRow) {
+            // Start new row if:
+            // 1. Adding this pill would exceed maxWidth AND row is not empty, OR
+            // 2. Current row width is already >= target AND there are enough pills left for remaining rows
+            var remainingPills = presets.length - i
+            var remainingRows = numRows - rows.length
+            var shouldStartNewRow = false
+
+            if (currentRow.length > 0 && widthIfAdded > maxWidth) {
+                // Would overflow - must start new row
+                shouldStartNewRow = true
+            } else if (currentRow.length > 0 && currentRowWidth >= targetRowWidth * 0.9 && remainingPills >= remainingRows) {
+                // Row is close to target width and we have enough pills for remaining rows
+                shouldStartNewRow = true
+            }
+
+            if (shouldStartNewRow) {
                 rows.push(currentRow)
                 currentRow = []
-                // Recalculate for remaining pills to keep distribution even
-                var remaining = presets.length - i - 1
-                var remainingRows = numRows - rows.length
+                currentRowWidth = 0
+                spacingNeeded = 0
+
+                // Recalculate target for remaining pills
+                var remainingWidth = 0
+                for (var j = i; j < presets.length; j++) {
+                    remainingWidth += pillWidths[j]
+                    if (j > i) remainingWidth += pillSpacing
+                }
+                remainingRows = numRows - rows.length
                 if (remainingRows > 0) {
-                    pillsPerRow = Math.ceil(remaining / remainingRows)
+                    targetRowWidth = remainingWidth / remainingRows
                 }
             }
+
+            currentRow.push({index: i, preset: presets[i], width: pillWidth})
+            currentRowWidth += spacingNeeded + pillWidth
         }
 
         if (currentRow.length > 0) {

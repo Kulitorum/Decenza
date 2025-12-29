@@ -35,13 +35,105 @@ Page {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
 
-                    Text {
-                        text: "All Profiles"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
+                    ComboBox {
+                        id: viewFilter
+                        Layout.preferredWidth: Theme.scaled(230)
+                        Layout.preferredHeight: Theme.scaled(44)
+                        model: ["Selected", "Cleaning/Descale", "All Decent Profiles"]
+                        currentIndex: 0
+
+                        background: Rectangle {
+                            radius: Theme.scaled(6)
+                            color: Theme.surfaceColor
+                            border.color: Theme.borderColor
+                            border.width: 1
+                        }
+
+                        contentItem: Text {
+                            text: viewFilter.displayText
+                            color: Theme.textColor
+                            font: Theme.bodyFont
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.scaled(12)
+                            rightPadding: Theme.scaled(30)
+                        }
+
+                        indicator: Text {
+                            x: viewFilter.width - width - Theme.scaled(10)
+                            y: (viewFilter.height - height) / 2
+                            text: "\u25BC"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                        }
+
+                        popup: Popup {
+                            y: viewFilter.height + Theme.scaled(4)
+                            width: viewFilter.width
+                            padding: 0
+
+                            contentItem: ListView {
+                                implicitHeight: contentHeight
+                                model: viewFilter.popup.visible ? viewFilter.delegateModel : null
+                                clip: true
+                            }
+
+                            background: Rectangle {
+                                color: Theme.surfaceColor
+                                border.color: Theme.borderColor
+                                border.width: 1
+                                radius: Theme.scaled(6)
+                            }
+                        }
+
+                        delegate: Rectangle {
+                            width: viewFilter.width
+                            height: Theme.scaled(44)
+                            color: viewFilter.highlightedIndex === index ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
+
+                            Text {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.scaled(12)
+                                text: modelData
+                                color: Theme.textColor
+                                font: Theme.bodyFont
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: {
+                                    viewFilter.currentIndex = index
+                                    viewFilter.popup.close()
+                                }
+                            }
+                        }
                     }
 
                     Item { Layout.fillWidth: true }
+
+                    Button {
+                        visible: viewFilter.currentIndex === 1  // Cleaning/Descale view
+                        text: "Descaling Wizard"
+                        Layout.preferredHeight: Theme.scaled(36)
+                        onClicked: root.goToDescaling()
+
+                        background: Rectangle {
+                            radius: Theme.scaled(4)
+                            color: Theme.surfaceColor
+                            border.color: Theme.primaryColor
+                            border.width: 1
+                        }
+                        contentItem: Text {
+                            text: parent.text
+                            color: Theme.primaryColor
+                            font: Theme.captionFont
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.scaled(12)
+                            rightPadding: Theme.scaled(12)
+                        }
+                    }
 
                     Button {
                         text: "Import from Visualizer"
@@ -69,22 +161,96 @@ Page {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    model: MainController.availableProfiles
+                    model: {
+                        switch (viewFilter.currentIndex) {
+                            case 0: return MainController.selectedProfiles      // "Selected"
+                            case 1: return MainController.cleaningProfiles      // "Cleaning/Descale"
+                            case 2: return MainController.allBuiltInProfiles    // "All Decent Profiles"
+                            default: return MainController.selectedProfiles
+                        }
+                    }
                     spacing: Theme.scaled(4)
 
+                    // Category for grouping in "All Decent Profiles" view
+                    property string currentCategory: ""
+
+                    // Helper to get display category from beverageType
+                    function getCategoryName(beverageType) {
+                        switch (beverageType) {
+                            case "espresso": return "Espresso"
+                            case "tea":
+                            case "tea_portafilter": return "Tea"
+                            case "pourover":
+                            case "filter": return "Pour Over"
+                            case "cleaning":
+                            case "calibrate":
+                            case "manual": return "Utility"
+                            default: return "Other"
+                        }
+                    }
+
                     delegate: Rectangle {
+                        id: profileDelegate
                         width: allProfilesList.width
                         height: Theme.scaled(60)
                         radius: Theme.scaled(6)
-                        color: modelData.name === MainController.currentProfile ?
-                               Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) :
-                               (index % 2 === 0 ? "#1a1a1a" : "#2a2a2a")
+
+                        // ProfileSource enum: 0=BuiltIn, 1=Downloaded, 2=UserCreated
+                        property int profileSource: modelData.source || 0
+                        property bool isBuiltIn: profileSource === 0
+                        property bool isDownloaded: profileSource === 1
+                        property bool isUserCreated: profileSource === 2
+                        // Use binding blocks to ensure re-evaluation when lists change
+                        property bool isSelected: {
+                            var list = Settings.selectedBuiltInProfiles  // Create dependency
+                            return Settings.isSelectedBuiltInProfile(modelData.name)
+                        }
+                        property bool isFavorite: {
+                            var list = Settings.favoriteProfiles  // Create dependency
+                            return Settings.isFavoriteProfile(modelData.name)
+                        }
+                        property bool isCurrentProfile: modelData.name === MainController.currentProfile
+
+                        // Source-based colors
+                        property color sourceColor: isBuiltIn ? "#4a90d9" :      // Blue for Decent
+                                                    isDownloaded ? "#4ad94a" :   // Green for Downloaded
+                                                    "#d9a04a"                     // Orange for User
+
+                        // Row background with source tint
+                        color: {
+                            if (isCurrentProfile) {
+                                return Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.25)
+                            }
+                            // Subtle source color tint
+                            var baseColor = index % 2 === 0 ? "#1a1a1a" : "#222222"
+                            return Qt.tint(baseColor, Qt.rgba(sourceColor.r, sourceColor.g, sourceColor.b, 0.15))
+                        }
 
                         RowLayout {
                             anchors.fill: parent
                             anchors.margins: Theme.scaled(10)
                             spacing: Theme.scaled(10)
 
+                            // Source icon: D=Decent, V=Visualizer download, U=User
+                            Text {
+                                Layout.preferredWidth: Theme.scaled(24)
+                                Layout.alignment: Qt.AlignVCenter
+                                text: profileDelegate.isBuiltIn ? "D" :
+                                      profileDelegate.isDownloaded ? "V" :
+                                      "U"
+                                font.pixelSize: Theme.scaled(16)
+                                font.bold: true
+                                color: profileDelegate.sourceColor
+                                horizontalAlignment: Text.AlignHCenter
+
+                                // Accessibility
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: profileDelegate.isBuiltIn ? "Decent profile" :
+                                                 profileDelegate.isDownloaded ? "Downloaded from Visualizer" :
+                                                 "User profile"
+                            }
+
+                            // Profile name
                             Text {
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
@@ -94,107 +260,196 @@ Page {
                                 elide: Text.ElideRight
                             }
 
-                            // Add to favorites button (show when not already a favorite)
-                            // Note: Reference favoriteProfiles.length to create binding dependency for refresh
+                            // === "All Decent Profiles" view: Select/Unselect toggle ===
                             RoundButton {
-                                id: addFavoriteButton
-                                visible: Settings.favoriteProfiles.length >= 0 && !Settings.isFavoriteProfile(modelData.name)
-                                enabled: Settings.favoriteProfiles.length < 5
+                                id: selectToggleButton
+                                visible: viewFilter.currentIndex === 2  // Only in "All Decent Profiles"
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
                                 flat: true
-                                text: "+"
-                                font.pixelSize: Theme.scaled(24)
-                                font.bold: true
 
-                                property bool favoritesFull: Settings.favoriteProfiles.length >= 5
-
-                                function doAddFavorite() {
-                                    if (!modelData) return
-                                    if (favoritesFull) {
-                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                            AccessibilityManager.announce("Favorites full. Remove one to add more.")
-                                        }
-                                        return
-                                    }
-                                    Settings.addFavoriteProfile(modelData.title, modelData.name)
-                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                        AccessibilityManager.announce(root.cleanForSpeech(modelData.title || modelData.name) + " added to favorites")
+                                onClicked: {
+                                    if (profileDelegate.isSelected) {
+                                        Settings.removeSelectedBuiltInProfile(modelData.name)
+                                    } else {
+                                        Settings.addSelectedBuiltInProfile(modelData.name)
                                     }
                                 }
 
-                                onClicked: doAddFavorite()
-
                                 contentItem: Text {
-                                    text: parent.text
-                                    font: parent.font
-                                    color: addFavoriteButton.favoritesFull ? Theme.textSecondaryColor : Theme.primaryColor
+                                    text: profileDelegate.isSelected ? "\u2605" : "\u2606"
+                                    font.pixelSize: Theme.scaled(20)
+                                    color: profileDelegate.isSelected ? Theme.primaryColor : Theme.textSecondaryColor
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
                                     radius: width / 2
                                     color: "transparent"
-                                    border.color: addFavoriteButton.favoritesFull ? Theme.textSecondaryColor : Theme.primaryColor
-                                    border.width: 1
                                 }
 
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    accessibleName: {
-                                        if (!modelData) return ""
-                                        if (addFavoriteButton.favoritesFull) {
-                                            return "Favorites full, cannot add " + root.cleanForSpeech(modelData.title || modelData.name)
-                                        }
-                                        return "Add " + root.cleanForSpeech(modelData.title || modelData.name) + " to favorites"
-                                    }
-                                    accessibleItem: addFavoriteButton
-                                    onAccessibleClicked: addFavoriteButton.doAddFavorite()
-                                }
+                                Accessible.role: Accessible.Button
+                                Accessible.name: profileDelegate.isSelected ? "Remove from selected" : "Add to selected"
                             }
 
-                            // Already favorite indicator (star)
-                            // Note: Reference favoriteProfiles.length to create binding dependency for refresh
-                            Item {
-                                visible: Settings.favoriteProfiles.length >= 0 && Settings.isFavoriteProfile(modelData.name)
+                            // === "Selected" view: Favorite toggle button (hollow/filled star) ===
+                            RoundButton {
+                                id: favoriteToggleButton
+                                visible: viewFilter.currentIndex === 0  // Only in "Selected" view
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
+                                flat: true
+                                enabled: profileDelegate.isFavorite || Settings.favoriteProfiles.length < 50
 
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "\u2605"  // Star
-                                    color: Theme.primaryColor
-                                    font.pixelSize: Theme.scaled(20)
-                                }
-
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    accessibleName: modelData ? (root.cleanForSpeech(modelData.title || modelData.name) + " is already a favorite") : ""
-                                    accessibleItem: parent
-                                    onAccessibleClicked: {
-                                        // Just announce, no action needed
-                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                            AccessibilityManager.announce("Already in favorites")
+                                onClicked: {
+                                    if (profileDelegate.isFavorite) {
+                                        // Find and remove from favorites
+                                        var favs = Settings.favoriteProfiles
+                                        for (var i = 0; i < favs.length; i++) {
+                                            if (favs[i].filename === modelData.name) {
+                                                Settings.removeFavoriteProfile(i)
+                                                break
+                                            }
                                         }
+                                    } else {
+                                        Settings.addFavoriteProfile(modelData.title, modelData.name)
                                     }
                                 }
+
+                                contentItem: Text {
+                                    text: profileDelegate.isFavorite ? "\u2605" : "\u2606"  // Filled or hollow star
+                                    font.pixelSize: Theme.scaled(20)
+                                    color: profileDelegate.isFavorite ? Theme.primaryColor : Theme.textSecondaryColor
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    radius: width / 2
+                                    color: favoriteToggleButton.pressed ? Qt.rgba(1, 1, 1, 0.1) : "transparent"
+                                }
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: profileDelegate.isFavorite ? "Remove from favorites" : "Add to favorites"
+                            }
+
+                            // === "Selected" view: Overflow menu button ===
+                            RoundButton {
+                                id: overflowButton
+                                visible: viewFilter.currentIndex === 0  // Only in "Selected" view
+                                Layout.preferredWidth: Theme.scaled(40)
+                                Layout.preferredHeight: Theme.scaled(40)
+                                Layout.alignment: Qt.AlignVCenter
+                                flat: true
+
+                                onClicked: {
+                                    var pos = mapToItem(profileDelegate, 0, height)
+                                    overflowMenu.x = pos.x
+                                    overflowMenu.y = pos.y
+                                    overflowMenu.open()
+                                }
+
+                                contentItem: Text {
+                                    text: "\u22EE"  // Vertical ellipsis ⋮
+                                    font.pixelSize: Theme.scaled(24)
+                                    color: Theme.textColor
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    radius: width / 2
+                                    color: overflowButton.pressed ? Qt.rgba(1, 1, 1, 0.1) : "transparent"
+                                }
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "More options for " + modelData.title
                             }
                         }
 
-                        AccessibleMouseArea {
+                        // Overflow menu (outside the RowLayout for proper positioning)
+                        Menu {
+                            id: overflowMenu
+                            width: Theme.scaled(220)
+
+                            background: Rectangle {
+                                color: Theme.surfaceColor
+                                border.color: Theme.borderColor
+                                radius: Theme.scaled(6)
+                            }
+
+                            MenuItem {
+                                text: "\u270E  Edit Profile"
+                                onTriggered: {
+                                    MainController.loadProfile(modelData.name)
+                                    root.goToProfileEditor()
+                                }
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Theme.textColor
+                                    font: Theme.bodyFont
+                                    leftPadding: Theme.scaled(8)
+                                }
+                                background: Rectangle {
+                                    color: parent.highlighted ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
+                                }
+
+                                Accessible.role: Accessible.MenuItem
+                                Accessible.name: "Edit profile"
+                            }
+
+                            MenuSeparator {
+                                contentItem: Rectangle {
+                                    implicitHeight: 1
+                                    color: Theme.borderColor
+                                }
+                            }
+
+                            MenuItem {
+                                text: profileDelegate.isBuiltIn ? "\u2212  Remove from Selected" : "\u2717  Delete Profile"
+                                onTriggered: {
+                                    if (profileDelegate.isBuiltIn) {
+                                        Settings.removeSelectedBuiltInProfile(modelData.name)
+                                    } else {
+                                        deleteDialog.profileName = modelData.name
+                                        deleteDialog.profileTitle = modelData.title
+                                        deleteDialog.isFavorite = profileDelegate.isFavorite
+                                        deleteDialog.open()
+                                    }
+                                }
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: Theme.errorColor
+                                    font: Theme.bodyFont
+                                    leftPadding: Theme.scaled(8)
+                                }
+                                background: Rectangle {
+                                    color: parent.highlighted ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.2) : "transparent"
+                                }
+
+                                Accessible.role: Accessible.MenuItem
+                                Accessible.name: profileDelegate.isBuiltIn ? "Remove from selected list" : "Delete profile permanently"
+                            }
+                        }
+
+                        MouseArea {
                             anchors.fill: parent
                             z: -1
-                            accessibleName: modelData ? (root.cleanForSpeech(modelData.name) + " profile") : ""
-                            accessibleItem: parent
-                            onAccessibleClicked: {
+                            onClicked: {
                                 if (!modelData) return
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                    AccessibilityManager.announce(root.cleanForSpeech(modelData.name) + " loaded")
-                                }
                                 MainController.loadProfile(modelData.name)
                             }
+                        }
+
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: {
+                            var source = profileDelegate.isBuiltIn ? "Decent" :
+                                         profileDelegate.isDownloaded ? "Downloaded" : "Custom"
+                            var fav = profileDelegate.isFavorite ? ", favorite" : ""
+                            var current = profileDelegate.isCurrentProfile ? ", currently selected" : ""
+                            return source + " profile: " + modelData.title + fav + current
                         }
                     }
                 }
@@ -217,7 +472,7 @@ Page {
                     Layout.fillWidth: true
 
                     Text {
-                        text: "Favorites (" + Settings.favoriteProfiles.length + "/5)"
+                        text: "Favorites (" + Settings.favoriteProfiles.length + ")"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -237,7 +492,7 @@ Page {
                     visible: Settings.favoriteProfiles.length === 0
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    text: "No favorites yet.\nTap + on a profile to add it."
+                    text: "No favorites yet.\nUse the \u22EE menu on a profile\nto add it to favorites."
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
@@ -412,6 +667,84 @@ Page {
                     }
                 }
             }
+        }
+    }
+
+    // Delete confirmation dialog
+    Dialog {
+        id: deleteDialog
+        anchors.centerIn: parent
+        width: Theme.scaled(350)
+        modal: true
+        title: "Delete Profile"
+
+        property string profileName: ""
+        property string profileTitle: ""
+        property bool isFavorite: false
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(15)
+
+            Text {
+                Layout.fillWidth: true
+                text: deleteDialog.isFavorite ?
+                      "\"" + deleteDialog.profileTitle + "\" is in your favorites.\n\nDeleting will also remove it from favorites.\n\nAre you sure you want to delete this profile?" :
+                      "Are you sure you want to delete \"" + deleteDialog.profileTitle + "\"?\n\nThis cannot be undone."
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(10)
+
+                Button {
+                    Layout.fillWidth: true
+                    text: "Cancel"
+                    onClicked: deleteDialog.close()
+
+                    background: Rectangle {
+                        radius: Theme.scaled(4)
+                        color: Theme.surfaceColor
+                        border.color: Theme.borderColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: Theme.textColor
+                        font: Theme.bodyFont
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Button {
+                    Layout.fillWidth: true
+                    text: "Delete"
+                    onClicked: {
+                        MainController.deleteProfile(deleteDialog.profileName)
+                        deleteDialog.close()
+                    }
+
+                    background: Rectangle {
+                        radius: Theme.scaled(4)
+                        color: Theme.errorColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "white"
+                        font: Theme.bodyFont
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(8)
+            border.color: Theme.borderColor
         }
     }
 

@@ -52,6 +52,17 @@ Settings::Settings(QObject* parent)
         m_settings.setValue("profile/favorites", QJsonDocument(defaultFavorites).toJson());
     }
 
+    // Initialize default selected built-in profiles if none exist
+    if (!m_settings.contains("profile/selectedBuiltIns")) {
+        QStringList defaultSelected;
+        defaultSelected << "adaptive_v2"
+                        << "blooming_espresso"
+                        << "best_overall_pressure_profile"
+                        << "flow_profile_for_straight_espresso"
+                        << "turbo_shot";
+        m_settings.setValue("profile/selectedBuiltIns", defaultSelected);
+    }
+
     // Initialize default water vessel presets if none exist
     if (!m_settings.contains("water/vesselPresets")) {
         QJsonArray defaultPresets;
@@ -338,8 +349,8 @@ void Settings::addFavoriteProfile(const QString& name, const QString& filename) 
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.array();
 
-    // Max 5 favorites
-    if (arr.size() >= 5) {
+    // Max 50 favorites
+    if (arr.size() >= 50) {
         return;
     }
 
@@ -446,6 +457,63 @@ bool Settings::updateFavoriteProfile(const QString& oldFilename, const QString& 
         }
     }
     return false;
+}
+
+// Selected built-in profiles
+QStringList Settings::selectedBuiltInProfiles() const {
+    return m_settings.value("profile/selectedBuiltIns").toStringList();
+}
+
+void Settings::setSelectedBuiltInProfiles(const QStringList& profiles) {
+    if (selectedBuiltInProfiles() != profiles) {
+        m_settings.setValue("profile/selectedBuiltIns", profiles);
+        emit selectedBuiltInProfilesChanged();
+    }
+}
+
+void Settings::addSelectedBuiltInProfile(const QString& filename) {
+    QStringList current = selectedBuiltInProfiles();
+    if (!current.contains(filename)) {
+        current.append(filename);
+        m_settings.setValue("profile/selectedBuiltIns", current);
+        emit selectedBuiltInProfilesChanged();
+    }
+}
+
+void Settings::removeSelectedBuiltInProfile(const QString& filename) {
+    QStringList current = selectedBuiltInProfiles();
+    if (current.removeAll(filename) > 0) {
+        m_settings.setValue("profile/selectedBuiltIns", current);
+        emit selectedBuiltInProfilesChanged();
+
+        // Also remove from favorites if it was a favorite
+        if (isFavoriteProfile(filename)) {
+            QByteArray data = m_settings.value("profile/favorites").toByteArray();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            QJsonArray arr = doc.array();
+
+            for (int i = arr.size() - 1; i >= 0; --i) {
+                if (arr[i].toObject()["filename"].toString() == filename) {
+                    arr.removeAt(i);
+                    break;
+                }
+            }
+
+            m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
+
+            // Adjust selected favorite if needed
+            int selected = selectedFavoriteProfile();
+            if (selected >= arr.size() && arr.size() > 0) {
+                setSelectedFavoriteProfile(arr.size() - 1);
+            }
+
+            emit favoriteProfilesChanged();
+        }
+    }
+}
+
+bool Settings::isSelectedBuiltInProfile(const QString& filename) const {
+    return selectedBuiltInProfiles().contains(filename);
 }
 
 // Hot water settings

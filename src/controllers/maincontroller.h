@@ -14,6 +14,21 @@ class MachineState;
 class ShotDataModel;
 struct ShotSample;
 
+// Profile source enumeration
+enum class ProfileSource {
+    BuiltIn,      // Shipped with app in :/profiles/
+    Downloaded,   // Downloaded from visualizer.coffee
+    UserCreated   // Created or edited by user
+};
+
+// Profile metadata for filtering and display
+struct ProfileInfo {
+    QString filename;
+    QString title;
+    QString beverageType;
+    ProfileSource source;
+};
+
 class MainController : public QObject {
     Q_OBJECT
 
@@ -22,6 +37,9 @@ class MainController : public QObject {
     Q_PROPERTY(bool profileModified READ isProfileModified NOTIFY profileModifiedChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(QVariantList availableProfiles READ availableProfiles NOTIFY profilesChanged)
+    Q_PROPERTY(QVariantList selectedProfiles READ selectedProfiles NOTIFY profilesChanged)
+    Q_PROPERTY(QVariantList allBuiltInProfiles READ allBuiltInProfiles NOTIFY profilesChanged)
+    Q_PROPERTY(QVariantList cleaningProfiles READ cleaningProfiles NOTIFY profilesChanged)
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT)
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT)
     Q_PROPERTY(bool calibrationMode READ isCalibrationMode NOTIFY calibrationModeChanged)
@@ -38,6 +56,9 @@ public:
     double targetWeight() const;
     void setTargetWeight(double weight);
     QVariantList availableProfiles() const;
+    QVariantList selectedProfiles() const;
+    QVariantList allBuiltInProfiles() const;
+    QVariantList cleaningProfiles() const;
     VisualizerUploader* visualizer() const { return m_visualizer; }
     VisualizerImporter* visualizerImporter() const { return m_visualizerImporter; }
     bool isCalibrationMode() const { return m_calibrationMode; }
@@ -49,6 +70,7 @@ public:
     Q_INVOKABLE void markProfileClean();  // Called after save
     Q_INVOKABLE QString titleToFilename(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
+    Q_INVOKABLE bool deleteProfile(const QString& filename);  // Delete user/downloaded profile
 
 public slots:
     void loadProfile(const QString& profileName);
@@ -91,7 +113,10 @@ private slots:
 
 private:
     void loadDefaultProfile();
+    void migrateProfileFolders();
     QString profilesPath() const;
+    QString userProfilesPath() const;
+    QString downloadedProfilesPath() const;
     void applyAllSettings();
 
     Settings* m_settings = nullptr;
@@ -104,6 +129,7 @@ private:
     Profile m_currentProfile;
     QStringList m_availableProfiles;
     QMap<QString, QString> m_profileTitles;  // filename -> display title
+    QList<ProfileInfo> m_allProfiles;  // Complete list with metadata
     double m_shotStartTime = 0;
     double m_lastSampleTime = 0;  // For delta time calculation
     bool m_extractionStarted = false;

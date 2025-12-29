@@ -5,7 +5,6 @@
 #include <QIcon>
 #include <QTimer>
 #include <QGuiApplication>
-#include <QStandardPaths>
 #include <QDebug>
 #include <memory>
 #include "buildinfo.h"
@@ -15,8 +14,8 @@
 #include <QCoreApplication>
 #endif
 
+
 #include "core/settings.h"
-#include "core/logger.h"
 #include "core/batterymanager.h"
 #include "core/batterydrainer.h"
 #include "core/accessibilitymanager.h"
@@ -45,12 +44,7 @@ int main(int argc, char *argv[])
     // Use Material style for modern look
     QQuickStyle::setStyle("Material");
 
-    // Initialize logger - captures all qDebug() to file
-    // Use app's external storage: Android/data/io.github.kulitorum.decenza_de1/files/
-    QString logPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/decenza.log";
-    Logger::init(logPath);
     qDebug() << "App started - build" << BUILD_NUMBER_STRING;
-    qDebug() << "Log file:" << logPath;
 
     // Create core objects
     Settings settings;
@@ -210,6 +204,11 @@ int main(int argc, char *argv[])
     context->setContextProperty("BatteryDrainer", &batteryDrainer);
     context->setContextProperty("AccessibilityManager", &accessibilityManager);
     context->setContextProperty("BuildNumber", BUILD_NUMBER_STRING);
+#ifdef QT_DEBUG
+    context->setContextProperty("IsDebugBuild", true);
+#else
+    context->setContextProperty("IsDebugBuild", false);
+#endif
 
     // Register types for QML (use different names to avoid conflict with context properties)
     qmlRegisterUncreatableType<DE1Device>("DecenzaDE1", 1, 0, "DE1DeviceType",
@@ -294,14 +293,11 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Cleanup on exit - order matters to avoid race conditions
+    // Cleanup on exit
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager]() {
-        // Shutdown accessibility FIRST to stop TTS before any other cleanup
+        // Shutdown accessibility to stop TTS before any other cleanup
         // This prevents race conditions with Android's hwuiTask thread
         accessibilityManager.shutdown();
-
-        // Then shutdown logger
-        Logger::shutdown();
     });
 
     return app.exec();

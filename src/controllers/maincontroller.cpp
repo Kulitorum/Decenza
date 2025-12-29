@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 #include <QVariantMap>
+#include <algorithm>
 
 MainController::MainController(Settings* settings, DE1Device* device,
                                MachineState* machineState, ShotDataModel* shotDataModel,
@@ -48,6 +49,9 @@ MainController::MainController(Settings* settings, DE1Device* device,
     // Create visualizer uploader and importer
     m_visualizer = new VisualizerUploader(m_settings, this);
     m_visualizerImporter = new VisualizerImporter(this, this);
+
+    // Migrate profile folders (one-time migration for existing users)
+    migrateProfileFolders();
 
     // Load initial profile
     refreshProfiles();
@@ -108,6 +112,133 @@ QVariantList MainController::availableProfiles() const {
     return result;
 }
 
+QVariantList MainController::selectedProfiles() const {
+    QVariantList result;
+
+    // Get selected built-in profile names from settings
+    QStringList selectedBuiltIns = m_settings ? m_settings->selectedBuiltInProfiles() : QStringList();
+
+    for (const ProfileInfo& info : m_allProfiles) {
+        bool include = false;
+
+        switch (info.source) {
+        case ProfileSource::BuiltIn:
+            // Only include if selected
+            include = selectedBuiltIns.contains(info.filename);
+            break;
+        case ProfileSource::Downloaded:
+        case ProfileSource::UserCreated:
+            // Always include user and downloaded profiles
+            include = true;
+            break;
+        }
+
+        if (include) {
+            QVariantMap profile;
+            profile["name"] = info.filename;
+            profile["title"] = info.title;
+            profile["beverageType"] = info.beverageType;
+            profile["source"] = static_cast<int>(info.source);
+            result.append(profile);
+        }
+    }
+
+    // Sort by title alphabetically (case-insensitive)
+    std::sort(result.begin(), result.end(), [](const QVariant& a, const QVariant& b) {
+        return a.toMap()["title"].toString().compare(
+            b.toMap()["title"].toString(), Qt::CaseInsensitive) < 0;
+    });
+
+    return result;
+}
+
+QVariantList MainController::allBuiltInProfiles() const {
+    QVariantList result;
+
+    // Get selected built-in profile names from settings
+    QStringList selectedBuiltIns = m_settings ? m_settings->selectedBuiltInProfiles() : QStringList();
+
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.source == ProfileSource::BuiltIn) {
+            QVariantMap profile;
+            profile["name"] = info.filename;
+            profile["title"] = info.title;
+            profile["beverageType"] = info.beverageType;
+            profile["source"] = static_cast<int>(info.source);
+            profile["isSelected"] = selectedBuiltIns.contains(info.filename);
+            result.append(profile);
+        }
+    }
+
+    return result;
+}
+
+QVariantList MainController::cleaningProfiles() const {
+    QVariantList result;
+
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.beverageType == "cleaning") {
+            QVariantMap profile;
+            profile["name"] = info.filename;
+            profile["title"] = info.title;
+            profile["beverageType"] = info.beverageType;
+            profile["source"] = static_cast<int>(info.source);
+            result.append(profile);
+        }
+    }
+
+    return result;
+}
+
+bool MainController::deleteProfile(const QString& filename) {
+    // Find the profile info
+    ProfileSource source = ProfileSource::BuiltIn;
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.filename == filename) {
+            source = info.source;
+            break;
+        }
+    }
+
+    // Cannot delete built-in profiles
+    if (source == ProfileSource::BuiltIn) {
+        qWarning() << "Cannot delete built-in profile:" << filename;
+        return false;
+    }
+
+    // Determine the file path based on source
+    QString path;
+    if (source == ProfileSource::Downloaded) {
+        path = downloadedProfilesPath() + "/" + filename + ".json";
+    } else if (source == ProfileSource::UserCreated) {
+        path = userProfilesPath() + "/" + filename + ".json";
+    }
+
+    // Delete the file
+    if (QFile::remove(path)) {
+        qDebug() << "Deleted profile:" << path;
+
+        // Remove from favorites if it was a favorite
+        if (m_settings && m_settings->isFavoriteProfile(filename)) {
+            // Find index and remove
+            QVariantList favorites = m_settings->favoriteProfiles();
+            for (int i = 0; i < favorites.size(); ++i) {
+                if (favorites[i].toMap()["filename"].toString() == filename) {
+                    m_settings->removeFavoriteProfile(i);
+                    break;
+                }
+            }
+        }
+
+        // Refresh the profile list
+        refreshProfiles();
+        return true;
+    } else {
+        qWarning() << "Failed to delete profile:" << path;
+        return false;
+    }
+}
+
 QVariantMap MainController::getCurrentProfile() const {
     QVariantMap profile;
     profile["title"] = m_currentProfile.title();
@@ -143,18 +274,37 @@ QVariantMap MainController::getCurrentProfile() const {
 }
 
 void MainController::loadProfile(const QString& profileName) {
-    QString path = profilesPath() + "/" + profileName + ".json";
+    QString path;
+    bool found = false;
 
+    // 1. Check user profiles first
+    path = userProfilesPath() + "/" + profileName + ".json";
     if (QFile::exists(path)) {
         m_currentProfile = Profile::loadFromFile(path);
-    } else {
-        // Try built-in profiles
+        found = true;
+    }
+
+    // 2. Check downloaded profiles
+    if (!found) {
+        path = downloadedProfilesPath() + "/" + profileName + ".json";
+        if (QFile::exists(path)) {
+            m_currentProfile = Profile::loadFromFile(path);
+            found = true;
+        }
+    }
+
+    // 3. Check built-in profiles
+    if (!found) {
         path = ":/profiles/" + profileName + ".json";
         if (QFile::exists(path)) {
             m_currentProfile = Profile::loadFromFile(path);
-        } else {
-            loadDefaultProfile();
+            found = true;
         }
+    }
+
+    // 4. Fall back to default
+    if (!found) {
+        loadDefaultProfile();
     }
 
     // Track the base profile name (filename without extension)
@@ -185,38 +335,77 @@ void MainController::loadProfile(const QString& profileName) {
 void MainController::refreshProfiles() {
     m_availableProfiles.clear();
     m_profileTitles.clear();
+    m_allProfiles.clear();
 
-    auto loadProfileTitle = [](const QString& path) -> QString {
+    // Helper to load profile metadata
+    auto loadProfileMeta = [](const QString& path) -> QPair<QString, QString> {
         QFile file(path);
         if (file.open(QIODevice::ReadOnly)) {
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-            return doc.object()["title"].toString();
+            QJsonObject obj = doc.object();
+            return {obj["title"].toString(), obj["beverage_type"].toString()};
         }
-        return QString();
+        return {QString(), QString()};
     };
 
-    // Scan profiles directory
-    QDir profileDir(profilesPath());
     QStringList filters;
     filters << "*.json";
 
-    QStringList files = profileDir.entryList(filters, QDir::Files);
+    // 1. Load built-in profiles (always available)
+    QDir builtInDir(":/profiles");
+    QStringList files = builtInDir.entryList(filters, QDir::Files);
     for (const QString& file : files) {
         QString name = file.left(file.length() - 5);  // Remove .json
-        QString title = loadProfileTitle(profileDir.filePath(file));
+        auto [title, beverageType] = loadProfileMeta(":/profiles/" + file);
+
+        ProfileInfo info;
+        info.filename = name;
+        info.title = title.isEmpty() ? name : title;
+        info.beverageType = beverageType;
+        info.source = ProfileSource::BuiltIn;
+        m_allProfiles.append(info);
+
         m_availableProfiles.append(name);
-        m_profileTitles[name] = title.isEmpty() ? name : title;
+        m_profileTitles[name] = info.title;
     }
 
-    // Add built-in profiles
-    QDir builtInDir(":/profiles");
-    files = builtInDir.entryList(filters, QDir::Files);
+    // 2. Load downloaded profiles
+    QDir downloadedDir(downloadedProfilesPath());
+    files = downloadedDir.entryList(filters, QDir::Files);
     for (const QString& file : files) {
         QString name = file.left(file.length() - 5);
+        auto [title, beverageType] = loadProfileMeta(downloadedDir.filePath(file));
+
+        ProfileInfo info;
+        info.filename = name;
+        info.title = title.isEmpty() ? name : title;
+        info.beverageType = beverageType;
+        info.source = ProfileSource::Downloaded;
+        m_allProfiles.append(info);
+
         if (!m_availableProfiles.contains(name)) {
-            QString title = loadProfileTitle(":/profiles/" + file);
             m_availableProfiles.append(name);
-            m_profileTitles[name] = title.isEmpty() ? name : title;
+            m_profileTitles[name] = info.title;
+        }
+    }
+
+    // 3. Load user-created profiles
+    QDir userDir(userProfilesPath());
+    files = userDir.entryList(filters, QDir::Files);
+    for (const QString& file : files) {
+        QString name = file.left(file.length() - 5);
+        auto [title, beverageType] = loadProfileMeta(userDir.filePath(file));
+
+        ProfileInfo info;
+        info.filename = name;
+        info.title = title.isEmpty() ? name : title;
+        info.beverageType = beverageType;
+        info.source = ProfileSource::UserCreated;
+        m_allProfiles.append(info);
+
+        if (!m_availableProfiles.contains(name)) {
+            m_availableProfiles.append(name);
+            m_profileTitles[name] = info.title;
         }
     }
 
@@ -287,10 +476,29 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
 }
 
 bool MainController::saveProfile(const QString& filename) {
-    QString path = profilesPath() + "/" + filename + ".json";
+    // Always save to user profiles folder
+    QString path = userProfilesPath() + "/" + filename + ".json";
     bool success = m_currentProfile.saveToFile(path);
     if (success) {
         qDebug() << "Saved profile to:" << path;
+
+        // If saving a built-in profile, auto-select it and update favorites
+        if (m_settings) {
+            // Check if this was originally a built-in
+            bool wasBuiltIn = false;
+            for (const ProfileInfo& info : m_allProfiles) {
+                if (info.filename == m_baseProfileName && info.source == ProfileSource::BuiltIn) {
+                    wasBuiltIn = true;
+                    break;
+                }
+            }
+
+            // If it was a built-in and is in favorites, the favorite now points to user copy
+            if (wasBuiltIn && m_settings->isFavoriteProfile(m_baseProfileName)) {
+                m_settings->updateFavoriteProfile(m_baseProfileName, filename, m_currentProfile.title());
+            }
+        }
+
         m_baseProfileName = filename;
         markProfileClean();
         refreshProfiles();
@@ -320,8 +528,8 @@ bool MainController::saveProfileAs(const QString& filename, const QString& title
     // Update the profile title
     m_currentProfile.setTitle(title);
 
-    // Save to new file
-    QString path = profilesPath() + "/" + filename + ".json";
+    // Always save to user profiles folder
+    QString path = userProfilesPath() + "/" + filename + ".json";
     bool success = m_currentProfile.saveToFile(path);
     if (success) {
         qDebug() << "Saved profile as:" << path;
@@ -815,4 +1023,70 @@ QString MainController::profilesPath() const {
     }
 
     return path;
+}
+
+QString MainController::userProfilesPath() const {
+    QString path = profilesPath() + "/user";
+    QDir dir(path);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return path;
+}
+
+QString MainController::downloadedProfilesPath() const {
+    QString path = profilesPath() + "/downloaded";
+    QDir dir(path);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return path;
+}
+
+void MainController::migrateProfileFolders() {
+    QString basePath = profilesPath();
+    QString userPath = basePath + "/user";
+    QString downloadedPath = basePath + "/downloaded";
+
+    // Check if migration already done (user folder exists and has content, or we've done it before)
+    QDir userDir(userPath);
+    QDir downloadedDir(downloadedPath);
+
+    // If user folder already exists, migration was already done
+    if (userDir.exists()) {
+        // Just ensure downloaded folder exists too
+        if (!downloadedDir.exists()) {
+            downloadedDir.mkpath(".");
+        }
+        return;
+    }
+
+    qDebug() << "Migrating profile folders...";
+
+    // Create both folders
+    userDir.mkpath(".");
+    downloadedDir.mkpath(".");
+
+    // Move all existing .json files (except _current.json) from profiles/ to profiles/user/
+    QDir baseDir(basePath);
+    QStringList filters;
+    filters << "*.json";
+    QStringList files = baseDir.entryList(filters, QDir::Files);
+
+    for (const QString& file : files) {
+        if (file == "_current.json") {
+            continue;  // Skip the temp file
+        }
+
+        QString srcPath = basePath + "/" + file;
+        QString dstPath = userPath + "/" + file;
+
+        if (QFile::rename(srcPath, dstPath)) {
+            qDebug() << "Migrated profile:" << file;
+        } else {
+            qWarning() << "Failed to migrate profile:" << file;
+        }
+    }
+
+    qDebug() << "Profile folder migration complete";
 }

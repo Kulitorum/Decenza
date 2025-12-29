@@ -75,7 +75,6 @@ set(SOURCES
     src/core/settings.cpp
     src/core/batterymanager.cpp
     src/core/batterydrainer.cpp
-    src/core/logger.cpp
     src/core/accessibilitymanager.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blemanager.cpp
@@ -110,7 +109,6 @@ set(HEADERS
     src/core/settings.h
     src/core/batterymanager.h
     src/core/batterydrainer.h
-    src/core/logger.h
     src/core/accessibilitymanager.h
     src/ble/protocol/binarycodec.h
     src/ble/protocol/de1characteristics.h
@@ -187,6 +185,7 @@ set(QML_FILES
     qml/pages/SettingsPage.qml
     qml/pages/ProfileEditorPage.qml
     qml/pages/ProfileSelectorPage.qml
+    qml/pages/DescalingPage.qml
     qml/pages/ScreensaverPage.qml
     qml/pages/FlushPage.qml
     qml/pages/VisualizerBrowserPage.qml
