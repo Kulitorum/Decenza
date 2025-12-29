@@ -482,14 +482,21 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
                        (static_cast<uint32_t>(d[2]) << 8) |
                        static_cast<uint32_t>(d[3]);
 
-    // Check if this is GHC_INFO response (0x80381C -> lower 24 bits = 0x00381C with high byte 0x80)
-    if (address == 0x00381C) {
-        // GHC_INFO: 0 = not installed (headless), 1 = installed, 2 = installed but inactive
+    // Check if this is GHC_INFO response (address 0x80381C)
+    if (address == 0x80381C) {
+        // GHC_INFO bitmask from DE1:
+        // 0 = not installed (headless) - app can start operations
+        // 1 = GHC present but unused - app can start operations
+        // 2 = GHC installed but inactive - app can start operations
+        // 3 = GHC present and active - app CANNOT start, must use GHC buttons
+        // 4 = debug mode - app can start operations
+        // Other values = GHC required - app CANNOT start
+        // See de1app's ghc_required() in vars.tcl for reference
         uint8_t ghcStatus = d[4];
-        bool newHeadless = (ghcStatus == 0);
-        if (m_isHeadless != newHeadless) {
-            m_isHeadless = newHeadless;
-            qDebug() << "DE1Device: GHC status =" << ghcStatus << ", isHeadless =" << m_isHeadless;
+        bool canStartFromApp = (ghcStatus == 0 || ghcStatus == 1 || ghcStatus == 2 || ghcStatus == 4);
+        if (m_isHeadless != canStartFromApp) {
+            m_isHeadless = canStartFromApp;
+            qDebug() << "DE1Device: GHC status =" << ghcStatus << ", canStartFromApp =" << m_isHeadless;
             emit isHeadlessChanged();
         }
     }

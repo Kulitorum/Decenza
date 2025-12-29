@@ -162,7 +162,7 @@ private:
     bool m_connecting = false;
     bool m_simulationMode = false;
     bool m_usbChargerOn = true;  // Default on (safe default like de1app)
-    bool m_isHeadless = false;   // True if GHC (Group Head Controller) is not installed
+    bool m_isHeadless = false;   // True if app can start operations (GHC not installed or inactive)
 
     // Retry logic for service discovery failures
     QBluetoothDeviceInfo m_pendingDevice;
