@@ -164,37 +164,157 @@ Page {
                     onTextEdited: function(t) { Settings.dyeGrinderSetting = t }
                 }
 
-                // === ROW 3: Measurements + Barista ===
+                // === ROW 3: Barista (spans 3 columns) ===
                 LabeledField {
-                    Layout.fillWidth: true
-                    label: "TDS %"
-                    text: Settings.dyeDrinkTds > 0 ? Settings.dyeDrinkTds.toFixed(2) : ""
-                    inputHints: Qt.ImhFormattedNumbersOnly
-                    onTextEdited: function(t) {
-                        let val = parseFloat(t)
-                        Settings.dyeDrinkTds = isNaN(val) ? 0 : val
-                    }
-                }
-
-                LabeledField {
-                    Layout.fillWidth: true
-                    label: "EY %"
-                    text: Settings.dyeDrinkEy > 0 ? Settings.dyeDrinkEy.toFixed(1) : ""
-                    inputHints: Qt.ImhFormattedNumbersOnly
-                    onTextEdited: function(t) {
-                        let val = parseFloat(t)
-                        Settings.dyeDrinkEy = isNaN(val) ? 0 : val
-                    }
-                }
-
-                LabeledField {
+                    Layout.columnSpan: 3
                     Layout.fillWidth: true
                     label: "Barista"
                     text: Settings.dyeBarista
                     onTextEdited: function(t) { Settings.dyeBarista = t }
                 }
 
-                // === ROW 4: Rating (spans 3 columns) ===
+                // === ROW 4: Measurements (4 ValueInputs spanning 3 columns) ===
+                Item {
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: measurementsLabel.height + measurementsRow.height + 4
+
+                    Text {
+                        id: measurementsLabel
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        text: "Measurements"
+                        color: Theme.textColor
+                        font.pixelSize: 11
+                    }
+
+                    RowLayout {
+                        id: measurementsRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: measurementsLabel.bottom
+                        anchors.topMargin: 2
+                        spacing: 6
+
+                        // Dose (bean weight)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "Dose"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: 10
+                            }
+                            ValueInput {
+                                id: doseInput
+                                Layout.fillWidth: true
+                                height: 40
+                                from: 0
+                                to: 30
+                                stepSize: 0.1
+                                decimals: 1
+                                suffix: "g"
+                                valueColor: Theme.dyeDoseColor
+                                value: Settings.dyeBeanWeight
+                                accessibleName: "Dose " + value + " grams"
+                                onValueModified: function(newValue) {
+                                    doseInput.value = newValue
+                                    Settings.dyeBeanWeight = newValue
+                                }
+                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                            }
+                        }
+
+                        // Out (drink weight)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "Out"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: 10
+                            }
+                            ValueInput {
+                                id: outInput
+                                Layout.fillWidth: true
+                                height: 40
+                                from: 0
+                                to: 100
+                                stepSize: 0.1
+                                decimals: 1
+                                suffix: "g"
+                                valueColor: Theme.dyeOutputColor
+                                value: Settings.dyeDrinkWeight
+                                accessibleName: "Output " + value + " grams"
+                                onValueModified: function(newValue) {
+                                    outInput.value = newValue
+                                    Settings.dyeDrinkWeight = newValue
+                                }
+                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                            }
+                        }
+
+                        // TDS
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "TDS"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: 10
+                            }
+                            ValueInput {
+                                id: tdsInput
+                                Layout.fillWidth: true
+                                height: 40
+                                from: 0
+                                to: 20
+                                stepSize: 0.01
+                                decimals: 2
+                                suffix: "%"
+                                valueColor: Theme.dyeTdsColor
+                                value: Settings.dyeDrinkTds
+                                accessibleName: "TDS " + value + " percent"
+                                onValueModified: function(newValue) {
+                                    tdsInput.value = newValue
+                                    Settings.dyeDrinkTds = newValue
+                                }
+                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                            }
+                        }
+
+                        // EY
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: "EY"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: 10
+                            }
+                            ValueInput {
+                                id: eyInput
+                                Layout.fillWidth: true
+                                height: 40
+                                from: 0
+                                to: 30
+                                stepSize: 0.1
+                                decimals: 1
+                                suffix: "%"
+                                valueColor: Theme.dyeEyColor
+                                value: Settings.dyeDrinkEy
+                                accessibleName: "Extraction yield " + value + " percent"
+                                onValueModified: function(newValue) {
+                                    eyInput.value = newValue
+                                    Settings.dyeDrinkEy = newValue
+                                }
+                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                            }
+                        }
+                    }
+                }
+
+                // === ROW 5: Rating (spans 3 columns) ===
                 Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
@@ -222,6 +342,7 @@ Page {
                         stepSize: 1
                         decimals: 0
                         suffix: " %"
+                        valueColor: Theme.primaryColor  // Blue (default accent)
                         value: Settings.dyeEspressoEnjoyment > 0 ? Settings.dyeEspressoEnjoyment : 75
                         accessibleName: "Rating " + value + " percent"
                         onValueModified: function(newValue) {
@@ -236,7 +357,7 @@ Page {
                     }
                 }
 
-                // === ROW 5: Notes (spans 3 columns) ===
+                // === ROW 6: Notes (spans 3 columns) ===
                 Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true

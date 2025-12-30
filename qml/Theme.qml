@@ -34,6 +34,12 @@ QtObject {
     property color temperatureGoalColor: Settings.customThemeColors.temperatureGoalColor || "#ffa5a6"
     property color weightColor: Settings.customThemeColors.weightColor || "#a2693d"
 
+    // DYE measurement colors (Shot Info page)
+    property color dyeDoseColor: Settings.customThemeColors.dyeDoseColor || "#6F4E37"      // Coffee brown
+    property color dyeOutputColor: Settings.customThemeColors.dyeOutputColor || "#9C27B0"  // Purple
+    property color dyeTdsColor: Settings.customThemeColors.dyeTdsColor || "#FF9800"        // Orange
+    property color dyeEyColor: Settings.customThemeColors.dyeEyColor || "#a2693d"          // Brown (same as weight)
+
     // Scaled fonts
     readonly property font headingFont: Qt.font({ pixelSize: scaled(32), bold: true })
     readonly property font titleFont: Qt.font({ pixelSize: scaled(24), bold: true })

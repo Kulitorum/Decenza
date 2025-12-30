@@ -1342,12 +1342,34 @@ void Settings::setDyeGrinderSetting(const QString& value) {
     }
 }
 
+double Settings::dyeBeanWeight() const {
+    return m_settings.value("dye/beanWeight", 18.0).toDouble();
+}
+
+void Settings::setDyeBeanWeight(double value) {
+    if (!qFuzzyCompare(1.0 + dyeBeanWeight(), 1.0 + value)) {
+        m_settings.setValue("dye/beanWeight", value);
+        emit dyeBeanWeightChanged();
+    }
+}
+
+double Settings::dyeDrinkWeight() const {
+    return m_settings.value("dye/drinkWeight", 36.0).toDouble();
+}
+
+void Settings::setDyeDrinkWeight(double value) {
+    if (!qFuzzyCompare(1.0 + dyeDrinkWeight(), 1.0 + value)) {
+        m_settings.setValue("dye/drinkWeight", value);
+        emit dyeDrinkWeightChanged();
+    }
+}
+
 double Settings::dyeDrinkTds() const {
     return m_settings.value("dye/drinkTds", 0.0).toDouble();
 }
 
 void Settings::setDyeDrinkTds(double value) {
-    if (!qFuzzyCompare(dyeDrinkTds(), value)) {
+    if (!qFuzzyCompare(1.0 + dyeDrinkTds(), 1.0 + value)) {
         m_settings.setValue("dye/drinkTds", value);
         emit dyeDrinkTdsChanged();
     }
@@ -1358,7 +1380,7 @@ double Settings::dyeDrinkEy() const {
 }
 
 void Settings::setDyeDrinkEy(double value) {
-    if (!qFuzzyCompare(dyeDrinkEy(), value)) {
+    if (!qFuzzyCompare(1.0 + dyeDrinkEy(), 1.0 + value)) {
         m_settings.setValue("dye/drinkEy", value);
         emit dyeDrinkEyChanged();
     }

@@ -18,6 +18,8 @@ struct ShotMetadata {
     QString roastLevel;     // Light, Medium, Dark
     QString grinderModel;
     QString grinderSetting;
+    double beanWeight = 0;  // Dose weight in grams
+    double drinkWeight = 0; // Output weight in grams
     double drinkTds = 0;
     double drinkEy = 0;
     int espressoEnjoyment = 0;  // 0-100

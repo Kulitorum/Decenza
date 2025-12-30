@@ -78,6 +78,8 @@ class Settings : public QObject {
     Q_PROPERTY(QString dyeRoastLevel READ dyeRoastLevel WRITE setDyeRoastLevel NOTIFY dyeRoastLevelChanged)
     Q_PROPERTY(QString dyeGrinderModel READ dyeGrinderModel WRITE setDyeGrinderModel NOTIFY dyeGrinderModelChanged)
     Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged)
+    Q_PROPERTY(double dyeBeanWeight READ dyeBeanWeight WRITE setDyeBeanWeight NOTIFY dyeBeanWeightChanged)
+    Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged)
     Q_PROPERTY(double dyeDrinkTds READ dyeDrinkTds WRITE setDyeDrinkTds NOTIFY dyeDrinkTdsChanged)
     Q_PROPERTY(double dyeDrinkEy READ dyeDrinkEy WRITE setDyeDrinkEy NOTIFY dyeDrinkEyChanged)
     Q_PROPERTY(int dyeEspressoEnjoyment READ dyeEspressoEnjoyment WRITE setDyeEspressoEnjoyment NOTIFY dyeEspressoEnjoymentChanged)
@@ -253,6 +255,12 @@ public:
     QString dyeGrinderSetting() const;
     void setDyeGrinderSetting(const QString& value);
 
+    double dyeBeanWeight() const;
+    void setDyeBeanWeight(double value);
+
+    double dyeDrinkWeight() const;
+    void setDyeDrinkWeight(double value);
+
     double dyeDrinkTds() const;
     void setDyeDrinkTds(double value);
 
@@ -313,6 +321,8 @@ signals:
     void dyeRoastLevelChanged();
     void dyeGrinderModelChanged();
     void dyeGrinderSettingChanged();
+    void dyeBeanWeightChanged();
+    void dyeDrinkWeightChanged();
     void dyeDrinkTdsChanged();
     void dyeDrinkEyChanged();
     void dyeEspressoEnjoymentChanged();

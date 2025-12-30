@@ -978,6 +978,8 @@ void MainController::onShotEnded() {
             metadata.roastLevel = m_settings->dyeRoastLevel();
             metadata.grinderModel = m_settings->dyeGrinderModel();
             metadata.grinderSetting = m_settings->dyeGrinderSetting();
+            metadata.beanWeight = m_settings->dyeBeanWeight();
+            metadata.drinkWeight = m_settings->dyeDrinkWeight();
             metadata.drinkTds = m_settings->dyeDrinkTds();
             metadata.drinkEy = m_settings->dyeDrinkEy();
             metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
@@ -1011,6 +1013,8 @@ void MainController::uploadPendingShot() {
     metadata.roastLevel = m_settings->dyeRoastLevel();
     metadata.grinderModel = m_settings->dyeGrinderModel();
     metadata.grinderSetting = m_settings->dyeGrinderSetting();
+    metadata.beanWeight = m_settings->dyeBeanWeight();
+    metadata.drinkWeight = m_settings->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dyeDrinkTds();
     metadata.drinkEy = m_settings->dyeDrinkEy();
     metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
