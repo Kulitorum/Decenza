@@ -12,21 +12,57 @@ Page {
     Component.onCompleted: root.currentPageTitle = "Shot Info"
     StackView.onActivated: root.currentPageTitle = "Shot Info"
 
-    property bool hasPendingShot: true  // TODO: set to false for production
+    property bool hasPendingShot: false  // Set to true by goToShotMetadata() after a shot
     property bool keyboardVisible: Qt.inputMethod.visible
+    property Item focusedField: null
 
-    function scrollToField(field) {
-        if (!field || !keyboardVisible) return
-        let fieldY = field.mapToItem(flickable.contentItem, 0, 0).y
-        let keyboardTop = shotMetadataPage.height - Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
-        let targetY = fieldY - keyboardTop / 2 + field.height
-        flickable.contentY = Math.max(0, Math.min(targetY, flickable.contentHeight - flickable.height))
+    function scrollToFocusedField() {
+        if (!focusedField) return
+        // Get field center position in content coordinates
+        let fieldY = focusedField.mapToItem(flickable.contentItem, 0, 0).y
+        let fieldCenter = fieldY + focusedField.height / 2
+        // Get keyboard height (real or estimated)
+        let kbHeight = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
+        if (kbHeight <= 0) kbHeight = shotMetadataPage.height * 0.5
+        // Calculate center of visible area above keyboard
+        let visibleHeight = shotMetadataPage.height - kbHeight - Theme.pageTopMargin
+        let visibleCenter = visibleHeight / 2
+        // Scroll so field center is at center of visible area
+        let targetY = fieldCenter - visibleCenter
+        // Clamp to valid scroll range
+        let maxScroll = flickable.contentHeight - flickable.height
+        flickable.contentY = Math.max(0, Math.min(targetY, maxScroll))
     }
 
     function hideKeyboard() {
         Qt.inputMethod.hide()
         flickable.contentY = 0
         flickable.forceActiveFocus()
+    }
+
+    // Scroll to focused field when it changes
+    onFocusedFieldChanged: {
+        if (focusedField) {
+            scrollTimer.restart()
+        }
+    }
+
+    Timer {
+        id: scrollTimer
+        interval: 150
+        onTriggered: scrollToFocusedField()
+    }
+
+    // Reset focusedField when focus leaves all text fields
+    Timer {
+        id: focusResetTimer
+        interval: 100
+        onTriggered: {
+            if (focusedField && !focusedField.activeFocus) {
+                focusedField = null
+                flickable.contentY = 0
+            }
+        }
     }
 
     // Announce upload status changes
@@ -49,8 +85,11 @@ Page {
     // Tap background to dismiss keyboard
     MouseArea {
         anchors.fill: parent
-        visible: keyboardVisible
-        onClicked: hideKeyboard()
+        visible: focusedField !== null
+        onClicked: {
+            focusedField = null
+            hideKeyboard()
+        }
         z: -1
     }
 
@@ -58,16 +97,14 @@ Page {
         id: flickable
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
-        anchors.bottomMargin: keyboardVisible ? Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio + 10 : Theme.bottomBarHeight
+        anchors.bottomMargin: Theme.bottomBarHeight
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
-        contentHeight: mainColumn.height
+        // Add bottom padding for keyboard: use real height if available, else estimate when focused
+        property real kbHeight: Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
+        contentHeight: mainColumn.height + (kbHeight > 0 ? kbHeight : (focusedField ? shotMetadataPage.height * 0.5 : 0))
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-
-        Behavior on anchors.bottomMargin {
-            NumberAnimation { duration: 150 }
-        }
 
         ColumnLayout {
             id: mainColumn
@@ -98,7 +135,7 @@ Page {
 
                 LabeledField {
                     Layout.fillWidth: true
-                    label: "Roast date"
+                    label: "Roast date (yyyy-mm-dd)"
                     text: Settings.dyeRoastDate
                     inputHints: Qt.ImhDate
                     onTextEdited: function(t) { Settings.dyeRoastDate = t }
@@ -185,7 +222,7 @@ Page {
                         stepSize: 1
                         decimals: 0
                         suffix: " %"
-                        value: Settings.dyeEspressoEnjoyment
+                        value: Settings.dyeEspressoEnjoyment > 0 ? Settings.dyeEspressoEnjoyment : 75
                         accessibleName: "Rating " + value + " percent"
                         onValueModified: function(newValue) {
                             ratingInput.value = newValue
@@ -241,13 +278,19 @@ Page {
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
-                                Qt.callLater(function() { scrollToField(notesField) })
+                                focusedField = notesField
+                                focusResetTimer.stop()
                                 if (AccessibilityManager.enabled) {
                                     let announcement = "Notes. " + (text.length > 0 ? text : "Empty")
                                     AccessibilityManager.announce(announcement)
                                 }
+                            } else {
+                                focusResetTimer.restart()
                             }
                         }
+
+                        // Note: TextArea doesn't support EnterKey.type, but we keep
+                        // the multiline behavior. User can tap outside or use back gesture.
                     }
                 }
             }
@@ -256,50 +299,75 @@ Page {
         }
     }
 
-    // Bottom bar
+    // Hide keyboard button - appears below status bar when a field has focus
+    Rectangle {
+        id: hideKeyboardButton
+        visible: focusedField !== null
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: Theme.standardMargin
+        anchors.topMargin: Theme.pageTopMargin + 4
+        width: hideKeyboardText.width + 24
+        height: 28
+        radius: 14
+        color: Theme.primaryColor
+        z: 100
+
+        Text {
+            id: hideKeyboardText
+            anchors.centerIn: parent
+            text: "Hide keyboard"
+            color: "white"
+            font.pixelSize: 13
+            font.bold: true
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {
+                focusedField = null
+                hideKeyboard()
+            }
+        }
+    }
+
+    // Bottom bar (stays visible under keyboard)
     BottomBar {
         onBackClicked: root.goBack()
 
-        RowLayout {
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.standardMargin
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.spacingMedium
+        Text {
+            visible: MainController.visualizer.uploading
+            text: "Uploading..."
+            color: Theme.textSecondaryColor
+            font: Theme.labelFont
+        }
+
+        Rectangle {
+            id: uploadButton
+            visible: hasPendingShot && !MainController.visualizer.uploading
+            Layout.preferredWidth: uploadText.width + 40
+            Layout.preferredHeight: 44
+            radius: 8
+            color: Theme.surfaceColor
+
+            Accessible.role: Accessible.Button
+            Accessible.name: "Upload to Visualizer"
+            Accessible.onPressAction: uploadArea.clicked(null)
 
             Text {
-                visible: MainController.visualizer.uploading
-                text: "Uploading..."
-                color: Theme.textSecondaryColor
-                font: Theme.labelFont
+                id: uploadText
+                anchors.centerIn: parent
+                text: "Upload to Visualizer"
+                color: Theme.textColor
+                font: Theme.bodyFont
             }
 
-            Rectangle {
-                id: uploadButton
-                visible: hasPendingShot && !MainController.visualizer.uploading
-                width: uploadText.width + 40
-                height: 44
-                radius: 8
-                color: Theme.surfaceColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: "Upload to Visualizer"
-                Accessible.onPressAction: uploadArea.clicked(null)
-
-                Text {
-                    id: uploadText
-                    anchors.centerIn: parent
-                    text: "Upload to Visualizer"
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                }
-
-                MouseArea {
-                    id: uploadArea
-                    anchors.fill: parent
-                    onClicked: {
-                        MainController.uploadPendingShot()
-                        hasPendingShot = false
-                    }
+            MouseArea {
+                id: uploadArea
+                anchors.fill: parent
+                onClicked: {
+                    MainController.uploadPendingShot()
+                    hasPendingShot = false
                 }
             }
         }
@@ -332,14 +400,19 @@ Page {
             anchors.topMargin: 2
             text: parent.text
             inputMethodHints: parent.inputHints
+            EnterKey.type: Qt.EnterKeyNext
+            Keys.onReturnPressed: nextItemInFocusChain().forceActiveFocus()
             onTextChanged: parent.textEdited(text)
             onActiveFocusChanged: {
                 if (activeFocus) {
-                    Qt.callLater(function() { scrollToField(fieldInput) })
+                    focusedField = fieldInput
+                    focusResetTimer.stop()
                     if (AccessibilityManager.enabled) {
                         let announcement = parent.label + ". " + (text.length > 0 ? text : "Empty")
                         AccessibilityManager.announce(announcement)
                     }
+                } else {
+                    focusResetTimer.restart()
                 }
             }
 
