@@ -298,8 +298,9 @@ void MachineState::updateShotTimer() {
     m_shotTime = elapsed / 1000.0;
     emit shotTimeChanged();
 
-    // Check stop-at-time for Steam and Flush
-    checkStopAtTime();
+    // Note: Steam and Flush timeout is handled by the machine internally
+    // via steamTimeout in ShotSettings and flushSeconds via MMR 0x803848.
+    // Headless machines have a visible stop button that calls stopOperation().
 }
 
 void MachineState::checkStopAtTime() {

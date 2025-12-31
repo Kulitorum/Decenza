@@ -83,7 +83,8 @@ public slots:
     void startSteam();
     void startHotWater();
     void startFlush();
-    void stopOperation();
+    void stopOperation();     // Soft stop (for steam: stops flow, no purge)
+    void requestIdle();       // Hard stop (requests Idle state, triggers steam purge)
     void goToSleep();
     void wakeUp();
 

@@ -22,6 +22,14 @@ Page {
 
     property bool isSteaming: MachineState.phase === MachineStateType.Phase.Steaming || root.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
+    property bool steamSoftStopped: false  // For two-stage stop on headless machines
+
+    // Reset soft-stop state when steaming starts
+    onIsSteamingChanged: {
+        if (isSteaming) {
+            steamSoftStopped = false
+        }
+    }
 
     // Helper to format flow as readable value (handles undefined/NaN)
     // Steam flow is stored as 0.01 ml/s units (e.g., 150 = 1.5 ml/s)
@@ -183,7 +191,9 @@ Page {
 
             Item { Layout.fillHeight: true }
 
-            // Stop button for headless machines
+            // Stop button for headless machines (two-stage for steam)
+            // First press: stops steam flow (soft stop)
+            // Second press: requests Idle which triggers hose purge
             Rectangle {
                 id: steamStopButton
                 Layout.alignment: Qt.AlignHCenter
@@ -191,12 +201,15 @@ Page {
                 Layout.preferredHeight: Theme.scaled(60)
                 visible: DE1Device.isHeadless
                 radius: Theme.cardRadius
-                color: stopMouseArea.pressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                color: stopMouseArea.pressed
+                    ? Qt.darker(steamSoftStopped ? Theme.primaryColor : Theme.errorColor, 1.2)
+                    : (steamSoftStopped ? Theme.primaryColor : Theme.errorColor)
 
                 Tr {
+                    id: stopButtonText
                     anchors.centerIn: parent
-                    key: "steam.button.stop"
-                    fallback: "Stop"
+                    key: steamSoftStopped ? "steam.button.purge" : "steam.button.stop"
+                    fallback: steamSoftStopped ? "Purge" : "Stop"
                     color: "white"
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
@@ -205,11 +218,18 @@ Page {
                 AccessibleMouseArea {
                     id: stopMouseArea
                     anchors.fill: parent
-                    accessibleName: "Stop steaming"
+                    accessibleName: steamSoftStopped ? "Purge steam wand" : "Stop steaming"
                     accessibleItem: steamStopButton
                     onAccessibleClicked: {
-                        DE1Device.stopOperation()
-                        root.goToIdle()
+                        if (steamSoftStopped) {
+                            // Second press: request Idle to trigger purge
+                            DE1Device.requestIdle()
+                            root.goToIdle()
+                        } else {
+                            // First press: soft stop (machine timeout handles it)
+                            DE1Device.stopOperation()
+                            steamSoftStopped = true
+                        }
                     }
                 }
             }

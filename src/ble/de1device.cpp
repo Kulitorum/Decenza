@@ -562,6 +562,10 @@ void DE1Device::stopOperation() {
     requestState(DE1::State::Idle);
 }
 
+void DE1Device::requestIdle() {
+    requestState(DE1::State::Idle);
+}
+
 void DE1Device::goToSleep() {
     // Clear pending commands - sleep takes priority
     m_commandQueue.clear();
