@@ -179,6 +179,10 @@ bool ScaleFactory::isHiroiaJimmy(const QString& name) {
 }
 
 bool ScaleFactory::isBookooScale(const QString& name) {
+    // Match bookoo_sc (Themis scale) but NOT bookoo_em (Espresso Monitor pressure sensor)
+    if (name.contains("bookoo_em")) {
+        return false;  // Espresso Monitor is a pressure sensor, not a scale
+    }
     return name.contains("bookoo") ||
            name.contains("bkscale");
 }
