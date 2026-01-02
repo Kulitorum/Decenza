@@ -100,6 +100,7 @@ private:
     bool m_stopAtWeightTriggered = false;
     bool m_stopAtTimeTriggered = false;
     bool m_tareCompleted = false;
+    bool m_waitingForTare = false;  // True after tare sent, waiting for scale to report ~0g
 
     // Auto-tare on cup removal detection
     double m_lastIdleWeight = 0.0;

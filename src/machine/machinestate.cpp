@@ -233,6 +233,13 @@ void MachineState::updatePhase() {
 }
 
 void MachineState::onScaleWeightChanged(double weight) {
+    // Check if tare completed (scale reported near-zero after tare command)
+    if (m_waitingForTare && qAbs(weight) < 1.0) {
+        m_waitingForTare = false;
+        m_tareCompleted = true;
+        qDebug() << "=== TARE COMPLETE: scale reported" << weight << "g, stop-at-weight now active ===";
+    }
+
     // Auto-tare when cup is removed (significant weight drop while idle)
     if (m_phase == Phase::Ready || m_phase == Phase::Idle) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -374,16 +381,21 @@ void MachineState::tareScale() {
         // Immediately disable stop-at-weight until tare completes
         // This prevents early stop if m_tareCompleted was true from a previous operation
         m_tareCompleted = false;
+        m_waitingForTare = true;
 
         m_scale->tare();
         m_scale->resetFlowCalculation();  // Avoid flow rate spikes after tare
 
-        // Don't set m_tareCompleted immediately - BLE scales take time to process tare
-        // Wait 500ms for the scale to actually tare before allowing stop-at-weight checks
-        // This prevents early stop if old (pre-tare) weight readings arrive
-        QTimer::singleShot(500, this, [this]() {
-            m_tareCompleted = true;
-            qDebug() << "=== TARE COMPLETE: stop-at-weight now active ===";
+        qDebug() << "=== TARE SENT: waiting for scale to report ~0g ===";
+
+        // Fallback timeout in case scale never reports near-zero
+        // (e.g., scale disconnects, or tare fails)
+        QTimer::singleShot(3000, this, [this]() {
+            if (m_waitingForTare) {
+                qWarning() << "=== TARE TIMEOUT: scale didn't report ~0g within 3s, enabling stop-at-weight anyway ===";
+                m_waitingForTare = false;
+                m_tareCompleted = true;
+            }
         });
     }
 }
