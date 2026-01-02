@@ -18,7 +18,9 @@ ChartView {
     Component.onCompleted: {
         ShotDataModel.registerSeries(
             pressureSeries, flowSeries, temperatureSeries,
-            pressureGoalSeries, flowGoalSeries, temperatureGoalSeries,
+            [pressureGoal1, pressureGoal2, pressureGoal3, pressureGoal4, pressureGoal5],
+            [flowGoal1, flowGoal2, flowGoal3, flowGoal4, flowGoal5],
+            temperatureGoalSeries,
             weightSeries, extractionStartMarker,
             [frameMarker1, frameMarker2, frameMarker3, frameMarker4, frameMarker5,
              frameMarker6, frameMarker7, frameMarker8, frameMarker9, frameMarker10]
@@ -99,27 +101,21 @@ ChartView {
     LineSeries { id: frameMarker9; name: ""; color: Qt.rgba(255,255,255,0.4); width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
     LineSeries { id: frameMarker10; name: ""; color: Qt.rgba(255,255,255,0.4); width: Theme.scaled(1); style: Qt.DotLine; axisX: timeAxis; axisY: pressureAxis }
 
-    // === GOAL LINES (dashed) ===
+    // === GOAL LINES (dashed) - Multiple segments for clean breaks ===
 
-    LineSeries {
-        id: pressureGoalSeries
-        name: "P Goal"
-        color: Theme.pressureGoalColor
-        width: Theme.scaled(2)
-        style: Qt.DashLine
-        axisX: timeAxis
-        axisY: pressureAxis
-    }
+    // Pressure goal segments (up to 5 segments for mode switches)
+    LineSeries { id: pressureGoal1; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: pressureGoal2; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: pressureGoal3; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: pressureGoal4; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: pressureGoal5; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
 
-    LineSeries {
-        id: flowGoalSeries
-        name: "F Goal"
-        color: Theme.flowGoalColor
-        width: Theme.scaled(2)
-        style: Qt.DashLine
-        axisX: timeAxis
-        axisY: pressureAxis
-    }
+    // Flow goal segments (up to 5 segments for mode switches)
+    LineSeries { id: flowGoal1; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: flowGoal2; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: flowGoal3; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: flowGoal4; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: flowGoal5; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
 
     LineSeries {
         id: temperatureGoalSeries

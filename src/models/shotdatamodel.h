@@ -32,7 +32,8 @@ public:
 
     // Register chart series - C++ takes ownership of updating them
     Q_INVOKABLE void registerSeries(QLineSeries* pressure, QLineSeries* flow, QLineSeries* temperature,
-                                     QLineSeries* pressureGoal, QLineSeries* flowGoal, QLineSeries* temperatureGoal,
+                                     const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
+                                     QLineSeries* temperatureGoal,
                                      QLineSeries* weight, QLineSeries* extractionMarker,
                                      const QVariantList& frameMarkers);
 
@@ -40,8 +41,8 @@ public:
     const QVector<QPointF>& pressureData() const { return m_pressurePoints; }
     const QVector<QPointF>& flowData() const { return m_flowPoints; }
     const QVector<QPointF>& temperatureData() const { return m_temperaturePoints; }
-    const QVector<QPointF>& pressureGoalData() const { return m_pressureGoalPoints; }
-    const QVector<QPointF>& flowGoalData() const { return m_flowGoalPoints; }
+    QVector<QPointF> pressureGoalData() const;  // Combines all segments
+    QVector<QPointF> flowGoalData() const;      // Combines all segments
     const QVector<QPointF>& temperatureGoalData() const { return m_temperatureGoalPoints; }
     const QVector<QPointF>& weightData() const { return m_weightPoints; }
 
@@ -70,8 +71,8 @@ private:
     QVector<QPointF> m_pressurePoints;
     QVector<QPointF> m_flowPoints;
     QVector<QPointF> m_temperaturePoints;
-    QVector<QPointF> m_pressureGoalPoints;
-    QVector<QPointF> m_flowGoalPoints;
+    QVector<QVector<QPointF>> m_pressureGoalSegments;  // Separate segments for clean breaks
+    QVector<QVector<QPointF>> m_flowGoalSegments;      // Separate segments for clean breaks
     QVector<QPointF> m_temperatureGoalPoints;
     QVector<QPointF> m_weightPoints;
 
@@ -79,8 +80,8 @@ private:
     QPointer<QLineSeries> m_pressureSeries;
     QPointer<QLineSeries> m_flowSeries;
     QPointer<QLineSeries> m_temperatureSeries;
-    QPointer<QLineSeries> m_pressureGoalSeries;
-    QPointer<QLineSeries> m_flowGoalSeries;
+    QList<QPointer<QLineSeries>> m_pressureGoalSeriesList;  // One per segment
+    QList<QPointer<QLineSeries>> m_flowGoalSeriesList;      // One per segment
     QPointer<QLineSeries> m_temperatureGoalSeries;
     QPointer<QLineSeries> m_weightSeries;
     QPointer<QLineSeries> m_extractionMarkerSeries;
@@ -93,8 +94,10 @@ private:
     double m_maxTime = 5.0;
     double m_rawTime = 0.0;
     int m_frameMarkerIndex = 0;
-    bool m_lastPumpModeIsFlow = false;  // Track for inserting breaks in goal curves
+    bool m_lastPumpModeIsFlow = false;  // Track for starting new goal segments
     bool m_hasPumpModeData = false;     // True after first sample with pump mode
+    int m_currentPressureGoalSegment = 0;  // Current segment index
+    int m_currentFlowGoalSegment = 0;      // Current segment index
 
     // Phase markers for QML labels
     QList<PhaseMarker> m_phaseMarkers;

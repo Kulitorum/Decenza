@@ -372,7 +372,7 @@ Page {
                 Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
-                    Layout.preferredHeight: notesLabel.height + 100 + 2
+                    Layout.preferredHeight: notesLabel.height + notesField.height + 2
 
                     Tr {
                         id: notesLabel
@@ -390,7 +390,8 @@ Page {
                         anchors.right: parent.right
                         anchors.top: notesLabel.bottom
                         anchors.topMargin: 2
-                        height: 100
+                        // Size to content with minimum height of 100px
+                        height: Math.max(100, contentHeight + topPadding + bottomPadding)
                         text: Settings.dyeEspressoNotes
                         font: Theme.bodyFont
                         color: Theme.textColor

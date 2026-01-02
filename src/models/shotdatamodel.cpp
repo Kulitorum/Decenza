@@ -1,6 +1,5 @@
 #include "shotdatamodel.h"
 #include <QDebug>
-#include <QtGlobal>  // for qQNaN()
 
 ShotDataModel::ShotDataModel(QObject* parent)
     : QObject(parent)
@@ -9,10 +8,14 @@ ShotDataModel::ShotDataModel(QObject* parent)
     m_pressurePoints.reserve(INITIAL_CAPACITY);
     m_flowPoints.reserve(INITIAL_CAPACITY);
     m_temperaturePoints.reserve(INITIAL_CAPACITY);
-    m_pressureGoalPoints.reserve(INITIAL_CAPACITY);
-    m_flowGoalPoints.reserve(INITIAL_CAPACITY);
     m_temperatureGoalPoints.reserve(INITIAL_CAPACITY);
     m_weightPoints.reserve(INITIAL_CAPACITY);
+
+    // Initialize first segments for goal curves
+    m_pressureGoalSegments.append(QVector<QPointF>());
+    m_pressureGoalSegments[0].reserve(INITIAL_CAPACITY);
+    m_flowGoalSegments.append(QVector<QPointF>());
+    m_flowGoalSegments[0].reserve(INITIAL_CAPACITY);
 
     // Timer for batched chart updates at 30fps
     m_flushTimer = new QTimer(this);
@@ -28,17 +31,32 @@ ShotDataModel::~ShotDataModel() {
 }
 
 void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLineSeries* temperature,
-                                    QLineSeries* pressureGoal, QLineSeries* flowGoal, QLineSeries* temperatureGoal,
+                                    const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
+                                    QLineSeries* temperatureGoal,
                                     QLineSeries* weight, QLineSeries* extractionMarker,
                                     const QVariantList& frameMarkers) {
     m_pressureSeries = pressure;
     m_flowSeries = flow;
     m_temperatureSeries = temperature;
-    m_pressureGoalSeries = pressureGoal;
-    m_flowGoalSeries = flowGoal;
     m_temperatureGoalSeries = temperatureGoal;
     m_weightSeries = weight;
     m_extractionMarkerSeries = extractionMarker;
+
+    // Register pressure goal segment series
+    m_pressureGoalSeriesList.clear();
+    for (const QVariant& v : pressureGoalSegments) {
+        if (auto* series = qobject_cast<QLineSeries*>(v.value<QObject*>())) {
+            m_pressureGoalSeriesList.append(series);
+        }
+    }
+
+    // Register flow goal segment series
+    m_flowGoalSeriesList.clear();
+    for (const QVariant& v : flowGoalSegments) {
+        if (auto* series = qobject_cast<QLineSeries*>(v.value<QObject*>())) {
+            m_flowGoalSeriesList.append(series);
+        }
+    }
 
     m_frameMarkerSeries.clear();
     for (const QVariant& v : frameMarkers) {
@@ -71,21 +89,33 @@ void ShotDataModel::clear() {
     m_pressurePoints.clear();
     m_flowPoints.clear();
     m_temperaturePoints.clear();
-    m_pressureGoalPoints.clear();
-    m_flowGoalPoints.clear();
     m_temperatureGoalPoints.clear();
     m_weightPoints.clear();
     m_pendingMarkers.clear();
+
+    // Reset goal segments - keep first segment with capacity
+    m_pressureGoalSegments.clear();
+    m_pressureGoalSegments.append(QVector<QPointF>());
+    m_pressureGoalSegments[0].reserve(INITIAL_CAPACITY);
+    m_flowGoalSegments.clear();
+    m_flowGoalSegments.append(QVector<QPointF>());
+    m_flowGoalSegments[0].reserve(INITIAL_CAPACITY);
 
     // Clear chart series
     if (m_pressureSeries) m_pressureSeries->clear();
     if (m_flowSeries) m_flowSeries->clear();
     if (m_temperatureSeries) m_temperatureSeries->clear();
-    if (m_pressureGoalSeries) m_pressureGoalSeries->clear();
-    if (m_flowGoalSeries) m_flowGoalSeries->clear();
     if (m_temperatureGoalSeries) m_temperatureGoalSeries->clear();
     if (m_weightSeries) m_weightSeries->clear();
     if (m_extractionMarkerSeries) m_extractionMarkerSeries->clear();
+
+    // Clear all goal segment series
+    for (const auto& series : m_pressureGoalSeriesList) {
+        if (series) series->clear();
+    }
+    for (const auto& series : m_flowGoalSeriesList) {
+        if (series) series->clear();
+    }
 
     for (const auto& series : m_frameMarkerSeries) {
         if (series) series->clear();
@@ -97,6 +127,8 @@ void ShotDataModel::clear() {
     m_rawTime = 0.0;
     m_lastPumpModeIsFlow = false;
     m_hasPumpModeData = false;
+    m_currentPressureGoalSegment = 0;
+    m_currentFlowGoalSegment = 0;
     m_dirty = false;
 
     emit cleared();
@@ -118,26 +150,31 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     m_flowPoints.append(QPointF(time, flow));
     m_temperaturePoints.append(QPointF(time, temperature));
 
-    // Insert NaN break point when pump mode changes (creates visual gap in goal curves)
+    // Start new segments when pump mode changes (creates visual gap in goal curves)
     if (m_hasPumpModeData && isFlowMode != m_lastPumpModeIsFlow) {
-        // Insert NaN to break the line at this point
         if (isFlowMode) {
-            // Switching to flow mode: break pressure goal line
-            m_pressureGoalPoints.append(QPointF(time, qQNaN()));
+            // Switching to flow mode: start new pressure goal segment
+            m_currentPressureGoalSegment++;
+            if (m_currentPressureGoalSegment >= m_pressureGoalSegments.size()) {
+                m_pressureGoalSegments.append(QVector<QPointF>());
+            }
         } else {
-            // Switching to pressure mode: break flow goal line
-            m_flowGoalPoints.append(QPointF(time, qQNaN()));
+            // Switching to pressure mode: start new flow goal segment
+            m_currentFlowGoalSegment++;
+            if (m_currentFlowGoalSegment >= m_flowGoalSegments.size()) {
+                m_flowGoalSegments.append(QVector<QPointF>());
+            }
         }
     }
     m_lastPumpModeIsFlow = isFlowMode;
     m_hasPumpModeData = true;
 
-    // Only add goal points for the active pump mode
+    // Add goal points to current segments
     if (pressureGoal > 0) {
-        m_pressureGoalPoints.append(QPointF(time, pressureGoal));
+        m_pressureGoalSegments[m_currentPressureGoalSegment].append(QPointF(time, pressureGoal));
     }
     if (flowGoal > 0) {
-        m_flowGoalPoints.append(QPointF(time, flowGoal));
+        m_flowGoalSegments[m_currentFlowGoalSegment].append(QPointF(time, flowGoal));
     }
     m_temperatureGoalPoints.append(QPointF(time, temperatureGoal));
 
@@ -209,12 +246,21 @@ void ShotDataModel::flushToChart() {
     if (m_temperatureSeries && !m_temperaturePoints.isEmpty()) {
         m_temperatureSeries->replace(m_temperaturePoints);
     }
-    if (m_pressureGoalSeries && !m_pressureGoalPoints.isEmpty()) {
-        m_pressureGoalSeries->replace(m_pressureGoalPoints);
+
+    // Update pressure goal segments - each segment gets its own LineSeries
+    for (int i = 0; i < m_pressureGoalSegments.size() && i < m_pressureGoalSeriesList.size(); ++i) {
+        if (m_pressureGoalSeriesList[i] && !m_pressureGoalSegments[i].isEmpty()) {
+            m_pressureGoalSeriesList[i]->replace(m_pressureGoalSegments[i]);
+        }
     }
-    if (m_flowGoalSeries && !m_flowGoalPoints.isEmpty()) {
-        m_flowGoalSeries->replace(m_flowGoalPoints);
+
+    // Update flow goal segments - each segment gets its own LineSeries
+    for (int i = 0; i < m_flowGoalSegments.size() && i < m_flowGoalSeriesList.size(); ++i) {
+        if (m_flowGoalSeriesList[i] && !m_flowGoalSegments[i].isEmpty()) {
+            m_flowGoalSeriesList[i]->replace(m_flowGoalSegments[i]);
+        }
     }
+
     if (m_temperatureGoalSeries && !m_temperatureGoalPoints.isEmpty()) {
         m_temperatureGoalSeries->replace(m_temperatureGoalPoints);
     }
@@ -257,4 +303,22 @@ QVariantList ShotDataModel::phaseMarkersVariant() const {
         result.append(map);
     }
     return result;
+}
+
+QVector<QPointF> ShotDataModel::pressureGoalData() const {
+    // Combine all segments for export
+    QVector<QPointF> combined;
+    for (const auto& segment : m_pressureGoalSegments) {
+        combined.append(segment);
+    }
+    return combined;
+}
+
+QVector<QPointF> ShotDataModel::flowGoalData() const {
+    // Combine all segments for export
+    QVector<QPointF> combined;
+    for (const auto& segment : m_flowGoalSegments) {
+        combined.append(segment);
+    }
+    return combined;
 }
