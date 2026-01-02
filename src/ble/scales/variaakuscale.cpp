@@ -1,6 +1,7 @@
 #include "variaakuscale.h"
 #include "../protocol/de1characteristics.h"
 #include <QDebug>
+#include <QTimer>
 
 VariaAkuScale::VariaAkuScale(QObject* parent)
     : ScaleDevice(parent)
@@ -63,16 +64,25 @@ void VariaAkuScale::onServiceStateChanged(QLowEnergyService::ServiceState state)
         m_statusChar = m_service->characteristic(Scale::VariaAku::STATUS);
         m_cmdChar = m_service->characteristic(Scale::VariaAku::CMD);
 
-        // Subscribe to status notifications
-        if (m_statusChar.isValid()) {
-            QLowEnergyDescriptor notification = m_statusChar.descriptor(
-                QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
-            if (notification.isValid()) {
-                m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
+        // Delay notification enable by 200ms (matching de1app pattern)
+        // The Varia Aku scale needs time to stabilize after service discovery
+        QTimer::singleShot(200, this, [this]() {
+            // Check if still connected (scale may have disconnected during delay)
+            if (!m_service || !m_controller) {
+                return;
             }
-        }
 
-        setConnected(true);
+            // Subscribe to status notifications
+            if (m_statusChar.isValid()) {
+                QLowEnergyDescriptor notification = m_statusChar.descriptor(
+                    QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
+                if (notification.isValid()) {
+                    m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
+                }
+            }
+
+            setConnected(true);
+        });
     }
 }
 
