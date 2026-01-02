@@ -1,6 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-  <path d="M8 2c1.5 2 2 4 2 6s-.5 4-2 6"/>
-  <path d="M12 2c1.5 2 2 4 2 6s-.5 4-2 6"/>
-  <path d="M16 2c1.5 2 2 4 2 6s-.5 4-2 6"/>
-  <rect x="4" y="16" width="16" height="6" rx="2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Three straight steam lines from wand, spreading downward -->
+  <line x1="10" y1="3" x2="7" y2="16"/>
+  <line x1="12" y1="3" x2="12" y2="18"/>
+  <line x1="14" y1="3" x2="17" y2="16"/>
+  <!-- Cloud: outer puffs cut where they meet middle puff -->
+  <path d="M4 16 A3 3 0 0 0 8 19 A4 4 0 0 0 12 22 A4 4 0 0 0 16 19 A3 3 0 0 0 20 16"/>
 </svg>
