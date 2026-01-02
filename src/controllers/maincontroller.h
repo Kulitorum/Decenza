@@ -9,11 +9,16 @@
 #include "../network/visualizerimporter.h"
 #include "../ai/aimanager.h"
 #include "../models/shotdatamodel.h"
+#include "../history/shothistorystorage.h"
+#include "../models/shotcomparisonmodel.h"
+#include "../network/shotserver.h"
+#include "../core/updatechecker.h"
 
 class Settings;
 class DE1Device;
 class MachineState;
 class ProfileStorage;
+class ShotDebugLogger;
 struct ShotSample;
 
 // Profile source enumeration
@@ -52,6 +57,10 @@ class MainController : public QObject {
     Q_PROPERTY(Profile* currentProfilePtr READ currentProfilePtr CONSTANT)
     Q_PROPERTY(bool calibrationMode READ isCalibrationMode NOTIFY calibrationModeChanged)
     Q_PROPERTY(QString currentFrameName READ currentFrameName NOTIFY frameChanged)
+    Q_PROPERTY(ShotHistoryStorage* shotHistory READ shotHistory CONSTANT)
+    Q_PROPERTY(ShotComparisonModel* shotComparison READ shotComparison CONSTANT)
+    Q_PROPERTY(ShotServer* shotServer READ shotServer CONSTANT)
+    Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT)
 
 public:
     explicit MainController(Settings* settings, DE1Device* device,
@@ -80,6 +89,10 @@ public:
     Profile* currentProfilePtr() { return &m_currentProfile; }
     bool isCalibrationMode() const { return m_calibrationMode; }
     QString currentFrameName() const { return m_currentFrameName; }
+    ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
+    ShotComparisonModel* shotComparison() const { return m_shotComparison; }
+    ShotServer* shotServer() const { return m_shotServer; }
+    UpdateChecker* updateChecker() const { return m_updateChecker; }
 
     const Profile& currentProfile() const { return m_currentProfile; }
     Profile currentProfileObject() const { return m_currentProfile; }
@@ -184,4 +197,11 @@ private:
     double m_pendingShotDuration = 0;
     double m_pendingShotFinalWeight = 0;
     double m_pendingShotDoseWeight = 0;
+
+    // Shot history and comparison
+    ShotHistoryStorage* m_shotHistory = nullptr;
+    ShotDebugLogger* m_shotDebugLogger = nullptr;
+    ShotComparisonModel* m_shotComparison = nullptr;
+    ShotServer* m_shotServer = nullptr;
+    UpdateChecker* m_updateChecker = nullptr;
 };

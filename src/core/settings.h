@@ -104,6 +104,14 @@ class Settings : public QObject {
     Q_PROPERTY(double waterLevelMinMm READ waterLevelMinMm WRITE setWaterLevelMinMm NOTIFY waterLevelMinMmChanged)
     Q_PROPERTY(double waterLevelMaxMm READ waterLevelMaxMm WRITE setWaterLevelMaxMm NOTIFY waterLevelMaxMmChanged)
 
+    // Shot server settings (HTTP API)
+    Q_PROPERTY(bool shotServerEnabled READ shotServerEnabled WRITE setShotServerEnabled NOTIFY shotServerEnabledChanged)
+    Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged)
+    Q_PROPERTY(int shotServerPort READ shotServerPort WRITE setShotServerPort NOTIFY shotServerPortChanged)
+
+    // Auto-update settings
+    Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
+
 public:
     explicit Settings(QObject* parent = nullptr);
 
@@ -331,6 +339,18 @@ public:
     void setWaterLevelMaxMm(double mm);
     Q_INVOKABLE void resetWaterLevelCalibration();
 
+    // Shot server settings (HTTP API)
+    bool shotServerEnabled() const;
+    void setShotServerEnabled(bool enabled);
+    QString shotServerHostname() const;
+    void setShotServerHostname(const QString& hostname);
+    int shotServerPort() const;
+    void setShotServerPort(int port);
+
+    // Auto-update settings
+    bool autoCheckUpdates() const;
+    void setAutoCheckUpdates(bool enabled);
+
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;
     Q_INVOKABLE void setValue(const QString& key, const QVariant& value);
@@ -394,6 +414,10 @@ signals:
     void dyeShotDateTimeChanged();
     void waterLevelMinMmChanged();
     void waterLevelMaxMmChanged();
+    void shotServerEnabledChanged();
+    void shotServerHostnameChanged();
+    void shotServerPortChanged();
+    void autoCheckUpdatesChanged();
     void valueChanged(const QString& key);
 
 private:

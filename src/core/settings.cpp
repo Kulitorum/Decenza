@@ -1567,6 +1567,51 @@ void Settings::resetWaterLevelCalibration() {
     emit waterLevelMaxMmChanged();
 }
 
+// Shot server settings
+bool Settings::shotServerEnabled() const {
+    return m_settings.value("shotServer/enabled", false).toBool();
+}
+
+void Settings::setShotServerEnabled(bool enabled) {
+    if (shotServerEnabled() != enabled) {
+        m_settings.setValue("shotServer/enabled", enabled);
+        emit shotServerEnabledChanged();
+    }
+}
+
+QString Settings::shotServerHostname() const {
+    return m_settings.value("shotServer/hostname", "").toString();
+}
+
+void Settings::setShotServerHostname(const QString& hostname) {
+    if (shotServerHostname() != hostname) {
+        m_settings.setValue("shotServer/hostname", hostname);
+        emit shotServerHostnameChanged();
+    }
+}
+
+int Settings::shotServerPort() const {
+    return m_settings.value("shotServer/port", 8888).toInt();
+}
+
+void Settings::setShotServerPort(int port) {
+    if (shotServerPort() != port) {
+        m_settings.setValue("shotServer/port", port);
+        emit shotServerPortChanged();
+    }
+}
+
+bool Settings::autoCheckUpdates() const {
+    return m_settings.value("updates/autoCheck", true).toBool();
+}
+
+void Settings::setAutoCheckUpdates(bool enabled) {
+    if (autoCheckUpdates() != enabled) {
+        m_settings.setValue("updates/autoCheck", enabled);
+        emit autoCheckUpdatesChanged();
+    }
+}
+
 // Generic settings access
 QVariant Settings::value(const QString& key, const QVariant& defaultValue) const {
     return m_settings.value(key, defaultValue);

@@ -44,6 +44,7 @@ public:
     explicit MachineState(DE1Device* device, QObject* parent = nullptr);
 
     Phase phase() const { return m_phase; }
+    QString phaseString() const;
     bool isFlowing() const;
     bool isHeating() const;
     bool isReady() const;

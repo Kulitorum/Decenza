@@ -4,9 +4,13 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../models/shotdatamodel.h"
+#include "../models/shotcomparisonmodel.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
 #include "../ai/aimanager.h"
+#include "../history/shothistorystorage.h"
+#include "../history/shotdebuglogger.h"
+#include "../network/shotserver.h"
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
@@ -58,6 +62,50 @@ MainController::MainController(Settings* settings, DE1Device* device,
     // Create visualizer uploader and importer
     m_visualizer = new VisualizerUploader(m_settings, this);
     m_visualizerImporter = new VisualizerImporter(this, m_settings, this);
+
+    // Create shot history storage and comparison model
+    m_shotHistory = new ShotHistoryStorage(this);
+    m_shotHistory->initialize();
+
+    m_shotComparison = new ShotComparisonModel(this);
+    m_shotComparison->setStorage(m_shotHistory);
+
+    // Create debug logger for shot diagnostics
+    // It captures all qDebug/qWarning/etc. output during shot extraction
+    m_shotDebugLogger = new ShotDebugLogger(this);
+
+    // Create shot server for remote access to shot data
+    m_shotServer = new ShotServer(m_shotHistory, this);
+    if (m_settings) {
+        m_shotServer->setPort(m_settings->shotServerPort());
+
+        // Start server if enabled in settings
+        if (m_settings->shotServerEnabled()) {
+            m_shotServer->start();
+        }
+
+        // React to settings changes
+        connect(m_settings, &Settings::shotServerEnabledChanged, this, [this]() {
+            if (m_settings->shotServerEnabled()) {
+                m_shotServer->start();
+            } else {
+                m_shotServer->stop();
+            }
+        });
+        connect(m_settings, &Settings::shotServerPortChanged, this, [this]() {
+            bool wasRunning = m_shotServer->isRunning();
+            if (wasRunning) {
+                m_shotServer->stop();
+            }
+            m_shotServer->setPort(m_settings->shotServerPort());
+            if (wasRunning) {
+                m_shotServer->start();
+            }
+        });
+    }
+
+    // Initialize update checker
+    m_updateChecker = new UpdateChecker(m_settings, this);
 
     // Refresh profiles when storage permission changes (Android)
     if (m_profileStorage) {
@@ -1092,12 +1140,23 @@ void MainController::onEspressoCycleStarted() {
     if (m_machineState) {
         m_machineState->tareScale();
     }
+
+    // Start debug logging for this shot
+    if (m_shotDebugLogger) {
+        m_shotDebugLogger->startCapture();
+        m_shotDebugLogger->logInfo(QString("Profile: %1").arg(m_currentProfile.title()));
+    }
+
     qDebug() << "=== ESPRESSO CYCLE STARTED (graph cleared, scale tared) ===";
 }
 
 void MainController::onShotEnded() {
     // Only process espresso shots that actually extracted
     if (!m_extractionStarted || !m_settings || !m_shotDataModel) {
+        // Stop debug logging even if we don't save
+        if (m_shotDebugLogger) {
+            m_shotDebugLogger->stopCapture();
+        }
         return;
     }
 
@@ -1111,6 +1170,38 @@ void MainController::onShotEnded() {
     }
 
     double doseWeight = m_settings->targetWeight();  // Use target weight as dose
+
+    // Stop debug logging and get the captured log
+    QString debugLog;
+    if (m_shotDebugLogger) {
+        m_shotDebugLogger->stopCapture();
+        debugLog = m_shotDebugLogger->getCapturedLog();
+    }
+
+    // Build metadata for history
+    ShotMetadata metadata;
+    metadata.beanBrand = m_settings->dyeBeanBrand();
+    metadata.beanType = m_settings->dyeBeanType();
+    metadata.roastDate = m_settings->dyeRoastDate();
+    metadata.roastLevel = m_settings->dyeRoastLevel();
+    metadata.grinderModel = m_settings->dyeGrinderModel();
+    metadata.grinderSetting = m_settings->dyeGrinderSetting();
+    metadata.beanWeight = m_settings->dyeBeanWeight();
+    metadata.drinkWeight = m_settings->dyeDrinkWeight();
+    metadata.drinkTds = m_settings->dyeDrinkTds();
+    metadata.drinkEy = m_settings->dyeDrinkEy();
+    metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
+    metadata.espressoNotes = m_settings->dyeEspressoNotes();
+    metadata.barista = m_settings->dyeBarista();
+
+    // Always save shot to local history
+    if (m_shotHistory && m_shotHistory->isReady()) {
+        qint64 shotId = m_shotHistory->saveShot(
+            m_shotDataModel, &m_currentProfile,
+            duration, finalWeight, doseWeight,
+            metadata, debugLog);
+        qDebug() << "MainController: Shot saved to history with ID:" << shotId;
+    }
 
     // Check if we should show metadata page after shot (regardless of auto-upload)
     if (m_settings->visualizerExtendedMetadata() && m_settings->visualizerShowAfterShot()) {
@@ -1127,24 +1218,7 @@ void MainController::onShotEnded() {
 
         emit shotEndedShowMetadata();
     } else if (m_settings->visualizerAutoUpload() && m_visualizer) {
-        // Auto-upload without showing metadata page
-        ShotMetadata metadata;
-        if (m_settings->visualizerExtendedMetadata()) {
-            metadata.beanBrand = m_settings->dyeBeanBrand();
-            metadata.beanType = m_settings->dyeBeanType();
-            metadata.roastDate = m_settings->dyeRoastDate();
-            metadata.roastLevel = m_settings->dyeRoastLevel();
-            metadata.grinderModel = m_settings->dyeGrinderModel();
-            metadata.grinderSetting = m_settings->dyeGrinderSetting();
-            metadata.beanWeight = m_settings->dyeBeanWeight();
-            metadata.drinkWeight = m_settings->dyeDrinkWeight();
-            metadata.drinkTds = m_settings->dyeDrinkTds();
-            metadata.drinkEy = m_settings->dyeDrinkEy();
-            metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
-            metadata.espressoNotes = m_settings->dyeEspressoNotes();
-            metadata.barista = m_settings->dyeBarista();
-        }
-
+        // Auto-upload without showing metadata page (reuse metadata built above)
         qDebug() << "MainController: Shot ended, uploading to visualizer -"
                  << "Profile:" << m_currentProfile.title()
                  << "Duration:" << duration << "s"

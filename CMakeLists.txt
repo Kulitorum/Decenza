@@ -37,6 +37,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Multimedia
     TextToSpeech
     Network
+    Sql
 )
 
 # Silence Qt policy warnings
@@ -79,6 +80,7 @@ set(SOURCES
     src/core/accessibilitymanager.cpp
     src/core/profilestorage.cpp
     src/core/translationmanager.cpp
+    src/core/updatechecker.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
@@ -109,6 +111,11 @@ set(SOURCES
     src/ai/aimanager.cpp
     src/ai/aiprovider.cpp
     src/ai/shotsummarizer.cpp
+    src/history/shothistorystorage.cpp
+    src/history/shotdebuglogger.cpp
+    src/models/shotcomparisonmodel.cpp
+    src/network/shotserver.cpp
+    src/network/webdebuglogger.cpp
 )
 
 # Simulator files - Windows Debug only
@@ -127,6 +134,7 @@ set(HEADERS
     src/core/accessibilitymanager.h
     src/core/profilestorage.h
     src/core/translationmanager.h
+    src/core/updatechecker.h
     src/ble/protocol/binarycodec.h
     src/ble/protocol/de1characteristics.h
     src/ble/blemanager.h
@@ -158,6 +166,11 @@ set(HEADERS
     src/ai/aimanager.h
     src/ai/aiprovider.h
     src/ai/shotsummarizer.h
+    src/history/shothistorystorage.h
+    src/history/shotdebuglogger.h
+    src/models/shotcomparisonmodel.h
+    src/network/shotserver.h
+    src/network/webdebuglogger.h
 )
 
 # Simulator headers - Windows Debug only
@@ -193,6 +206,7 @@ target_link_libraries(Decenza_DE1 PRIVATE
     Qt6::Multimedia
     Qt6::TextToSpeech
     Qt6::Network
+    Qt6::Sql
 )
 
 # Include directories
@@ -223,6 +237,9 @@ set(QML_FILES
     qml/pages/ShotMetadataPage.qml
     qml/pages/AISettingsPage.qml
     qml/pages/DialingAssistantPage.qml
+    qml/pages/ShotHistoryPage.qml
+    qml/pages/ShotDetailPage.qml
+    qml/pages/ShotComparisonPage.qml
     qml/pages/settings/SettingsBluetoothTab.qml
     qml/pages/settings/SettingsPreferencesTab.qml
     qml/pages/settings/SettingsScreensaverTab.qml
@@ -231,6 +248,8 @@ set(QML_FILES
     qml/pages/settings/SettingsAccessibilityTab.qml
     qml/pages/settings/SettingsThemesTab.qml
     qml/pages/settings/SettingsLanguageTab.qml
+    qml/pages/settings/SettingsShotHistoryTab.qml
+    qml/pages/settings/SettingsUpdateTab.qml
     qml/pages/settings/SettingsDebugTab.qml
     qml/pages/settings/AddLanguagePage.qml
     qml/pages/settings/StringBrowserPage.qml
@@ -253,6 +272,8 @@ set(QML_FILES
     qml/components/StyledTextField.qml
     qml/components/Tr.qml
     qml/components/AccessibleLabel.qml
+    qml/components/ComparisonGraph.qml
+    qml/components/HistoryShotGraph.qml
 )
 
 # Simulator QML - Windows Debug only

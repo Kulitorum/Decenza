@@ -32,6 +32,7 @@
 #include "controllers/maincontroller.h"
 #include "ai/aimanager.h"
 #include "screensaver/screensavervideomanager.h"
+#include "network/webdebuglogger.h"
 
 // GHC Simulator for Windows debug builds
 #if defined(Q_OS_WIN) && defined(QT_DEBUG)
@@ -44,6 +45,9 @@ using namespace Qt::StringLiterals;
 
 int main(int argc, char *argv[])
 {
+    // Install web debug logger early to capture all output
+    WebDebugLogger::install();
+
     QApplication app(argc, argv);
 
     // Set application metadata

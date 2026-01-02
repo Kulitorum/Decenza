@@ -4,6 +4,7 @@
 #include "../core/settings.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QMetaEnum>
 
 MachineState::MachineState(DE1Device* device, QObject* parent)
     : QObject(parent)
@@ -48,6 +49,11 @@ double MachineState::shotTime() const {
         return elapsed / 1000.0;
     }
     return m_shotTime;
+}
+
+QString MachineState::phaseString() const {
+    QMetaEnum metaEnum = QMetaEnum::fromType<Phase>();
+    return QString::fromLatin1(metaEnum.valueToKey(static_cast<int>(m_phase)));
 }
 
 void MachineState::setScale(ScaleDevice* scale) {

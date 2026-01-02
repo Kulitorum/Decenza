@@ -598,6 +598,76 @@ Page {
 
             Item { Layout.fillWidth: true }
 
+            // Shot History button
+            Item {
+                id: historyButton
+                Layout.fillHeight: true
+                Layout.preferredWidth: historyButtonBg.implicitWidth
+                Layout.topMargin: Theme.spacingSmall
+                Layout.bottomMargin: Theme.spacingSmall
+                activeFocusOnTab: true
+
+                Accessible.role: Accessible.Button
+                Accessible.name: "Shot History"
+                Accessible.description: "View and compare past shots"
+                Accessible.focusable: true
+
+                KeyNavigation.left: sleepButton
+                KeyNavigation.right: settingsButton
+
+                function openHistory() {
+                    pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"))
+                }
+
+                Keys.onReturnPressed: openHistory()
+                Keys.onEnterPressed: openHistory()
+                Keys.onSpacePressed: openHistory()
+
+                Rectangle {
+                    id: historyButtonBg
+                    anchors.fill: parent
+                    implicitWidth: Theme.scaled(140)
+                    color: historyMouseArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    radius: Theme.cardRadius
+                }
+
+                RowLayout {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingSmall
+                    Image {
+                        source: "qrc:/icons/espresso.svg"
+                        sourceSize.width: Theme.scaled(24)
+                        sourceSize.height: Theme.scaled(24)
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    Text {
+                        text: "History"
+                        font: Theme.bodyFont
+                        color: "white"
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                MouseArea {
+                    id: historyMouseArea
+                    anchors.fill: parent
+                    onClicked: historyButton.openHistory()
+                }
+
+                // Focus indicator
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -Theme.focusMargin
+                    visible: historyButton.activeFocus
+                    color: "transparent"
+                    border.width: Theme.focusBorderWidth
+                    border.color: Theme.focusColor
+                    radius: parent.radius + Theme.focusMargin
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+
             // Settings button - square, fills bar height
             Item {
                 id: settingsButton

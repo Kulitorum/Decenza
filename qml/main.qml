@@ -674,6 +674,116 @@ ApplicationWindow {
         }
     }
 
+    // Update notification dialog
+    Popup {
+        id: updateDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        padding: 24
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryColor
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingMedium
+            width: Theme.dialogWidth
+
+            Row {
+                spacing: 10
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                Rectangle {
+                    width: 12
+                    height: 12
+                    radius: 6
+                    color: Theme.primaryColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                    text: "Update Available"
+                    font: Theme.subtitleFont
+                    color: Theme.textColor
+                }
+            }
+
+            Text {
+                text: "Version " + (MainController.updateChecker ? MainController.updateChecker.latestVersion : "") + " is available.\n\nWould you like to download and install it now?"
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+
+            Row {
+                spacing: Theme.spacingMedium
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                Button {
+                    text: "Later"
+                    onClicked: {
+                        if (MainController.updateChecker) {
+                            MainController.updateChecker.dismissUpdate()
+                        }
+                        updateDialog.close()
+                    }
+                    background: Rectangle {
+                        color: Theme.surfaceColor
+                        radius: Theme.buttonRadius
+                        border.color: Theme.borderColor
+                        border.width: 1
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: Theme.textColor
+                        font: Theme.labelFont
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+
+                Button {
+                    text: "Update Now"
+                    onClicked: {
+                        if (MainController.updateChecker) {
+                            MainController.updateChecker.downloadAndInstall()
+                        }
+                        updateDialog.close()
+                        // Navigate to settings update tab to show progress
+                        goToSettings()
+                    }
+                    background: Rectangle {
+                        color: Theme.primaryColor
+                        radius: Theme.buttonRadius
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        color: "white"
+                        font: Theme.labelFont
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+        }
+    }
+
+    // Listen for update notification from UpdateChecker
+    Connections {
+        target: MainController.updateChecker
+        enabled: MainController.updateChecker !== null
+
+        function onUpdatePromptRequested() {
+            // Don't show during screensaver
+            if (!screensaverActive) {
+                updateDialog.open()
+            }
+        }
+    }
+
     // Completion overlay
     property string completionMessage: ""
     property string completionType: ""  // "steam", "hotwater", "flush"

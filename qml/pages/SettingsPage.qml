@@ -210,8 +210,8 @@ Page {
         onCurrentIndexChanged: {
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                 var tabNames = Settings.isDebugBuild ?
-                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language", "Debug"] :
-                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language"]
+                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language", "History", "Update", "Debug"] :
+                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language", "History", "Update"]
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
                     AccessibilityManager.announce(tabNames[currentIndex] + " tab")
                 }
@@ -444,10 +444,9 @@ Page {
         }
 
         TabButton {
-            id: debugTabButton
-            visible: Settings.isDebugBuild
-            text: "Debug"
-            width: visible ? implicitWidth : 0
+            id: historyTabButton
+            text: "History"
+            width: implicitWidth
             font.pixelSize: 14
             font.bold: tabBar.currentIndex === 8
             contentItem: Text {
@@ -463,9 +462,60 @@ Page {
             }
             AccessibleMouseArea {
                 anchors.fill: parent
-                accessibleName: "Debug tab" + (tabBar.currentIndex === 8 ? ", selected" : "")
-                accessibleItem: debugTabButton
+                accessibleName: "History tab" + (tabBar.currentIndex === 8 ? ", selected" : "")
+                accessibleItem: historyTabButton
                 onAccessibleClicked: tabBar.currentIndex = 8
+            }
+        }
+
+        TabButton {
+            id: updateTabButton
+            text: "Update"
+            width: implicitWidth
+            font.pixelSize: 14
+            font.bold: tabBar.currentIndex === 9
+            contentItem: Text {
+                text: parent.text
+                font: parent.font
+                color: tabBar.currentIndex === 9 ? Theme.textColor : Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                color: tabBar.currentIndex === 9 ? Theme.surfaceColor : "transparent"
+                radius: 6
+            }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Update tab" + (tabBar.currentIndex === 9 ? ", selected" : "")
+                accessibleItem: updateTabButton
+                onAccessibleClicked: tabBar.currentIndex = 9
+            }
+        }
+
+        TabButton {
+            id: debugTabButton
+            visible: Settings.isDebugBuild
+            text: "Debug"
+            width: visible ? implicitWidth : 0
+            font.pixelSize: 14
+            font.bold: tabBar.currentIndex === 10
+            contentItem: Text {
+                text: parent.text
+                font: parent.font
+                color: tabBar.currentIndex === 10 ? Theme.textColor : Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                color: tabBar.currentIndex === 10 ? Theme.surfaceColor : "transparent"
+                radius: 6
+            }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: "Debug tab" + (tabBar.currentIndex === 10 ? ", selected" : "")
+                accessibleItem: debugTabButton
+                onAccessibleClicked: tabBar.currentIndex = 10
             }
         }
     }
@@ -558,7 +608,23 @@ Page {
             source: "settings/SettingsLanguageTab.qml"
         }
 
-        // Tab 8: Debug - only in debug builds
+        // Tab 8: History - preloads async in background
+        Loader {
+            id: historyLoader
+            active: true
+            asynchronous: true
+            source: "settings/SettingsShotHistoryTab.qml"
+        }
+
+        // Tab 9: Update - preloads async in background
+        Loader {
+            id: updateLoader
+            active: true
+            asynchronous: true
+            source: "settings/SettingsUpdateTab.qml"
+        }
+
+        // Tab 10: Debug - only in debug builds
         Loader {
             id: debugLoader
             active: Settings.isDebugBuild

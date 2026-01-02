@@ -1,0 +1,461 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import DecenzaDE1
+import "../components"
+
+Page {
+    id: shotDetailPage
+    objectName: "shotDetailPage"
+    background: Rectangle { color: Theme.backgroundColor }
+
+    property int shotId: 0
+    property var shotData: ({})
+
+    Component.onCompleted: {
+        root.currentPageTitle = "Shot Detail"
+        loadShot()
+    }
+
+    function loadShot() {
+        if (shotId > 0) {
+            shotData = MainController.shotHistory.getShot(shotId)
+        }
+    }
+
+    function formatRatio() {
+        if (shotData.doseWeight > 0) {
+            return "1:" + (shotData.finalWeight / shotData.doseWeight).toFixed(1)
+        }
+        return "-"
+    }
+
+    function formatStars() {
+        var rating = Math.round((shotData.enjoyment || 0) / 20)
+        var stars = ""
+        for (var i = 0; i < 5; i++) {
+            stars += i < rating ? "\u2605" : "\u2606"
+        }
+        return stars
+    }
+
+    ScrollView {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: bottomBar.top
+        contentWidth: availableWidth
+
+        ColumnLayout {
+            width: parent.width
+            spacing: Theme.spacingMedium
+
+            // Header
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                spacing: Theme.spacingMedium
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Text {
+                        text: shotData.profileName || "Shot Detail"
+                        font: Theme.titleFont
+                        color: Theme.textColor
+                    }
+
+                    Text {
+                        text: shotData.dateTime || ""
+                        font: Theme.labelFont
+                        color: Theme.textSecondaryColor
+                    }
+                }
+
+                ActionButton {
+                    text: "Compare"
+                    onClicked: {
+                        MainController.shotComparison.clearAll()
+                        MainController.shotComparison.addShot(shotId)
+                        pageStack.push(Qt.resolvedUrl("ShotComparisonPage.qml"))
+                    }
+                }
+            }
+
+            // Graph
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(250)
+                Layout.margins: Theme.standardMargin
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                HistoryShotGraph {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingSmall
+                    pressureData: shotData.pressure || []
+                    flowData: shotData.flow || []
+                    temperatureData: shotData.temperature || []
+                    weightData: shotData.weight || []
+                    phaseMarkers: shotData.phases || []
+                    maxTime: shotData.duration || 60
+                }
+            }
+
+            // Metrics row
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                spacing: Theme.spacingLarge
+
+                // Duration
+                ColumnLayout {
+                    spacing: 2
+                    Text {
+                        text: "Duration"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
+                    Text {
+                        text: (shotData.duration || 0).toFixed(1) + "s"
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                    }
+                }
+
+                // Dose
+                ColumnLayout {
+                    spacing: 2
+                    Text {
+                        text: "Dose"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
+                    Text {
+                        text: (shotData.doseWeight || 0).toFixed(1) + "g"
+                        font: Theme.subtitleFont
+                        color: Theme.dyeDoseColor
+                    }
+                }
+
+                // Output
+                ColumnLayout {
+                    spacing: 2
+                    Text {
+                        text: "Output"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
+                    Text {
+                        text: (shotData.finalWeight || 0).toFixed(1) + "g"
+                        font: Theme.subtitleFont
+                        color: Theme.dyeOutputColor
+                    }
+                }
+
+                // Ratio
+                ColumnLayout {
+                    spacing: 2
+                    Text {
+                        text: "Ratio"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
+                    Text {
+                        text: formatRatio()
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                    }
+                }
+
+                // Rating
+                ColumnLayout {
+                    spacing: 2
+                    Text {
+                        text: "Rating"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
+                    Text {
+                        text: formatStars()
+                        font: Theme.subtitleFont
+                        color: Theme.warningColor
+                    }
+                }
+            }
+
+            // Bean info
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                Layout.preferredHeight: beanColumn.height + Theme.spacingLarge
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: beanColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: "Bean Info"
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                    }
+
+                    GridLayout {
+                        columns: 2
+                        columnSpacing: Theme.spacingLarge
+                        rowSpacing: Theme.spacingSmall
+                        Layout.fillWidth: true
+
+                        Text { text: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Text { text: shotData.beanBrand || "-"; font: Theme.labelFont; color: Theme.textColor }
+
+                        Text { text: "Type:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Text { text: shotData.beanType || "-"; font: Theme.labelFont; color: Theme.textColor }
+
+                        Text { text: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Text { text: shotData.roastDate || "-"; font: Theme.labelFont; color: Theme.textColor }
+
+                        Text { text: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Text { text: shotData.roastLevel || "-"; font: Theme.labelFont; color: Theme.textColor }
+                    }
+                }
+            }
+
+            // Grinder info
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: grinderColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: "Grinder"
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                    }
+
+                    GridLayout {
+                        columns: 2
+                        columnSpacing: Theme.spacingLarge
+                        rowSpacing: Theme.spacingSmall
+                        Layout.fillWidth: true
+
+                        Text { text: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Text { text: shotData.grinderModel || "-"; font: Theme.labelFont; color: Theme.textColor }
+
+                        Text { text: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Text { text: shotData.grinderSetting || "-"; font: Theme.labelFont; color: Theme.textColor }
+                    }
+                }
+            }
+
+            // Analysis
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+                visible: shotData.drinkTds > 0 || shotData.drinkEy > 0
+
+                ColumnLayout {
+                    id: analysisColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: "Analysis"
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                    }
+
+                    RowLayout {
+                        spacing: Theme.spacingLarge
+
+                        ColumnLayout {
+                            spacing: 2
+                            Text { text: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                            Text { text: (shotData.drinkTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
+                        }
+
+                        ColumnLayout {
+                            spacing: 2
+                            Text { text: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                            Text { text: (shotData.drinkEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
+                        }
+                    }
+                }
+            }
+
+            // Notes
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                Layout.preferredHeight: notesColumn.height + Theme.spacingLarge
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+                visible: (shotData.espressoNotes || "").length > 0
+
+                ColumnLayout {
+                    id: notesColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: "Notes"
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                    }
+
+                    Text {
+                        text: shotData.espressoNotes || ""
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+
+            // Actions
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                spacing: Theme.spacingMedium
+
+                ActionButton {
+                    text: "View Debug Log"
+                    Layout.fillWidth: true
+                    onClicked: debugLogDialog.open()
+                }
+
+                ActionButton {
+                    text: "Delete Shot"
+                    Layout.fillWidth: true
+                    onClicked: deleteConfirmDialog.open()
+                }
+            }
+
+            // Visualizer status
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.margins: Theme.standardMargin
+                Layout.preferredHeight: Theme.scaled(50)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+                visible: shotData.visualizerId
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+
+                    Text {
+                        text: "\u2601 Uploaded to Visualizer"
+                        font: Theme.labelFont
+                        color: Theme.successColor
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Text {
+                        text: shotData.visualizerId || ""
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
+                }
+            }
+
+            // Bottom spacer
+            Item { Layout.preferredHeight: Theme.spacingLarge }
+        }
+    }
+
+    // Debug log dialog
+    Dialog {
+        id: debugLogDialog
+        title: "Debug Log"
+        anchors.centerIn: parent
+        width: parent.width * 0.9
+        height: parent.height * 0.8
+        modal: true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+        }
+
+        ScrollView {
+            anchors.fill: parent
+            contentWidth: availableWidth
+
+            TextArea {
+                text: shotData.debugLog || "No debug log available"
+                font.family: "monospace"
+                font.pixelSize: Theme.scaled(12)
+                color: Theme.textColor
+                readOnly: true
+                wrapMode: Text.Wrap
+                background: Rectangle { color: "transparent" }
+            }
+        }
+
+        standardButtons: Dialog.Close
+    }
+
+    // Delete confirmation dialog
+    Dialog {
+        id: deleteConfirmDialog
+        title: "Delete Shot?"
+        anchors.centerIn: parent
+        modal: true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+        }
+
+        Text {
+            text: "This will permanently delete this shot from history."
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.Wrap
+        }
+
+        standardButtons: Dialog.Cancel | Dialog.Ok
+
+        onAccepted: {
+            MainController.shotHistory.deleteShot(shotId)
+            pageStack.pop()
+        }
+    }
+
+    // Bottom bar
+    BottomBar {
+        id: bottomBar
+        title: "Shot Detail"
+        rightText: shotData.profileName || ""
+        onBackClicked: root.goBack()
+    }
+}
