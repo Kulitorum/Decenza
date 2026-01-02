@@ -1203,6 +1203,17 @@ void MainController::onShotEnded() {
         qDebug() << "MainController: Shot saved to history with ID:" << shotId;
     }
 
+    // Log final shot state for debugging early exits
+    const auto& pressureData = m_shotDataModel->pressureData();
+    const auto& flowData = m_shotDataModel->flowData();
+    double finalPressure = pressureData.isEmpty() ? 0 : pressureData.last().y();
+    double finalFlow = flowData.isEmpty() ? 0 : flowData.last().y();
+    qDebug() << "MainController: Shot ended -"
+             << "Duration:" << QString::number(duration, 'f', 1) << "s"
+             << "Weight:" << QString::number(finalWeight, 'f', 1) << "g"
+             << "Final P:" << QString::number(finalPressure, 'f', 2) << "bar"
+             << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
+
     // Check if we should show metadata page after shot (regardless of auto-upload)
     if (m_settings->visualizerExtendedMetadata() && m_settings->visualizerShowAfterShot()) {
         // Store pending shot data for later upload
@@ -1211,18 +1222,11 @@ void MainController::onShotEnded() {
         m_pendingShotFinalWeight = finalWeight;
         m_pendingShotDoseWeight = doseWeight;
 
-        qDebug() << "MainController: Shot ended, showing metadata page -"
-                 << "Profile:" << m_currentProfile.title()
-                 << "Duration:" << duration << "s"
-                 << "Weight:" << finalWeight << "g";
-
+        qDebug() << "  -> Showing metadata page";
         emit shotEndedShowMetadata();
     } else if (m_settings->visualizerAutoUpload() && m_visualizer) {
         // Auto-upload without showing metadata page (reuse metadata built above)
-        qDebug() << "MainController: Shot ended, uploading to visualizer -"
-                 << "Profile:" << m_currentProfile.title()
-                 << "Duration:" << duration << "s"
-                 << "Weight:" << finalWeight << "g";
+        qDebug() << "  -> Auto-uploading to visualizer";
 
         m_visualizer->uploadShot(m_shotDataModel, &m_currentProfile, duration, finalWeight, doseWeight, metadata);
     }
@@ -1398,8 +1402,8 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                            phase == MachineState::Phase::Ending);
 
     if (!isEspressoPhase) {
-        m_shotStartTime = 0;  // Reset for next shot
-        m_extractionStarted = false;
+        // Don't reset m_shotStartTime here - it's reset in onEspressoCycleStarted()
+        // Resetting here causes timing bugs if there's a brief phase glitch mid-shot
         return;
     }
 
