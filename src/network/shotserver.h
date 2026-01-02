@@ -6,6 +6,7 @@
 #include <QHash>
 
 class ShotHistoryStorage;
+class DE1Device;
 
 struct PendingRequest {
     QByteArray data;
@@ -21,7 +22,7 @@ class ShotServer : public QObject {
     Q_PROPERTY(int port READ port WRITE setPort NOTIFY portChanged)
 
 public:
-    explicit ShotServer(ShotHistoryStorage* storage, QObject* parent = nullptr);
+    explicit ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* parent = nullptr);
     ~ShotServer();
 
     bool isRunning() const { return m_server && m_server->isListening(); }
@@ -63,6 +64,7 @@ private:
 
     QTcpServer* m_server = nullptr;
     ShotHistoryStorage* m_storage = nullptr;
+    DE1Device* m_device = nullptr;
     int m_port = 8888;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
 };

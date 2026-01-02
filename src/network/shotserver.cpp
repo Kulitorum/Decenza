@@ -1,6 +1,7 @@
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "../history/shothistorystorage.h"
+#include "../ble/de1device.h"
 
 #include <QNetworkInterface>
 #include <QFile>
@@ -18,9 +19,10 @@
 #include <QCoreApplication>
 #endif
 
-ShotServer::ShotServer(ShotHistoryStorage* storage, QObject* parent)
+ShotServer::ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* parent)
     : QObject(parent)
     , m_storage(storage)
+    , m_device(device)
 {
 }
 
@@ -252,6 +254,38 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         }
         result["lines"] = linesArray;
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    }
+    else if (path == "/api/power" || path == "/api/power/status") {
+        // Return current power state
+        QJsonObject result;
+        if (m_device) {
+            bool isAwake = m_device->isConnected() &&
+                          (m_device->state() != DE1::State::Sleep &&
+                           m_device->state() != DE1::State::GoingToSleep);
+            result["connected"] = m_device->isConnected();
+            result["state"] = m_device->stateString();
+            result["substate"] = m_device->subStateString();
+            result["awake"] = isAwake;
+        } else {
+            result["connected"] = false;
+            result["state"] = "Unknown";
+            result["awake"] = false;
+        }
+        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    }
+    else if (path == "/api/power/wake") {
+        if (m_device) {
+            m_device->wakeUp();
+            qDebug() << "ShotServer: Wake command sent via web";
+        }
+        sendJson(socket, R"({"success":true,"action":"wake"})");
+    }
+    else if (path == "/api/power/sleep") {
+        if (m_device) {
+            m_device->goToSleep();
+            qDebug() << "ShotServer: Sleep command sent via web";
+        }
+        sendJson(socket, R"({"success":true,"action":"sleep"})");
     }
     else if (path == "/upload") {
         if (method == "GET") {
@@ -686,6 +720,7 @@ QString ShotServer::generateShotListPage() const
                 <div class="menu-wrapper">
                     <button class="menu-btn" onclick="toggleMenu()" aria-label="Menu">&#9776;</button>
                     <div class="menu-dropdown" id="menuDropdown">
+                        <a href="#" class="menu-item" id="powerToggle" onclick="togglePower(); return false;">&#9889; Loading...</a>
                         <a href="/debug" class="menu-item">&#128196; Live Debug Log</a>
                         <a href="/upload" class="menu-item">&#128230; Upload APK</a>
                         <a href="/database.db" class="menu-item">&#128190; Download Database</a>
@@ -772,6 +807,42 @@ QString ShotServer::generateShotListPage() const
                 menu.classList.remove("open");
             }
         });
+
+        // Power control
+        var powerState = {awake: false, state: "Unknown"};
+
+        function updatePowerButton() {
+            var btn = document.getElementById("powerToggle");
+            if (powerState.state === "Unknown" || !powerState.connected) {
+                btn.innerHTML = "&#128268; Disconnected";
+            } else if (powerState.awake) {
+                btn.innerHTML = "&#128164; Put to Sleep";
+            } else {
+                btn.innerHTML = "&#9889; Wake Up";
+            }
+        }
+
+        function fetchPowerState() {
+            fetch("/api/power/status")
+                .then(r => r.json())
+                .then(data => {
+                    powerState = data;
+                    updatePowerButton();
+                })
+                .catch(() => {});
+        }
+
+        function togglePower() {
+            var action = powerState.awake ? "sleep" : "wake";
+            fetch("/api/power/" + action)
+                .then(r => r.json())
+                .then(() => {
+                    setTimeout(fetchPowerState, 1000);
+                });
+        }
+
+        fetchPowerState();
+        setInterval(fetchPowerState, 5000);
     </script>
 </body>
 </html>
@@ -1045,6 +1116,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             <div class="menu-wrapper">
                 <button class="menu-btn" onclick="toggleMenu()" aria-label="Menu">&#9776;</button>
                 <div class="menu-dropdown" id="menuDropdown">
+                    <a href="#" class="menu-item" id="powerToggle" onclick="togglePower(); return false;">&#9889; Loading...</a>
                     <a href="/debug" class="menu-item">&#128196; Live Debug Log</a>
                     <a href="/upload" class="menu-item">&#128230; Upload APK</a>
                     <a href="/database.db" class="menu-item">&#128190; Download Database</a>
@@ -1313,6 +1385,33 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                 menu.classList.remove("open");
             }
         });
+
+        // Power toggle
+        var powerState = {awake: false, state: "Unknown"};
+        function updatePowerButton() {
+            var btn = document.getElementById("powerToggle");
+            if (powerState.state === "Unknown" || !powerState.connected) {
+                btn.innerHTML = "&#128268; Disconnected";
+            } else if (powerState.awake) {
+                btn.innerHTML = "&#128164; Put to Sleep";
+            } else {
+                btn.innerHTML = "&#9889; Wake Up";
+            }
+        }
+        function fetchPowerState() {
+            fetch("/api/power/status")
+                .then(function(r) { return r.json(); })
+                .then(function(data) { powerState = data; updatePowerButton(); })
+                .catch(function() {});
+        }
+        function togglePower() {
+            var action = powerState.awake ? "sleep" : "wake";
+            fetch("/api/power/" + action)
+                .then(function(r) { return r.json(); })
+                .then(function() { setTimeout(fetchPowerState, 1000); });
+        }
+        fetchPowerState();
+        setInterval(fetchPowerState, 5000);
     </script>
 </body>
 </html>
@@ -1606,6 +1705,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             <div class="menu-wrapper">
                 <button class="menu-btn" onclick="toggleMenu()" aria-label="Menu">&#9776;</button>
                 <div class="menu-dropdown" id="menuDropdown">
+                    <a href="#" class="menu-item" id="powerToggle" onclick="togglePower(); return false;">&#9889; Loading...</a>
                     <a href="/debug" class="menu-item">&#128196; Live Debug Log</a>
                     <a href="/upload" class="menu-item">&#128230; Upload APK</a>
                     <a href="/database.db" class="menu-item">&#128190; Download Database</a>
@@ -1654,6 +1754,21 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
 
         var visibleCurves = { pressure: true, flow: true, weight: true, temp: true };
 
+        // Find closest data point in a dataset to a given x value
+        function findClosestPoint(data, targetX) {
+            if (!data || data.length === 0) return null;
+            var closest = data[0];
+            var closestDist = Math.abs(data[0].x - targetX);
+            for (var i = 1; i < data.length; i++) {
+                var dist = Math.abs(data[i].x - targetX);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closest = data[i];
+                }
+            }
+            return closest;
+        }
+
         var ctx = document.getElementById("compareChart").getContext("2d");
         var chart = new Chart(ctx, {
             type: "line",
@@ -1676,8 +1791,54 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                         bodyColor: "#8b949e",
                         padding: 12,
                         position: "cursor",
+                        filter: function() { return false; }, // Hide default items
                         callbacks: {
-                            title: function(items) { return items[0].parsed.x.toFixed(1) + "s"; }
+                            title: function(items) {
+                                if (!items.length) return "";
+                                return items[0].parsed.x.toFixed(1) + "s";
+                            },
+                            beforeBody: function(items) {
+                                if (!items.length) return [];
+                                var targetX = items[0].parsed.x;
+                                var lines = [];
+                                var datasets = chart.data.datasets;
+
+                                // Group by shot, then show enabled curve types
+                                var shotData = {};
+                                for (var i = 0; i < datasets.length; i++) {
+                                    var ds = datasets[i];
+                                    var meta = chart.getDatasetMeta(i);
+                                    if (meta.hidden || !visibleCurves[ds.curveType]) continue;
+
+                                    var pt = findClosestPoint(ds.data, targetX);
+                                    if (!pt) continue;
+
+                                    var key = ds.shotIndex;
+                                    if (!shotData[key]) {
+                                        shotData[key] = { color: ds.borderColor, label: ds.label.split(" - ")[1] || ds.label, values: {} };
+                                    }
+                                    shotData[key].values[ds.curveType] = pt.y;
+                                }
+
+                                // Format output
+                                var curveLabels = { pressure: "P", flow: "F", weight: "W", temp: "T" };
+                                var curveUnits = { pressure: "bar", flow: "ml/s", weight: "g", temp: "°C" };
+                                for (var shotIdx in shotData) {
+                                    var shot = shotData[shotIdx];
+                                    var parts = [];
+                                    ["pressure", "flow", "weight", "temp"].forEach(function(ct) {
+                                        if (shot.values[ct] !== undefined && visibleCurves[ct]) {
+                                            parts.push(curveLabels[ct] + ":" + shot.values[ct].toFixed(1) + curveUnits[ct]);
+                                        }
+                                    });
+                                    if (parts.length > 0) {
+                                        lines.push(shot.label);
+                                        lines.push("  " + parts.join("  "));
+                                    }
+                                }
+                                return lines;
+                            },
+                            label: function() { return null; }
                         }
                     }
                 },
@@ -1739,6 +1900,33 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 menu.classList.remove("open");
             }
         });
+
+        // Power toggle
+        var powerState = {awake: false, state: "Unknown"};
+        function updatePowerButton() {
+            var btn = document.getElementById("powerToggle");
+            if (powerState.state === "Unknown" || !powerState.connected) {
+                btn.innerHTML = "&#128268; Disconnected";
+            } else if (powerState.awake) {
+                btn.innerHTML = "&#128164; Put to Sleep";
+            } else {
+                btn.innerHTML = "&#9889; Wake Up";
+            }
+        }
+        function fetchPowerState() {
+            fetch("/api/power/status")
+                .then(function(r) { return r.json(); })
+                .then(function(data) { powerState = data; updatePowerButton(); })
+                .catch(function() {});
+        }
+        function togglePower() {
+            var action = powerState.awake ? "sleep" : "wake";
+            fetch("/api/power/" + action)
+                .then(function(r) { return r.json(); })
+                .then(function() { setTimeout(fetchPowerState, 1000); });
+        }
+        fetchPowerState();
+        setInterval(fetchPowerState, 5000);
     </script>
 </body>
 </html>

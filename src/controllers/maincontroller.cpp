@@ -75,7 +75,7 @@ MainController::MainController(Settings* settings, DE1Device* device,
     m_shotDebugLogger = new ShotDebugLogger(this);
 
     // Create shot server for remote access to shot data
-    m_shotServer = new ShotServer(m_shotHistory, this);
+    m_shotServer = new ShotServer(m_shotHistory, m_device, this);
     if (m_settings) {
         m_shotServer->setPort(m_settings->shotServerPort());
 
