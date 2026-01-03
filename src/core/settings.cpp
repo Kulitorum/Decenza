@@ -1612,6 +1612,17 @@ void Settings::setAutoCheckUpdates(bool enabled) {
     }
 }
 
+bool Settings::developerTranslationUpload() const {
+    return m_settings.value("developer/translationUpload", false).toBool();
+}
+
+void Settings::setDeveloperTranslationUpload(bool enabled) {
+    if (developerTranslationUpload() != enabled) {
+        m_settings.setValue("developer/translationUpload", enabled);
+        emit developerTranslationUploadChanged();
+    }
+}
+
 // Generic settings access
 QVariant Settings::value(const QString& key, const QVariant& defaultValue) const {
     return m_settings.value(key, defaultValue);

@@ -74,7 +74,7 @@ Item {
                 spacing: Theme.spacingSmall
 
                 Text {
-                    text: "Theme: " + Settings.activeThemeName
+                    text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + Settings.activeThemeName
                     color: Theme.textColor
                     font: Theme.subtitleFont
                 }
@@ -133,7 +133,7 @@ Item {
                     spacing: Theme.spacingSmall
 
                     Button {
-                        text: "Reset"
+                        text: TranslationManager.translate("settings.themes.reset", "Reset")
                         onClicked: Settings.resetThemeToDefault()
                         background: Rectangle {
                             color: Theme.errorColor
@@ -166,7 +166,7 @@ Item {
                 spacing: Theme.spacingSmall
 
                 Text {
-                    text: "Edit: " + themesTab.selectedColorName
+                    text: TranslationManager.translate("settings.themes.edit", "Edit:") + " " + themesTab.selectedColorName
                     color: Theme.textColor
                     font: Theme.subtitleFont
                 }
@@ -272,7 +272,7 @@ Item {
 
                             Text {
                                 id: saveText
-                                text: "+ Save"
+                                text: "+ " + TranslationManager.translate("settings.themes.save", "Save")
                                 color: Theme.textColor
                                 font: Theme.labelFont
                                 anchors.centerIn: parent

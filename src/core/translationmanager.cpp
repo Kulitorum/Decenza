@@ -1361,6 +1361,7 @@ void TranslationManager::autoTranslate()
         return;
     }
 
+    m_translationRunId++;  // New run - stale responses from previous run will be ignored
     m_autoTranslating = true;
     m_autoTranslateCancelled = false;
     m_autoTranslateProgress = 0;
@@ -1369,7 +1370,11 @@ void TranslationManager::autoTranslate()
     emit autoTranslatingChanged();
     emit autoTranslateProgressChanged();
 
-    qDebug() << "Starting auto-translate of" << m_autoTranslateTotal << "unique strings to" << m_currentLanguage;
+    QString provider = getActiveProvider();
+    qDebug() << "=== AUTO-TRANSLATE START (run" << m_translationRunId << ") ===";
+    qDebug() << "Language:" << m_currentLanguage;
+    qDebug() << "Provider:" << provider << (m_batchProcessing ? "(batch mode)" : "(single mode)");
+    qDebug() << "Strings to translate:" << m_autoTranslateTotal;
 
     // Fire all batches in parallel for faster translation
     while (!m_stringsToTranslate.isEmpty() && !m_autoTranslateCancelled) {
@@ -1403,7 +1408,10 @@ void TranslationManager::sendNextAutoTranslateBatch()
     }
 
     QString prompt = buildTranslationPrompt(batch);
-    QString provider = m_settings->aiProvider();
+    QString provider = getActiveProvider();
+
+    qDebug() << "TranslationManager: Sending batch of" << batch.size() << "strings to" << provider
+             << "for language" << m_currentLanguage;
 
     QNetworkRequest request;
     QByteArray postData;
@@ -1472,8 +1480,16 @@ void TranslationManager::sendNextAutoTranslateBatch()
     }
 
     m_pendingBatchCount++;
+    int runId = m_translationRunId;  // Capture current run ID
     QNetworkReply* reply = m_networkManager->post(request, postData);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, runId]() {
+        // Check if this response belongs to the current run
+        if (runId != m_translationRunId) {
+            qDebug() << "TranslationManager: Stale response from run" << runId
+                     << "(current run:" << m_translationRunId << ") - ignoring";
+            reply->deleteLater();
+            return;
+        }
         onAutoTranslateBatchReply(reply);
     });
 }
@@ -1507,17 +1523,45 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
     reply->deleteLater();
     m_pendingBatchCount--;
 
+    QString provider = getActiveProvider();
+    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+    qDebug() << "TranslationManager: Response from" << provider
+             << "HTTP:" << httpStatus
+             << "pending:" << m_pendingBatchCount
+             << "run:" << m_translationRunId;
+
+    // If cancelled mid-run, ignore content but still count down
     if (m_autoTranslateCancelled) {
+        qDebug() << "TranslationManager: Response ignored (cancelled), waiting for" << m_pendingBatchCount << "more";
+        // Wait for ALL batches to complete before signaling done
+        if (m_pendingBatchCount == 0) {
+            qDebug() << "TranslationManager: All batches drained after cancellation";
+            m_autoTranslating = false;
+            emit autoTranslatingChanged();
+            emit autoTranslateFinished(false, m_lastError);
+        }
         return;
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        m_autoTranslateCancelled = true;  // Cancel remaining batches
-        m_autoTranslating = false;
-        m_lastError = "AI request failed: " + reply->errorString();
-        emit autoTranslatingChanged();
+        // Set cancelled flag but DON'T emit autoTranslateFinished yet
+        // Wait for all in-flight responses to complete first
+        m_autoTranslateCancelled = true;
+        m_lastError = QString("AI request failed (%1): %2").arg(provider, reply->errorString());
+        qWarning() << "TranslationManager:" << m_lastError;
+        qWarning() << "Response body:" << reply->readAll().left(500);
         emit lastErrorChanged();
-        emit autoTranslateFinished(false, m_lastError);
+
+        // If this was the last batch, we can finish now
+        if (m_pendingBatchCount == 0) {
+            qDebug() << "TranslationManager: Error on last batch, finishing";
+            m_autoTranslating = false;
+            emit autoTranslatingChanged();
+            emit autoTranslateFinished(false, m_lastError);
+        } else {
+            qDebug() << "TranslationManager: Error occurred, waiting for" << m_pendingBatchCount << "batches to drain";
+        }
         return;
     }
 
@@ -1526,6 +1570,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
 
     // Check if all batches are complete
     if (m_pendingBatchCount == 0) {
+        qDebug() << "TranslationManager: All batches complete for" << m_currentLanguage;
         m_autoTranslating = false;
         emit autoTranslatingChanged();
         saveTranslations();
@@ -1539,20 +1584,37 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
 
 void TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
 {
-    QString provider = m_settings->aiProvider();
+    QString provider = getActiveProvider();
     QString content;
 
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonObject root = doc.object();
 
     if (provider == "openai") {
-        content = root["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
+        QJsonArray choices = root["choices"].toArray();
+        if (!choices.isEmpty()) {
+            content = choices[0].toObject()["message"].toObject()["content"].toString();
+        }
     } else if (provider == "anthropic") {
-        content = root["content"].toArray()[0].toObject()["text"].toString();
+        QJsonArray contentArr = root["content"].toArray();
+        if (!contentArr.isEmpty()) {
+            content = contentArr[0].toObject()["text"].toString();
+        }
     } else if (provider == "gemini") {
-        content = root["candidates"].toArray()[0].toObject()["content"].toObject()["parts"].toArray()[0].toObject()["text"].toString();
+        QJsonArray candidates = root["candidates"].toArray();
+        if (!candidates.isEmpty()) {
+            QJsonArray parts = candidates[0].toObject()["content"].toObject()["parts"].toArray();
+            if (!parts.isEmpty()) {
+                content = parts[0].toObject()["text"].toString();
+            }
+        }
     } else if (provider == "ollama") {
         content = root["response"].toString();
+    }
+
+    if (content.isEmpty()) {
+        qWarning() << "Empty AI response for provider:" << provider;
+        return;
     }
 
     // Extract JSON from response (AI might include markdown code blocks)
@@ -1704,4 +1766,152 @@ void TranslationManager::saveAiTranslations()
         file.write(QJsonDocument(root).toJson());
         file.close();
     }
+}
+
+// --- Batch Translate and Upload All Languages ---
+
+QStringList TranslationManager::getConfiguredProviders() const
+{
+    // Order: Claude first (best quality), then OpenAI
+    // Gemini excluded due to aggressive rate limiting
+    // Each provider fills in gaps left by previous ones
+    QStringList providers;
+    if (!m_settings->anthropicApiKey().isEmpty()) providers << "anthropic";
+    if (!m_settings->openaiApiKey().isEmpty()) providers << "openai";
+    // if (!m_settings->geminiApiKey().isEmpty()) providers << "gemini";
+    // if (!m_settings->ollamaEndpoint().isEmpty() && !m_settings->ollamaModel().isEmpty()) providers << "ollama";
+    return providers;
+}
+
+QString TranslationManager::getActiveProvider() const
+{
+    // During batch processing, use the override provider (bypasses QSettings cache)
+    if (m_batchProcessing && !m_batchCurrentProvider.isEmpty()) {
+        return m_batchCurrentProvider;
+    }
+    // Otherwise use the normal settings value
+    return m_settings->aiProvider();
+}
+
+void TranslationManager::translateAndUploadAllLanguages()
+{
+    if (m_batchProcessing || m_autoTranslating || m_uploading) {
+        qDebug() << "Batch processing already in progress";
+        return;
+    }
+
+    // Get all configured providers - we'll cycle through them
+    m_batchProviderQueue = getConfiguredProviders();
+    if (m_batchProviderQueue.isEmpty()) {
+        m_lastError = "No AI providers configured. Set up at least one AI provider in Settings.";
+        emit lastErrorChanged();
+        emit batchTranslateUploadFinished(false, m_lastError);
+        return;
+    }
+
+    // Save original provider to restore later
+    m_originalProvider = m_settings->aiProvider();
+
+    // Ensure all strings are scanned first
+    if (!m_scanning) {
+        scanAllStrings();
+    }
+
+    // Build list of all local (non-remote, non-English) languages
+    QStringList allLanguages;
+    for (const QString& langCode : m_availableLanguages) {
+        if (langCode != "en" && !isRemoteLanguage(langCode)) {
+            allLanguages.append(langCode);
+        }
+    }
+
+    if (allLanguages.isEmpty()) {
+        emit batchTranslateUploadFinished(true, "No local languages to process");
+        return;
+    }
+
+    m_batchProcessing = true;
+    qDebug() << "=== BATCH TRANSLATE+UPLOAD START ===";
+    qDebug() << "Languages:" << allLanguages.size() << allLanguages;
+    qDebug() << "AI Providers:" << m_batchProviderQueue.size() << m_batchProviderQueue;
+
+    // Start with first provider, queue all languages for it
+    QString firstProvider = m_batchProviderQueue.takeFirst();
+    m_batchCurrentProvider = firstProvider;  // Bypass QSettings cache
+    m_settings->setAiProvider(firstProvider);  // Still set for UI consistency
+    m_batchLanguageQueue = allLanguages;
+
+    qDebug() << "Batch: Starting with provider:" << firstProvider << "(m_batchCurrentProvider set)";
+
+    // Set up connections for the batch process flow
+    QMetaObject::Connection* autoConn = new QMetaObject::Connection();
+    QMetaObject::Connection* submitConn = new QMetaObject::Connection();
+
+    // Lambda to process next item (language or provider)
+    auto processNext = [this, autoConn, submitConn, allLanguages]() {
+        if (!m_batchProcessing) return;
+
+        if (!m_batchLanguageQueue.isEmpty()) {
+            // More languages to process with current provider
+            QString nextLang = m_batchLanguageQueue.takeFirst();
+            qDebug() << "Batch: Processing language:" << nextLang << "with provider:" << m_batchCurrentProvider;
+            setCurrentLanguage(nextLang);
+            autoTranslate();
+        } else if (!m_batchProviderQueue.isEmpty()) {
+            // Switch to next provider and restart language queue
+            QString nextProvider = m_batchProviderQueue.takeFirst();
+            m_batchCurrentProvider = nextProvider;  // Bypass QSettings cache
+            m_settings->setAiProvider(nextProvider);  // Still set for UI consistency
+            m_batchLanguageQueue = allLanguages;
+            qDebug() << "=== BATCH: SWITCHING PROVIDER ===" << nextProvider;
+            QString nextLang = m_batchLanguageQueue.takeFirst();
+            qDebug() << "Batch: Processing language:" << nextLang << "with new provider:" << m_batchCurrentProvider;
+            setCurrentLanguage(nextLang);
+            autoTranslate();
+        } else {
+            // All done - restore original provider and clear batch state
+            m_batchCurrentProvider.clear();  // Clear the override
+            m_settings->setAiProvider(m_originalProvider);
+            m_batchProcessing = false;
+            disconnect(*autoConn);
+            disconnect(*submitConn);
+            delete autoConn;
+            delete submitConn;
+            qDebug() << "=== BATCH TRANSLATE+UPLOAD COMPLETE ===";
+            qDebug() << "Restored provider:" << m_originalProvider;
+            emit batchTranslateUploadFinished(true, "Batch processing complete");
+        }
+    };
+
+    *autoConn = connect(this, &TranslationManager::autoTranslateFinished, this, [this, processNext](bool success, const QString& message) {
+        if (!m_batchProcessing) return;
+
+        qDebug() << "Batch: autoTranslateFinished for" << m_currentLanguage
+                 << "success:" << success << "message:" << message
+                 << "provider:" << m_batchCurrentProvider;
+
+        if (success) {
+            // Translation done, now upload
+            qDebug() << "Batch: Uploading" << m_currentLanguage << "...";
+            submitTranslation();
+        } else {
+            // Translation failed (might be "all translated" or actual error), move to next
+            qDebug() << "Batch: Skipping upload for" << m_currentLanguage << "(translation not successful)";
+            processNext();
+        }
+    });
+
+    *submitConn = connect(this, &TranslationManager::translationSubmitted, this, [this, processNext](bool success, const QString& message) {
+        if (!m_batchProcessing) return;
+
+        qDebug() << "Batch: Upload" << (success ? "SUCCEEDED" : "FAILED")
+                 << "for" << m_currentLanguage << "-" << message;
+        processNext();
+    });
+
+    // Start with first language
+    QString firstLang = m_batchLanguageQueue.takeFirst();
+    qDebug() << "Batch: Starting with language:" << firstLang;
+    setCurrentLanguage(firstLang);
+    autoTranslate();
 }

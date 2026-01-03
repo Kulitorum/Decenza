@@ -643,8 +643,9 @@ Page {
                         sourceSize.height: Theme.scaled(24)
                         Layout.alignment: Qt.AlignVCenter
                     }
-                    Text {
-                        text: "History"
+                    Tr {
+                        key: "idle.history"
+                        fallback: "History"
                         font: Theme.bodyFont
                         color: "white"
                         verticalAlignment: Text.AlignVCenter

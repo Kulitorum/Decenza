@@ -151,7 +151,7 @@ Page {
                         anchors.fill: parent
                         onClicked: {
                             TranslationManager.addLanguage(modelData.code, modelData.name, modelData.native)
-                            pageStack.pop()
+                            addLanguagePage.StackView.view.pop()
                         }
                     }
                 }
@@ -163,6 +163,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: "Add Language"
-        onBackClicked: pageStack.pop()
+        onBackClicked: addLanguagePage.StackView.view.pop()
     }
 }

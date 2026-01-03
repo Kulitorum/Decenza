@@ -182,11 +182,11 @@ Item {
                     spacing: 10
 
                     AccessibleButton {
-                        text: "Test Connection"
+                        text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
                         accessibleName: "Test Visualizer connection"
                         enabled: usernameField.text.length > 0 && passwordField.text.length > 0
                         onClicked: {
-                            visualizerTab.testResultMessage = "Testing..."
+                            visualizerTab.testResultMessage = TranslationManager.translate("settings.visualizer.testing", "Testing...")
                             MainController.visualizer.testConnection()
                         }
                         background: Rectangle {
@@ -422,7 +422,7 @@ Item {
                         }
 
                         Text {
-                            text: MainController.visualizer.lastUploadStatus || "No uploads yet"
+                            text: MainController.visualizer.lastUploadStatus || TranslationManager.translate("settings.visualizer.noUploadsYet", "No uploads yet")
                             color: MainController.visualizer.lastUploadStatus.indexOf("Failed") >= 0 ?
                                    Theme.errorColor :
                                    MainController.visualizer.lastUploadStatus.indexOf("successful") >= 0 ?

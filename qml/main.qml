@@ -303,8 +303,9 @@ ApplicationWindow {
                 color: "white"
             }
 
-            Text {
-                text: "Done Editing"
+            Tr {
+                key: "main.doneediting"
+                fallback: "Done Editing"
                 font: Theme.bodyFont
                 color: "white"
             }
@@ -705,15 +706,16 @@ ApplicationWindow {
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
-                Text {
-                    text: "Update Available"
+                Tr {
+                    key: "update.available"
+                    fallback: "Update Available"
                     font: Theme.subtitleFont
                     color: Theme.textColor
                 }
             }
 
             Text {
-                text: "Version " + (MainController.updateChecker ? MainController.updateChecker.latestVersion : "") + " is available.\n\nWould you like to download and install it now?"
+                text: TranslationManager.translate("update.version", "Version") + " " + (MainController.updateChecker ? MainController.updateChecker.latestVersion : "") + " " + TranslationManager.translate("update.isavailable", "is available.") + "\n\n" + TranslationManager.translate("update.downloadprompt", "Would you like to download and install it now?")
                 wrapMode: Text.Wrap
                 width: parent.width
                 font: Theme.bodyFont
@@ -725,7 +727,7 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
 
                 Button {
-                    text: "Later"
+                    text: TranslationManager.translate("update.later", "Later")
                     onClicked: {
                         if (MainController.updateChecker) {
                             MainController.updateChecker.dismissUpdate()
@@ -747,7 +749,7 @@ ApplicationWindow {
                 }
 
                 Button {
-                    text: "Update Now"
+                    text: TranslationManager.translate("update.updatenow", "Update Now")
                     onClicked: {
                         if (MainController.updateChecker) {
                             MainController.updateChecker.downloadAndInstall()

@@ -7,6 +7,7 @@
 
 class ShotHistoryStorage;
 class DE1Device;
+class ScreensaverVideoManager;
 
 struct PendingRequest {
     QByteArray data;
@@ -32,6 +33,9 @@ public:
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE void stop();
+
+    // Screensaver video manager for personal media upload
+    void setScreensaverVideoManager(ScreensaverVideoManager* manager) { m_screensaverManager = manager; }
 
 signals:
     void runningChanged();
@@ -62,9 +66,20 @@ private:
     void handleUpload(QTcpSocket* socket, const QByteArray& request);
     void installApk(const QString& apkPath);
 
+    // Personal media upload
+    QString generateMediaUploadPage() const;
+    void handleMediaUpload(QTcpSocket* socket, const QByteArray& request);
+    bool resizeImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
+    bool resizeVideo(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
+    bool convertRawImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
+    QDateTime extractImageDate(const QString& imagePath) const;
+    QDateTime extractVideoDate(const QString& videoPath) const;
+    QDateTime extractDateWithExiftool(const QString& filePath) const;
+
     QTcpServer* m_server = nullptr;
     ShotHistoryStorage* m_storage = nullptr;
     DE1Device* m_device = nullptr;
+    ScreensaverVideoManager* m_screensaverManager = nullptr;
     int m_port = 8888;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
 };

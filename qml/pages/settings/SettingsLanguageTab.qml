@@ -388,11 +388,11 @@ Item {
 
                 Item { Layout.fillHeight: true }
 
-                // Submit to community button (not for English)
+                // Submit to community button (not for English, developer mode only)
                 Button {
                     Layout.fillWidth: true
                     text: TranslationManager.uploading ? "Uploading..." : "Submit to Community"
-                    visible: TranslationManager.currentLanguage !== "en"
+                    visible: TranslationManager.currentLanguage !== "en" && Settings.developerTranslationUpload
                     enabled: !TranslationManager.uploading
 
                     Accessible.role: Accessible.Button

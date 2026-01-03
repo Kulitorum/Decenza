@@ -28,15 +28,17 @@ Page {
             Layout.margins: Theme.standardMargin
             spacing: Theme.spacingMedium
 
-            Text {
-                text: "Compare Shots"
+            Tr {
+                key: "comparison.title"
+                fallback: "Compare Shots"
                 font: Theme.titleFont
                 color: Theme.textColor
                 Layout.fillWidth: true
             }
 
             ActionButton {
-                text: "Clear"
+                translationKey: "comparison.clear"
+                translationFallback: "Clear"
                 onClicked: {
                     comparisonModel.clearAll()
                     pageStack.pop()
@@ -101,7 +103,7 @@ Page {
             RowLayout {
                 spacing: Theme.spacingSmall
                 Rectangle { width: Theme.scaled(20); height: 2; color: Theme.textSecondaryColor }
-                Text { text: "Pressure"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                Tr { key: "comparison.pressure"; fallback: "Pressure"; font: Theme.captionFont; color: Theme.textSecondaryColor }
             }
             RowLayout {
                 spacing: Theme.spacingSmall
@@ -109,7 +111,7 @@ Page {
                     width: Theme.scaled(20); height: 2; color: Theme.textSecondaryColor
                     Rectangle { anchors.fill: parent; color: "transparent"; border.color: Theme.textSecondaryColor; border.width: 1 }
                 }
-                Text { text: "Flow"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                Tr { key: "comparison.flow"; fallback: "Flow"; font: Theme.captionFont; color: Theme.textSecondaryColor }
             }
             RowLayout {
                 spacing: Theme.spacingSmall
@@ -120,7 +122,7 @@ Page {
                         Rectangle { width: 3; height: 2; color: Theme.textSecondaryColor }
                     }
                 }
-                Text { text: "Weight"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                Tr { key: "comparison.weight"; fallback: "Weight"; font: Theme.captionFont; color: Theme.textSecondaryColor }
             }
         }
 
@@ -144,22 +146,23 @@ Page {
                     width: parent.width
 
                     // Header row
-                    Text {
-                        text: "Metric"
+                    Tr {
+                        key: "comparison.metric"
+                        fallback: "Metric"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
-                            text: "Shot " + (index + 1)
+                            text: TranslationManager.translate("comparison.shot", "Shot") + " " + (index + 1)
                             font: Theme.subtitleFont
                             color: comparisonModel.getShotColor(index)
                         }
                     }
 
                     // Profile
-                    Text { text: "Profile"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.profile"; fallback: "Profile"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -172,7 +175,7 @@ Page {
                     }
 
                     // Date
-                    Text { text: "Date"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.date"; fallback: "Date"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -183,7 +186,7 @@ Page {
                     }
 
                     // Duration
-                    Text { text: "Duration"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.duration"; fallback: "Duration"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -194,7 +197,7 @@ Page {
                     }
 
                     // Dose
-                    Text { text: "Dose"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.dose"; fallback: "Dose"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -205,7 +208,7 @@ Page {
                     }
 
                     // Output
-                    Text { text: "Output"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.output"; fallback: "Output"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -216,7 +219,7 @@ Page {
                     }
 
                     // Ratio
-                    Text { text: "Ratio"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.ratio"; fallback: "Ratio"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -227,7 +230,7 @@ Page {
                     }
 
                     // Rating
-                    Text { text: "Rating"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.rating"; fallback: "Rating"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -243,7 +246,7 @@ Page {
                     }
 
                     // Bean
-                    Text { text: "Bean"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                    Tr { key: "comparison.bean"; fallback: "Bean"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                     Repeater {
                         model: comparisonModel.shotCount
                         Text {
@@ -265,8 +268,8 @@ Page {
     // Bottom bar
     BottomBar {
         id: bottomBar
-        title: "Compare Shots"
-        rightText: comparisonModel.shotCount + " shots"
+        title: TranslationManager.translate("comparison.title", "Compare Shots")
+        rightText: comparisonModel.shotCount + " " + TranslationManager.translate("comparison.shots", "shots")
         onBackClicked: root.goBack()
     }
 }

@@ -107,11 +107,12 @@ Item {
             radius: Theme.cardRadius
             height: recommendationText.implicitHeight + 16
 
-            Text {
+            Tr {
                 id: recommendationText
                 anchors.fill: parent
                 anchors.margins: 8
-                text: "For shot analysis, we recommend Claude (Anthropic). In our testing, Claude better understands espresso extraction dynamics and gives more accurate dial-in advice. Other providers work for translation and general tasks."
+                key: "settings.ai.recommendation"
+                fallback: "For shot analysis, we recommend Claude (Anthropic). In our testing, Claude better understands espresso extraction dynamics and gives more accurate dial-in advice. Other providers work for translation and general tasks."
                 wrapMode: Text.WordWrap
                 color: Theme.textSecondaryColor
                 font.pixelSize: 11
@@ -169,10 +170,11 @@ Item {
 
                     Text {
                         text: {
+                            var getKey = TranslationManager.translate("settings.ai.getkey", "Get key:")
                             switch(Settings.aiProvider) {
-                                case "openai": return "Get key: platform.openai.com -> API Keys"
-                                case "anthropic": return "Get key: console.anthropic.com -> API Keys"
-                                case "gemini": return "Get key: aistudio.google.com -> Get API Key"
+                                case "openai": return getKey + " platform.openai.com -> API Keys"
+                                case "anthropic": return getKey + " console.anthropic.com -> API Keys"
+                                case "gemini": return getKey + " aistudio.google.com -> Get API Key"
                                 default: return ""
                             }
                         }
@@ -234,9 +236,10 @@ Item {
                             color: Theme.surfaceColor
                             border.color: Theme.borderColor
 
-                            Text {
+                            Tr {
                                 anchors.centerIn: parent
-                                text: "Refresh"
+                                key: "settings.ai.refresh"
+                                fallback: "Refresh"
                                 color: Theme.textColor
                                 font.pixelSize: 12
                             }
@@ -248,8 +251,9 @@ Item {
                         }
                     }
 
-                    Text {
-                        text: "Install: ollama.ai -> run: ollama pull llama3.2"
+                    Tr {
+                        key: "settings.ai.ollamainstall"
+                        fallback: "Install: ollama.ai -> run: ollama pull llama3.2"
                         color: Theme.textSecondaryColor
                         font.pixelSize: 11
                     }
@@ -269,9 +273,10 @@ Item {
                         color: MainController.aiManager?.isConfigured ? Theme.primaryColor : Theme.surfaceColor
                         border.color: MainController.aiManager?.isConfigured ? Theme.primaryColor : Theme.borderColor
 
-                        Text {
+                        Tr {
                             anchors.centerIn: parent
-                            text: "Test Connection"
+                            key: "settings.ai.testconnection"
+                            fallback: "Test Connection"
                             color: MainController.aiManager?.isConfigured ? "white" : Theme.textSecondaryColor
                             font.pixelSize: 12
                         }
@@ -280,7 +285,7 @@ Item {
                             anchors.fill: parent
                             enabled: MainController.aiManager?.isConfigured
                             onClicked: {
-                                aiTab.testResultMessage = "Testing..."
+                                aiTab.testResultMessage = TranslationManager.translate("settings.ai.testing", "Testing...")
                                 MainController.aiManager.testConnection()
                             }
                         }
@@ -299,10 +304,10 @@ Item {
                         visible: aiTab.testResultMessage.length === 0
                         text: {
                             switch(Settings.aiProvider) {
-                                case "openai": return "~$0.01/shot"
-                                case "anthropic": return "~$0.003/shot"
-                                case "gemini": return "~$0.002/shot"
-                                case "ollama": return "Free"
+                                case "openai": return "~$0.01/" + TranslationManager.translate("settings.ai.pershot", "shot")
+                                case "anthropic": return "~$0.003/" + TranslationManager.translate("settings.ai.pershot", "shot")
+                                case "gemini": return "~$0.002/" + TranslationManager.translate("settings.ai.pershot", "shot")
+                                case "ollama": return TranslationManager.translate("settings.ai.free", "Free")
                                 default: return ""
                             }
                         }

@@ -59,7 +59,7 @@ Item {
                         stepSize: 5
                         decimals: 0
                         value: preferencesTab.autoSleepMinutes
-                        displayText: value === 0 ? "Never" : (value + " min")
+                        displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") : (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
 
                         onValueModified: function(newValue) {
                             preferencesTab.autoSleepMinutes = newValue
@@ -236,9 +236,9 @@ Item {
 
                         Repeater {
                             model: [
-                                { value: 0, label: "Off", desc: "Always charging" },
-                                { value: 1, label: "On", desc: "55-65%" },
-                                { value: 2, label: "Night", desc: "90-95%" }
+                                { value: 0, label: TranslationManager.translate("settings.preferences.chargingOff", "Off"), desc: TranslationManager.translate("settings.preferences.alwaysCharging", "Always charging") },
+                                { value: 1, label: TranslationManager.translate("settings.preferences.chargingOn", "On"), desc: "55-65%" },
+                                { value: 2, label: TranslationManager.translate("settings.preferences.chargingNight", "Night"), desc: "90-95%" }
                             ]
 
                             delegate: Rectangle {
@@ -290,10 +290,10 @@ Item {
                     // Explanation text
                     Text {
                         text: BatteryManager.chargingMode === 0 ?
-                              "Charger is always on. Battery stays at 100%." :
+                              TranslationManager.translate("settings.preferences.chargingOffDesc", "Charger is always on. Battery stays at 100%.") :
                               BatteryManager.chargingMode === 1 ?
-                              "Cycles between 55-65% to extend battery lifespan." :
-                              "Keeps battery at 90-95% when active. Allows deeper discharge when sleeping."
+                              TranslationManager.translate("settings.preferences.chargingOnDesc", "Cycles between 55-65% to extend battery lifespan.") :
+                              TranslationManager.translate("settings.preferences.chargingNightDesc", "Keeps battery at 90-95% when active. Allows deeper discharge when sleeping.")
                         color: Theme.textSecondaryColor
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
@@ -325,7 +325,7 @@ Item {
                     // Battery drain button for testing
                     AccessibleButton {
                         Layout.fillWidth: true
-                        text: BatteryDrainer.running ? "DRAINING... (tap to stop)" : "Drain Battery (Test)"
+                        text: BatteryDrainer.running ? TranslationManager.translate("settings.preferences.draining", "DRAINING... (tap to stop)") : TranslationManager.translate("settings.preferences.drainBattery", "Drain Battery (Test)")
                         accessibleName: BatteryDrainer.running ? "Stop battery drain test" : "Start battery drain test"
                         background: Rectangle {
                             radius: 6
@@ -380,19 +380,19 @@ Item {
                         spacing: 15
 
                         Text {
-                            text: "Min: " + Settings.waterLevelMinMm.toFixed(0) + "mm"
+                            text: TranslationManager.translate("settings.preferences.min", "Min:") + " " + Settings.waterLevelMinMm.toFixed(0) + "mm"
                             color: Theme.textSecondaryColor
                             font.pixelSize: 11
                         }
 
                         Text {
-                            text: "Max: " + Settings.waterLevelMaxMm.toFixed(0) + "mm"
+                            text: TranslationManager.translate("settings.preferences.max", "Max:") + " " + Settings.waterLevelMaxMm.toFixed(0) + "mm"
                             color: Theme.textSecondaryColor
                             font.pixelSize: 11
                         }
 
                         Text {
-                            text: "Now: " + DE1Device.waterLevelMm.toFixed(0) + "mm"
+                            text: TranslationManager.translate("settings.preferences.now", "Now:") + " " + DE1Device.waterLevelMm.toFixed(0) + "mm"
                             color: Theme.primaryColor
                             font.pixelSize: 11
                         }
@@ -401,7 +401,7 @@ Item {
                     // Reset button
                     AccessibleButton {
                         Layout.fillWidth: true
-                        text: "Reset Calibration"
+                        text: TranslationManager.translate("settings.preferences.resetCalibration", "Reset Calibration")
                         accessibleName: "Reset water level calibration to default values"
                         background: Rectangle {
                             radius: 6
@@ -480,7 +480,7 @@ Item {
                     // Calibration button
                     AccessibleButton {
                         Layout.fillWidth: true
-                        text: "Start Calibration"
+                        text: TranslationManager.translate("settings.preferences.startCalibration", "Start Calibration")
                         accessibleName: "Start flow sensor calibration"
                         enabled: DE1Device.connected
                         onClicked: preferencesTab.openFlowCalibrationDialog()
@@ -534,7 +534,7 @@ Item {
 
                     Text {
                         property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
-                        text: "Current: " + temp.toFixed(0) + "°C"
+                        text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + temp.toFixed(0) + "°C"
                         color: Theme.textSecondaryColor
                         font.pixelSize: 12
                     }

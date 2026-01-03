@@ -74,7 +74,8 @@ Page {
                 }
 
                 ActionButton {
-                    text: "Compare"
+                    translationKey: "shotdetail.compare"
+                    translationFallback: "Compare"
                     onClicked: {
                         MainController.shotComparison.clearAll()
                         MainController.shotComparison.addShot(shotId)
@@ -112,8 +113,9 @@ Page {
                 // Duration
                 ColumnLayout {
                     spacing: 2
-                    Text {
-                        text: "Duration"
+                    Tr {
+                        key: "shotdetail.duration"
+                        fallback: "Duration"
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                     }
@@ -127,8 +129,9 @@ Page {
                 // Dose
                 ColumnLayout {
                     spacing: 2
-                    Text {
-                        text: "Dose"
+                    Tr {
+                        key: "shotdetail.dose"
+                        fallback: "Dose"
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                     }
@@ -142,8 +145,9 @@ Page {
                 // Output
                 ColumnLayout {
                     spacing: 2
-                    Text {
-                        text: "Output"
+                    Tr {
+                        key: "shotdetail.output"
+                        fallback: "Output"
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                     }
@@ -157,8 +161,9 @@ Page {
                 // Ratio
                 ColumnLayout {
                     spacing: 2
-                    Text {
-                        text: "Ratio"
+                    Tr {
+                        key: "shotdetail.ratio"
+                        fallback: "Ratio"
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                     }
@@ -172,8 +177,9 @@ Page {
                 // Rating
                 ColumnLayout {
                     spacing: 2
-                    Text {
-                        text: "Rating"
+                    Tr {
+                        key: "shotdetail.rating"
+                        fallback: "Rating"
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                     }
@@ -201,8 +207,9 @@ Page {
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingSmall
 
-                    Text {
-                        text: "Bean Info"
+                    Tr {
+                        key: "shotdetail.beaninfo"
+                        fallback: "Bean Info"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -213,16 +220,16 @@ Page {
                         rowSpacing: Theme.spacingSmall
                         Layout.fillWidth: true
 
-                        Text { text: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Tr { key: "shotdetail.brand"; fallback: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                         Text { text: shotData.beanBrand || "-"; font: Theme.labelFont; color: Theme.textColor }
 
-                        Text { text: "Type:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Tr { key: "shotdetail.type"; fallback: "Type:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                         Text { text: shotData.beanType || "-"; font: Theme.labelFont; color: Theme.textColor }
 
-                        Text { text: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                         Text { text: shotData.roastDate || "-"; font: Theme.labelFont; color: Theme.textColor }
 
-                        Text { text: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                         Text { text: shotData.roastLevel || "-"; font: Theme.labelFont; color: Theme.textColor }
                     }
                 }
@@ -244,8 +251,9 @@ Page {
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingSmall
 
-                    Text {
-                        text: "Grinder"
+                    Tr {
+                        key: "shotdetail.grinder"
+                        fallback: "Grinder"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -256,10 +264,10 @@ Page {
                         rowSpacing: Theme.spacingSmall
                         Layout.fillWidth: true
 
-                        Text { text: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                         Text { text: shotData.grinderModel || "-"; font: Theme.labelFont; color: Theme.textColor }
 
-                        Text { text: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
+                        Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
                         Text { text: shotData.grinderSetting || "-"; font: Theme.labelFont; color: Theme.textColor }
                     }
                 }
@@ -282,8 +290,9 @@ Page {
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingSmall
 
-                    Text {
-                        text: "Analysis"
+                    Tr {
+                        key: "shotdetail.analysis"
+                        fallback: "Analysis"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -293,13 +302,13 @@ Page {
 
                         ColumnLayout {
                             spacing: 2
-                            Text { text: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                            Tr { key: "shotdetail.tds"; fallback: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor }
                             Text { text: (shotData.drinkTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
                         }
 
                         ColumnLayout {
                             spacing: 2
-                            Text { text: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                            Tr { key: "shotdetail.ey"; fallback: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor }
                             Text { text: (shotData.drinkEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
                         }
                     }
@@ -323,8 +332,9 @@ Page {
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingSmall
 
-                    Text {
-                        text: "Notes"
+                    Tr {
+                        key: "shotdetail.notes"
+                        fallback: "Notes"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }
@@ -346,13 +356,15 @@ Page {
                 spacing: Theme.spacingMedium
 
                 ActionButton {
-                    text: "View Debug Log"
+                    translationKey: "shotdetail.viewdebuglog"
+                    translationFallback: "View Debug Log"
                     Layout.fillWidth: true
                     onClicked: debugLogDialog.open()
                 }
 
                 ActionButton {
-                    text: "Delete Shot"
+                    translationKey: "shotdetail.deleteshot"
+                    translationFallback: "Delete Shot"
                     Layout.fillWidth: true
                     onClicked: deleteConfirmDialog.open()
                 }
@@ -371,8 +383,9 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingMedium
 
-                    Text {
-                        text: "\u2601 Uploaded to Visualizer"
+                    Tr {
+                        key: "shotdetail.uploadedtovisualizer"
+                        fallback: "\u2601 Uploaded to Visualizer"
                         font: Theme.labelFont
                         color: Theme.successColor
                     }
@@ -395,7 +408,7 @@ Page {
     // Debug log dialog
     Dialog {
         id: debugLogDialog
-        title: "Debug Log"
+        title: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
         anchors.centerIn: parent
         width: parent.width * 0.9
         height: parent.height * 0.8
@@ -411,7 +424,7 @@ Page {
             contentWidth: availableWidth
 
             TextArea {
-                text: shotData.debugLog || "No debug log available"
+                text: shotData.debugLog || TranslationManager.translate("shotdetail.nodebuglog", "No debug log available")
                 font.family: "monospace"
                 font.pixelSize: Theme.scaled(12)
                 color: Theme.textColor
@@ -427,7 +440,7 @@ Page {
     // Delete confirmation dialog
     Dialog {
         id: deleteConfirmDialog
-        title: "Delete Shot?"
+        title: TranslationManager.translate("shotdetail.deleteconfirmtitle", "Delete Shot?")
         anchors.centerIn: parent
         modal: true
 
@@ -436,8 +449,9 @@ Page {
             radius: Theme.cardRadius
         }
 
-        Text {
-            text: "This will permanently delete this shot from history."
+        Tr {
+            key: "shotdetail.deleteconfirmmessage"
+            fallback: "This will permanently delete this shot from history."
             font: Theme.bodyFont
             color: Theme.textColor
             wrapMode: Text.Wrap
@@ -454,7 +468,7 @@ Page {
     // Bottom bar
     BottomBar {
         id: bottomBar
-        title: "Shot Detail"
+        title: TranslationManager.translate("shotdetail.title", "Shot Detail")
         rightText: shotData.profileName || ""
         onBackClicked: root.goBack()
     }

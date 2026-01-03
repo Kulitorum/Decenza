@@ -239,6 +239,7 @@ Page {
     }
 
     // Credits display at bottom (one-liner for current media)
+    // For personal media with showDateOnPersonal enabled, shows upload date instead
     Rectangle {
         z: 2
         anchors.left: parent.left
@@ -246,16 +247,28 @@ Page {
         anchors.bottom: parent.bottom
         height: 40
         color: Qt.rgba(0, 0, 0, 0.5)
-        visible: ScreensaverManager.currentVideoAuthor.length > 0 &&
+
+        property bool showDate: ScreensaverManager.isPersonalCategory &&
+                               ScreensaverManager.showDateOnPersonal &&
+                               ScreensaverManager.currentMediaDate.length > 0
+
+        visible: (showDate || ScreensaverManager.currentVideoAuthor.length > 0) &&
                  (mediaPlayer.playbackState === MediaPlayer.PlayingState ||
                   (isCurrentItemImage && mediaPlaying))
 
         Text {
             anchors.centerIn: parent
-            text: (isCurrentItemImage
-                   ? TranslationManager.translate("screensaver.photo_by", "Photo by %1 (Pexels)")
-                   : TranslationManager.translate("screensaver.video_by", "Video by %1 (Pexels)"))
-                  .arg(ScreensaverManager.currentVideoAuthor)
+            text: {
+                if (parent.showDate) {
+                    return ScreensaverManager.currentMediaDate
+                } else if (isCurrentItemImage) {
+                    return TranslationManager.translate("screensaver.photo_by", "Photo by %1 (Pexels)")
+                           .arg(ScreensaverManager.currentVideoAuthor)
+                } else {
+                    return TranslationManager.translate("screensaver.video_by", "Video by %1 (Pexels)")
+                           .arg(ScreensaverManager.currentVideoAuthor)
+                }
+            }
             color: "white"
             opacity: 0.7
             font.pixelSize: 14

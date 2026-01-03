@@ -112,6 +112,9 @@ class Settings : public QObject {
     // Auto-update settings
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
 
+    // Developer settings
+    Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
+
 public:
     explicit Settings(QObject* parent = nullptr);
 
@@ -351,6 +354,10 @@ public:
     bool autoCheckUpdates() const;
     void setAutoCheckUpdates(bool enabled);
 
+    // Developer settings
+    bool developerTranslationUpload() const;
+    void setDeveloperTranslationUpload(bool enabled);
+
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;
     Q_INVOKABLE void setValue(const QString& key, const QVariant& value);
@@ -418,6 +425,7 @@ signals:
     void shotServerHostnameChanged();
     void shotServerPortChanged();
     void autoCheckUpdatesChanged();
+    void developerTranslationUploadChanged();
     void valueChanged(const QString& key);
 
 private:

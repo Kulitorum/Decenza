@@ -23,16 +23,18 @@ Item {
                 anchors.margins: 15
                 spacing: 12
 
-                Text {
-                    text: "Shot History"
+                Tr {
+                    key: "settings.history.title"
+                    fallback: "Shot History"
                     color: Theme.textColor
                     font.pixelSize: 16
                     font.bold: true
                 }
 
-                Text {
+                Tr {
                     Layout.fillWidth: true
-                    text: "All shots are stored locally on your device"
+                    key: "settings.history.storedlocally"
+                    fallback: "All shots are stored locally on your device"
                     color: Theme.textSecondaryColor
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap
@@ -54,8 +56,9 @@ Item {
                         ColumnLayout {
                             spacing: 4
 
-                            Text {
-                                text: "Total Shots"
+                            Tr {
+                                key: "settings.history.totalshots"
+                                fallback: "Total Shots"
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: 12
                             }
@@ -88,16 +91,18 @@ Item {
                 anchors.margins: 15
                 spacing: 12
 
-                Text {
-                    text: "Remote Access"
+                Tr {
+                    key: "settings.history.remoteaccess"
+                    fallback: "Remote Access"
                     color: Theme.textColor
                     font.pixelSize: 16
                     font.bold: true
                 }
 
-                Text {
+                Tr {
                     Layout.fillWidth: true
-                    text: "Enable HTTP server to browse shots from any web browser on your network"
+                    key: "settings.history.enablehttpserver"
+                    fallback: "Enable HTTP server to browse shots from any web browser on your network"
                     color: Theme.textSecondaryColor
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap
@@ -113,14 +118,16 @@ Item {
                     ColumnLayout {
                         spacing: 2
 
-                        Text {
-                            text: "Enable Server"
+                        Tr {
+                            key: "settings.history.enableserver"
+                            fallback: "Enable Server"
                             color: Theme.textColor
                             font.pixelSize: 14
                         }
 
-                        Text {
-                            text: "Start HTTP server on this device"
+                        Tr {
+                            key: "settings.history.starthttpserver"
+                            fallback: "Start HTTP server on this device"
                             color: Theme.textSecondaryColor
                             font.pixelSize: 12
                         }
@@ -141,8 +148,9 @@ Item {
                     spacing: 15
                     opacity: serverSwitch.checked ? 1.0 : 0.5
 
-                    Text {
-                        text: "Port"
+                    Tr {
+                        key: "settings.history.port"
+                        fallback: "Port"
                         color: Theme.textColor
                         font.pixelSize: 14
                     }
@@ -208,7 +216,8 @@ Item {
 
                             Text {
                                 text: MainController.shotServer && MainController.shotServer.running ?
-                                      "Server Running" : "Server Stopped"
+                                      TranslationManager.translate("settings.history.serverrunning", "Server Running") :
+                                      TranslationManager.translate("settings.history.serverstopped", "Server Stopped")
                                 color: Theme.textColor
                                 font.pixelSize: 14
                             }
@@ -248,7 +257,7 @@ Item {
 
                                     Text {
                                         anchors.centerIn: parent
-                                        text: copyFeedback.visible ? "Copied" : "Copy"
+                                        text: copyFeedback.visible ? TranslationManager.translate("settings.history.copied", "Copied") : TranslationManager.translate("settings.history.copy", "Copy")
                                         color: copyArea.pressed ? "white" : Theme.primaryColor
                                         font.pixelSize: 12
                                     }
@@ -286,10 +295,11 @@ Item {
                             }
                         }
 
-                        Text {
+                        Tr {
                             visible: MainController.shotServer && MainController.shotServer.running
                             Layout.fillWidth: true
-                            text: "Open this URL in any browser on your network"
+                            key: "settings.history.openurl"
+                            fallback: "Open this URL in any browser on your network"
                             color: Theme.textSecondaryColor
                             font.pixelSize: 12
                             wrapMode: Text.WordWrap

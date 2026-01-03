@@ -92,6 +92,10 @@ int main(int argc, char *argv[])
                      &mainController, &MainController::onScaleWeightChanged);
 
     ScreensaverVideoManager screensaverManager(&settings, &profileStorage);
+
+    // Connect screensaver manager to shot server for personal media upload
+    mainController.shotServer()->setScreensaverVideoManager(&screensaverManager);
+
     BatteryManager batteryManager;
     batteryManager.setDE1Device(&de1Device);
     batteryManager.setSettings(&settings);

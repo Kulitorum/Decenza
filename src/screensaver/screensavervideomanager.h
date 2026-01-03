@@ -85,12 +85,19 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(QString currentVideoAuthor READ currentVideoAuthor NOTIFY currentVideoChanged)
     Q_PROPERTY(QString currentVideoSourceUrl READ currentVideoSourceUrl NOTIFY currentVideoChanged)
     Q_PROPERTY(bool currentItemIsImage READ currentItemIsImage NOTIFY currentVideoChanged)
+    Q_PROPERTY(QString currentMediaDate READ currentMediaDate NOTIFY currentVideoChanged)
 
     // Image display settings
     Q_PROPERTY(int imageDisplayDuration READ imageDisplayDuration WRITE setImageDisplayDuration NOTIFY imageDisplayDurationChanged)
 
     // Credits list for all videos
     Q_PROPERTY(QVariantList creditsList READ creditsList NOTIFY catalogUpdated)
+
+    // Personal media state
+    Q_PROPERTY(int personalMediaCount READ personalMediaCount NOTIFY personalMediaChanged)
+    Q_PROPERTY(bool hasPersonalMedia READ hasPersonalMedia NOTIFY personalMediaChanged)
+    Q_PROPERTY(bool isPersonalCategory READ isPersonalCategory NOTIFY selectedCategoryIdChanged)
+    Q_PROPERTY(bool showDateOnPersonal READ showDateOnPersonal WRITE setShowDateOnPersonal NOTIFY showDateOnPersonalChanged)
 
 public:
     explicit ScreensaverVideoManager(Settings* settings, ProfileStorage* profileStorage, QObject* parent = nullptr);
@@ -119,9 +126,17 @@ public:
     QString currentVideoAuthor() const { return m_currentVideoAuthor; }
     QString currentVideoSourceUrl() const { return m_currentVideoSourceUrl; }
     bool currentItemIsImage() const { return m_currentItemIsImage; }
+    QString currentMediaDate() const { return m_currentMediaDate; }
     int imageDisplayDuration() const { return m_imageDisplayDuration; }
 
     QVariantList creditsList() const;
+
+    // Personal media getters
+    int personalMediaCount() const { return m_personalCatalog.size(); }
+    bool hasPersonalMedia() const { return !m_personalCatalog.isEmpty(); }
+    QString personalMediaDirectory() const { return m_cacheDir + "/personal"; }
+    bool isPersonalCategory() const { return m_selectedCategoryId == "personal"; }
+    bool showDateOnPersonal() const { return m_showDateOnPersonal; }
 
     // Property setters
     void setEnabled(bool enabled);
@@ -131,6 +146,7 @@ public:
     void setMaxCacheBytes(qint64 bytes);
     void setSelectedCategoryId(const QString& categoryId);
     void setImageDisplayDuration(int seconds);
+    void setShowDateOnPersonal(bool show);
 
 public slots:
     // Screen wake lock (prevents screen from turning off)
@@ -152,6 +168,13 @@ public slots:
     void clearCache();
     void startBackgroundDownload();
     void stopBackgroundDownload();
+
+    // Personal media management (called from web upload)
+    bool addPersonalMedia(const QString& filePath, const QString& originalName = QString(), const QDateTime& mediaDate = QDateTime());
+    bool hasPersonalMediaWithName(const QString& originalName) const;
+    QVariantList getPersonalMediaList() const;
+    bool deletePersonalMedia(int mediaId);
+    void clearPersonalMedia();
 
 signals:
     void enabledChanged();
@@ -176,6 +199,8 @@ signals:
     void videoReady(const QString& localPath);
     void downloadError(const QString& message);
     void imageDisplayDurationChanged();
+    void personalMediaChanged();
+    void showDateOnPersonalChanged();
 
 private slots:
     void onCategoriesReplyFinished();
@@ -220,6 +245,11 @@ private:
     void updateCacheDirectory();
     void migrateCacheToExternal();
 
+    // Personal media management
+    void loadPersonalCatalog();
+    void savePersonalCatalog();
+    int generatePersonalMediaId() const;
+
 private:
     Settings* m_settings;
     ProfileStorage* m_profileStorage;
@@ -262,8 +292,13 @@ private:
     int m_lastPlayedIndex = -1;
     QString m_currentVideoAuthor;
     QString m_currentVideoSourceUrl;
+    QString m_currentMediaDate;
     bool m_currentItemIsImage = false;
     int m_imageDisplayDuration = 10;  // seconds to display each image
+
+    // Personal media state
+    QList<VideoItem> m_personalCatalog;
+    bool m_showDateOnPersonal = false;
 
     // Constants
     static const QString BASE_URL;

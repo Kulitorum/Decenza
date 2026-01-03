@@ -89,22 +89,24 @@ Page {
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
 
-            Text {
-                text: "Shot History"
+            Tr {
+                key: "shothistory.title"
+                fallback: "Shot History"
                 font: Theme.titleFont
                 color: Theme.textColor
                 Layout.fillWidth: true
             }
 
             Text {
-                text: selectedShots.length > 0 ? selectedShots.length + " selected" : ""
+                text: selectedShots.length > 0 ? selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected") : ""
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
                 visible: selectedShots.length > 0
             }
 
             ActionButton {
-                text: "Compare"
+                translationKey: "shothistory.compare"
+                translationFallback: "Compare"
                 enabled: selectedShots.length >= 2
                 onClicked: openComparison()
             }
@@ -118,7 +120,7 @@ Page {
             ComboBox {
                 id: profileFilter
                 Layout.preferredWidth: Theme.scaled(150)
-                model: ["All Profiles"].concat(MainController.shotHistory.getDistinctProfiles())
+                model: [TranslationManager.translate("shothistory.allprofiles", "All Profiles")].concat(MainController.shotHistory.getDistinctProfiles())
                 onCurrentIndexChanged: loadShots()
 
                 background: Rectangle {
@@ -139,7 +141,7 @@ Page {
             ComboBox {
                 id: beanFilter
                 Layout.preferredWidth: Theme.scaled(150)
-                model: ["All Beans"].concat(MainController.shotHistory.getDistinctBeanBrands())
+                model: [TranslationManager.translate("shothistory.allbeans", "All Beans")].concat(MainController.shotHistory.getDistinctBeanBrands())
                 onCurrentIndexChanged: loadShots()
 
                 background: Rectangle {
@@ -160,7 +162,7 @@ Page {
             StyledTextField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholderText: "Search notes..."
+                placeholderText: TranslationManager.translate("shothistory.searchplaceholder", "Search notes...")
                 onTextChanged: searchTimer.restart()
             }
 
@@ -171,7 +173,8 @@ Page {
             }
 
             ActionButton {
-                text: "Clear"
+                translationKey: "shothistory.clear"
+                translationFallback: "Clear"
                 visible: selectedShots.length > 0
                 onClicked: clearSelection()
             }
@@ -179,8 +182,9 @@ Page {
 
         // Shot count
         Text {
-            text: shotListModel.count + " shots" + (MainController.shotHistory.totalShots > shotListModel.count ?
-                  " (of " + MainController.shotHistory.totalShots + ")" : "")
+            text: shotListModel.count + " " + TranslationManager.translate("shothistory.shots", "shots") +
+                  (MainController.shotHistory.totalShots > shotListModel.count ?
+                  " (" + TranslationManager.translate("shothistory.of", "of") + " " + MainController.shotHistory.totalShots + ")" : "")
             font: Theme.captionFont
             color: Theme.textSecondaryColor
         }
@@ -326,9 +330,10 @@ Page {
             }
 
             // Empty state
-            Text {
+            Tr {
                 anchors.centerIn: parent
-                text: "No shots found"
+                key: "shothistory.noshots"
+                fallback: "No shots found"
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 visible: shotListModel.count === 0
@@ -339,8 +344,8 @@ Page {
     // Bottom bar
     BottomBar {
         id: bottomBar
-        title: "Shot History"
-        rightText: MainController.shotHistory.totalShots + " shots"
+        title: TranslationManager.translate("shothistory.title", "Shot History")
+        rightText: MainController.shotHistory.totalShots + " " + TranslationManager.translate("shothistory.shots", "shots")
         onBackClicked: root.goBack()
     }
 }

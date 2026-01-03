@@ -87,7 +87,7 @@ Item {
                 }
 
                 AccessibleButton {
-                    text: "Refresh Categories"
+                    text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
                     accessibleName: "Refresh screensaver categories"
                     Layout.fillWidth: true
                     enabled: !ScreensaverManager.isFetchingCategories
@@ -150,7 +150,7 @@ Item {
                         }
 
                         Text {
-                            text: ScreensaverManager.itemCount + (ScreensaverManager.isDownloading ? " (downloading...)" : "")
+                            text: ScreensaverManager.itemCount + (ScreensaverManager.isDownloading ? " (" + TranslationManager.translate("settings.screensaver.downloading", "downloading...") + ")" : "")
                             color: Theme.textColor
                             font.pixelSize: 16
                         }
@@ -232,6 +232,24 @@ Item {
                         }
                     }
 
+                    // Show date toggle - only visible for Personal category
+                    RowLayout {
+                        spacing: 10
+                        visible: ScreensaverManager.isPersonalCategory
+
+                        Tr {
+                            key: "settings.screensaver.showDate"
+                            fallback: "Show Date"
+                            color: Theme.textColor
+                            font.pixelSize: 14
+                        }
+
+                        Switch {
+                            checked: ScreensaverManager.showDateOnPersonal
+                            onCheckedChanged: ScreensaverManager.showDateOnPersonal = checked
+                        }
+                    }
+
                     Item { Layout.fillWidth: true }
                 }
 
@@ -243,14 +261,14 @@ Item {
                     spacing: 10
 
                     AccessibleButton {
-                        text: "Refresh Videos"
+                        text: TranslationManager.translate("settings.screensaver.refreshVideos", "Refresh Videos")
                         accessibleName: "Refresh screensaver videos"
                         onClicked: ScreensaverManager.refreshCatalog()
                         enabled: !ScreensaverManager.isRefreshing
                     }
 
                     AccessibleButton {
-                        text: "Clear Cache"
+                        text: TranslationManager.translate("settings.screensaver.clearCache", "Clear Cache")
                         accessibleName: "Clear video cache"
                         onClicked: ScreensaverManager.clearCache()
                     }

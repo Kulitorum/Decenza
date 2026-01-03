@@ -49,7 +49,7 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     AccessibleButton {
-                        text: BLEManager.scanning ? "Stop Scan" : "Scan for DE1"
+                        text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.stopScan", "Stop Scan") : TranslationManager.translate("settings.bluetooth.scanForDE1", "Scan for DE1")
                         accessibleName: BLEManager.scanning ? "Stop scanning for DE1" : "Scan for DE1 machine"
                         onClicked: {
                             console.log("DE1 scan button clicked! scanning=" + BLEManager.scanning)
@@ -63,7 +63,7 @@ Item {
                 }
 
                 Text {
-                    text: "Firmware: " + (DE1Device.firmwareVersion || "Unknown")
+                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (DE1Device.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
                     color: Theme.textSecondaryColor
                     visible: DE1Device.connected
                 }
@@ -186,7 +186,7 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     AccessibleButton {
-                        text: BLEManager.scanning ? "Scanning..." : "Scan for Scales"
+                        text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForScales", "Scan for Scales")
                         accessibleName: BLEManager.scanning ? "Scanning for scales" : "Scan for Bluetooth scales"
                         enabled: !BLEManager.scanning
                         onClicked: BLEManager.scanForScales()
@@ -225,8 +225,8 @@ Item {
                         anchors.fill: parent
                         anchors.margins: 8
                         text: ScaleDevice && ScaleDevice.name === "Simulated Scale"
-                              ? "Using Simulated Scale (simulator mode)"
-                              : "Using Flow Scale (estimated weight from DE1 flow data)"
+                              ? TranslationManager.translate("settings.bluetooth.simulatedScaleNotice", "Using Simulated Scale (simulator mode)")
+                              : TranslationManager.translate("settings.bluetooth.flowScaleNotice", "Using Flow Scale (estimated weight from DE1 flow data)")
                         color: Theme.warningColor
                         font.pixelSize: 12
                         wrapMode: Text.Wrap
@@ -253,7 +253,7 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     AccessibleButton {
-                        text: "Forget"
+                        text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
                         accessibleName: "Forget saved scale"
                         onClicked: {
                             Settings.scaleAddress = ""
@@ -283,7 +283,7 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     AccessibleButton {
-                        text: "Tare"
+                        text: TranslationManager.translate("settings.bluetooth.tare", "Tare")
                         accessibleName: "Tare scale to zero"
                         onClicked: {
                             if (ScaleDevice) ScaleDevice.tare()

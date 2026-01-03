@@ -58,12 +58,15 @@ ScreensaverVideoManager::ScreensaverVideoManager(Settings* settings, ProfileStor
     m_lastETag = m_settings->value("screensaver/lastETag", "").toString();
     m_selectedCategoryId = m_settings->value("screensaver/categoryId", DEFAULT_CATEGORY_ID).toString();
     m_imageDisplayDuration = m_settings->value("screensaver/imageDisplayDuration", 10).toInt();
+    m_showDateOnPersonal = m_settings->value("screensaver/showDateOnPersonal", false).toBool();
 
-    // Load cache index
+    // Load cache index and personal catalog
     loadCacheIndex();
+    loadPersonalCatalog();
     updateCacheUsedBytes();
 
     qDebug() << "[Screensaver] Initialized. Cache dir:" << m_cacheDir
+             << "Personal media:" << m_personalCatalog.size()
              << "Cache used:" << (m_cacheUsedBytes / 1024 / 1024) << "MB"
              << "Enabled:" << m_enabled
              << "Category:" << m_selectedCategoryId;
@@ -181,6 +184,16 @@ void ScreensaverVideoManager::setSelectedCategoryId(const QString& categoryId)
         m_settings->setValue("screensaver/categoryId", categoryId);
         emit selectedCategoryIdChanged();
 
+        // Handle personal category - use local catalog, no network fetch
+        if (categoryId == "personal") {
+            qDebug() << "[Screensaver] Switched to Personal category with"
+                     << m_personalCatalog.size() << "items";
+            // Copy personal catalog to active catalog for playback
+            m_catalog = m_personalCatalog;
+            emit catalogUpdated();
+            return;
+        }
+
         // Update catalog URL based on new category
         QString newCatalogUrl = buildCatalogUrlForCategory(categoryId);
         if (!newCatalogUrl.isEmpty() && newCatalogUrl != m_catalogUrl) {
@@ -211,9 +224,28 @@ void ScreensaverVideoManager::setImageDisplayDuration(int seconds)
     }
 }
 
+void ScreensaverVideoManager::setShowDateOnPersonal(bool show)
+{
+    if (m_showDateOnPersonal != show) {
+        m_showDateOnPersonal = show;
+        m_settings->setValue("screensaver/showDateOnPersonal", show);
+        emit showDateOnPersonalChanged();
+    }
+}
+
 QVariantList ScreensaverVideoManager::categories() const
 {
     QVariantList result;
+
+    // Add "Personal" category at the top if there are personal media files
+    if (!m_personalCatalog.isEmpty()) {
+        QVariantMap personal;
+        personal["id"] = "personal";
+        personal["name"] = QString("Personal (%1)").arg(m_personalCatalog.size());
+        result.append(personal);
+        qDebug() << "[Screensaver] Category for QML: personal" << personal["name"].toString();
+    }
+
     for (const VideoCategory& cat : m_categories) {
         QVariantMap item;
         item["id"] = cat.id;
@@ -227,6 +259,11 @@ QVariantList ScreensaverVideoManager::categories() const
 
 QString ScreensaverVideoManager::selectedCategoryName() const
 {
+    // Handle personal category
+    if (m_selectedCategoryId == "personal") {
+        return QString("Personal (%1)").arg(m_personalCatalog.size());
+    }
+
     for (const VideoCategory& cat : m_categories) {
         if (cat.id == m_selectedCategoryId) {
             return cat.name;
@@ -990,6 +1027,20 @@ int ScreensaverVideoManager::selectNextVideoIndex()
         return -1;
     }
 
+    // For personal media, all items are available (already local)
+    if (m_selectedCategoryId == "personal") {
+        QList<int> indices;
+        for (int i = 0; i < m_catalog.size(); ++i) {
+            if (i == m_lastPlayedIndex && m_catalog.size() > 1) continue;  // Avoid immediate repeat
+            indices.append(i);
+        }
+        if (indices.isEmpty()) {
+            return -1;
+        }
+        int randIndex = QRandomGenerator::global()->bounded(indices.size());
+        return indices[randIndex];
+    }
+
     // Only play cached videos - no streaming
     QList<int> cachedIndices;
 
@@ -1023,8 +1074,28 @@ QString ScreensaverVideoManager::getNextVideoSource()
 
     // Update current media info for credits display and type
     m_currentVideoAuthor = item.author;
-    m_currentVideoSourceUrl = item.sourceUrl.isEmpty() ? item.authorUrl : item.sourceUrl;
     m_currentItemIsImage = item.isImage();
+
+    // Handle personal media - files are stored directly in personal folder
+    if (m_selectedCategoryId == "personal") {
+        // For personal media, sourceUrl contains the upload date in ISO format
+        QDateTime uploadDate = QDateTime::fromString(item.sourceUrl, Qt::ISODate);
+        if (uploadDate.isValid()) {
+            m_currentMediaDate = uploadDate.toString("MMMM d, yyyy");
+        } else {
+            m_currentMediaDate.clear();
+        }
+        m_currentVideoSourceUrl.clear();  // No external source for personal media
+        emit currentVideoChanged();
+        QString personalDir = m_cacheDir + "/personal";
+        QString localPath = personalDir + "/" + item.path;
+        qDebug() << "[Screensaver] Playing personal" << (item.isImage() ? "image:" : "video:") << localPath;
+        return QUrl::fromLocalFile(localPath).toString();
+    }
+
+    // For catalog media, use regular source URL and clear date
+    m_currentVideoSourceUrl = item.sourceUrl.isEmpty() ? item.authorUrl : item.sourceUrl;
+    m_currentMediaDate.clear();
     emit currentVideoChanged();
 
     // Return cached media path (keyed by media URL)
@@ -1187,4 +1258,253 @@ void ScreensaverVideoManager::migrateCacheToExternal()
 
     // Try to remove old fallback directory if empty
     fallbackDir.rmdir(".");
+}
+
+// ============================================================================
+// Personal Media Management
+// ============================================================================
+
+void ScreensaverVideoManager::loadPersonalCatalog()
+{
+    QString catalogPath = m_cacheDir + "/personal/catalog.json";
+    QFile file(catalogPath);
+
+    m_personalCatalog.clear();
+
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "[Screensaver] No personal catalog found";
+        return;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+
+    if (!doc.isArray()) return;
+
+    QJsonArray items = doc.array();
+    for (const QJsonValue& val : items) {
+        QJsonObject obj = val.toObject();
+        VideoItem item;
+        item.id = obj["id"].toInt();
+        item.type = obj["type"].toString() == "image" ? MediaType::Image : MediaType::Video;
+        item.path = obj["path"].toString();
+        item.durationSeconds = obj["duration_s"].toInt(30);
+        item.author = obj["author"].toString();
+        item.sourceUrl = obj["date"].toString();  // Load upload date from sourceUrl field
+        item.bytes = obj["bytes"].toVariant().toLongLong();
+
+        // Verify file exists
+        QString fullPath = m_cacheDir + "/personal/" + item.path;
+        if (QFile::exists(fullPath)) {
+            m_personalCatalog.append(item);
+        }
+    }
+
+    qDebug() << "[Screensaver] Loaded personal catalog with" << m_personalCatalog.size() << "items";
+}
+
+void ScreensaverVideoManager::savePersonalCatalog()
+{
+    QString personalDir = m_cacheDir + "/personal";
+    QDir().mkpath(personalDir);
+
+    QString catalogPath = personalDir + "/catalog.json";
+    QFile file(catalogPath);
+
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "[Screensaver] Failed to save personal catalog";
+        return;
+    }
+
+    QJsonArray items;
+    for (const VideoItem& item : m_personalCatalog) {
+        QJsonObject obj;
+        obj["id"] = item.id;
+        obj["type"] = item.isImage() ? "image" : "video";
+        obj["path"] = item.path;
+        obj["duration_s"] = item.durationSeconds;
+        obj["author"] = item.author;
+        obj["date"] = item.sourceUrl;  // Store upload date in sourceUrl field
+        obj["bytes"] = item.bytes;
+        items.append(obj);
+    }
+
+    file.write(QJsonDocument(items).toJson());
+    file.close();
+
+    qDebug() << "[Screensaver] Saved personal catalog with" << m_personalCatalog.size() << "items";
+}
+
+int ScreensaverVideoManager::generatePersonalMediaId() const
+{
+    int maxId = 0;
+    for (const VideoItem& item : m_personalCatalog) {
+        if (item.id > maxId) {
+            maxId = item.id;
+        }
+    }
+    return maxId + 1;
+}
+
+bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QString& originalName, const QDateTime& mediaDate)
+{
+    QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists()) {
+        qWarning() << "[Screensaver] Personal media file not found:" << filePath;
+        return false;
+    }
+
+    // Determine media type from extension
+    QString ext = fileInfo.suffix().toLower();
+    MediaType type;
+    if (ext == "mp4" || ext == "webm" || ext == "mov" || ext == "avi") {
+        type = MediaType::Video;
+    } else if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp") {
+        type = MediaType::Image;
+    } else {
+        qWarning() << "[Screensaver] Unsupported media type:" << ext;
+        return false;
+    }
+
+    // Check for duplicate by original filename (the part after the ID prefix)
+    QString checkName = originalName.isEmpty() ? fileInfo.fileName() : originalName;
+    for (const VideoItem& existing : m_personalCatalog) {
+        // Extract original name from stored path (format: "ID_originalname.ext")
+        int underscorePos = existing.path.indexOf('_');
+        QString existingOriginal = underscorePos >= 0 ? existing.path.mid(underscorePos + 1) : existing.path;
+        if (existingOriginal.compare(checkName, Qt::CaseInsensitive) == 0) {
+            qDebug() << "[Screensaver] Skipping duplicate:" << checkName;
+            QFile::remove(filePath);  // Clean up temp file
+            return false;  // Already exists
+        }
+    }
+
+    // Create personal media directory
+    QString personalDir = m_cacheDir + "/personal";
+    QDir().mkpath(personalDir);
+
+    // Generate unique ID and filename
+    int newId = generatePersonalMediaId();
+    QString displayName = originalName.isEmpty() ? fileInfo.fileName() : originalName;
+    QString targetFilename = QString("%1_%2").arg(newId).arg(fileInfo.fileName());
+    QString targetPath = personalDir + "/" + targetFilename;
+
+    // Move file to personal directory (or copy if on different filesystem)
+    if (filePath != targetPath) {
+        if (QFile::exists(targetPath)) {
+            QFile::remove(targetPath);
+        }
+        if (!QFile::rename(filePath, targetPath)) {
+            // Try copy+delete
+            if (!QFile::copy(filePath, targetPath)) {
+                qWarning() << "[Screensaver] Failed to move media to personal directory";
+                return false;
+            }
+            QFile::remove(filePath);
+        }
+    }
+
+    // Create catalog entry
+    VideoItem item;
+    item.id = newId;
+    item.type = type;
+    item.path = targetFilename;
+    item.durationSeconds = (type == MediaType::Video) ? 30 : m_imageDisplayDuration;
+    item.author = "Personal";
+    // Use provided media date (from EXIF/metadata) or fall back to current time
+    QDateTime dateToStore = mediaDate.isValid() ? mediaDate : QDateTime::currentDateTime();
+    item.sourceUrl = dateToStore.toString(Qt::ISODate);
+    item.bytes = QFileInfo(targetPath).size();
+
+    m_personalCatalog.append(item);
+    savePersonalCatalog();
+
+    // Personal media doesn't count against streaming cache limit
+    emit personalMediaChanged();
+
+    qDebug() << "[Screensaver] Added personal media:" << targetFilename
+             << "type:" << (type == MediaType::Video ? "video" : "image")
+             << "size:" << (item.bytes / 1024) << "KB";
+
+    return true;
+}
+
+bool ScreensaverVideoManager::hasPersonalMediaWithName(const QString& originalName) const
+{
+    for (const VideoItem& existing : m_personalCatalog) {
+        // Extract original name from stored path (format: "ID_originalname.ext")
+        int underscorePos = existing.path.indexOf('_');
+        QString existingOriginal = underscorePos >= 0 ? existing.path.mid(underscorePos + 1) : existing.path;
+        if (existingOriginal.compare(originalName, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QVariantList ScreensaverVideoManager::getPersonalMediaList() const
+{
+    QVariantList list;
+    QString personalDir = m_cacheDir + "/personal";
+
+    for (const VideoItem& item : m_personalCatalog) {
+        QVariantMap map;
+        map["id"] = item.id;
+        map["type"] = item.isImage() ? "image" : "video";
+        map["filename"] = item.path;
+        map["path"] = personalDir + "/" + item.path;
+        map["bytes"] = item.bytes;
+        map["author"] = item.author;
+        list.append(map);
+    }
+    return list;
+}
+
+bool ScreensaverVideoManager::deletePersonalMedia(int mediaId)
+{
+    QString personalDir = m_cacheDir + "/personal";
+
+    for (int i = 0; i < m_personalCatalog.size(); ++i) {
+        if (m_personalCatalog[i].id == mediaId) {
+            VideoItem item = m_personalCatalog[i];
+            QString filePath = personalDir + "/" + item.path;
+
+            // Delete file
+            if (QFile::exists(filePath)) {
+                QFile::remove(filePath);
+            }
+
+            // Remove from catalog
+            m_personalCatalog.removeAt(i);
+            savePersonalCatalog();
+
+            emit personalMediaChanged();
+
+            qDebug() << "[Screensaver] Deleted personal media:" << item.path;
+            return true;
+        }
+    }
+
+    qWarning() << "[Screensaver] Personal media not found with id:" << mediaId;
+    return false;
+}
+
+void ScreensaverVideoManager::clearPersonalMedia()
+{
+    QString personalDir = m_cacheDir + "/personal";
+
+    qint64 freedBytes = 0;
+    for (const VideoItem& item : m_personalCatalog) {
+        QString filePath = personalDir + "/" + item.path;
+        if (QFile::exists(filePath)) {
+            QFile::remove(filePath);
+        }
+        freedBytes += item.bytes;
+    }
+
+    m_personalCatalog.clear();
+    savePersonalCatalog();
+    emit personalMediaChanged();
+
+    qDebug() << "[Screensaver] Cleared all personal media, freed" << (freedBytes / 1024 / 1024) << "MB";
 }

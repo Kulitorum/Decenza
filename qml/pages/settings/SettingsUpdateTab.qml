@@ -23,8 +23,9 @@ Item {
                 anchors.margins: 15
                 spacing: 12
 
-                Text {
-                    text: "Current Version"
+                Tr {
+                    key: "settings.update.currentversion"
+                    fallback: "Current Version"
                     color: Theme.textColor
                     font.pixelSize: 16
                     font.bold: true
@@ -57,9 +58,10 @@ Item {
                             font.bold: true
                         }
 
-                        Text {
+                        Tr {
                             Layout.alignment: Qt.AlignHCenter
-                            text: "Installed"
+                            key: "settings.update.installed"
+                            fallback: "Installed"
                             color: Theme.textSecondaryColor
                             font.pixelSize: 12
                         }
@@ -76,14 +78,16 @@ Item {
                     ColumnLayout {
                         spacing: 2
 
-                        Text {
-                            text: "Auto-check for updates"
+                        Tr {
+                            key: "settings.update.autocheck"
+                            fallback: "Auto-check for updates"
                             color: Theme.textColor
                             font.pixelSize: 14
                         }
 
-                        Text {
-                            text: "Check every hour"
+                        Tr {
+                            key: "settings.update.checkeveryhour"
+                            fallback: "Check every hour"
                             color: Theme.textSecondaryColor
                             font.pixelSize: 12
                         }
@@ -113,16 +117,18 @@ Item {
                 anchors.margins: 15
                 spacing: 12
 
-                Text {
-                    text: "Software Updates"
+                Tr {
+                    key: "settings.update.softwareupdates"
+                    fallback: "Software Updates"
                     color: Theme.textColor
                     font.pixelSize: 16
                     font.bold: true
                 }
 
-                Text {
+                Tr {
                     Layout.fillWidth: true
-                    text: "Check for new versions on GitHub"
+                    key: "settings.update.checkongithub"
+                    fallback: "Check for new versions on GitHub"
                     color: Theme.textSecondaryColor
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap
@@ -160,11 +166,11 @@ Item {
                             Text {
                                 text: {
                                     if (MainController.updateChecker.updateAvailable) {
-                                        return "Update available: v" + MainController.updateChecker.latestVersion
+                                        return TranslationManager.translate("settings.update.updateavailable", "Update available:") + " v" + MainController.updateChecker.latestVersion
                                     } else if (MainController.updateChecker.latestVersion) {
-                                        return "You're up to date"
+                                        return TranslationManager.translate("settings.update.uptodate", "You're up to date")
                                     } else {
-                                        return "Check for updates to get started"
+                                        return TranslationManager.translate("settings.update.checktostart", "Check for updates to get started")
                                     }
                                 }
                                 color: Theme.textColor
@@ -183,8 +189,9 @@ Item {
                                 Layout.preferredHeight: 24
                             }
 
-                            Text {
-                                text: "Checking for updates..."
+                            Tr {
+                                key: "settings.update.checking"
+                                fallback: "Checking for updates..."
                                 color: Theme.textColor
                                 font.pixelSize: 14
                             }
@@ -196,8 +203,9 @@ Item {
                             spacing: 8
                             visible: MainController.updateChecker.downloading
 
-                            Text {
-                                text: "Downloading update..."
+                            Tr {
+                                key: "settings.update.downloading"
+                                fallback: "Downloading update..."
                                 color: Theme.textColor
                                 font.pixelSize: 14
                             }
@@ -230,13 +238,15 @@ Item {
                             visible: !MainController.updateChecker.checking && !MainController.updateChecker.downloading
 
                             ActionButton {
-                                text: "Check Now"
+                                translationKey: "settings.update.checknow"
+                                translationFallback: "Check Now"
                                 enabled: !MainController.updateChecker.checking
                                 onClicked: MainController.updateChecker.checkForUpdates()
                             }
 
                             ActionButton {
-                                text: "Download & Install"
+                                translationKey: "settings.update.downloadinstall"
+                                translationFallback: "Download & Install"
                                 visible: MainController.updateChecker.updateAvailable
                                 onClicked: MainController.updateChecker.downloadAndInstall()
                             }
@@ -257,8 +267,9 @@ Item {
                         anchors.margins: 15
                         spacing: 8
 
-                        Text {
-                            text: "Release Notes"
+                        Tr {
+                            key: "settings.update.releasenotes"
+                            fallback: "Release Notes"
                             color: Theme.textSecondaryColor
                             font.pixelSize: 12
                             font.bold: true

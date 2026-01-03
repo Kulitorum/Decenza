@@ -138,6 +138,10 @@ public:
     Q_INVOKABLE void cancelAutoTranslate();
     Q_INVOKABLE bool canAutoTranslate() const;
 
+    // Batch translate and upload all languages (developer tool)
+    // Cycles through all configured AI providers to fill gaps
+    Q_INVOKABLE void translateAndUploadAllLanguages();
+
     // AI translation tracking
     Q_INVOKABLE QString getAiTranslation(const QString& fallback) const;  // Get AI translation for fallback text
     Q_INVOKABLE bool isAiGenerated(const QString& key) const;  // Check if translation is unmodified AI output
@@ -166,6 +170,7 @@ signals:
     void autoTranslateProgressChanged();
     void autoTranslateFinished(bool success, const QString& message);
     void lastTranslatedTextChanged();
+    void batchTranslateUploadFinished(bool success, const QString& message);
 
 private slots:
     void onLanguageListFetched(QNetworkReply* reply);
@@ -233,6 +238,7 @@ private:
     int m_autoTranslateProgress = 0;
     int m_autoTranslateTotal = 0;
     int m_pendingBatchCount = 0;  // Track parallel batch requests
+    int m_translationRunId = 0;   // Increments each translation run to identify stale responses
     QVariantList m_stringsToTranslate;
     QString m_lastTranslatedText;
     static constexpr int AUTO_TRANSLATE_BATCH_SIZE = 25;
@@ -243,6 +249,19 @@ private:
 
     // Set of keys whose current translation is unmodified AI output
     QSet<QString> m_aiGenerated;
+
+    // Batch translate+upload state
+    QStringList m_batchLanguageQueue;
+    QStringList m_batchProviderQueue;
+    QString m_originalProvider;
+    QString m_batchCurrentProvider;  // Bypasses QSettings cache during batch ops
+    bool m_batchProcessing = false;
+
+    // Helper to get all configured AI providers
+    QStringList getConfiguredProviders() const;
+
+    // Helper to get provider for AI requests (uses batch override if active)
+    QString getActiveProvider() const;
 
     // Backend base URL for translation downloads
     static constexpr const char* TRANSLATION_API_BASE = "https://translation-upload-api.decenza-api.workers.dev";
