@@ -373,20 +373,64 @@ Item {
             }
 
             // Scrollable content
-            ScrollView {
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.margins: 15
-                clip: true
 
-                TextArea {
-                    readOnly: true
-                    text: MainController.updateChecker.releaseNotes
-                    color: Theme.textColor
-                    font.pixelSize: 13
-                    wrapMode: Text.WordWrap
-                    background: null
-                    selectByMouse: true
+                ScrollView {
+                    id: notesScrollView
+                    anchors.fill: parent
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                    TextArea {
+                        id: notesText
+                        width: notesScrollView.width
+                        readOnly: true
+                        text: MainController.updateChecker.releaseNotes
+                        color: Theme.textColor
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                        background: null
+                        selectByMouse: true
+                    }
+                }
+
+                // Scroll indicator - shows when more content below
+                Rectangle {
+                    id: scrollIndicator
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 5
+                    width: 28
+                    height: 28
+                    radius: 14
+                    color: Theme.primaryColor
+                    opacity: 0.9
+                    visible: {
+                        var scrollBar = notesScrollView.ScrollBar.vertical
+                        return scrollBar && scrollBar.size < 1.0 && scrollBar.position + scrollBar.size < 0.95
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "↓"
+                        color: "white"
+                        font.pixelSize: 16
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            // Scroll down a bit
+                            var scrollBar = notesScrollView.ScrollBar.vertical
+                            if (scrollBar) {
+                                scrollBar.position = Math.min(1.0 - scrollBar.size, scrollBar.position + 0.2)
+                            }
+                        }
+                    }
                 }
             }
         }
