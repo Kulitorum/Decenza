@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
     app.setOrganizationName("DecentEspresso");
     app.setOrganizationDomain("decentespresso.com");
     app.setApplicationName("Decenza DE1");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion("1.1.0");
 
     // Set Qt Quick Controls style (must be before QML engine creation)
     QQuickStyle::setStyle("Material");

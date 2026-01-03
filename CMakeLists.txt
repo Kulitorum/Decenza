@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza_DE1 VERSION 1.0.0 LANGUAGES CXX)
+project(Decenza_DE1 VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -285,7 +285,7 @@ endif()
 
 qt_add_qml_module(Decenza_DE1
     URI DecenzaDE1
-    VERSION 1.0
+    VERSION 1.1
     QML_FILES ${QML_FILES}
 )
 
@@ -321,7 +321,7 @@ if(ANDROID)
     set_target_properties(Decenza_DE1 PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
         QT_ANDROID_VERSION_CODE "${NEXT_BUILD_NUMBER}"
-        QT_ANDROID_VERSION_NAME "1.0.${NEXT_BUILD_NUMBER}"
+        QT_ANDROID_VERSION_NAME "1.1.${NEXT_BUILD_NUMBER}"
     )
     # Add OpenSSL libraries for HTTPS support
     add_android_openssl_libraries(Decenza_DE1)

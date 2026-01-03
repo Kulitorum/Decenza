@@ -57,7 +57,7 @@ UpdateChecker::~UpdateChecker()
 
 QString UpdateChecker::currentVersion() const
 {
-    return QString("1.0.%1").arg(BUILD_NUMBER);
+    return QString("1.1.%1").arg(BUILD_NUMBER);
 }
 
 void UpdateChecker::checkForUpdates()

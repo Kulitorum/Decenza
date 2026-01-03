@@ -373,7 +373,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     // App info with settings (Visualizer extracts metadata from app.data.settings)
     QJsonObject app;
     app["app_name"] = "Decenza DE1";
-    app["app_version"] = "1.0.0";
+    app["app_version"] = "1.1.0";
 
     // Build settings object with all metadata (de1app field names)
     QJsonObject settings;

@@ -24,9 +24,9 @@ if(DEFINED MANIFEST_FILE AND EXISTS "${MANIFEST_FILE}")
     string(REGEX REPLACE "android:versionCode=\"[0-9]+\""
            "android:versionCode=\"${BUILD_NUMBER}\""
            MANIFEST_CONTENT "${MANIFEST_CONTENT}")
-    # Update versionName to 1.0.BUILD_NUMBER
+    # Update versionName to 1.1.BUILD_NUMBER
     string(REGEX REPLACE "android:versionName=\"[^\"]+\""
-           "android:versionName=\"1.0.${BUILD_NUMBER}\""
+           "android:versionName=\"1.1.${BUILD_NUMBER}\""
            MANIFEST_CONTENT "${MANIFEST_CONTENT}")
     file(WRITE "${MANIFEST_FILE}" "${MANIFEST_CONTENT}")
 endif()
