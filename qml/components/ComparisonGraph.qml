@@ -50,8 +50,8 @@ ChartView {
             }
         }
 
-        // Update axes
-        timeAxis.max = Math.max(60, comparisonModel.maxTime + 5)
+        // Update axes - fit to data with small padding (minimum 15s for very short shots)
+        timeAxis.max = Math.max(15, comparisonModel.maxTime + 0.5)
     }
 
     onComparisonModelChanged: loadData()

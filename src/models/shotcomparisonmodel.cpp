@@ -125,7 +125,7 @@ void ShotComparisonModel::loadShotData()
 
 void ShotComparisonModel::calculateMaxValues()
 {
-    m_maxTime = 60.0;
+    m_maxTime = 0.0;
     m_maxPressure = 12.0;
     m_maxFlow = 8.0;
     m_maxWeight = 50.0;
@@ -133,7 +133,7 @@ void ShotComparisonModel::calculateMaxValues()
     for (const auto& shot : m_shots) {
         // Max time from duration
         if (shot.duration > m_maxTime) {
-            m_maxTime = shot.duration + 5.0;
+            m_maxTime = shot.duration;
         }
 
         // Max pressure
