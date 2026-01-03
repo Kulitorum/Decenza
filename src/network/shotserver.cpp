@@ -441,6 +441,14 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         result["lines"] = linesArray;
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     }
+    else if (path == "/api/debug/clear") {
+        if (WebDebugLogger::instance()) {
+            WebDebugLogger::instance()->clear();
+        }
+        QJsonObject result;
+        result["success"] = true;
+        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    }
     else if (path == "/api/power" || path == "/api/power/status") {
         // Return current power state
         QJsonObject result;
@@ -2795,8 +2803,11 @@ QString ShotServer::generateDebugPage() const
         }
 
         function clearLog() {
-            container.innerHTML = "";
-            lastIndex = 0;
+            fetch("/api/debug/clear", { method: "POST" })
+                .then(function() {
+                    container.innerHTML = "";
+                    lastIndex = 0;
+                });
         }
 
         // Poll every 500ms
