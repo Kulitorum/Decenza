@@ -755,8 +755,8 @@ ApplicationWindow {
                             MainController.updateChecker.downloadAndInstall()
                         }
                         updateDialog.close()
-                        // Navigate to settings update tab to show progress
-                        goToSettings()
+                        // Navigate to settings update tab (index 9) to show progress
+                        goToSettings(9)
                     }
                     background: Rectangle {
                         color: Theme.primaryColor
@@ -1270,8 +1270,11 @@ ApplicationWindow {
         pageStack.replace(hotWaterPage)
     }
 
-    function goToSettings() {
+    function goToSettings(tabIndex) {
         announceNavigation("Settings")
+        if (tabIndex !== undefined && tabIndex >= 0) {
+            settingsPage.requestedTabIndex = tabIndex
+        }
         pageStack.push(settingsPage)
     }
 

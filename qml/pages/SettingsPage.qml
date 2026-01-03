@@ -13,6 +13,28 @@ Page {
     Component.onCompleted: root.currentPageTitle = "Settings"
     StackView.onActivated: root.currentPageTitle = "Settings"
 
+    // Requested tab to switch to (set before pushing page)
+    property int requestedTabIndex: -1
+
+    // Timer to switch tab after page is fully loaded
+    Timer {
+        id: tabSwitchTimer
+        interval: 500  // Wait for all tabs to be created
+        repeat: false
+        onTriggered: {
+            if (settingsPage.requestedTabIndex >= 0) {
+                tabBar.currentIndex = settingsPage.requestedTabIndex
+                settingsPage.requestedTabIndex = -1
+            }
+        }
+    }
+
+    StackView.onActivating: {
+        if (requestedTabIndex >= 0) {
+            tabSwitchTimer.start()
+        }
+    }
+
     // Flag to prevent navigation during calibration
     property bool calibrationInProgress: false
 
