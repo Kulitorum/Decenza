@@ -14,11 +14,13 @@ Page {
 
     Component.onCompleted: {
         root.currentPageTitle = "Shot History"
+        refreshFilterOptions()
         loadShots()
     }
 
     StackView.onActivated: {
         root.currentPageTitle = "Shot History"
+        refreshFilterOptions()
         loadShots()
     }
 
@@ -31,13 +33,24 @@ Page {
         }
     }
 
+    // Get filter values from the model arrays directly (more reliable than currentText)
+    property var profileOptions: []
+    property var beanOptions: []
+
+    function refreshFilterOptions() {
+        var profiles = MainController.shotHistory.getDistinctProfiles()
+        var beans = MainController.shotHistory.getDistinctBeanBrands()
+        profileOptions = [TranslationManager.translate("shothistory.allprofiles", "All Profiles")].concat(profiles)
+        beanOptions = [TranslationManager.translate("shothistory.allbeans", "All Beans")].concat(beans)
+    }
+
     function buildFilter() {
         var filter = {}
-        if (profileFilter.currentIndex > 0) {
-            filter.profileName = profileFilter.currentText
+        if (profileFilter.currentIndex > 0 && profileFilter.currentIndex < profileOptions.length) {
+            filter.profileName = profileOptions[profileFilter.currentIndex]
         }
-        if (beanFilter.currentIndex > 0) {
-            filter.beanBrand = beanFilter.currentText
+        if (beanFilter.currentIndex > 0 && beanFilter.currentIndex < beanOptions.length) {
+            filter.beanBrand = beanOptions[beanFilter.currentIndex]
         }
         if (searchField.text.length > 0) {
             filter.searchText = searchField.text
@@ -81,34 +94,59 @@ Page {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: bottomBar.top
-        anchors.margins: Theme.standardMargin
+        anchors.leftMargin: Theme.standardMargin
+        anchors.rightMargin: Theme.standardMargin
+        anchors.topMargin: Theme.pageTopMargin
         spacing: Theme.spacingMedium
 
-        // Header row with compare button
+        // Header row with selection count and compare button
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
+            visible: selectedShots.length > 0
 
-            Tr {
-                key: "shothistory.title"
-                fallback: "Shot History"
-                font: Theme.titleFont
-                color: Theme.textColor
+            Text {
+                text: selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected")
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
                 Layout.fillWidth: true
             }
 
-            Text {
-                text: selectedShots.length > 0 ? selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected") : ""
-                font: Theme.labelFont
-                color: Theme.textSecondaryColor
-                visible: selectedShots.length > 0
+            Button {
+                text: TranslationManager.translate("shothistory.clear", "Clear")
+                onClicked: clearSelection()
+
+                background: Rectangle {
+                    color: "transparent"
+                    radius: Theme.buttonRadius
+                    border.color: Theme.borderColor
+                    border.width: 1
+                }
+                contentItem: Text {
+                    text: parent.text
+                    font: Theme.labelFont
+                    color: Theme.textColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
 
-            ActionButton {
-                translationKey: "shothistory.compare"
-                translationFallback: "Compare"
+            Button {
+                text: TranslationManager.translate("shothistory.compare", "Compare")
                 enabled: selectedShots.length >= 2
                 onClicked: openComparison()
+
+                background: Rectangle {
+                    color: parent.enabled ? Theme.primaryColor : Theme.buttonDisabled
+                    radius: Theme.buttonRadius
+                }
+                contentItem: Text {
+                    text: parent.text
+                    font: Theme.labelFont
+                    color: parent.enabled ? "white" : Theme.textSecondaryColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
         }
 
@@ -120,8 +158,8 @@ Page {
             ComboBox {
                 id: profileFilter
                 Layout.preferredWidth: Theme.scaled(150)
-                model: [TranslationManager.translate("shothistory.allprofiles", "All Profiles")].concat(MainController.shotHistory.getDistinctProfiles())
-                onCurrentIndexChanged: loadShots()
+                model: profileOptions
+                onCurrentIndexChanged: if (shotHistoryPage.visible) loadShots()
 
                 background: Rectangle {
                     color: Theme.surfaceColor
@@ -141,8 +179,8 @@ Page {
             ComboBox {
                 id: beanFilter
                 Layout.preferredWidth: Theme.scaled(150)
-                model: [TranslationManager.translate("shothistory.allbeans", "All Beans")].concat(MainController.shotHistory.getDistinctBeanBrands())
-                onCurrentIndexChanged: loadShots()
+                model: beanOptions
+                onCurrentIndexChanged: if (shotHistoryPage.visible) loadShots()
 
                 background: Rectangle {
                     color: Theme.surfaceColor
@@ -171,13 +209,6 @@ Page {
                 interval: 300
                 onTriggered: loadShots()
             }
-
-            ActionButton {
-                translationKey: "shothistory.clear"
-                translationFallback: "Clear"
-                visible: selectedShots.length > 0
-                onClicked: clearSelection()
-            }
         }
 
         // Shot count
@@ -199,12 +230,16 @@ Page {
             model: shotListModel
 
             delegate: Rectangle {
+                id: shotDelegate
                 width: shotListView.width
                 height: Theme.scaled(90)
                 radius: Theme.cardRadius
                 color: isSelected(model.id) ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
                 border.color: isSelected(model.id) ? Theme.primaryColor : "transparent"
                 border.width: isSelected(model.id) ? 2 : 0
+
+                // Store enjoyment for child components to access
+                property int shotEnjoyment: model.enjoyment || 0
 
                 RowLayout {
                     anchors.fill: parent
@@ -266,7 +301,7 @@ Page {
                                     Text {
                                         text: "\u2605"
                                         font.pixelSize: Theme.scaled(14)
-                                        color: index < Math.round((shotListModel.get(parent.parent.parent.parent.parent.parent.parent.index).enjoyment || 0) / 20)
+                                        color: index < Math.round(shotDelegate.shotEnjoyment / 20)
                                                ? Theme.warningColor : Theme.borderColor
                                     }
                                 }
@@ -311,10 +346,25 @@ Page {
                     }
 
                     // Detail arrow
-                    ActionButton {
-                        text: ">"
-                        onClicked: {
-                            pageStack.push(Qt.resolvedUrl("ShotDetailPage.qml"), { shotId: model.id })
+                    Rectangle {
+                        width: Theme.scaled(40)
+                        height: Theme.scaled(40)
+                        radius: Theme.scaled(20)
+                        color: Theme.primaryColor
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: ">"
+                            font.pixelSize: Theme.scaled(20)
+                            font.bold: true
+                            color: "white"
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                pageStack.push(Qt.resolvedUrl("ShotDetailPage.qml"), { shotId: model.id })
+                            }
                         }
                     }
                 }

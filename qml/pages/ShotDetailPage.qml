@@ -44,6 +44,9 @@ Page {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: bottomBar.top
+        anchors.topMargin: Theme.pageTopMargin
+        anchors.leftMargin: Theme.standardMargin
+        anchors.rightMargin: Theme.standardMargin
         contentWidth: availableWidth
 
         ColumnLayout {
@@ -51,36 +54,20 @@ Page {
             spacing: Theme.spacingMedium
 
             // Header
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
-                spacing: Theme.spacingMedium
+                spacing: 2
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
-
-                    Text {
-                        text: shotData.profileName || "Shot Detail"
-                        font: Theme.titleFont
-                        color: Theme.textColor
-                    }
-
-                    Text {
-                        text: shotData.dateTime || ""
-                        font: Theme.labelFont
-                        color: Theme.textSecondaryColor
-                    }
+                Text {
+                    text: shotData.profileName || "Shot Detail"
+                    font: Theme.titleFont
+                    color: Theme.textColor
                 }
 
-                ActionButton {
-                    translationKey: "shotdetail.compare"
-                    translationFallback: "Compare"
-                    onClicked: {
-                        MainController.shotComparison.clearAll()
-                        MainController.shotComparison.addShot(shotId)
-                        pageStack.push(Qt.resolvedUrl("ShotComparisonPage.qml"))
-                    }
+                Text {
+                    text: shotData.dateTime || ""
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
                 }
             }
 
@@ -88,7 +75,6 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(250)
-                Layout.margins: Theme.standardMargin
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -107,7 +93,6 @@ Page {
             // Metrics row
             RowLayout {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
                 spacing: Theme.spacingLarge
 
                 // Duration
@@ -194,7 +179,6 @@ Page {
             // Bean info
             Rectangle {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
                 Layout.preferredHeight: beanColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
@@ -238,7 +222,6 @@ Page {
             // Grinder info
             Rectangle {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
                 Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
@@ -276,7 +259,6 @@ Page {
             // Analysis
             Rectangle {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
@@ -318,11 +300,9 @@ Page {
             // Notes
             Rectangle {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
                 Layout.preferredHeight: notesColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: (shotData.espressoNotes || "").length > 0
 
                 ColumnLayout {
                     id: notesColumn
@@ -340,7 +320,7 @@ Page {
                     }
 
                     Text {
-                        text: shotData.espressoNotes || ""
+                        text: shotData.espressoNotes || "-"
                         font: Theme.bodyFont
                         color: Theme.textColor
                         wrapMode: Text.Wrap
@@ -352,28 +332,52 @@ Page {
             // Actions
             RowLayout {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
                 spacing: Theme.spacingMedium
 
-                ActionButton {
-                    translationKey: "shotdetail.viewdebuglog"
-                    translationFallback: "View Debug Log"
+                Button {
+                    text: TranslationManager.translate("shotdetail.viewdebuglog", "View Debug Log")
                     Layout.fillWidth: true
                     onClicked: debugLogDialog.open()
+
+                    background: Rectangle {
+                        color: "transparent"
+                        radius: Theme.buttonRadius
+                        border.color: Theme.borderColor
+                        border.width: 1
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.labelFont
+                        color: Theme.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                 }
 
-                ActionButton {
-                    translationKey: "shotdetail.deleteshot"
-                    translationFallback: "Delete Shot"
+                Button {
+                    text: TranslationManager.translate("shotdetail.deleteshot", "Delete Shot")
                     Layout.fillWidth: true
                     onClicked: deleteConfirmDialog.open()
+
+                    background: Rectangle {
+                        color: "transparent"
+                        radius: Theme.buttonRadius
+                        border.color: Theme.errorColor
+                        border.width: 1
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.labelFont
+                        color: Theme.errorColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                 }
             }
 
             // Visualizer status
             Rectangle {
                 Layout.fillWidth: true
-                Layout.margins: Theme.standardMargin
                 Layout.preferredHeight: Theme.scaled(50)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius

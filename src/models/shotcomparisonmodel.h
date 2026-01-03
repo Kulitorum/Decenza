@@ -71,6 +71,7 @@ private:
         double finalWeight = 0;
         int enjoyment = 0;
         qint64 timestamp = 0;
+        QString notes;
 
         QVector<QPointF> pressure;
         QVector<QPointF> flow;

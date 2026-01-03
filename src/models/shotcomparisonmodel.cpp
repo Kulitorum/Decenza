@@ -103,6 +103,7 @@ void ShotComparisonModel::loadShotData()
         shot.finalWeight = record.summary.finalWeight;
         shot.enjoyment = record.summary.enjoyment;
         shot.timestamp = record.summary.timestamp;
+        shot.notes = record.espressoNotes;
 
         shot.pressure = record.pressure;
         shot.flow = record.flow;
@@ -223,6 +224,7 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["finalWeight"] = shot.finalWeight;
     result["enjoyment"] = shot.enjoyment;
     result["timestamp"] = shot.timestamp;
+    result["notes"] = shot.notes;
 
     // Format date
     QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.timestamp);
