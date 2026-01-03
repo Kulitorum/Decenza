@@ -11,11 +11,13 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QUrl>
 #include <QUrlQuery>
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QPainter>
 #include <QProcess>
 #include <QCoreApplication>
 #include <QRegularExpression>
@@ -29,11 +31,20 @@ ShotServer::ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* 
     , m_storage(storage)
     , m_device(device)
 {
+    // Timer to cleanup stale connections
+    m_cleanupTimer = new QTimer(this);
+    m_cleanupTimer->setInterval(30000);  // Check every 30 seconds
+    connect(m_cleanupTimer, &QTimer::timeout, this, &ShotServer::cleanupStaleConnections);
 }
 
 ShotServer::~ShotServer()
 {
     stop();
+    // Cleanup any pending requests
+    for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {
+        cleanupPendingRequest(it.key());
+    }
+    m_pendingRequests.clear();
 }
 
 QString ShotServer::url() const
@@ -66,6 +77,7 @@ bool ShotServer::start()
         return false;
     }
 
+    m_cleanupTimer->start();
     qDebug() << "ShotServer: Started on" << url();
     emit runningChanged();
     emit urlChanged();
@@ -75,6 +87,7 @@ bool ShotServer::start()
 void ShotServer::stop()
 {
     if (m_server) {
+        m_cleanupTimer->stop();
         m_server->close();
         delete m_server;
         m_server = nullptr;
@@ -99,60 +112,226 @@ void ShotServer::onReadyRead()
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
 
-    // Accumulate data
-    PendingRequest& pending = m_pendingRequests[socket];
-    pending.data.append(socket->readAll());
+    try {
+        PendingRequest& pending = m_pendingRequests[socket];
+        pending.lastActivity.start();
 
-    // Find header end if not found yet
-    if (pending.headerEnd < 0) {
-        pending.headerEnd = pending.data.indexOf("\r\n\r\n");
+        // Read available data
+        QByteArray chunk = socket->readAll();
+
+        // If we haven't found headers yet, accumulate header data
         if (pending.headerEnd < 0) {
-            // Headers not complete yet
-            return;
+            pending.headerData.append(chunk);
+
+            // Check header size limit
+            if (pending.headerData.size() > MAX_HEADER_SIZE) {
+                qWarning() << "ShotServer: Headers too large, rejecting";
+                sendResponse(socket, 413, "text/plain", "Headers too large");
+                cleanupPendingRequest(socket);
+                m_pendingRequests.remove(socket);
+                socket->close();
+                return;
+            }
+
+            pending.headerEnd = pending.headerData.indexOf("\r\n\r\n");
+            if (pending.headerEnd < 0) {
+                // Headers not complete yet
+                return;
+            }
+
+            // Parse headers
+            QString headers = QString::fromUtf8(pending.headerData.left(pending.headerEnd));
+            QStringList lines = headers.split("\r\n");
+            QString requestLine = lines.isEmpty() ? "" : lines.first();
+
+            // Parse Content-Length
+            for (const QString& line : lines) {
+                if (line.startsWith("Content-Length:", Qt::CaseInsensitive)) {
+                    pending.contentLength = line.mid(15).trimmed().toLongLong();
+                    break;
+                }
+            }
+
+            if (pending.contentLength < 0) {
+                pending.contentLength = 0;
+            }
+
+            // Check if this is a media upload (POST to /upload/media)
+            pending.isMediaUpload = requestLine.contains("POST") && requestLine.contains("/upload/media");
+
+            // Check upload size limit for media uploads
+            if (pending.isMediaUpload && pending.contentLength > MAX_UPLOAD_SIZE) {
+                qWarning() << "ShotServer: Upload too large:" << pending.contentLength << "bytes (max:" << MAX_UPLOAD_SIZE << ")";
+                sendResponse(socket, 413, "text/plain",
+                    QString("File too large. Maximum size is %1 MB").arg(MAX_UPLOAD_SIZE / (1024*1024)).toUtf8());
+                cleanupPendingRequest(socket);
+                m_pendingRequests.remove(socket);
+                socket->close();
+                return;
+            }
+
+            // Check concurrent upload limit
+            if (pending.isMediaUpload && m_activeMediaUploads >= MAX_CONCURRENT_UPLOADS) {
+                qWarning() << "ShotServer: Too many concurrent uploads";
+                sendResponse(socket, 503, "text/plain", "Server busy. Please wait and try again.");
+                cleanupPendingRequest(socket);
+                m_pendingRequests.remove(socket);
+                socket->close();
+                return;
+            }
+
+            // For large uploads (> 1MB), stream to temp file instead of memory
+            if (pending.contentLength > MAX_SMALL_BODY_SIZE) {
+                QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+                pending.tempFilePath = tempDir + "/upload_stream_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
+                pending.tempFile = new QFile(pending.tempFilePath);
+                if (!pending.tempFile->open(QIODevice::WriteOnly)) {
+                    qWarning() << "ShotServer: Failed to create temp file for streaming";
+                    sendResponse(socket, 500, "text/plain", "Server error: cannot create temp file");
+                    cleanupPendingRequest(socket);
+                    m_pendingRequests.remove(socket);
+                    socket->close();
+                    return;
+                }
+                if (pending.isMediaUpload) {
+                    m_activeMediaUploads++;
+                }
+                qDebug() << "ShotServer: Streaming large upload to" << pending.tempFilePath;
+            }
+
+            // Handle any body data that came with headers
+            int bodyStart = pending.headerEnd + 4;
+            if (bodyStart < pending.headerData.size()) {
+                QByteArray bodyPart = pending.headerData.mid(bodyStart);
+                if (pending.tempFile) {
+                    // Write body to temp file and truncate headerData to just headers
+                    pending.tempFile->write(bodyPart);
+                    pending.headerData.truncate(pending.headerEnd);
+                }
+                // For small requests without temp file, keep everything in headerData
+                pending.bodyReceived = bodyPart.size();
+            }
+
+            chunk.clear();  // Already processed
+        } else {
+            // Headers already received, this is body data
+            if (pending.tempFile) {
+                // Stream to temp file
+                pending.tempFile->write(chunk);
+            } else {
+                // Append to header buffer (for small requests)
+                pending.headerData.append(chunk);
+            }
+            pending.bodyReceived += chunk.size();
         }
 
-        // Parse Content-Length from headers
-        QString headers = QString::fromUtf8(pending.data.left(pending.headerEnd));
-        for (const QString& line : headers.split("\r\n")) {
-            if (line.startsWith("Content-Length:", Qt::CaseInsensitive)) {
-                pending.contentLength = line.mid(15).trimmed().toLongLong();
-                break;
+        // Log progress for large uploads
+        if (pending.contentLength > 5 * 1024 * 1024) {
+            static QHash<QTcpSocket*, qint64> lastLog;
+            qint64& last = lastLog[socket];
+            if (pending.bodyReceived - last > 5 * 1024 * 1024) {
+                qDebug() << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
+                last = pending.bodyReceived;
             }
         }
 
-        // No content-length means no body expected
-        if (pending.contentLength < 0) {
-            pending.contentLength = 0;
+        // Check if we have all the body data
+        if (pending.bodyReceived < pending.contentLength) {
+            return;  // Still waiting for more data
         }
-    }
 
-    // Check if we have all the body data
-    qint64 bodyStart = pending.headerEnd + 4;
-    qint64 bodyReceived = pending.data.size() - bodyStart;
+        // Request complete
+        if (pending.tempFile) {
+            pending.tempFile->close();
+            qDebug() << "ShotServer: Upload complete, temp file:" << pending.tempFilePath
+                     << "size:" << QFileInfo(pending.tempFilePath).size() << "bytes";
+        }
 
-    if (bodyReceived < pending.contentLength) {
-        // Still waiting for more data
-        if (pending.contentLength > 1024 * 1024) {  // Log progress for large uploads
-            static qint64 lastLog = 0;
-            if (bodyReceived - lastLog > 1024 * 1024) {
-                qDebug() << "Upload progress:" << bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
-                lastLog = bodyReceived;
+        // Handle the request
+        if (pending.isMediaUpload && pending.tempFile) {
+            // Media upload with streamed body - pass temp file path
+            QString headers = QString::fromUtf8(pending.headerData);
+            QString tempPath = pending.tempFilePath;
+            pending.tempFile = nullptr;  // Transfer ownership
+            pending.tempFilePath.clear();
+            if (pending.isMediaUpload) {
+                m_activeMediaUploads--;
             }
+            m_pendingRequests.remove(socket);
+            handleMediaUpload(socket, tempPath, headers);
+        } else {
+            // Small request or non-media - headerData contains full request (headers + \r\n\r\n + body)
+            QByteArray request = pending.headerData;
+            if (!pending.tempFilePath.isEmpty() && QFile::exists(pending.tempFilePath)) {
+                // Large non-media request with temp file - reconstruct
+                request = pending.headerData + "\r\n\r\n";
+                QFile f(pending.tempFilePath);
+                if (f.open(QIODevice::ReadOnly)) {
+                    request.append(f.readAll());
+                }
+            }
+            cleanupPendingRequest(socket);
+            m_pendingRequests.remove(socket);
+            handleRequest(socket, request);
         }
-        return;
-    }
 
-    // Request complete, handle it
-    QByteArray request = pending.data;
-    m_pendingRequests.remove(socket);
-    handleRequest(socket, request);
+    } catch (const std::exception& e) {
+        qWarning() << "ShotServer: Exception in onReadyRead:" << e.what();
+        cleanupPendingRequest(socket);
+        m_pendingRequests.remove(socket);
+        socket->close();
+    } catch (...) {
+        qWarning() << "ShotServer: Unknown exception in onReadyRead";
+        cleanupPendingRequest(socket);
+        m_pendingRequests.remove(socket);
+        socket->close();
+    }
 }
 
 void ShotServer::onDisconnected()
 {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (socket) {
+        cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
+        socket->deleteLater();
+    }
+}
+
+void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
+{
+    if (!m_pendingRequests.contains(socket)) return;
+
+    PendingRequest& pending = m_pendingRequests[socket];
+    if (pending.tempFile) {
+        pending.tempFile->close();
+        delete pending.tempFile;
+        pending.tempFile = nullptr;
+    }
+    if (!pending.tempFilePath.isEmpty() && QFile::exists(pending.tempFilePath)) {
+        QFile::remove(pending.tempFilePath);
+        qDebug() << "ShotServer: Cleaned up temp file:" << pending.tempFilePath;
+    }
+    if (pending.isMediaUpload && m_activeMediaUploads > 0) {
+        m_activeMediaUploads--;
+    }
+}
+
+void ShotServer::cleanupStaleConnections()
+{
+    QList<QTcpSocket*> staleConnections;
+    for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {
+        if (it.value().lastActivity.isValid() &&
+            it.value().lastActivity.elapsed() > CONNECTION_TIMEOUT_MS) {
+            staleConnections.append(it.key());
+        }
+    }
+
+    for (QTcpSocket* socket : staleConnections) {
+        qWarning() << "ShotServer: Cleaning up stale connection from" << socket->peerAddress().toString();
+        cleanupPendingRequest(socket);
+        m_pendingRequests.remove(socket);
+        socket->close();
         socket->deleteLater();
     }
 }
@@ -305,7 +484,30 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         if (method == "GET") {
             sendHtml(socket, generateMediaUploadPage());
         } else if (method == "POST") {
-            handleMediaUpload(socket, request);
+            // For small uploads that weren't streamed, save body to temp file
+            int headerEnd = request.indexOf("\r\n\r\n");
+            if (headerEnd < 0) {
+                sendResponse(socket, 400, "text/plain", "Invalid request");
+                return;
+            }
+            QString headers = QString::fromUtf8(request.left(headerEnd));
+            QByteArray body = request.mid(headerEnd + 4);
+
+            qDebug() << "ShotServer: Small media upload - request size:" << request.size()
+                     << "headerEnd:" << headerEnd << "body size:" << body.size();
+
+            // Save to temp file
+            QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+            QString tempPath = tempDir + "/upload_small_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".tmp";
+            QFile tempFile(tempPath);
+            if (!tempFile.open(QIODevice::WriteOnly)) {
+                sendResponse(socket, 500, "text/plain", "Failed to create temp file");
+                return;
+            }
+            tempFile.write(body);
+            tempFile.close();
+
+            handleMediaUpload(socket, tempPath, headers);
         }
     }
     else if (path == "/api/media/personal") {
@@ -3345,9 +3547,21 @@ winget install Gyan.FFmpeg</pre>
                 if (!isUploading && totalFiles > 0 && processed === totalFiles) {
                     var msg = "Uploaded: " + completedFiles;
                     if (skippedFiles.length > 0) msg += ", Skipped: " + skippedFiles.length;
-                    if (failedFiles.length > 0) msg += ", Failed: " + failedFiles.length;
+                    if (failedFiles.length > 0) {
+                        msg += ", Failed: " + failedFiles.length;
+                        // Show details for first few failed files
+                        var details = failedFiles.slice(0, 3).map(function(f) {
+                            return f.name + " (" + f.error + ")";
+                        }).join("; ");
+                        if (failedFiles.length > 3) details += "...";
+                        msg += " - " + details;
+                    }
                     if (failedFiles.length > 0) {
                         showStatus("error", msg);
+                        // Still reload after delay to show successfully uploaded files
+                        if (completedFiles > 0) {
+                            setTimeout(function() { location.reload(); }, 5000);
+                        }
                     } else {
                         showStatus("success", msg);
                         if (completedFiles > 0) {
@@ -3368,12 +3582,26 @@ winget install Gyan.FFmpeg</pre>
         function resizeImageInBrowser(file, maxWidth, maxHeight, callback) {
             var img = new Image();
             img.onload = function() {
+                // Create canvas at exact target size
                 var canvas = document.createElement("canvas");
-                var scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
-                canvas.width = Math.round(img.width * scale);
-                canvas.height = Math.round(img.height * scale);
+                canvas.width = maxWidth;
+                canvas.height = maxHeight;
                 var ctx = canvas.getContext("2d");
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                // Fill with black background
+                ctx.fillStyle = "black";
+                ctx.fillRect(0, 0, maxWidth, maxHeight);
+
+                // Scale image to fit within bounds (letterbox/pillarbox)
+                var scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+                var scaledWidth = Math.round(img.width * scale);
+                var scaledHeight = Math.round(img.height * scale);
+
+                // Center the image on the canvas
+                var x = Math.round((maxWidth - scaledWidth) / 2);
+                var y = Math.round((maxHeight - scaledHeight) / 2);
+
+                ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
                 canvas.toBlob(function(blob) {
                     callback(blob);
                 }, "image/jpeg", 0.85);
@@ -3414,9 +3642,11 @@ winget install Gyan.FFmpeg</pre>
             }
         }
 
-        function doUpload(filename, blob) {
+        function doUpload(filename, blob, retryCount) {
+            retryCount = retryCount || 0;
             var xhr = new XMLHttpRequest();
             xhr.open("POST", "/upload/media", true);
+            xhr.timeout = 600000;  // 10 minute timeout for large files
 
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
@@ -3431,21 +3661,50 @@ winget install Gyan.FFmpeg</pre>
                 if (xhr.status === 200) {
                     completedFiles++;
                     showStatus("success", "Uploaded: " + filename + (uploadQueue.length > 0 ? " - continuing..." : ""));
+                    processQueue();
                 } else if (xhr.status === 409) {
                     skippedFiles.push(filename);
                     showStatus("processing", "Skipped (exists): " + filename + (uploadQueue.length > 0 ? " - continuing..." : ""));
+                    processQueue();
+                } else if (xhr.status === 413) {
+                    // File too large
+                    failedFiles.push({name: filename, error: "File too large (max 500MB)"});
+                    showStatus("error", "Skipped: " + filename + " - file too large (max 500MB)");
+                    processQueue();
+                } else if (xhr.status === 503 && retryCount < 3) {
+                    // Server busy - retry after delay
+                    showStatus("processing", "Server busy, retrying " + filename + " in 5s... (attempt " + (retryCount + 2) + "/4)");
+                    setTimeout(function() {
+                        doUpload(filename, blob, retryCount + 1);
+                    }, 5000);
                 } else {
-                    failedFiles.push(filename);
-                    showStatus("error", "Failed: " + filename + " - " + xhr.responseText);
+                    failedFiles.push({name: filename, error: xhr.responseText || "Unknown error"});
+                    showStatus("error", "Failed: " + filename + " - " + (xhr.responseText || "Server error"));
+                    processQueue();
                 }
-                processQueue();
             };
 
             xhr.onerror = function() {
                 uploadZone.classList.remove("uploading");
                 isUploading = false;
-                failedFiles.push(filename);
-                showStatus("error", "Network error: " + filename);
+                if (retryCount < 2) {
+                    // Network error - retry once
+                    showStatus("processing", "Connection lost, retrying " + filename + "...");
+                    setTimeout(function() {
+                        doUpload(filename, blob, retryCount + 1);
+                    }, 2000);
+                } else {
+                    failedFiles.push({name: filename, error: "Network error"});
+                    showStatus("error", "Network error: " + filename + " (check connection)");
+                    processQueue();
+                }
+            };
+
+            xhr.ontimeout = function() {
+                uploadZone.classList.remove("uploading");
+                isUploading = false;
+                failedFiles.push({name: filename, error: "Upload timed out"});
+                showStatus("error", "Timeout: " + filename + " - upload took too long");
                 processQueue();
             };
 
@@ -3484,157 +3743,195 @@ winget install Gyan.FFmpeg</pre>
     return html;
 }
 
-void ShotServer::handleMediaUpload(QTcpSocket* socket, const QByteArray& request)
+void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTempPath, const QString& headers)
 {
-    if (!m_screensaverManager) {
-        sendResponse(socket, 500, "text/plain", "Screensaver manager not available");
-        return;
-    }
-
-    // Parse headers to get filename and content
-    int headerEnd = request.indexOf("\r\n\r\n");
-    if (headerEnd < 0) {
-        sendResponse(socket, 400, "text/plain", "Invalid request");
-        return;
-    }
-
-    QString headers = QString::fromUtf8(request.left(headerEnd));
-    QByteArray body = request.mid(headerEnd + 4);
-
-    // Get filename from X-Filename header (URL-encoded)
-    QString filename = "uploaded_media";
-    for (const QString& line : headers.split("\r\n")) {
-        if (line.startsWith("X-Filename:", Qt::CaseInsensitive)) {
-            filename = QUrl::fromPercentEncoding(line.mid(11).trimmed().toUtf8());
-            break;
+    // Ensure temp file cleanup on any exit path
+    QString tempPathToCleanup = uploadedTempPath;
+    auto cleanupTempFile = [&tempPathToCleanup]() {
+        if (!tempPathToCleanup.isEmpty() && QFile::exists(tempPathToCleanup)) {
+            QFile::remove(tempPathToCleanup);
         }
-    }
+    };
 
-    // Validate file type
-    QString ext = QFileInfo(filename).suffix().toLower();
-    bool isImage = (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp");
-    bool isVideo = (ext == "mp4" || ext == "webm" || ext == "mov");
+    try {
+        if (!m_screensaverManager) {
+            sendResponse(socket, 500, "text/plain", "Screensaver manager not available");
+            cleanupTempFile();
+            return;
+        }
 
-    // RAW/HEIC formats that need conversion
-    bool needsConversion = (ext == "cr2" || ext == "nef" || ext == "arw" || ext == "dng" ||
-                            ext == "raw" || ext == "raf" || ext == "orf" || ext == "rw2" ||
-                            ext == "heic" || ext == "heif");
-    if (needsConversion) {
-        isImage = true;  // These are all image formats
-    }
+        // Get filename from X-Filename header (URL-encoded)
+        QString filename = "uploaded_media";
+        for (const QString& line : headers.split("\r\n")) {
+            if (line.startsWith("X-Filename:", Qt::CaseInsensitive)) {
+                filename = QUrl::fromPercentEncoding(line.mid(11).trimmed().toUtf8());
+                break;
+            }
+        }
 
-    if (!isImage && !isVideo) {
-        sendResponse(socket, 400, "text/plain", "Unsupported file type. Use JPG, PNG, MP4, WebM, or RAW/HEIC.");
-        return;
-    }
+        // Validate file type
+        QString ext = QFileInfo(filename).suffix().toLower();
+        bool isImage = (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp");
+        bool isVideo = (ext == "mp4" || ext == "webm" || ext == "mov");
 
-    // Check for duplicate before doing expensive resize work
-    if (m_screensaverManager->hasPersonalMediaWithName(filename)) {
-        sendResponse(socket, 409, "text/plain", "File already exists: " + filename.toUtf8());
-        return;
-    }
-
-    // Save to temp directory first
-    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    QString tempPath = tempDir + "/upload_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + ext;
-
-    QFile tempFile(tempPath);
-    if (!tempFile.open(QIODevice::WriteOnly)) {
-        sendResponse(socket, 500, "text/plain", "Failed to create temp file");
-        return;
-    }
-    tempFile.write(body);
-    tempFile.close();
-
-    qDebug() << "Media uploaded to temp:" << tempPath << "size:" << body.size() << "bytes";
-
-    // Extract date from original file BEFORE resizing (resize strips EXIF)
-    QDateTime mediaDate;
-    if (isImage) {
-        mediaDate = extractImageDate(tempPath);
-    } else if (isVideo) {
-        mediaDate = extractVideoDate(tempPath);
-    }
-
-    // Resize/convert the media
-    // RAW/HEIC files output as JPEG
-    QString outputExt = needsConversion ? "jpg" : ext;
-    QString outputPath = tempDir + "/resized_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + outputExt;
-
-    // Target resolution matches shared screensaver media (1280x800)
-    const int targetWidth = 1280;
-    const int targetHeight = 800;
-
-    if (isImage) {
-        bool success = false;
+        // RAW/HEIC formats that need conversion
+        bool needsConversion = (ext == "cr2" || ext == "nef" || ext == "arw" || ext == "dng" ||
+                                ext == "raw" || ext == "raf" || ext == "orf" || ext == "rw2" ||
+                                ext == "heic" || ext == "heif");
         if (needsConversion) {
-            // Use ImageMagick for RAW/HEIC conversion
-            success = convertRawImage(tempPath, outputPath, targetWidth, targetHeight);
-            if (success) {
-                QFile::remove(tempPath);
-                qDebug() << "RAW/HEIC converted successfully:" << outputPath;
-            } else {
-                qDebug() << "RAW/HEIC conversion failed - ImageMagick may not be installed";
-                QFile::remove(tempPath);
-                sendResponse(socket, 500, "text/plain", "RAW/HEIC conversion failed. Install ImageMagick.");
+            isImage = true;  // These are all image formats
+        }
+
+        if (!isImage && !isVideo) {
+            sendResponse(socket, 400, "text/plain", "Unsupported file type. Use JPG, PNG, MP4, WebM, or RAW/HEIC.");
+            cleanupTempFile();
+            return;
+        }
+
+        // Check for duplicate before doing expensive resize work
+        if (m_screensaverManager->hasPersonalMediaWithName(filename)) {
+            sendResponse(socket, 409, "text/plain", "File already exists: " + filename.toUtf8());
+            cleanupTempFile();
+            return;
+        }
+
+        // Rename the streamed temp file to have proper extension
+        QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+        QString tempPath = tempDir + "/upload_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + ext;
+
+        if (!QFile::rename(uploadedTempPath, tempPath)) {
+            // If rename fails (cross-device?), try copy
+            if (!QFile::copy(uploadedTempPath, tempPath)) {
+                sendResponse(socket, 500, "text/plain", "Failed to process uploaded file");
+                cleanupTempFile();
                 return;
             }
-        } else {
-            success = resizeImage(tempPath, outputPath, targetWidth, targetHeight);
-            if (success) {
+            QFile::remove(uploadedTempPath);
+        }
+        tempPathToCleanup = tempPath;  // Update cleanup path
+
+        qDebug() << "Media uploaded to temp:" << tempPath << "size:" << QFileInfo(tempPath).size() << "bytes";
+
+        // Extract date from original file BEFORE resizing (resize strips EXIF)
+        QDateTime mediaDate;
+        if (isImage) {
+            mediaDate = extractImageDate(tempPath);
+        } else if (isVideo) {
+            mediaDate = extractVideoDate(tempPath);
+        }
+
+        // Resize/convert the media
+        // RAW/HEIC files output as JPEG
+        QString outputExt = needsConversion ? "jpg" : ext;
+        QString outputPath = tempDir + "/resized_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + outputExt;
+
+        // Target resolution matches shared screensaver media (1280x800)
+        const int targetWidth = 1280;
+        const int targetHeight = 800;
+
+        if (isImage) {
+            bool success = false;
+            if (needsConversion) {
+                // Use ImageMagick for RAW/HEIC conversion
+                success = convertRawImage(tempPath, outputPath, targetWidth, targetHeight);
+                if (success) {
+                    QFile::remove(tempPath);
+                    tempPathToCleanup.clear();  // Successfully processed
+                    qDebug() << "RAW/HEIC converted successfully:" << outputPath;
+                } else {
+                    qDebug() << "RAW/HEIC conversion failed - ImageMagick may not be installed";
+                    sendResponse(socket, 500, "text/plain", "RAW/HEIC conversion failed. Install ImageMagick.");
+                    cleanupTempFile();
+                    return;
+                }
+            } else {
+                success = resizeImage(tempPath, outputPath, targetWidth, targetHeight);
+                if (success) {
+                    QFile::remove(tempPath);
+                    tempPathToCleanup.clear();  // Successfully processed
+                    qDebug() << "Image resized successfully:" << outputPath;
+                } else {
+                    // Use original if resize fails
+                    outputPath = tempPath;
+                    tempPathToCleanup.clear();  // Will use original, don't delete
+                    qDebug() << "Image resize failed, using original";
+                }
+            }
+        } else if (isVideo) {
+            if (resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
-                qDebug() << "Image resized successfully:" << outputPath;
+                tempPathToCleanup.clear();  // Successfully processed
+                qDebug() << "Video resized successfully:" << outputPath;
             } else {
                 // Use original if resize fails
                 outputPath = tempPath;
-                qDebug() << "Image resize failed, using original";
+                tempPathToCleanup.clear();  // Will use original, don't delete
+                qDebug() << "Video resize not available or failed, using original";
             }
         }
-    } else if (isVideo) {
-        if (resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
-            QFile::remove(tempPath);
-            qDebug() << "Video resized successfully:" << outputPath;
-        } else {
-            // Use original if resize fails
-            outputPath = tempPath;
-            qDebug() << "Video resize not available or failed, using original";
-        }
-    }
 
-    // Add to screensaver personal media with extracted date
-    if (m_screensaverManager->addPersonalMedia(outputPath, filename, mediaDate)) {
-        sendResponse(socket, 200, "text/plain", "Media uploaded successfully");
-    } else {
-        QFile::remove(outputPath);
-        sendResponse(socket, 500, "text/plain", "Failed to add media to screensaver");
+        // Add to screensaver personal media with extracted date
+        if (m_screensaverManager->addPersonalMedia(outputPath, filename, mediaDate)) {
+            sendResponse(socket, 200, "text/plain", "Media uploaded successfully");
+        } else {
+            QFile::remove(outputPath);
+            sendResponse(socket, 500, "text/plain", "Failed to add media to screensaver");
+        }
+
+    } catch (const std::exception& e) {
+        qWarning() << "ShotServer: Exception in handleMediaUpload:" << e.what();
+        cleanupTempFile();
+        sendResponse(socket, 500, "text/plain", QString("Server error: %1").arg(e.what()).toUtf8());
+    } catch (...) {
+        qWarning() << "ShotServer: Unknown exception in handleMediaUpload";
+        cleanupTempFile();
+        sendResponse(socket, 500, "text/plain", "Server error: unexpected exception");
     }
 }
 
 bool ShotServer::resizeImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight)
 {
-    QImage image(inputPath);
-    if (image.isNull()) {
-        qWarning() << "Failed to load image:" << inputPath;
+    try {
+        QImage image(inputPath);
+        if (image.isNull()) {
+            qWarning() << "Failed to load image:" << inputPath;
+            return false;
+        }
+
+        // Scale maintaining aspect ratio (fit within bounds)
+        QImage scaled = image.scaled(maxWidth, maxHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        if (scaled.isNull()) {
+            qWarning() << "Failed to scale image (memory?):" << inputPath;
+            return false;
+        }
+
+        // Create target-sized canvas with black background (letterbox/pillarbox)
+        QImage result(maxWidth, maxHeight, QImage::Format_RGB32);
+        result.fill(Qt::black);
+
+        // Center the scaled image on the canvas using QPainter
+        int x = (maxWidth - scaled.width()) / 2;
+        int y = (maxHeight - scaled.height()) / 2;
+
+        QPainter painter(&result);
+        painter.drawImage(x, y, scaled);
+        painter.end();
+
+        // Save with good quality
+        QString ext = QFileInfo(outputPath).suffix().toLower();
+        if (ext == "jpg" || ext == "jpeg") {
+            return result.save(outputPath, "JPEG", 85);
+        } else if (ext == "png") {
+            return result.save(outputPath, "PNG");
+        } else {
+            return result.save(outputPath);
+        }
+    } catch (const std::exception& e) {
+        qWarning() << "Exception in resizeImage:" << e.what();
         return false;
-    }
-
-    // Check if resize is needed
-    if (image.width() <= maxWidth && image.height() <= maxHeight) {
-        // No resize needed, just copy
-        return QFile::copy(inputPath, outputPath);
-    }
-
-    // Scale maintaining aspect ratio
-    QImage scaled = image.scaled(maxWidth, maxHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-
-    // Save with good quality
-    QString ext = QFileInfo(outputPath).suffix().toLower();
-    if (ext == "jpg" || ext == "jpeg") {
-        return scaled.save(outputPath, "JPEG", 85);
-    } else if (ext == "png") {
-        return scaled.save(outputPath, "PNG");
-    } else {
-        return scaled.save(outputPath);
+    } catch (...) {
+        qWarning() << "Unknown exception in resizeImage";
+        return false;
     }
 }
 
@@ -3662,14 +3959,16 @@ bool ShotServer::resizeVideo(const QString& inputPath, const QString& outputPath
     }
 #endif
 
-    // Build scale filter that maintains aspect ratio and doesn't upscale
-    QString scaleFilter = QString("scale='min(%1,iw)':'min(%2,ih)':force_original_aspect_ratio=decrease")
-        .arg(maxWidth).arg(maxHeight);
+    // Build filter chain: scale to fit, then pad with black to exact size (letterbox/pillarbox)
+    QString filterChain = QString(
+        "scale='min(%1,iw)':'min(%2,ih)':force_original_aspect_ratio=decrease,"
+        "pad=%1:%2:(ow-iw)/2:(oh-ih)/2:black"
+    ).arg(maxWidth).arg(maxHeight);
 
     QStringList args;
     args << "-y"  // Overwrite output
          << "-i" << inputPath
-         << "-vf" << scaleFilter
+         << "-vf" << filterChain
          << "-c:v" << "libx264"
          << "-preset" << "fast"
          << "-crf" << "23"
@@ -3726,9 +4025,12 @@ bool ShotServer::convertRawImage(const QString& inputPath, const QString& output
 
     QStringList args;
     args << inputPath
-         << "-resize" << QString("%1x%2>").arg(maxWidth).arg(maxHeight)  // Only shrink, keep aspect
+         << "-auto-orient"          // Apply EXIF orientation first
+         << "-resize" << QString("%1x%2").arg(maxWidth).arg(maxHeight)  // Fit within bounds
+         << "-background" << "black"
+         << "-gravity" << "center"
+         << "-extent" << QString("%1x%2").arg(maxWidth).arg(maxHeight)  // Add letterbox/pillarbox
          << "-quality" << "85"
-         << "-auto-orient"  // Apply EXIF orientation
          << outputPath;
 
     qDebug() << "Running ImageMagick:" << magickPath << args.join(" ");
