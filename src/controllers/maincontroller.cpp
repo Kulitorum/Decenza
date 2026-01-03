@@ -57,6 +57,12 @@ MainController::MainController(Settings* settings, DE1Device* device,
                 this, &MainController::onEspressoCycleStarted);
         connect(m_machineState, &MachineState::shotEnded,
                 this, &MainController::onShotEnded);
+        // Clear any pre-tare weight samples when tare completes (race condition fix)
+        connect(m_machineState, &MachineState::tareCompleted, this, [this]() {
+            if (m_shotDataModel) {
+                m_shotDataModel->clearWeightData();
+            }
+        });
     }
 
     // Create visualizer uploader and importer

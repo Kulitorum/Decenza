@@ -48,6 +48,7 @@ public:
 
 public slots:
     void clear();
+    void clearWeightData();  // Clear only weight samples (call when tare completes)
 
     // Fast data ingestion - no chart updates, just vector append
     void addSample(double time, double pressure, double flow, double temperature,

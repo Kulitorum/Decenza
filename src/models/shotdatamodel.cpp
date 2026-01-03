@@ -140,6 +140,15 @@ void ShotDataModel::clear() {
     m_flushTimer->start();
 }
 
+void ShotDataModel::clearWeightData() {
+    // Clear any pre-tare weight samples (race condition fix)
+    m_weightPoints.clear();
+    if (m_weightSeries) {
+        m_weightSeries->clear();
+    }
+    qDebug() << "ShotDataModel: Cleared pre-tare weight data";
+}
+
 void ShotDataModel::addSample(double time, double pressure, double flow, double temperature,
                               double pressureGoal, double flowGoal, double temperatureGoal,
                               int frameNumber, bool isFlowMode) {

@@ -244,6 +244,7 @@ void MachineState::onScaleWeightChanged(double weight) {
         m_waitingForTare = false;
         m_tareCompleted = true;
         qDebug() << "=== TARE COMPLETE: scale reported" << weight << "g, stop-at-weight now active ===";
+        emit tareCompleted();
     }
 
     // Auto-tare when cup is removed (significant weight drop while idle)
@@ -401,6 +402,7 @@ void MachineState::tareScale() {
                 qWarning() << "=== TARE TIMEOUT: scale didn't report ~0g within 3s, enabling stop-at-weight anyway ===";
                 m_waitingForTare = false;
                 m_tareCompleted = true;
+                emit tareCompleted();
             }
         });
     }

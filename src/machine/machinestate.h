@@ -74,6 +74,7 @@ signals:
     void shotStarted();           // When extraction actually begins (flow starts)
     void shotEnded();
     void targetWeightReached();
+    void tareCompleted();         // Emitted when scale reports ~0g after tare command
 
 private slots:
     void onDE1StateChanged();
