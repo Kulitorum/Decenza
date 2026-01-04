@@ -40,7 +40,7 @@ Item {
             Layout.preferredHeight: root.buttonSize
             radius: height / 2
             color: minusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : Theme.surfaceColor
-            border.width: 1
+            border.width: Theme.scaled(1)
             border.color: Theme.borderColor
 
             Text {
@@ -156,7 +156,7 @@ Item {
             Layout.preferredHeight: root.buttonSize
             radius: height / 2
             color: plusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : Theme.surfaceColor
-            border.width: 1
+            border.width: Theme.scaled(1)
             border.color: Theme.borderColor
 
             Text {

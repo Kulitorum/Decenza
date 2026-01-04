@@ -26,7 +26,7 @@ Item {
         anchors.fill: parent
         property real keyboardOffset: Qt.inputMethod.visible ? -80 : 0
         transform: Translate { y: aiTabContent.keyboardOffset }
-        spacing: 10
+        spacing: Theme.scaled(10)
 
         Behavior on keyboardOffset {
             NumberAnimation { duration: 150 }
@@ -35,14 +35,14 @@ Item {
         // Provider selection - horizontal row
         Rectangle {
             Layout.fillWidth: true
-            height: 70
+            height: Theme.scaled(70)
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 8
-                spacing: 6
+                anchors.margins: Theme.scaled(8)
+                spacing: Theme.scaled(6)
 
                 Repeater {
                     model: [
@@ -55,7 +55,7 @@ Item {
                     delegate: Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        radius: 6
+                        radius: Theme.scaled(6)
 
                         property bool isSelected: Settings.aiProvider === modelData.id
                         property bool hasKey: aiTab.isProviderConfigured(modelData.id)
@@ -74,19 +74,19 @@ Item {
 
                         Column {
                             anchors.centerIn: parent
-                            spacing: 2
+                            spacing: Theme.scaled(2)
 
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: modelData.name
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.scaled(12)
                                 font.bold: isSelected
                                 color: isSelected ? "white" : Theme.textColor
                             }
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: modelData.desc
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.scaled(10)
                                 color: isSelected ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
                             }
                         }
@@ -110,12 +110,12 @@ Item {
             Tr {
                 id: recommendationText
                 anchors.fill: parent
-                anchors.margins: 8
+                anchors.margins: Theme.scaled(8)
                 key: "settings.ai.recommendation"
                 fallback: "For shot analysis, we recommend Claude (Anthropic). In our testing, Claude better understands espresso extraction dynamics and gives more accurate dial-in advice. Other providers work for translation and general tasks."
                 wrapMode: Text.WordWrap
                 color: Theme.textSecondaryColor
-                font.pixelSize: 11
+                font.pixelSize: Theme.scaled(11)
             }
         }
 
@@ -128,20 +128,20 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 12
-                spacing: 8
+                anchors.margins: Theme.scaled(12)
+                spacing: Theme.scaled(8)
 
                 // Cloud provider API key
                 ColumnLayout {
                     visible: Settings.aiProvider !== "ollama"
                     Layout.fillWidth: true
-                    spacing: 6
+                    spacing: Theme.scaled(6)
 
                     Tr {
                         key: "settings.ai.apiKey"
                         fallback: "API Key"
                         color: Theme.textColor
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.scaled(13)
                         font.bold: true
                     }
 
@@ -179,7 +179,7 @@ Item {
                             }
                         }
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
                 }
 
@@ -187,19 +187,19 @@ Item {
                 ColumnLayout {
                     visible: Settings.aiProvider === "ollama"
                     Layout.fillWidth: true
-                    spacing: 6
+                    spacing: Theme.scaled(6)
 
                     Tr {
                         key: "settings.ai.ollamaSettings"
                         fallback: "Ollama Settings"
                         color: Theme.textColor
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.scaled(13)
                         font.bold: true
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: Theme.scaled(8)
 
                         StyledTextField {
                             Layout.fillWidth: true
@@ -214,25 +214,25 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: Theme.scaled(8)
 
-                        ComboBox {
+                        StyledComboBox {
                             Layout.fillWidth: true
                             model: MainController.aiManager ? MainController.aiManager.ollamaModels : []
                             currentIndex: model ? model.indexOf(Settings.ollamaModel) : -1
                             onCurrentTextChanged: if (currentText) Settings.ollamaModel = currentText
                             background: Rectangle {
-                                implicitHeight: 36
+                                implicitHeight: Theme.scaled(36)
                                 color: Theme.surfaceColor
                                 border.color: Theme.borderColor
-                                radius: 6
+                                radius: Theme.scaled(6)
                             }
                         }
 
                         Rectangle {
-                            width: 70
-                            height: 36
-                            radius: 6
+                            width: Theme.scaled(70)
+                            height: Theme.scaled(36)
+                            radius: Theme.scaled(6)
                             color: Theme.surfaceColor
                             border.color: Theme.borderColor
 
@@ -241,7 +241,7 @@ Item {
                                 key: "settings.ai.refresh"
                                 fallback: "Refresh"
                                 color: Theme.textColor
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.scaled(12)
                             }
 
                             MouseArea {
@@ -255,7 +255,7 @@ Item {
                         key: "settings.ai.ollamainstall"
                         fallback: "Install: ollama.ai -> run: ollama pull llama3.2"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
                 }
 
@@ -264,12 +264,12 @@ Item {
                 // Test connection + cost in a row
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: Theme.scaled(10)
 
                     Rectangle {
-                        width: 110
-                        height: 36
-                        radius: 6
+                        width: Theme.scaled(110)
+                        height: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: MainController.aiManager?.isConfigured ? Theme.primaryColor : Theme.surfaceColor
                         border.color: MainController.aiManager?.isConfigured ? Theme.primaryColor : Theme.borderColor
 
@@ -278,7 +278,7 @@ Item {
                             key: "settings.ai.testconnection"
                             fallback: "Test Connection"
                             color: MainController.aiManager?.isConfigured ? "white" : Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
 
                         MouseArea {
@@ -295,7 +295,7 @@ Item {
                         visible: aiTab.testResultMessage.length > 0
                         text: aiTab.testResultMessage
                         color: aiTab.testResultSuccess ? Theme.successColor : Theme.errorColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                     }
@@ -312,7 +312,7 @@ Item {
                             }
                         }
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
                 }
             }

@@ -110,13 +110,13 @@ Page {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.preferredWidth: Theme.scaled(300)
                                 Layout.preferredHeight: Theme.scaled(12)
-                                radius: 6
+                                radius: Theme.scaled(6)
                                 color: Theme.backgroundColor
 
                                 Rectangle {
                                     width: parent.width * getDescaleProgress(DE1Device.subState)
                                     height: parent.height
-                                    radius: 6
+                                    radius: Theme.scaled(6)
                                     color: Theme.primaryColor
 
                                     Behavior on width { NumberAnimation { duration: 300 } }
@@ -219,7 +219,7 @@ Page {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 1
+                            height: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                         }
@@ -349,7 +349,7 @@ Page {
                     color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                     radius: Theme.cardRadius
                     border.color: Theme.warningColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
 
                     ColumnLayout {
                         id: warningContent
@@ -433,14 +433,14 @@ Page {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.scaled(60)
                                 color: Theme.backgroundColor
-                                radius: 8
+                                radius: Theme.scaled(8)
 
                                 RowLayout {
                                     anchors.centerIn: parent
                                     spacing: Theme.scaled(30)
 
                                     Column {
-                                        spacing: 4
+                                        spacing: Theme.scaled(4)
                                         Text {
                                             anchors.horizontalCenter: parent.horizontalCenter
                                             text: "1540 ml"
@@ -463,7 +463,7 @@ Page {
                                     }
 
                                     Column {
-                                        spacing: 4
+                                        spacing: Theme.scaled(4)
                                         Text {
                                             anchors.horizontalCenter: parent.horizontalCenter
                                             text: "80 g"
@@ -643,7 +643,7 @@ Page {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 1
+                            height: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                         }

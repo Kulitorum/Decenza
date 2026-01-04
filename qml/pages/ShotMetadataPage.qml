@@ -109,7 +109,7 @@ Page {
         ColumnLayout {
             id: mainColumn
             width: parent.width
-            spacing: 6
+            spacing: Theme.scaled(6)
 
             // 3-column grid for all fields
             GridLayout {
@@ -189,7 +189,7 @@ Page {
                         anchors.top: parent.top
                         text: TranslationManager.translate("shotmetadata.label.preset", "Preset")
                         color: Theme.textColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
 
                     Rectangle {
@@ -197,20 +197,20 @@ Page {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: presetLabel.bottom
-                        anchors.topMargin: 2
-                        height: 48
+                        anchors.topMargin: Theme.scaled(2)
+                        height: Theme.scaled(48)
                         color: Theme.backgroundColor
-                        radius: 4
+                        radius: Theme.scaled(4)
                         border.color: Theme.textSecondaryColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Text {
                             anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
+                            anchors.leftMargin: Theme.scaled(12)
+                            anchors.rightMargin: Theme.scaled(12)
                             text: MainController.currentProfileName || ""
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
                         }
@@ -231,7 +231,7 @@ Page {
                         anchors.top: parent.top
                         text: TranslationManager.translate("shotmetadata.label.shotdate", "Shot date")
                         color: Theme.textColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
 
                     Rectangle {
@@ -239,20 +239,20 @@ Page {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: shotDateLabel.bottom
-                        anchors.topMargin: 2
-                        height: 48
+                        anchors.topMargin: Theme.scaled(2)
+                        height: Theme.scaled(48)
                         color: Theme.backgroundColor
-                        radius: 4
+                        radius: Theme.scaled(4)
                         border.color: Theme.textSecondaryColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Text {
                             anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 12
+                            anchors.leftMargin: Theme.scaled(12)
+                            anchors.rightMargin: Theme.scaled(12)
                             text: Settings.dyeShotDateTime || ""
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                             verticalAlignment: Text.AlignVCenter
                             elide: Text.ElideRight
                         }
@@ -275,7 +275,7 @@ Page {
                         key: "shotmetadata.section.measurements"
                         fallback: "Measurements"
                         color: Theme.textColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
 
                     RowLayout {
@@ -283,23 +283,23 @@ Page {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: measurementsLabel.bottom
-                        anchors.topMargin: 2
-                        spacing: 6
+                        anchors.topMargin: Theme.scaled(2)
+                        spacing: Theme.scaled(6)
 
                         // Dose (bean weight)
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: Theme.scaled(2)
                             Tr {
                                 key: "shotmetadata.label.dose"
                                 fallback: "Dose"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.scaled(10)
                             }
                             ValueInput {
                                 id: doseInput
                                 Layout.fillWidth: true
-                                height: 40
+                                height: Theme.scaled(40)
                                 from: 0
                                 to: 30
                                 stepSize: 0.1
@@ -319,17 +319,17 @@ Page {
                         // Out (drink weight)
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: Theme.scaled(2)
                             Tr {
                                 key: "shotmetadata.label.out"
                                 fallback: "Out"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.scaled(10)
                             }
                             ValueInput {
                                 id: outInput
                                 Layout.fillWidth: true
-                                height: 40
+                                height: Theme.scaled(40)
                                 from: 0
                                 to: 100
                                 stepSize: 0.1
@@ -349,17 +349,17 @@ Page {
                         // TDS
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: Theme.scaled(2)
                             Tr {
                                 key: "shotmetadata.label.tds"
                                 fallback: "TDS"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.scaled(10)
                             }
                             ValueInput {
                                 id: tdsInput
                                 Layout.fillWidth: true
-                                height: 40
+                                height: Theme.scaled(40)
                                 from: 0
                                 to: 20
                                 stepSize: 0.01
@@ -379,17 +379,17 @@ Page {
                         // EY
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: Theme.scaled(2)
                             Tr {
                                 key: "shotmetadata.label.ey"
                                 fallback: "EY"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.scaled(10)
                             }
                             ValueInput {
                                 id: eyInput
                                 Layout.fillWidth: true
-                                height: 40
+                                height: Theme.scaled(40)
                                 from: 0
                                 to: 30
                                 stepSize: 0.1
@@ -421,17 +421,17 @@ Page {
                         key: "shotmetadata.label.rating"
                         fallback: "Rating"
                         color: Theme.textColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
 
                     ValueInput {
                         id: ratingInput
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.leftMargin: 5
+                        anchors.leftMargin: Theme.scaled(5)
                         anchors.top: ratingLabel.bottom
-                        anchors.topMargin: 2
-                        height: 40
+                        anchors.topMargin: Theme.scaled(2)
+                        height: Theme.scaled(40)
                         from: 0
                         to: 100
                         stepSize: 1
@@ -465,7 +465,7 @@ Page {
                         key: "shotmetadata.label.notes"
                         fallback: "Notes"
                         color: Theme.textColor
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.scaled(11)
                     }
 
                     TextArea {
@@ -473,7 +473,7 @@ Page {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: notesLabel.bottom
-                        anchors.topMargin: 2
+                        anchors.topMargin: Theme.scaled(2)
                         // Size to content with minimum height of 100px
                         height: Math.max(100, contentHeight + topPadding + bottomPadding)
                         text: Settings.dyeEspressoNotes
@@ -481,12 +481,12 @@ Page {
                         color: Theme.textColor
                         placeholderTextColor: Theme.textSecondaryColor
                         wrapMode: TextEdit.Wrap
-                        leftPadding: 8; rightPadding: 8; topPadding: 6; bottomPadding: 6
+                        leftPadding: 8; rightPadding: 8; topPadding: 6; bottomPadding: Theme.scaled(6)
                         background: Rectangle {
                             color: Theme.backgroundColor
-                            radius: 4
+                            radius: Theme.scaled(4)
                             border.color: notesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
                         onTextChanged: Settings.dyeEspressoNotes = text
 
@@ -526,8 +526,8 @@ Page {
         anchors.rightMargin: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin + 4
         width: hideKeyboardText.width + 24
-        height: 28
-        radius: 14
+        height: Theme.scaled(28)
+        radius: Theme.scaled(14)
         color: Theme.primaryColor
         z: 100
 
@@ -537,7 +537,7 @@ Page {
             key: "shotmetadata.button.hidekeyboard"
             fallback: "Hide keyboard"
             color: "white"
-            font.pixelSize: 13
+            font.pixelSize: Theme.scaled(13)
             font.bold: true
         }
 
@@ -567,8 +567,8 @@ Page {
             id: aiAdviceButton
             visible: MainController.aiManager && MainController.shotDataModel && MainController.shotDataModel.maxTime > 0
             Layout.preferredWidth: aiAdviceContent.width + 32
-            Layout.preferredHeight: 44
-            radius: 8
+            Layout.preferredHeight: Theme.scaled(44)
+            radius: Theme.scaled(8)
             color: MainController.aiManager && MainController.aiManager.isConfigured
                    ? Theme.primaryColor : Theme.surfaceColor
             opacity: MainController.aiManager && MainController.aiManager.isAnalyzing ? 0.6 : 1.0
@@ -580,12 +580,12 @@ Page {
             Row {
                 id: aiAdviceContent
                 anchors.centerIn: parent
-                spacing: 6
+                spacing: Theme.scaled(6)
 
                 Image {
                     source: "qrc:/icons/sparkle.svg"
-                    width: 18
-                    height: 18
+                    width: Theme.scaled(18)
+                    height: Theme.scaled(18)
                     anchors.verticalCenter: parent.verticalCenter
                     visible: status === Image.Ready
                 }
@@ -636,8 +636,8 @@ Page {
             id: emailPromptButton
             visible: MainController.aiManager && !MainController.aiManager.isConfigured && MainController.shotDataModel && MainController.shotDataModel.maxTime > 0
             Layout.preferredWidth: emailPromptContent.width + 32
-            Layout.preferredHeight: 44
-            radius: 8
+            Layout.preferredHeight: Theme.scaled(44)
+            radius: Theme.scaled(8)
             color: Theme.surfaceColor
 
             Accessible.role: Accessible.Button
@@ -647,12 +647,12 @@ Page {
             Row {
                 id: emailPromptContent
                 anchors.centerIn: parent
-                spacing: 6
+                spacing: Theme.scaled(6)
 
                 Image {
                     source: "qrc:/icons/sparkle.svg"
-                    width: 18
-                    height: 18
+                    width: Theme.scaled(18)
+                    height: Theme.scaled(18)
                     anchors.verticalCenter: parent.verticalCenter
                     visible: status === Image.Ready
                     opacity: 0.6
@@ -698,8 +698,8 @@ Page {
             id: uploadButton
             visible: hasPendingShot && !MainController.visualizer.uploading
             Layout.preferredWidth: uploadText.width + 40
-            Layout.preferredHeight: 44
-            radius: 8
+            Layout.preferredHeight: Theme.scaled(44)
+            radius: Theme.scaled(8)
             color: uploadArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
             Accessible.role: Accessible.Button
@@ -743,7 +743,7 @@ Page {
             anchors.top: parent.top
             text: parent.label
             color: Theme.textColor
-            font.pixelSize: 11
+            font.pixelSize: Theme.scaled(11)
         }
 
         StyledTextField {
@@ -751,7 +751,7 @@ Page {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: fieldLabel.bottom
-            anchors.topMargin: 2
+            anchors.topMargin: Theme.scaled(2)
             text: parent.text
             inputMethodHints: parent.inputHints
             inputMask: parent.inputMask
@@ -791,19 +791,19 @@ Page {
             anchors.top: parent.top
             text: parent.label
             color: Theme.textColor
-            font.pixelSize: 11
+            font.pixelSize: Theme.scaled(11)
         }
 
-        ComboBox {
+        StyledComboBox {
             id: combo
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: comboLabel.bottom
-            anchors.topMargin: 2
-            height: 48
+            anchors.topMargin: Theme.scaled(2)
+            height: Theme.scaled(48)
             model: parent.model
             currentIndex: Math.max(0, model.indexOf(parent.currentValue))
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
 
             Accessible.role: Accessible.ComboBox
             Accessible.name: parent.label
@@ -818,35 +818,35 @@ Page {
 
             background: Rectangle {
                 color: Theme.backgroundColor
-                radius: 4
+                radius: Theme.scaled(4)
                 border.color: combo.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                border.width: 1
+                border.width: Theme.scaled(1)
             }
 
             contentItem: Text {
                 text: combo.currentIndex === 0 && combo.model[0] === "" ? parent.parent.label : combo.displayText
                 color: Theme.textColor
-                font.pixelSize: 14
+                font.pixelSize: Theme.scaled(14)
                 verticalAlignment: Text.AlignVCenter
-                leftPadding: 12
+                leftPadding: Theme.scaled(12)
             }
 
             indicator: Text {
                 anchors.right: parent.right
-                anchors.rightMargin: 12
+                anchors.rightMargin: Theme.scaled(12)
                 anchors.verticalCenter: parent.verticalCenter
                 text: "▼"
                 color: Theme.textColor
-                font.pixelSize: 10
+                font.pixelSize: Theme.scaled(10)
             }
 
             delegate: ItemDelegate {
                 width: combo.width
-                height: 32
+                height: Theme.scaled(32)
                 contentItem: Text {
                     text: modelData || TranslationManager.translate("shotmetadata.option.none", "(None)")
                     color: Theme.textColor
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.scaled(14)
                     verticalAlignment: Text.AlignVCenter
                 }
                 background: Rectangle {
@@ -871,7 +871,7 @@ Page {
                 background: Rectangle {
                     color: Theme.surfaceColor
                     border.color: Theme.borderColor
-                    radius: 4
+                    radius: Theme.scaled(4)
                 }
             }
 

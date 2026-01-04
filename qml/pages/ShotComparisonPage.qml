@@ -48,7 +48,7 @@ Page {
                         Rectangle {
                             width: Theme.scaled(16)
                             height: Theme.scaled(16)
-                            radius: 4
+                            radius: Theme.scaled(4)
                             color: comparisonModel.getShotColor(index)
                         }
 
@@ -102,7 +102,7 @@ Page {
                 RowLayout {
                     spacing: Theme.spacingSmall
                     Row {
-                        spacing: 3
+                        spacing: Theme.scaled(3)
                         Repeater {
                             model: 4
                             Rectangle { width: 3; height: 2; color: Theme.textSecondaryColor }
@@ -145,7 +145,7 @@ Page {
                                 Rectangle {
                                     width: Theme.scaled(12)
                                     height: Theme.scaled(12)
-                                    radius: 3
+                                    radius: Theme.scaled(3)
                                     color: comparisonModel.getShotColor(index)
                                 }
 
@@ -175,7 +175,7 @@ Page {
                             // Separator
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: 1
+                                height: Theme.scaled(1)
                                 color: Theme.borderColor
                             }
 
@@ -217,7 +217,7 @@ Page {
                             // Separator
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: 1
+                                height: Theme.scaled(1)
                                 color: Theme.borderColor
                             }
 

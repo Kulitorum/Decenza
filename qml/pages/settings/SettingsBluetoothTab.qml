@@ -20,14 +20,14 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 10
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(10)
 
                 Tr {
                     key: "settings.bluetooth.machine"
                     fallback: "Machine"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
@@ -70,7 +70,7 @@ Item {
 
                 ListView {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 60
+                    Layout.preferredHeight: Theme.scaled(60)
                     clip: true
                     model: BLEManager.discoveredDevices
 
@@ -82,7 +82,7 @@ Item {
                         }
                         background: Rectangle {
                             color: parent.hovered ? Theme.accentColor : "transparent"
-                            radius: 4
+                            radius: Theme.scaled(4)
                         }
                         onClicked: DE1Device.connectToDevice(modelData.address)
                     }
@@ -101,19 +101,19 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     color: Qt.darker(Theme.surfaceColor, 1.2)
-                    radius: 4
+                    radius: Theme.scaled(4)
 
                     ScrollView {
                         id: de1LogScroll
                         anchors.fill: parent
-                        anchors.margins: 8
+                        anchors.margins: Theme.scaled(8)
                         clip: true
 
                         TextArea {
                             id: de1LogText
                             readOnly: true
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.scaled(11)
                             font.family: "monospace"
                             wrapMode: Text.Wrap
                             background: null
@@ -141,14 +141,14 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 10
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(10)
 
                 Tr {
                     key: "settings.bluetooth.scale"
                     fallback: "Scale"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
@@ -214,21 +214,21 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     height: simScaleNotice.implicitHeight + 16
-                    radius: 6
+                    radius: Theme.scaled(6)
                     color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                     border.color: Theme.warningColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                     visible: ScaleDevice && (ScaleDevice.name === "Flow Scale" || ScaleDevice.name === "Simulated Scale")
 
                     Text {
                         id: simScaleNotice
                         anchors.fill: parent
-                        anchors.margins: 8
+                        anchors.margins: Theme.scaled(8)
                         text: ScaleDevice && ScaleDevice.name === "Simulated Scale"
                               ? TranslationManager.translate("settings.bluetooth.simulatedScaleNotice", "Using Simulated Scale (simulator mode)")
                               : TranslationManager.translate("settings.bluetooth.flowScaleNotice", "Using Flow Scale (estimated weight from DE1 flow data)")
                         color: Theme.warningColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -293,7 +293,7 @@ Item {
 
                 ListView {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 60
+                    Layout.preferredHeight: Theme.scaled(60)
                     clip: true
                     visible: !ScaleDevice || !ScaleDevice.connected
                     model: BLEManager.discoveredScales
@@ -309,12 +309,12 @@ Item {
                             Text {
                                 text: modelData.type
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.scaled(12)
                             }
                         }
                         background: Rectangle {
                             color: parent.hovered ? Theme.accentColor : "transparent"
-                            radius: 4
+                            radius: Theme.scaled(4)
                         }
                         onClicked: {
                             console.log("Connect to scale:", modelData.name, modelData.type)
@@ -335,19 +335,19 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     color: Qt.darker(Theme.surfaceColor, 1.2)
-                    radius: 4
+                    radius: Theme.scaled(4)
 
                     ScrollView {
                         id: scaleLogScroll
                         anchors.fill: parent
-                        anchors.margins: 8
+                        anchors.margins: Theme.scaled(8)
                         clip: true
 
                         TextArea {
                             id: scaleLogText
                             readOnly: true
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.scaled(11)
                             font.family: "monospace"
                             wrapMode: Text.Wrap
                             background: null

@@ -245,7 +245,7 @@ Page {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: 40
+        height: Theme.scaled(40)
         color: Qt.rgba(0, 0, 0, 0.5)
 
         property bool showDate: ScreensaverManager.isPersonalCategory &&
@@ -271,7 +271,7 @@ Page {
             }
             color: "white"
             opacity: 0.7
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
         }
     }
 
@@ -280,12 +280,12 @@ Page {
         z: 2
         anchors.bottom: parent.bottom
         anchors.right: parent.right
-        anchors.margins: 50
+        anchors.margins: Theme.scaled(50)
         anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20)  // Above credits bar
         text: Qt.formatTime(currentTime, "hh:mm")
         color: "white"
         opacity: 0.8
-        font.pixelSize: 80
+        font.pixelSize: Theme.scaled(80)
         font.weight: Font.Light
 
         property date currentTime: new Date()
@@ -304,7 +304,7 @@ Page {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 3
+        height: Theme.scaled(3)
         color: "transparent"
         visible: ScreensaverManager.isDownloading
 
@@ -331,7 +331,7 @@ Page {
         fallback: "Touch to wake"
         color: "white"
         opacity: 0.5
-        font.pixelSize: 24
+        font.pixelSize: Theme.scaled(24)
 
         OpacityAnimator {
             target: touchHint

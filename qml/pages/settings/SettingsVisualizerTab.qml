@@ -57,7 +57,7 @@ Item {
         width: parent.width
         height: parent.height
         y: -visualizerTab.keyboardOffset
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         Behavior on y {
             NumberAnimation { duration: 250; easing.type: Easing.OutQuad }
@@ -65,21 +65,21 @@ Item {
 
         // Account settings
         Rectangle {
-            Layout.preferredWidth: 350
+            Layout.preferredWidth: Theme.scaled(350)
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 12
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(12)
 
                 Tr {
                     key: "settings.visualizer.account"
                     fallback: "Visualizer.coffee Account"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
@@ -88,7 +88,7 @@ Item {
                     key: "settings.visualizer.accountDesc"
                     fallback: "Upload your shots to visualizer.coffee for tracking and analysis"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.WordWrap
                 }
 
@@ -97,13 +97,13 @@ Item {
                 // Username
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: Theme.scaled(4)
 
                     Tr {
                         key: "settings.visualizer.username"
                         fallback: "Username / Email"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                     }
 
                     TextField {
@@ -114,15 +114,15 @@ Item {
                         color: Theme.textColor
                         placeholderTextColor: Theme.textSecondaryColor
                         inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
-                        leftPadding: 12
-                        rightPadding: 12
-                        topPadding: 12
-                        bottomPadding: 12
+                        leftPadding: Theme.scaled(12)
+                        rightPadding: Theme.scaled(12)
+                        topPadding: Theme.scaled(12)
+                        bottomPadding: Theme.scaled(12)
                         background: Rectangle {
                             color: Theme.backgroundColor
-                            radius: 4
+                            radius: Theme.scaled(4)
                             border.color: usernameField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
                         onTextChanged: Settings.visualizerUsername = text
                         onAccepted: passwordField.forceActiveFocus()
@@ -135,13 +135,13 @@ Item {
                 // Password
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: Theme.scaled(4)
 
                     Tr {
                         key: "settings.visualizer.password"
                         fallback: "Password"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                     }
 
                     TextField {
@@ -153,15 +153,15 @@ Item {
                         color: Theme.textColor
                         placeholderTextColor: Theme.textSecondaryColor
                         inputMethodHints: Qt.ImhNoAutoUppercase
-                        leftPadding: 12
-                        rightPadding: 12
-                        topPadding: 12
-                        bottomPadding: 12
+                        leftPadding: Theme.scaled(12)
+                        rightPadding: Theme.scaled(12)
+                        topPadding: Theme.scaled(12)
+                        bottomPadding: Theme.scaled(12)
                         background: Rectangle {
                             color: Theme.backgroundColor
-                            radius: 4
+                            radius: Theme.scaled(4)
                             border.color: passwordField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
                         onTextChanged: Settings.visualizerPassword = text
                         onAccepted: {
@@ -179,7 +179,7 @@ Item {
                 // Test connection button
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: Theme.scaled(10)
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
@@ -190,12 +190,12 @@ Item {
                             MainController.visualizer.testConnection()
                         }
                         background: Rectangle {
-                            implicitWidth: 140
-                            implicitHeight: 40
-                            radius: 6
+                            implicitWidth: Theme.scaled(140)
+                            implicitHeight: Theme.scaled(40)
+                            radius: Theme.scaled(6)
                             color: parent.enabled ? Theme.primaryColor : Theme.backgroundColor
                             border.color: parent.enabled ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
                         contentItem: Text {
                             text: parent.text
@@ -209,7 +209,7 @@ Item {
                     Text {
                         text: visualizerTab.testResultMessage
                         color: visualizerTab.testResultSuccess ? Theme.successColor : Theme.errorColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                         visible: visualizerTab.testResultMessage.length > 0
                     }
                 }
@@ -230,7 +230,7 @@ Item {
                     key: "settings.visualizer.signUp"
                     fallback: "Don't have an account? Sign up at visualizer.coffee"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
 
@@ -253,43 +253,43 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 12
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(12)
 
                 Tr {
                     key: "settings.visualizer.uploadSettings"
                     fallback: "Upload Settings"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
                 // Auto-upload toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
 
                     ColumnLayout {
-                        spacing: 2
+                        spacing: Theme.scaled(2)
 
                         Tr {
                             key: "settings.visualizer.autoUpload"
                             fallback: "Auto-Upload Shots"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Tr {
                             key: "settings.visualizer.autoUploadDesc"
                             fallback: "Automatically upload espresso shots after completion"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         checked: Settings.visualizerAutoUpload
                         onCheckedChanged: Settings.visualizerAutoUpload = checked
                     }
@@ -298,23 +298,23 @@ Item {
                 // Minimum duration
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
 
                     ColumnLayout {
-                        spacing: 2
+                        spacing: Theme.scaled(2)
 
                         Tr {
                             key: "settings.visualizer.minDuration"
                             fallback: "Minimum Duration"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Tr {
                             key: "settings.visualizer.minDurationDesc"
                             fallback: "Only upload shots longer than this (skip aborted shots)"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
                     }
 
@@ -339,29 +339,29 @@ Item {
                 // Extended metadata toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
 
                     ColumnLayout {
-                        spacing: 2
+                        spacing: Theme.scaled(2)
 
                         Tr {
                             key: "settings.visualizer.extendedMetadata"
                             fallback: "Extended Metadata"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Tr {
                             key: "settings.visualizer.extendedMetadataDesc"
                             fallback: "Include bean, grinder, and tasting notes with uploads"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         checked: Settings.visualizerExtendedMetadata
                         onCheckedChanged: Settings.visualizerExtendedMetadata = checked
                     }
@@ -370,30 +370,30 @@ Item {
                 // Show after shot toggle (only when extended metadata enabled)
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
                     visible: Settings.visualizerExtendedMetadata
 
                     ColumnLayout {
-                        spacing: 2
+                        spacing: Theme.scaled(2)
 
                         Tr {
                             key: "settings.visualizer.editAfterShot"
                             fallback: "Edit After Shot"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Tr {
                             key: "settings.visualizer.editAfterShotDesc"
                             fallback: "Open Shot Info page after each espresso extraction"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         checked: Settings.visualizerShowAfterShot
                         onCheckedChanged: Settings.visualizerShowAfterShot = checked
                     }
@@ -406,19 +406,19 @@ Item {
                     Layout.fillWidth: true
                     height: statusColumn.implicitHeight + 20
                     color: Qt.darker(Theme.surfaceColor, 1.2)
-                    radius: 8
+                    radius: Theme.scaled(8)
 
                     ColumnLayout {
                         id: statusColumn
                         anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 6
+                        anchors.margins: Theme.scaled(10)
+                        spacing: Theme.scaled(6)
 
                         Tr {
                             key: "settings.visualizer.lastUpload"
                             fallback: "Last Upload"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
 
                         Text {
@@ -427,14 +427,14 @@ Item {
                                    Theme.errorColor :
                                    MainController.visualizer.lastUploadStatus.indexOf("successful") >= 0 ?
                                    Theme.successColor : Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Text {
                             id: lastShotLink
                             text: MainController.visualizer.lastShotUrl
                             color: Theme.primaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                             visible: MainController.visualizer.lastShotUrl.length > 0
 
                             AccessibleMouseArea {

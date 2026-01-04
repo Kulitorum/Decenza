@@ -9,50 +9,50 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         // Left column: Current version info
         Rectangle {
-            Layout.preferredWidth: 280
+            Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 10
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(10)
 
                 Tr {
                     key: "settings.update.currentversion"
                     fallback: "Current Version"
                     color: Theme.textColor
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.scaled(14)
                     font.bold: true
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 80
+                    height: Theme.scaled(80)
                     color: Theme.backgroundColor
-                    radius: 8
+                    radius: Theme.scaled(8)
 
                     ColumnLayout {
                         anchors.centerIn: parent
-                        spacing: 2
+                        spacing: Theme.scaled(2)
 
                         Text {
                             Layout.alignment: Qt.AlignHCenter
                             text: "Decenza DE1"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Text {
                             Layout.alignment: Qt.AlignHCenter
                             text: "v" + AppVersion
                             color: Theme.accentColor
-                            font.pixelSize: 22
+                            font.pixelSize: Theme.scaled(22)
                             font.bold: true
                         }
 
@@ -60,7 +60,7 @@ Item {
                             Layout.alignment: Qt.AlignHCenter
                             text: DE1Device.simulationMode ? "SIMULATION MODE" : "Built with Qt 6"
                             color: DE1Device.simulationMode ? Theme.primaryColor : Theme.textSecondaryColor
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.scaled(11)
                             font.bold: DE1Device.simulationMode
                         }
                     }
@@ -71,29 +71,29 @@ Item {
                 // Auto-check toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.scaled(8)
 
                     ColumnLayout {
-                        spacing: 1
+                        spacing: Theme.scaled(1)
 
                         Tr {
                             key: "settings.update.autocheck"
                             fallback: "Auto-check for updates"
                             color: Theme.textColor
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.scaled(13)
                         }
 
                         Tr {
                             key: "settings.update.checkeveryhour"
                             fallback: "Check every hour"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.scaled(11)
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         checked: Settings.autoCheckUpdates
                         onToggled: Settings.autoCheckUpdates = checked
                     }
@@ -112,14 +112,14 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 10
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(10)
 
                 Tr {
                     key: "settings.update.softwareupdates"
                     fallback: "Software Updates"
                     color: Theme.textColor
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.scaled(14)
                     font.bold: true
                 }
 
@@ -128,25 +128,25 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: statusColumn.height + 20
                     color: Theme.backgroundColor
-                    radius: 8
+                    radius: Theme.scaled(8)
 
                     ColumnLayout {
                         id: statusColumn
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.margins: 10
-                        spacing: 8
+                        anchors.margins: Theme.scaled(10)
+                        spacing: Theme.scaled(8)
 
                         // Status row
                         RowLayout {
-                            spacing: 8
+                            spacing: Theme.scaled(8)
                             visible: !MainController.updateChecker.checking && !MainController.updateChecker.downloading
 
                             Rectangle {
-                                width: 10
-                                height: 10
-                                radius: 5
+                                width: Theme.scaled(10)
+                                height: Theme.scaled(10)
+                                radius: Theme.scaled(5)
                                 color: MainController.updateChecker.updateAvailable ? Theme.primaryColor : Theme.successColor
                             }
 
@@ -161,49 +161,49 @@ Item {
                                     }
                                 }
                                 color: Theme.textColor
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.scaled(13)
                             }
                         }
 
                         // Checking indicator
                         RowLayout {
-                            spacing: 8
+                            spacing: Theme.scaled(8)
                             visible: MainController.updateChecker.checking
 
                             BusyIndicator {
                                 running: true
-                                Layout.preferredWidth: 20
-                                Layout.preferredHeight: 20
+                                Layout.preferredWidth: Theme.scaled(20)
+                                Layout.preferredHeight: Theme.scaled(20)
                             }
 
                             Tr {
                                 key: "settings.update.checking"
                                 fallback: "Checking for updates..."
                                 color: Theme.textColor
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.scaled(13)
                             }
                         }
 
                         // Download progress
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 6
+                            spacing: Theme.scaled(6)
                             visible: MainController.updateChecker.downloading
 
                             RowLayout {
-                                spacing: 8
+                                spacing: Theme.scaled(8)
 
                                 Tr {
                                     key: "settings.update.downloading"
                                     fallback: "Downloading update..."
                                     color: Theme.textColor
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.scaled(13)
                                 }
 
                                 Text {
                                     text: MainController.updateChecker.downloadProgress + "%"
                                     color: Theme.textSecondaryColor
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.scaled(12)
                                 }
                             }
 
@@ -219,7 +219,7 @@ Item {
                             visible: MainController.updateChecker.errorMessage !== ""
                             text: MainController.updateChecker.errorMessage
                             color: Theme.errorColor
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -228,7 +228,7 @@ Item {
                 // Action buttons row
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: Theme.scaled(10)
                     visible: !MainController.updateChecker.checking && !MainController.updateChecker.downloading
 
                     Button {
@@ -238,19 +238,19 @@ Item {
 
                         contentItem: Text {
                             text: parent.text
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                             color: parent.enabled ? Theme.textColor : Theme.textSecondaryColor
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
 
                         background: Rectangle {
-                            implicitWidth: 100
-                            implicitHeight: 32
+                            implicitWidth: Theme.scaled(100)
+                            implicitHeight: Theme.scaled(32)
                             color: parent.down ? Qt.darker(Theme.surfaceColor, 1.1) : Theme.surfaceColor
                             border.color: Theme.borderColor
-                            border.width: 1
-                            radius: 6
+                            border.width: Theme.scaled(1)
+                            radius: Theme.scaled(6)
                         }
                     }
 
@@ -261,17 +261,17 @@ Item {
 
                         contentItem: Text {
                             text: parent.text
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                             color: "white"
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
 
                         background: Rectangle {
-                            implicitWidth: 120
-                            implicitHeight: 32
+                            implicitWidth: Theme.scaled(120)
+                            implicitHeight: Theme.scaled(32)
                             color: parent.down ? Qt.darker(Theme.primaryColor, 1.1) : Theme.primaryColor
-                            radius: 6
+                            radius: Theme.scaled(6)
                         }
                     }
 
@@ -282,19 +282,19 @@ Item {
 
                         contentItem: Text {
                             text: parent.text
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                             color: Theme.primaryColor
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
 
                         background: Rectangle {
-                            implicitWidth: 100
-                            implicitHeight: 32
+                            implicitWidth: Theme.scaled(100)
+                            implicitHeight: Theme.scaled(32)
                             color: parent.down ? Qt.darker(Theme.surfaceColor, 1.1) : Theme.surfaceColor
                             border.color: Theme.primaryColor
-                            border.width: 1
-                            radius: 6
+                            border.width: Theme.scaled(1)
+                            radius: Theme.scaled(6)
                         }
                     }
 
@@ -319,17 +319,17 @@ Item {
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.width: 1
+            border.width: Theme.scaled(1)
             border.color: Theme.borderColor
         }
 
         contentItem: ColumnLayout {
-            spacing: 0
+            spacing: Theme.scaled(0)
 
             // Header
             Rectangle {
                 Layout.fillWidth: true
-                height: 44
+                height: Theme.scaled(44)
                 color: Theme.backgroundColor
                 radius: Theme.cardRadius
 
@@ -344,14 +344,14 @@ Item {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 15
-                    anchors.rightMargin: 10
+                    anchors.leftMargin: Theme.scaled(15)
+                    anchors.rightMargin: Theme.scaled(10)
 
                     Text {
                         text: TranslationManager.translate("settings.update.whatsnew", "What's New?") +
                               (MainController.updateChecker.latestVersion ? " - v" + MainController.updateChecker.latestVersion : "")
                         color: Theme.textColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                         font.bold: true
                     }
 
@@ -363,7 +363,7 @@ Item {
 
                         contentItem: Text {
                             text: parent.text
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                             font.bold: true
                             color: Theme.textSecondaryColor
                             horizontalAlignment: Text.AlignHCenter
@@ -371,10 +371,10 @@ Item {
                         }
 
                         background: Rectangle {
-                            implicitWidth: 28
-                            implicitHeight: 28
+                            implicitWidth: Theme.scaled(28)
+                            implicitHeight: Theme.scaled(28)
                             color: parent.hovered ? Theme.surfaceColor : "transparent"
-                            radius: 4
+                            radius: Theme.scaled(4)
                         }
                     }
                 }
@@ -384,7 +384,7 @@ Item {
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.margins: 15
+                Layout.margins: Theme.scaled(15)
 
                 ScrollView {
                     id: notesScrollView
@@ -398,7 +398,7 @@ Item {
                         readOnly: true
                         text: MainController.updateChecker.releaseNotes
                         color: Theme.textColor
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.scaled(13)
                         wrapMode: Text.WordWrap
                         background: null
                         selectByMouse: true
@@ -410,10 +410,10 @@ Item {
                     id: scrollIndicator
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 5
-                    width: 28
-                    height: 28
-                    radius: 14
+                    anchors.bottomMargin: Theme.scaled(5)
+                    width: Theme.scaled(28)
+                    height: Theme.scaled(28)
+                    radius: Theme.scaled(14)
                     color: Theme.primaryColor
                     opacity: 0.9
                     visible: {
@@ -425,7 +425,7 @@ Item {
                         anchors.centerIn: parent
                         text: "↓"
                         color: "white"
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
 

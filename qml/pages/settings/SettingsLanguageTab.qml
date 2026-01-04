@@ -62,7 +62,7 @@ Item {
                     delegate: Item {
                         id: langDelegate
                         width: languageList.width
-                        height: 44
+                        height: Theme.scaled(44)
 
                         property bool highlighted: modelData === TranslationManager.currentLanguage
                         property string langCode: modelData
@@ -90,9 +90,9 @@ Item {
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 8
-                            anchors.rightMargin: 8
-                            spacing: 8
+                            anchors.leftMargin: Theme.scaled(8)
+                            anchors.rightMargin: Theme.scaled(8)
+                            spacing: Theme.scaled(8)
 
                             Text {
                                 Layout.fillWidth: true
@@ -156,7 +156,7 @@ Item {
 
                     Button {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 48
+                        Layout.preferredHeight: Theme.scaled(48)
                         text: "Add..."
 
                         Accessible.role: Accessible.Button
@@ -166,7 +166,7 @@ Item {
                         onClicked: pageStack.push("AddLanguagePage.qml")
 
                         background: Rectangle {
-                            implicitHeight: 48
+                            implicitHeight: Theme.scaled(48)
                             color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.lighter(Theme.surfaceColor, 1.3)
                             radius: Theme.buttonRadius
                         }
@@ -183,7 +183,7 @@ Item {
                     // Delete button - temporarily visible
                     Button {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 48
+                        Layout.preferredHeight: Theme.scaled(48)
                         visible: true
                         text: "Delete"
                         enabled: TranslationManager.currentLanguage !== "en"
@@ -195,7 +195,7 @@ Item {
                         onClicked: deleteConfirmPopup.open()
 
                         background: Rectangle {
-                            implicitHeight: 48
+                            implicitHeight: Theme.scaled(48)
                             color: parent.down ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
                             radius: Theme.buttonRadius
                             opacity: parent.enabled ? 1.0 : 0.3
@@ -212,7 +212,7 @@ Item {
 
                     Button {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 48
+                        Layout.preferredHeight: Theme.scaled(48)
                         text: TranslationManager.downloading ? "..." : "Update"
                         enabled: !TranslationManager.downloading && TranslationManager.currentLanguage !== "en" && !TranslationManager.isRemoteLanguage(TranslationManager.currentLanguage)
 
@@ -221,7 +221,7 @@ Item {
                         Accessible.description: TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
 
                         background: Rectangle {
-                            implicitHeight: 48
+                            implicitHeight: Theme.scaled(48)
                             color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                             radius: Theme.buttonRadius
                             opacity: parent.enabled ? 1.0 : 0.5
@@ -272,8 +272,8 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.margins: 12
-                        spacing: 8
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(8)
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -314,16 +314,16 @@ Item {
                             }
 
                             background: Rectangle {
-                                implicitHeight: 8
+                                implicitHeight: Theme.scaled(8)
                                 color: Theme.borderColor
-                                radius: 4
+                                radius: Theme.scaled(4)
                             }
 
                             contentItem: Item {
                                 Rectangle {
                                     width: parent.parent.visualPosition * parent.width
                                     height: parent.height
-                                    radius: 4
+                                    radius: Theme.scaled(4)
                                     color: Theme.successColor
                                 }
                             }
@@ -346,7 +346,7 @@ Item {
                 // English info
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: 50
+                    implicitHeight: Theme.scaled(50)
                     color: Theme.backgroundColor
                     radius: Theme.buttonRadius
                     visible: TranslationManager.currentLanguage === "en"
@@ -370,7 +370,7 @@ Item {
                     Accessible.description: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.accessible.browse.en.description", "Open the string browser to customize English text") : TranslationManager.translate("language.accessible.browse.description", "Open the translation browser to translate individual strings")
 
                     background: Rectangle {
-                        implicitHeight: 48
+                        implicitHeight: Theme.scaled(48)
                         color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                         radius: Theme.buttonRadius
                     }
@@ -400,7 +400,7 @@ Item {
                     Accessible.description: TranslationManager.translate("language.accessible.submit.description", "Share your translations with the community")
 
                     background: Rectangle {
-                        implicitHeight: 48
+                        implicitHeight: Theme.scaled(48)
                         color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                         radius: Theme.buttonRadius
                         opacity: parent.enabled ? 1.0 : 0.5
@@ -433,13 +433,13 @@ Item {
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.width: 2
+            border.width: Theme.scaled(2)
             border.color: Theme.warningColor
         }
 
         contentItem: Column {
             spacing: Theme.spacingMedium
-            width: 280
+            width: Theme.scaled(280)
 
             Text {
                 width: parent.width
@@ -467,10 +467,10 @@ Item {
                     text: "Cancel"
 
                     background: Rectangle {
-                        implicitHeight: 40
+                        implicitHeight: Theme.scaled(40)
                         color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
                         radius: Theme.buttonRadius
-                        border.width: 1
+                        border.width: Theme.scaled(1)
                         border.color: Theme.borderColor
                     }
 
@@ -490,7 +490,7 @@ Item {
                     text: "Delete"
 
                     background: Rectangle {
-                        implicitHeight: 40
+                        implicitHeight: Theme.scaled(40)
                         color: parent.down ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
                         radius: Theme.buttonRadius
                     }
@@ -527,16 +527,16 @@ Item {
             value: TranslationManager.scanProgress
 
             background: Rectangle {
-                implicitHeight: 8
+                implicitHeight: Theme.scaled(8)
                 color: Qt.rgba(1, 1, 1, 0.2)
-                radius: 4
+                radius: Theme.scaled(4)
             }
 
             contentItem: Item {
                 Rectangle {
                     width: parent.parent.visualPosition * parent.width
                     height: parent.height
-                    radius: 4
+                    radius: Theme.scaled(4)
                     color: Theme.primaryColor
                 }
             }
@@ -559,13 +559,13 @@ Item {
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.width: 2
+            border.width: Theme.scaled(2)
             border.color: submitResultPopup.isSuccess ? Theme.successColor : Theme.warningColor
         }
 
         contentItem: Column {
             spacing: Theme.spacingMedium
-            width: 300
+            width: Theme.scaled(300)
 
             Text {
                 width: parent.width
@@ -589,7 +589,7 @@ Item {
                 text: "OK"
 
                 background: Rectangle {
-                    implicitHeight: 40
+                    implicitHeight: Theme.scaled(40)
                     color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     radius: Theme.buttonRadius
                 }

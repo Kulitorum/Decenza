@@ -120,7 +120,7 @@ Page {
                     color: "transparent"
                     radius: Theme.buttonRadius
                     border.color: Theme.borderColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
                 contentItem: Text {
                     text: parent.text
@@ -155,7 +155,7 @@ Page {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
 
-            ComboBox {
+            StyledComboBox {
                 id: profileFilter
                 Layout.preferredWidth: Theme.scaled(150)
                 model: profileOptions
@@ -165,7 +165,7 @@ Page {
                     color: Theme.surfaceColor
                     radius: Theme.buttonRadius
                     border.color: Theme.borderColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
                 contentItem: Text {
                     text: profileFilter.displayText
@@ -176,7 +176,7 @@ Page {
                 }
             }
 
-            ComboBox {
+            StyledComboBox {
                 id: beanFilter
                 Layout.preferredWidth: Theme.scaled(150)
                 model: beanOptions
@@ -186,7 +186,7 @@ Page {
                     color: Theme.surfaceColor
                     radius: Theme.buttonRadius
                     border.color: Theme.borderColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
                 contentItem: Text {
                     text: beanFilter.displayText
@@ -255,10 +255,10 @@ Page {
                         indicator: Rectangle {
                             implicitWidth: Theme.scaled(24)
                             implicitHeight: Theme.scaled(24)
-                            radius: 4
+                            radius: Theme.scaled(4)
                             color: parent.checked ? Theme.primaryColor : "transparent"
                             border.color: parent.checked ? Theme.primaryColor : Theme.borderColor
-                            border.width: 2
+                            border.width: Theme.scaled(2)
 
                             Text {
                                 anchors.centerIn: parent
@@ -273,7 +273,7 @@ Page {
                     // Shot info
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 2
+                        spacing: Theme.scaled(2)
 
                         RowLayout {
                             Layout.fillWidth: true

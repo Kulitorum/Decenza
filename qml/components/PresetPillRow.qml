@@ -178,7 +178,7 @@ FocusScope {
 
                         color: isSelected ? Theme.primaryColor : Theme.backgroundColor
                         border.color: isSelected ? Theme.primaryColor : Theme.textSecondaryColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Accessible.role: Accessible.Button
                         Accessible.name: (modelData.preset.name || "") + (isSelected ? ", " + TranslationManager.translate("presets.selected", "selected") : "")

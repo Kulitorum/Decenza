@@ -9,25 +9,25 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         // Main accessibility settings card
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 380
+            Layout.preferredHeight: Theme.scaled(380)
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 12
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(12)
 
                 Tr {
                     key: "settings.accessibility.title"
                     fallback: "Accessibility"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
@@ -36,25 +36,25 @@ Item {
                     key: "settings.accessibility.desc"
                     fallback: "Screen reader support and audio feedback for blind and visually impaired users"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.WordWrap
                 }
 
                 // Enable toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
 
                     Tr {
                         key: "settings.accessibility.enable"
                         fallback: "Enable Accessibility"
                         color: Theme.textColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         checked: AccessibilityManager.enabled
                         onCheckedChanged: AccessibilityManager.enabled = checked
                     }
@@ -63,19 +63,19 @@ Item {
                 // TTS toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
                     opacity: AccessibilityManager.enabled ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.accessibility.voiceAnnouncements"
                         fallback: "Voice Announcements"
                         color: Theme.textColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         checked: AccessibilityManager.ttsEnabled
                         enabled: AccessibilityManager.enabled
                         onCheckedChanged: {
@@ -99,28 +99,28 @@ Item {
                 // Tick sound toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
                     opacity: AccessibilityManager.enabled ? 1.0 : 0.5
 
                     ColumnLayout {
-                        spacing: 2
+                        spacing: Theme.scaled(2)
                         Tr {
                             key: "settings.accessibility.frameTick"
                             fallback: "Frame Tick Sound"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
                         Tr {
                             key: "settings.accessibility.frameTickDesc"
                             fallback: "Play a tick when extraction frames change"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 11
+                            font.pixelSize: Theme.scaled(11)
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         checked: AccessibilityManager.tickEnabled
                         enabled: AccessibilityManager.enabled
                         onCheckedChanged: {
@@ -135,14 +135,14 @@ Item {
                 // Tick sound picker and volume
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
                     opacity: (AccessibilityManager.enabled && AccessibilityManager.tickEnabled) ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.accessibility.tickSound"
                         fallback: "Tick Sound"
                         color: Theme.textColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                     }
 
                     Item { Layout.fillWidth: true }

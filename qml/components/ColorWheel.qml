@@ -64,7 +64,7 @@ Item {
         radius: height / 2
         color: "transparent"
         border.color: "white"
-        border.width: 3
+        border.width: Theme.scaled(3)
 
         // Position on the ring based on hue
         property real angle: (root.hue - 90) * Math.PI / 180
@@ -81,7 +81,7 @@ Item {
             radius: height / 2
             color: Qt.hsla(root.hue / 360, 1.0, 0.5, 1.0)
             border.color: Qt.rgba(0, 0, 0, 0.5)
-            border.width: 1
+            border.width: Theme.scaled(1)
         }
 
         // Shadow effect
@@ -92,7 +92,7 @@ Item {
             radius: height / 2
             color: "transparent"
             border.color: Qt.rgba(0, 0, 0, 0.3)
-            border.width: 2
+            border.width: Theme.scaled(2)
             z: -1
         }
     }
@@ -145,7 +145,7 @@ Item {
             radius: width / 2
             color: Qt.hsla(root.hue / 360, 1.0, 0.5, 1.0)
             border.color: Theme.borderColor
-            border.width: 2
+            border.width: Theme.scaled(2)
         }
     }
 }

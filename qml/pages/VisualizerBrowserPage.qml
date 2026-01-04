@@ -65,7 +65,7 @@ Page {
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
-        spacing: 0
+        spacing: Theme.scaled(0)
 
         // Status message
         Rectangle {
@@ -136,15 +136,15 @@ Page {
                         maximumLength: 4
                         placeholderTextColor: Theme.textSecondaryColor
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                        leftPadding: 12
-                        rightPadding: 12
-                        topPadding: 12
-                        bottomPadding: 12
+                        leftPadding: Theme.scaled(12)
+                        rightPadding: Theme.scaled(12)
+                        topPadding: Theme.scaled(12)
+                        bottomPadding: Theme.scaled(12)
 
                         background: Rectangle {
                             color: Theme.surfaceColor
                             border.color: shareCodeInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 2
+                            border.width: Theme.scaled(2)
                             radius: Theme.scaled(8)
                         }
 
@@ -379,7 +379,7 @@ Page {
                                 radius: Theme.scaled(4)
                                 color: Theme.surfaceColor
                                 border.color: Theme.textSecondaryColor
-                                border.width: 1
+                                border.width: Theme.scaled(1)
                             }
                             contentItem: Text {
                                 text: trCancel.text
@@ -454,14 +454,14 @@ Page {
                         selectByMouse: true
                         focus: true
                         inputMethodHints: Qt.ImhNoAutoUppercase
-                        leftPadding: 12
-                        rightPadding: 12
-                        topPadding: 12
-                        bottomPadding: 12
+                        leftPadding: Theme.scaled(12)
+                        rightPadding: Theme.scaled(12)
+                        topPadding: Theme.scaled(12)
+                        bottomPadding: Theme.scaled(12)
                         background: Rectangle {
                             color: Theme.surfaceColor
                             border.color: newNameInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 2
+                            border.width: Theme.scaled(2)
                             radius: Theme.scaled(4)
                         }
 
@@ -504,7 +504,7 @@ Page {
                                 radius: Theme.scaled(4)
                                 color: Theme.surfaceColor
                                 border.color: Theme.textSecondaryColor
-                                border.width: 1
+                                border.width: Theme.scaled(1)
                             }
                             contentItem: Text {
                                 text: trBack.text

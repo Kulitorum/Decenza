@@ -9,25 +9,25 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         // Category selector
         Rectangle {
-            Layout.preferredWidth: 250
+            Layout.preferredWidth: Theme.scaled(250)
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 10
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(10)
 
                 Tr {
                     key: "settings.screensaver.videoCategory"
                     fallback: "Video Category"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
@@ -36,7 +36,7 @@ Item {
                     key: "settings.screensaver.videoCategoryDesc"
                     fallback: "Choose a theme for screensaver videos"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.WordWrap
                 }
 
@@ -49,27 +49,27 @@ Item {
                     Layout.fillHeight: true
                     clip: true
                     model: ScreensaverManager.categories
-                    spacing: 2
+                    spacing: Theme.scaled(2)
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     delegate: ItemDelegate {
                         width: ListView.view.width
-                        height: 36
+                        height: Theme.scaled(36)
                         highlighted: modelData.id === ScreensaverManager.selectedCategoryId
 
                         background: Rectangle {
                             color: parent.highlighted ? Theme.primaryColor :
                                    parent.hovered ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
-                            radius: 6
+                            radius: Theme.scaled(6)
                         }
 
                         contentItem: Text {
                             text: modelData.name
                             color: parent.highlighted ? "white" : Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                             font.bold: parent.highlighted
                             verticalAlignment: Text.AlignVCenter
-                            leftPadding: 10
+                            leftPadding: Theme.scaled(10)
                         }
 
                         onClicked: {
@@ -105,72 +105,72 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 15
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(15)
 
                 Tr {
                     key: "settings.screensaver.settings"
                     fallback: "Screensaver Settings"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
                 // Status row
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 20
+                    spacing: Theme.scaled(20)
 
                     ColumnLayout {
-                        spacing: 4
+                        spacing: Theme.scaled(4)
 
                         Tr {
                             key: "settings.screensaver.currentCategory"
                             fallback: "Current Category"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
 
                         Text {
                             text: ScreensaverManager.selectedCategoryName
                             color: Theme.primaryColor
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
                     }
 
                     ColumnLayout {
-                        spacing: 4
+                        spacing: Theme.scaled(4)
 
                         Tr {
                             key: "settings.screensaver.videos"
                             fallback: "Videos"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
 
                         Text {
                             text: ScreensaverManager.itemCount + (ScreensaverManager.isDownloading ? " (" + TranslationManager.translate("settings.screensaver.downloading", "downloading...") + ")" : "")
                             color: Theme.textColor
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.scaled(16)
                         }
                     }
 
                     ColumnLayout {
-                        spacing: 4
+                        spacing: Theme.scaled(4)
 
                         Tr {
                             key: "settings.screensaver.cacheUsage"
                             fallback: "Cache Usage"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
 
                         Text {
                             text: (ScreensaverManager.cacheUsedBytes / 1024 / 1024).toFixed(0) + " MB / " +
                                   (ScreensaverManager.maxCacheBytes / 1024 / 1024 / 1024).toFixed(1) + " GB"
                             color: Theme.textColor
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.scaled(16)
                         }
                     }
 
@@ -180,15 +180,15 @@ Item {
                 // Download progress
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 6
-                    radius: 3
+                    height: Theme.scaled(6)
+                    radius: Theme.scaled(3)
                     color: Qt.darker(Theme.surfaceColor, 1.3)
                     visible: ScreensaverManager.isDownloading
 
                     Rectangle {
                         width: parent.width * ScreensaverManager.downloadProgress
                         height: parent.height
-                        radius: 3
+                        radius: Theme.scaled(3)
                         color: Theme.primaryColor
 
                         Behavior on width { NumberAnimation { duration: 200 } }
@@ -198,35 +198,35 @@ Item {
                 // Toggles row
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 30
+                    spacing: Theme.scaled(30)
 
                     RowLayout {
-                        spacing: 10
+                        spacing: Theme.scaled(10)
 
                         Tr {
                             key: "settings.screensaver.enabled"
                             fallback: "Enabled"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
-                        Switch {
+                        StyledSwitch {
                             checked: ScreensaverManager.enabled
                             onCheckedChanged: ScreensaverManager.enabled = checked
                         }
                     }
 
                     RowLayout {
-                        spacing: 10
+                        spacing: Theme.scaled(10)
 
                         Tr {
                             key: "settings.screensaver.cacheVideos"
                             fallback: "Cache Videos"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
-                        Switch {
+                        StyledSwitch {
                             checked: ScreensaverManager.cacheEnabled
                             onCheckedChanged: ScreensaverManager.cacheEnabled = checked
                         }
@@ -234,17 +234,17 @@ Item {
 
                     // Show date toggle - only visible for Personal category
                     RowLayout {
-                        spacing: 10
+                        spacing: Theme.scaled(10)
                         visible: ScreensaverManager.isPersonalCategory
 
                         Tr {
                             key: "settings.screensaver.showDate"
                             fallback: "Show Date"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
-                        Switch {
+                        StyledSwitch {
                             checked: ScreensaverManager.showDateOnPersonal
                             onCheckedChanged: ScreensaverManager.showDateOnPersonal = checked
                         }
@@ -258,7 +258,7 @@ Item {
                 // Action buttons
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: Theme.scaled(10)
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.screensaver.refreshVideos", "Refresh Videos")

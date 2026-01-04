@@ -9,25 +9,25 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         // Left column: Shot History stats
         Rectangle {
-            Layout.preferredWidth: 300
+            Layout.preferredWidth: Theme.scaled(300)
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 12
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(12)
 
                 Tr {
                     key: "settings.history.title"
                     fallback: "Shot History"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
@@ -36,7 +36,7 @@ Item {
                     key: "settings.history.storedlocally"
                     fallback: "All shots are stored locally on your device"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.WordWrap
                 }
 
@@ -45,28 +45,28 @@ Item {
                 // Stats
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 80
+                    height: Theme.scaled(80)
                     color: Theme.backgroundColor
-                    radius: 8
+                    radius: Theme.scaled(8)
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.margins: 15
+                        anchors.margins: Theme.scaled(15)
 
                         ColumnLayout {
-                            spacing: 4
+                            spacing: Theme.scaled(4)
 
                             Tr {
                                 key: "settings.history.totalshots"
                                 fallback: "Total Shots"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.scaled(12)
                             }
 
                             Text {
                                 text: MainController.shotHistory ? MainController.shotHistory.totalShots : "0"
                                 color: Theme.primaryColor
-                                font.pixelSize: 32
+                                font.pixelSize: Theme.scaled(32)
                                 font.bold: true
                             }
                         }
@@ -88,14 +88,14 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 15
-                spacing: 12
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(12)
 
                 Tr {
                     key: "settings.history.remoteaccess"
                     fallback: "Remote Access"
                     color: Theme.textColor
-                    font.pixelSize: 16
+                    font.pixelSize: Theme.scaled(16)
                     font.bold: true
                 }
 
@@ -104,7 +104,7 @@ Item {
                     key: "settings.history.enablehttpserver"
                     fallback: "Enable HTTP server to browse shots from any web browser on your network"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.WordWrap
                 }
 
@@ -113,29 +113,29 @@ Item {
                 // Enable toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
 
                     ColumnLayout {
-                        spacing: 2
+                        spacing: Theme.scaled(2)
 
                         Tr {
                             key: "settings.history.enableserver"
                             fallback: "Enable Server"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Tr {
                             key: "settings.history.starthttpserver"
                             fallback: "Start HTTP server on this device"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Switch {
+                    StyledSwitch {
                         id: serverSwitch
                         checked: Settings.shotServerEnabled
                         onToggled: Settings.shotServerEnabled = checked
@@ -145,14 +145,14 @@ Item {
                 // Port setting
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 15
+                    spacing: Theme.scaled(15)
                     opacity: serverSwitch.checked ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.history.port"
                         fallback: "Port"
                         color: Theme.textColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                     }
 
                     Item { Layout.fillWidth: true }
@@ -162,16 +162,16 @@ Item {
                         text: Settings.shotServerPort.toString()
                         inputMethodHints: Qt.ImhDigitsOnly
                         color: Theme.textColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                         enabled: !serverSwitch.checked
                         horizontalAlignment: Text.AlignHCenter
-                        Layout.preferredWidth: 80
+                        Layout.preferredWidth: Theme.scaled(80)
 
                         background: Rectangle {
                             color: Theme.backgroundColor
-                            radius: 4
+                            radius: Theme.scaled(4)
                             border.color: portField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
 
                         onEditingFinished: {
@@ -192,7 +192,7 @@ Item {
                     Layout.fillWidth: true
                     height: statusContent.height + 30
                     color: Theme.backgroundColor
-                    radius: 8
+                    radius: Theme.scaled(8)
                     visible: serverSwitch.checked
 
                     ColumnLayout {
@@ -200,16 +200,16 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.margins: 15
-                        spacing: 10
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
 
                         RowLayout {
-                            spacing: 10
+                            spacing: Theme.scaled(10)
 
                             Rectangle {
-                                width: 12
-                                height: 12
-                                radius: 6
+                                width: Theme.scaled(12)
+                                height: Theme.scaled(12)
+                                radius: Theme.scaled(6)
                                 color: MainController.shotServer && MainController.shotServer.running ?
                                        Theme.successColor : Theme.errorColor
                             }
@@ -219,7 +219,7 @@ Item {
                                       TranslationManager.translate("settings.history.serverrunning", "Server Running") :
                                       TranslationManager.translate("settings.history.serverstopped", "Server Stopped")
                                 color: Theme.textColor
-                                font.pixelSize: 14
+                                font.pixelSize: Theme.scaled(14)
                             }
                         }
 
@@ -227,39 +227,39 @@ Item {
                         Rectangle {
                             visible: MainController.shotServer && MainController.shotServer.running
                             Layout.fillWidth: true
-                            height: 50
+                            height: Theme.scaled(50)
                             color: Theme.surfaceColor
-                            radius: 4
+                            radius: Theme.scaled(4)
                             border.color: Theme.primaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 10
+                                anchors.margins: Theme.scaled(10)
+                                spacing: Theme.scaled(10)
 
                                 Text {
                                     Layout.fillWidth: true
                                     text: MainController.shotServer ? MainController.shotServer.url : ""
                                     color: Theme.primaryColor
-                                    font.pixelSize: 16
+                                    font.pixelSize: Theme.scaled(16)
                                     font.bold: true
                                     elide: Text.ElideMiddle
                                 }
 
                                 Rectangle {
-                                    width: 60
-                                    height: 30
-                                    radius: 4
+                                    width: Theme.scaled(60)
+                                    height: Theme.scaled(30)
+                                    radius: Theme.scaled(4)
                                     color: copyArea.pressed ? Theme.primaryColor : "transparent"
                                     border.color: Theme.primaryColor
-                                    border.width: 1
+                                    border.width: Theme.scaled(1)
 
                                     Text {
                                         anchors.centerIn: parent
                                         text: copyFeedback.visible ? TranslationManager.translate("settings.history.copied", "Copied") : TranslationManager.translate("settings.history.copy", "Copy")
                                         color: copyArea.pressed ? "white" : Theme.primaryColor
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.scaled(12)
                                     }
 
                                     MouseArea {
@@ -301,7 +301,7 @@ Item {
                             key: "settings.history.openurl"
                             fallback: "Open this URL in any browser on your network"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
                     }

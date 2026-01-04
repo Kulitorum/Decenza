@@ -63,7 +63,7 @@ Rectangle {
 
         // Separator
         Rectangle {
-            width: 1
+            width: Theme.scaled(1)
             height: Theme.scaled(30)
             color: Theme.textSecondaryColor
             opacity: 0.3
@@ -85,7 +85,7 @@ Rectangle {
 
         // Separator
         Rectangle {
-            width: 1
+            width: Theme.scaled(1)
             height: Theme.scaled(30)
             color: Theme.textSecondaryColor
             opacity: 0.3
@@ -95,7 +95,7 @@ Rectangle {
         Rectangle {
             visible: BLEManager.scaleConnectionFailed || (BLEManager.hasSavedScale && (!ScaleDevice || !ScaleDevice.connected))
             color: BLEManager.scaleConnectionFailed ? Theme.errorColor : "transparent"
-            radius: 4
+            radius: Theme.scaled(4)
             Layout.preferredHeight: Theme.touchTargetMin
             Layout.preferredWidth: scaleWarningRow.implicitWidth + Theme.spacingMedium
 
@@ -173,7 +173,7 @@ Rectangle {
 
         // Separator
         Rectangle {
-            width: 1
+            width: Theme.scaled(1)
             height: Theme.scaled(30)
             color: Theme.textSecondaryColor
             opacity: 0.3

@@ -139,8 +139,8 @@ Page {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 0
-                    spacing: 0
+                    anchors.margins: Theme.scaled(0)
+                    spacing: Theme.scaled(0)
 
                     // Frame toolbar wrapper
                     Rectangle {
@@ -294,7 +294,7 @@ Page {
                         background: Rectangle {
                             color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(255, 255, 255, 0.05)
                             radius: Theme.scaled(8)
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                             border.color: Theme.textSecondaryColor
                         }
                         contentItem: Text {
@@ -330,7 +330,7 @@ Page {
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.scaled(12)
-            border.width: 1
+            border.width: Theme.scaled(1)
             border.color: Theme.textSecondaryColor
         }
 
@@ -526,15 +526,15 @@ Page {
                 font: Theme.bodyFont
                 color: Theme.textColor
                 placeholderTextColor: Theme.textSecondaryColor
-                leftPadding: 12
-                rightPadding: 12
-                topPadding: 12
-                bottomPadding: 12
+                leftPadding: Theme.scaled(12)
+                rightPadding: Theme.scaled(12)
+                topPadding: Theme.scaled(12)
+                bottomPadding: Theme.scaled(12)
                 background: Rectangle {
                     color: Theme.backgroundColor
-                    radius: 4
+                    radius: Theme.scaled(4)
                     border.color: saveAsTitleField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
                 onAccepted: saveAsDialog.accept()
             }
@@ -757,10 +757,10 @@ Page {
                         font: Theme.titleFont
                         color: Theme.textColor
                         placeholderTextColor: Theme.textSecondaryColor
-                        leftPadding: 12
-                        rightPadding: 12
-                        topPadding: 12
-                        bottomPadding: 12
+                        leftPadding: Theme.scaled(12)
+                        rightPadding: Theme.scaled(12)
+                        topPadding: Theme.scaled(12)
+                        bottomPadding: Theme.scaled(12)
                         background: Rectangle {
                             color: Qt.rgba(255, 255, 255, 0.1)
                             radius: Theme.scaled(4)
@@ -1031,7 +1031,7 @@ Page {
                             }
                         }
 
-                        ComboBox {
+                        StyledComboBox {
                             id: exitTypeCombo
                             Layout.fillWidth: true
                             enabled: exitIfCheck.checked
@@ -1181,15 +1181,15 @@ Page {
             font: Theme.bodyFont
             color: Theme.textColor
             placeholderTextColor: Theme.textSecondaryColor
-            leftPadding: 12
-            rightPadding: 12
-            topPadding: 12
-            bottomPadding: 12
+            leftPadding: Theme.scaled(12)
+            rightPadding: Theme.scaled(12)
+            topPadding: Theme.scaled(12)
+            bottomPadding: Theme.scaled(12)
             background: Rectangle {
                 color: Theme.backgroundColor
-                radius: 4
+                radius: Theme.scaled(4)
                 border.color: nameField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                border.width: 1
+                border.width: Theme.scaled(1)
             }
         }
 

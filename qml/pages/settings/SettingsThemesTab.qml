@@ -96,7 +96,7 @@ Item {
 
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: 4
+                                spacing: Theme.scaled(4)
 
                                 // Category header
                                 Text {
@@ -174,7 +174,7 @@ Item {
                 ColorEditor {
                     id: colorEditor
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 140
+                    Layout.preferredHeight: Theme.scaled(140)
 
                     Component.onCompleted: setColor(themesTab.selectedColorValue)
 
@@ -186,7 +186,7 @@ Item {
                 // Preset themes in horizontal scroll
                 ScrollView {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 44
+                    Layout.preferredHeight: Theme.scaled(44)
                     ScrollBar.horizontal.policy: ScrollBar.AsNeeded
                     ScrollBar.vertical.policy: ScrollBar.AlwaysOff
                     contentHeight: availableHeight
@@ -201,18 +201,18 @@ Item {
                             model: Settings.getPresetThemes()
 
                             Rectangle {
-                                height: 36
+                                height: Theme.scaled(36)
                                 width: presetRow.width + (modelData.isBuiltIn ? 0 : deleteBtn.width + 4)
                                 color: modelData.primaryColor
                                 radius: Theme.buttonRadius
                                 border.color: Settings.activeThemeName === modelData.name ? "white" : "transparent"
-                                border.width: 2
+                                border.width: Theme.scaled(2)
 
                                 Row {
                                     id: presetRow
                                     anchors.left: parent.left
                                     anchors.verticalCenter: parent.verticalCenter
-                                    leftPadding: 12
+                                    leftPadding: Theme.scaled(12)
                                     rightPadding: modelData.isBuiltIn ? 12 : 4
 
                                     Text {
@@ -233,18 +233,18 @@ Item {
                                 Rectangle {
                                     id: deleteBtn
                                     visible: !modelData.isBuiltIn
-                                    width: 24
-                                    height: 24
-                                    radius: 12
+                                    width: Theme.scaled(24)
+                                    height: Theme.scaled(24)
+                                    radius: Theme.scaled(12)
                                     color: deleteArea.pressed ? Qt.darker(parent.color, 1.3) : Qt.darker(parent.color, 1.15)
                                     anchors.right: parent.right
-                                    anchors.rightMargin: 6
+                                    anchors.rightMargin: Theme.scaled(6)
                                     anchors.verticalCenter: parent.verticalCenter
 
                                     Text {
                                         text: "x"
                                         color: "white"
-                                        font.pixelSize: 12
+                                        font.pixelSize: Theme.scaled(12)
                                         font.bold: true
                                         anchors.centerIn: parent
                                     }
@@ -263,12 +263,12 @@ Item {
 
                         // Save current theme button
                         Rectangle {
-                            height: 36
+                            height: Theme.scaled(36)
                             width: saveText.width + 24
                             color: Theme.surfaceColor
                             radius: Theme.buttonRadius
                             border.color: Theme.borderColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
 
                             Text {
                                 id: saveText

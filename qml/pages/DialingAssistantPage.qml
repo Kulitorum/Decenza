@@ -48,7 +48,7 @@ Page {
                     key: "dialingassistant.loading.wait"
                     fallback: "This may take a few seconds"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                     Layout.alignment: Qt.AlignHCenter
                 }
             }
@@ -69,9 +69,9 @@ Page {
 
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
-                    width: 64
-                    height: 64
-                    radius: 32
+                    width: Theme.scaled(64)
+                    height: Theme.scaled(64)
+                    radius: Theme.scaled(32)
                     color: Theme.errorColor
                     opacity: 0.2
 
@@ -79,7 +79,7 @@ Page {
                         anchors.centerIn: parent
                         text: "!"
                         color: Theme.errorColor
-                        font.pixelSize: 32
+                        font.pixelSize: Theme.scaled(32)
                         font.bold: true
                     }
                 }
@@ -107,12 +107,12 @@ Page {
                     Layout.alignment: Qt.AlignHCenter
                     onClicked: pageStack.pop()
                     background: Rectangle {
-                        implicitWidth: 120
-                        implicitHeight: 44
-                        radius: 6
+                        implicitWidth: Theme.scaled(120)
+                        implicitHeight: Theme.scaled(44)
+                        radius: Theme.scaled(6)
                         color: Theme.surfaceColor
                         border.color: Theme.borderColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
                     }
                     contentItem: Tr {
                         key: "dialingassistant.button.goback"
@@ -192,11 +192,11 @@ Page {
                     copyTimer.start()
                 }
                 background: Rectangle {
-                    implicitHeight: 48
-                    radius: 6
+                    implicitHeight: Theme.scaled(48)
+                    radius: Theme.scaled(6)
                     color: Theme.surfaceColor
                     border.color: Theme.borderColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
                 contentItem: Tr {
                     key: "dialingassistant.button.copy"
@@ -214,8 +214,8 @@ Page {
                 Layout.fillWidth: true
                 onClicked: pageStack.pop()
                 background: Rectangle {
-                    implicitHeight: 48
-                    radius: 6
+                    implicitHeight: Theme.scaled(48)
+                    radius: Theme.scaled(6)
                     color: Theme.primaryColor
                 }
                 contentItem: Tr {
@@ -235,10 +235,10 @@ Page {
         id: copyFeedback
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 100
+        anchors.bottomMargin: Theme.scaled(100)
         width: copyText.width + 32
-        height: 40
-        radius: 20
+        height: Theme.scaled(40)
+        radius: Theme.scaled(20)
         color: Theme.successColor
         visible: false
         opacity: visible ? 1 : 0

@@ -48,7 +48,7 @@ Page {
             // Header
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: 2
+                spacing: Theme.scaled(2)
 
                 Text {
                     text: shotData.profileName || "Shot Detail"
@@ -89,7 +89,7 @@ Page {
 
                 // Duration
                 ColumnLayout {
-                    spacing: 2
+                    spacing: Theme.scaled(2)
                     Tr {
                         key: "shotdetail.duration"
                         fallback: "Duration"
@@ -105,7 +105,7 @@ Page {
 
                 // Dose
                 ColumnLayout {
-                    spacing: 2
+                    spacing: Theme.scaled(2)
                     Tr {
                         key: "shotdetail.dose"
                         fallback: "Dose"
@@ -121,7 +121,7 @@ Page {
 
                 // Output
                 ColumnLayout {
-                    spacing: 2
+                    spacing: Theme.scaled(2)
                     Tr {
                         key: "shotdetail.output"
                         fallback: "Output"
@@ -137,7 +137,7 @@ Page {
 
                 // Ratio
                 ColumnLayout {
-                    spacing: 2
+                    spacing: Theme.scaled(2)
                     Tr {
                         key: "shotdetail.ratio"
                         fallback: "Ratio"
@@ -153,7 +153,7 @@ Page {
 
                 // Rating
                 ColumnLayout {
-                    spacing: 2
+                    spacing: Theme.scaled(2)
                     Tr {
                         key: "shotdetail.rating"
                         fallback: "Rating"
@@ -275,13 +275,13 @@ Page {
                         spacing: Theme.spacingLarge
 
                         ColumnLayout {
-                            spacing: 2
+                            spacing: Theme.scaled(2)
                             Tr { key: "shotdetail.tds"; fallback: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor }
                             Text { text: (shotData.drinkTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
                         }
 
                         ColumnLayout {
-                            spacing: 2
+                            spacing: Theme.scaled(2)
                             Tr { key: "shotdetail.ey"; fallback: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor }
                             Text { text: (shotData.drinkEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
                         }
@@ -335,7 +335,7 @@ Page {
                         color: "transparent"
                         radius: Theme.buttonRadius
                         border.color: Theme.borderColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
                     }
                     contentItem: Text {
                         text: parent.text
@@ -355,7 +355,7 @@ Page {
                         color: "transparent"
                         radius: Theme.buttonRadius
                         border.color: Theme.errorColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
                     }
                     contentItem: Text {
                         text: parent.text

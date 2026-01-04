@@ -220,7 +220,7 @@ Page {
 
             // Divider
             Rectangle {
-                Layout.preferredWidth: 1
+                Layout.preferredWidth: Theme.scaled(1)
                 Layout.fillHeight: true
                 Layout.topMargin: Theme.chartMarginSmall
                 Layout.bottomMargin: Theme.chartMarginSmall
@@ -296,7 +296,7 @@ Page {
 
             // Divider
             Rectangle {
-                Layout.preferredWidth: 1
+                Layout.preferredWidth: Theme.scaled(1)
                 Layout.fillHeight: true
                 Layout.topMargin: Theme.chartMarginSmall
                 Layout.bottomMargin: Theme.chartMarginSmall
@@ -339,13 +339,13 @@ Page {
 
                     background: Rectangle {
                         color: Theme.surfaceColor
-                        radius: 4
+                        radius: Theme.scaled(4)
                     }
 
                     contentItem: Rectangle {
                         width: parent.visualPosition * parent.width
                         height: parent.height
-                        radius: 4
+                        radius: Theme.scaled(4)
                         color: Theme.weightColor
                     }
                 }

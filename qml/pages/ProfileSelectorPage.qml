@@ -35,7 +35,7 @@ Page {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
 
-                    ComboBox {
+                    StyledComboBox {
                         id: viewFilter
                         Layout.preferredWidth: Theme.scaled(230)
                         Layout.preferredHeight: Theme.scaled(44)
@@ -53,7 +53,7 @@ Page {
                             radius: Theme.scaled(6)
                             color: Theme.surfaceColor
                             border.color: Theme.borderColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
 
                         contentItem: Text {
@@ -87,7 +87,7 @@ Page {
                             background: Rectangle {
                                 color: Theme.surfaceColor
                                 border.color: Theme.borderColor
-                                border.width: 1
+                                border.width: Theme.scaled(1)
                                 radius: Theme.scaled(6)
                             }
                         }
@@ -129,7 +129,7 @@ Page {
                             radius: Theme.scaled(4)
                             color: Theme.surfaceColor
                             border.color: Theme.primaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
                         contentItem: Text {
                             text: parent.text
@@ -411,7 +411,7 @@ Page {
 
                             MenuSeparator {
                                 contentItem: Rectangle {
-                                    implicitHeight: 1
+                                    implicitHeight: Theme.scaled(1)
                                     color: Theme.borderColor
                                 }
                             }
@@ -547,7 +547,7 @@ Page {
                             color: index === Settings.selectedFavoriteProfile ?
                                    Theme.primaryColor : Theme.backgroundColor
                             border.color: Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
 
                             RowLayout {
                                 anchors.fill: parent

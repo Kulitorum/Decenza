@@ -48,7 +48,7 @@ Rectangle {
                 color: "transparent"
                 border.width: Theme.focusBorderWidth
                 border.color: Theme.focusColor
-                radius: 4
+                radius: Theme.scaled(4)
             }
 
             Image {

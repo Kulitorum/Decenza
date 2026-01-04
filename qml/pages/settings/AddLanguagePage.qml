@@ -99,10 +99,10 @@ Page {
 
                 Rectangle {
                     anchors.fill: parent
-                    anchors.margins: 6
+                    anchors.margins: Theme.scaled(6)
                     radius: Theme.buttonRadius
                     color: langMouseArea.pressed ? Theme.primaryColor : Theme.surfaceColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                     border.color: Qt.rgba(1, 1, 1, 0.3)
 
                     Accessible.role: Accessible.Button
@@ -112,21 +112,21 @@ Page {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 10
+                        anchors.margins: Theme.scaled(10)
+                        spacing: Theme.scaled(10)
 
                         Text {
                             text: modelData.code.toUpperCase()
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                             font.family: "monospace"
                             font.bold: true
                             color: langMouseArea.pressed ? "white" : Theme.primaryColor
-                            Layout.preferredWidth: 30
+                            Layout.preferredWidth: Theme.scaled(30)
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: Theme.scaled(2)
 
                             Text {
                                 text: modelData.name

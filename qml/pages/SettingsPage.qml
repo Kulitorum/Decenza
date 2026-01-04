@@ -90,7 +90,7 @@ Page {
                 height: width
                 radius: width / 2
                 color: "transparent"
-                border.width: 3
+                border.width: Theme.scaled(3)
                 border.color: Qt.hsla(index / 50.0, 1, 0.5, 0.7)
 
                 SequentialAnimation on scale {
@@ -119,14 +119,14 @@ Page {
         // Status text
         Column {
             anchors.centerIn: parent
-            spacing: 20
+            spacing: Theme.scaled(20)
 
             Tr {
                 anchors.horizontalCenter: parent.horizontalCenter
                 key: "settings.drain.drainingBattery"
                 fallback: "DRAINING BATTERY"
                 color: "white"
-                font.pixelSize: 48
+                font.pixelSize: Theme.scaled(48)
                 font.bold: true
 
                 SequentialAnimation on opacity {
@@ -139,54 +139,54 @@ Page {
 
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
-                spacing: 40
+                spacing: Theme.scaled(40)
 
                 Column {
-                    spacing: 4
+                    spacing: Theme.scaled(4)
                     Tr {
                         key: "settings.drain.cpu"
                         fallback: "CPU"
                         color: "#ff6666"
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.scaled(18)
                         font.bold: true
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
                     Text {
                         text: BatteryDrainer.cpuUsage.toFixed(0) + "%"
                         color: "#ff6666"
-                        font.pixelSize: 36
+                        font.pixelSize: Theme.scaled(36)
                         font.bold: true
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
                     Text {
                         text: BatteryDrainer.cpuCores + " cores active"
                         color: "#ff9999"
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
                 }
 
                 Column {
-                    spacing: 4
+                    spacing: Theme.scaled(4)
                     Tr {
                         key: "settings.drain.gpu"
                         fallback: "GPU"
                         color: "#66ff66"
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.scaled(18)
                         font.bold: true
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
                     Text {
                         text: BatteryDrainer.gpuUsage.toFixed(0) + "%"
                         color: "#66ff66"
-                        font.pixelSize: 36
+                        font.pixelSize: Theme.scaled(36)
                         font.bold: true
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
                     Text {
                         text: "Animations active"
                         color: "#99ff99"
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
                 }
@@ -197,14 +197,14 @@ Page {
                 key: "settings.drain.screenMaxBrightness"
                 fallback: "Screen: MAX brightness"
                 color: "#ffaa66"
-                font.pixelSize: 24
+                font.pixelSize: Theme.scaled(24)
             }
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: "Battery: " + BatteryManager.batteryPercent + "%"
                 color: "yellow"
-                font.pixelSize: 32
+                font.pixelSize: Theme.scaled(32)
                 font.bold: true
             }
 
@@ -213,7 +213,7 @@ Page {
                 key: "settings.drain.tapToStop"
                 fallback: "Tap anywhere to stop"
                 color: "#aaaaaa"
-                font.pixelSize: 18
+                font.pixelSize: Theme.scaled(18)
             }
         }
     }
@@ -248,7 +248,7 @@ Page {
             id: bluetoothTab
             text: "Bluetooth"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 0
             contentItem: Text {
                 text: parent.text
@@ -259,7 +259,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 0 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -273,7 +273,7 @@ Page {
             id: preferencesTabButton
             text: "Preferences"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 1
             contentItem: Text {
                 text: parent.text
@@ -284,7 +284,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 1 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -298,7 +298,7 @@ Page {
             id: screensaverTab
             text: "Screensaver"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 2
             contentItem: Text {
                 text: parent.text
@@ -309,7 +309,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 2 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -323,7 +323,7 @@ Page {
             id: visualizerTabButton
             text: "Visualizer"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 3
             contentItem: Text {
                 text: parent.text
@@ -334,7 +334,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 3 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -348,7 +348,7 @@ Page {
             id: aiTabButton
             text: "AI"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 4
             contentItem: Text {
                 text: parent.text
@@ -359,7 +359,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 4 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -373,7 +373,7 @@ Page {
             id: accessibilityTabButton
             text: "Access"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 5
             contentItem: Text {
                 text: parent.text
@@ -384,7 +384,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 5 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -398,7 +398,7 @@ Page {
             id: themesTabButton
             text: "Themes"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 6
             contentItem: Text {
                 text: parent.text
@@ -409,7 +409,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 6 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -423,10 +423,10 @@ Page {
             id: languageTabButton
             text: "Language"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 7
             contentItem: Row {
-                spacing: 4
+                spacing: Theme.scaled(4)
                 Text {
                     text: parent.parent.text
                     font: parent.parent.font
@@ -438,8 +438,8 @@ Page {
                 Rectangle {
                     visible: TranslationManager.currentLanguage !== "en" && TranslationManager.untranslatedCount > 0
                     width: badgeText.width + 8
-                    height: 16
-                    radius: 8
+                    height: Theme.scaled(16)
+                    radius: Theme.scaled(8)
                     color: Theme.warningColor
                     anchors.verticalCenter: parent.verticalCenter
 
@@ -447,7 +447,7 @@ Page {
                         id: badgeText
                         anchors.centerIn: parent
                         text: TranslationManager.untranslatedCount > 99 ? "99+" : TranslationManager.untranslatedCount
-                        font.pixelSize: 10
+                        font.pixelSize: Theme.scaled(10)
                         font.bold: true
                         color: "white"
                     }
@@ -455,7 +455,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 7 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -469,7 +469,7 @@ Page {
             id: historyTabButton
             text: "History"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 8
             contentItem: Text {
                 text: parent.text
@@ -480,7 +480,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 8 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -494,7 +494,7 @@ Page {
             id: updateTabButton
             text: "Update"
             width: implicitWidth
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 9
             contentItem: Text {
                 text: parent.text
@@ -505,7 +505,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 9 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -520,7 +520,7 @@ Page {
             visible: Settings.isDebugBuild
             text: "Debug"
             width: visible ? implicitWidth : 0
-            font.pixelSize: 14
+            font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 10
             contentItem: Text {
                 text: parent.text
@@ -531,7 +531,7 @@ Page {
             }
             background: Rectangle {
                 color: tabBar.currentIndex === 10 ? Theme.surfaceColor : "transparent"
-                radius: 6
+                radius: Theme.scaled(6)
             }
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -661,8 +661,8 @@ Page {
         modal: true
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2 - 30
-        width: 500
-        height: 540
+        width: Theme.scaled(500)
+        height: Theme.scaled(540)
         closePolicy: Popup.NoAutoClose
         padding: 20
 
@@ -670,7 +670,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.color: Theme.textSecondaryColor
-            border.width: 1
+            border.width: Theme.scaled(1)
         }
 
         header: Text {
@@ -678,7 +678,7 @@ Page {
             color: Theme.textColor
             font: Theme.subtitleFont
             padding: 20
-            bottomPadding: 0
+            bottomPadding: Theme.scaled(0)
         }
 
         property int currentStep: 0
@@ -740,23 +740,23 @@ Page {
         }
 
         contentItem: ColumnLayout {
-            spacing: 15
+            spacing: Theme.scaled(15)
 
             // Step indicator
             RowLayout {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 10
+                spacing: Theme.scaled(10)
 
                 Repeater {
                     model: 6
                     Rectangle {
-                        width: 30
-                        height: 30
-                        radius: 15
+                        width: Theme.scaled(30)
+                        height: Theme.scaled(30)
+                        radius: Theme.scaled(15)
                         color: index <= flowCalibrationDialog.currentStep ? Theme.primaryColor : Theme.surfaceColor
                         border.color: Theme.primaryColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Text {
                             anchors.centerIn: parent
@@ -776,12 +776,12 @@ Page {
 
                 // Step 0: Introduction
                 ColumnLayout {
-                    spacing: 15
+                    spacing: Theme.scaled(15)
 
                     Text {
                         text: "Calibrate Your Flow Sensor"
                         color: Theme.textColor
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.scaled(18)
                         font.bold: true
                         Layout.alignment: Qt.AlignHCenter
                     }
@@ -789,7 +789,7 @@ Page {
                     Text {
                         text: "This wizard will dispense water at 3 different flow rates.\n\nYou'll need:\n- A separate scale (kitchen scale, etc.)\n- An empty cup\n- About 300g of water total (100g per test)"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
                     }
@@ -797,7 +797,7 @@ Page {
                     Text {
                         text: "After each test, enter the weight shown on your scale."
                         color: Theme.textColor
-                        font.pixelSize: 14
+                        font.pixelSize: Theme.scaled(14)
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
                     }
@@ -812,12 +812,12 @@ Page {
                     ColumnLayout {
                         id: testStep
                         property int testIndex: index
-                        spacing: 15
+                        spacing: Theme.scaled(15)
 
                         Text {
                             text: "Test " + (testStep.testIndex + 1) + ": " + flowCalibrationDialog.testNames[testStep.testIndex] + " Flow"
                             color: Theme.textColor
-                            font.pixelSize: 18
+                            font.pixelSize: Theme.scaled(18)
                             font.bold: true
                             Layout.alignment: Qt.AlignHCenter
                         }
@@ -829,7 +829,7 @@ Page {
                                       "Enter the weight from your scale below, then press Next" :
                                       "1. Place empty cup on your scale (will auto-tare)\n2. Press 'Ready' then press espresso button on DE1"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                             wrapMode: Text.Wrap
                             Layout.fillWidth: true
                             horizontalAlignment: Text.AlignHCenter
@@ -837,12 +837,12 @@ Page {
 
                         Rectangle {
                             Layout.alignment: Qt.AlignHCenter
-                            width: 150
-                            height: 150
-                            radius: 75
+                            width: Theme.scaled(150)
+                            height: Theme.scaled(150)
+                            radius: Theme.scaled(75)
                             color: "transparent"
                             border.color: flowCalibrationDialog.isDispensing ? Theme.primaryColor : Theme.surfaceColor
-                            border.width: 4
+                            border.width: Theme.scaled(4)
                             visible: flowCalibrationDialog.currentStep === testStep.testIndex + 1
 
                             Text {
@@ -854,14 +854,14 @@ Page {
                                           "Ready"
                                 color: flowCalibrationDialog.isDispensing || flowCalibrationDialog.flowIntegrals[testStep.testIndex] > 0 ?
                                        Theme.primaryColor : Theme.textSecondaryColor
-                                font.pixelSize: 24
+                                font.pixelSize: Theme.scaled(24)
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
 
                         ColumnLayout {
                             Layout.alignment: Qt.AlignHCenter
-                            spacing: 10
+                            spacing: Theme.scaled(10)
                             visible: flowCalibrationDialog.flowIntegrals[testStep.testIndex] > 0
 
                             Text {
@@ -872,7 +872,7 @@ Page {
 
                             ValueInput {
                                 id: weightInput
-                                Layout.preferredWidth: 150
+                                Layout.preferredWidth: Theme.scaled(150)
                                 Layout.alignment: Qt.AlignHCenter
                                 value: 100
                                 from: 50
@@ -896,12 +896,12 @@ Page {
 
                 // Step 4: Results
                 ColumnLayout {
-                    spacing: 15
+                    spacing: Theme.scaled(15)
 
                     Text {
                         text: "Calibration Results"
                         color: Theme.textColor
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.scaled(18)
                         font.bold: true
                         Layout.alignment: Qt.AlignHCenter
                     }
@@ -952,12 +952,12 @@ Page {
 
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
-                        spacing: 15
+                        spacing: Theme.scaled(15)
 
                         Text {
                             text: "Average calibration factor:"
                             color: Theme.textColor
-                            font.pixelSize: 16
+                            font.pixelSize: Theme.scaled(16)
                         }
 
                         Text {
@@ -973,7 +973,7 @@ Page {
                                 return count > 0 ? (sum / count).toFixed(3) : "-"
                             }
                             color: Theme.primaryColor
-                            font.pixelSize: 24
+                            font.pixelSize: Theme.scaled(24)
                             font.bold: true
                         }
                     }
@@ -983,12 +983,12 @@ Page {
 
                 // Step 5: Verification (simplified)
                 ColumnLayout {
-                    spacing: 12
+                    spacing: Theme.scaled(12)
 
                     Text {
                         text: "Verify Calibration"
                         color: Theme.textColor
-                        font.pixelSize: 18
+                        font.pixelSize: Theme.scaled(18)
                         font.bold: true
                         Layout.alignment: Qt.AlignHCenter
                     }
@@ -1000,7 +1000,7 @@ Page {
                               "Dispensing..." :
                               "Dispense " + flowCalibrationDialog.verificationTarget + "g using the new calibration."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.scaled(13)
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
@@ -1008,12 +1008,12 @@ Page {
 
                     Rectangle {
                         Layout.alignment: Qt.AlignHCenter
-                        width: 150
-                        height: 80
-                        radius: 8
+                        width: Theme.scaled(150)
+                        height: Theme.scaled(80)
+                        radius: Theme.scaled(8)
                         color: Theme.backgroundColor
                         border.color: flowCalibrationDialog.isDispensing ? Theme.primaryColor : Theme.surfaceColor
-                        border.width: 2
+                        border.width: Theme.scaled(2)
                         visible: flowCalibrationDialog.isDispensing || flowCalibrationDialog.verificationComplete
 
                         Text {
@@ -1022,7 +1022,7 @@ Page {
                                   flowCalibrationDialog.verificationFlowScaleWeight.toFixed(1) + "g\n(FlowScale)" :
                                   FlowScale.weight.toFixed(1) + "g"
                             color: Theme.primaryColor
-                            font.pixelSize: 20
+                            font.pixelSize: Theme.scaled(20)
                             font.bold: true
                             horizontalAlignment: Text.AlignHCenter
                         }
@@ -1031,12 +1031,12 @@ Page {
                     ColumnLayout {
                         visible: flowCalibrationDialog.verificationComplete
                         Layout.alignment: Qt.AlignHCenter
-                        spacing: 10
+                        spacing: Theme.scaled(10)
 
                         Text {
                             text: "Enter actual weight from your scale:"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                             Layout.alignment: Qt.AlignHCenter
                         }
 
@@ -1048,7 +1048,7 @@ Page {
                             decimals: 1
                             stepSize: 0.5
                             suffix: "g"
-                            width: 150
+                            width: Theme.scaled(150)
                             Layout.alignment: Qt.AlignHCenter
                             onValueModified: function(newValue) {
                                 flowCalibrationDialog.verificationActualWeight = newValue
@@ -1063,7 +1063,7 @@ Page {
             // Navigation buttons
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 10
+                spacing: Theme.scaled(10)
 
                 AccessibleButton {
                     text: "Cancel"
@@ -1142,7 +1142,7 @@ Page {
         modal: true
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2 - keyboardOffset
-        width: 300
+        width: Theme.scaled(300)
         padding: 20
 
         property string themeName: ""
@@ -1167,7 +1167,7 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.color: Theme.borderColor
-            border.width: 1
+            border.width: Theme.scaled(1)
         }
 
         onOpened: {
@@ -1197,15 +1197,15 @@ Page {
                 Layout.fillWidth: true
                 color: Theme.textColor
                 placeholderTextColor: Theme.textSecondaryColor
-                leftPadding: 12
-                rightPadding: 12
-                topPadding: 12
-                bottomPadding: 12
+                leftPadding: Theme.scaled(12)
+                rightPadding: Theme.scaled(12)
+                topPadding: Theme.scaled(12)
+                bottomPadding: Theme.scaled(12)
                 background: Rectangle {
                     color: Theme.backgroundColor
                     radius: Theme.buttonRadius
                     border.color: themeNameInput.activeFocus ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
                 onTextChanged: saveThemeDialog.themeName = text
                 onAccepted: {
@@ -1230,7 +1230,7 @@ Page {
                         color: Theme.surfaceColor
                         radius: Theme.buttonRadius
                         border.color: Theme.borderColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
                     }
                     contentItem: Text {
                         text: parent.buttonText

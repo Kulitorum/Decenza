@@ -184,7 +184,7 @@ Window {
     Rectangle {
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottomMargin: 5
+        anchors.bottomMargin: Theme.scaled(5)
         width: statusText.width + 20
         height: 24
         radius: 12

@@ -139,7 +139,7 @@ Page {
 
                 Rectangle {
                     width: parent.width
-                    height: 1
+                    height: Theme.scaled(1)
                     color: Theme.textSecondaryColor
                     opacity: 0.3
                 }
@@ -223,7 +223,7 @@ Page {
                     radius: Theme.scaled(6)
                     color: Theme.surfaceColor
                     border.color: refreshButton.enabled ? Theme.primaryColor : Theme.textSecondaryColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
 
                 contentItem: Text {
@@ -286,7 +286,7 @@ Page {
                         background: Rectangle {
                             color: Theme.surfaceColor
                             border.color: codeInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                             radius: Theme.scaled(4)
                         }
 
@@ -371,7 +371,7 @@ Page {
                     Column {
                         anchors.fill: parent
                         anchors.margins: Theme.spacingSmall
-                        spacing: 0
+                        spacing: Theme.scaled(0)
 
                         // Header with select all
                         RowLayout {
@@ -394,7 +394,7 @@ Page {
 
                         Rectangle {
                             width: parent.width
-                            height: 1
+                            height: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                         }
@@ -508,7 +508,7 @@ Page {
                                     // Profile info
                                     Column {
                                         Layout.fillWidth: true
-                                        spacing: 2
+                                        spacing: Theme.scaled(2)
 
                                         Text {
                                             text: modelData.profile_title || "Unknown Profile"
@@ -593,7 +593,7 @@ Page {
 
                         Rectangle {
                             width: parent.width
-                            height: 1
+                            height: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                         }
@@ -701,7 +701,7 @@ Page {
 
                         Rectangle {
                             width: parent.width * 0.6
-                            height: 1
+                            height: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -877,7 +877,7 @@ Page {
                 background: Rectangle {
                     color: Theme.backgroundColor
                     border.color: renameInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                    border.width: 2
+                    border.width: Theme.scaled(2)
                     radius: Theme.scaled(4)
                 }
 
@@ -935,7 +935,7 @@ Page {
                     radius: Theme.scaled(6)
                     color: Theme.backgroundColor
                     border.color: Theme.textSecondaryColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                 }
 
                 contentItem: Text {

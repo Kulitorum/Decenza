@@ -30,8 +30,8 @@ Item {
         // Left side: Color wheel
         ColorWheel {
             id: colorWheel
-            Layout.preferredWidth: 130
-            Layout.preferredHeight: 130
+            Layout.preferredWidth: Theme.scaled(130)
+            Layout.preferredHeight: Theme.scaled(130)
             Layout.alignment: Qt.AlignVCenter
             hue: root.hue
 
@@ -50,8 +50,8 @@ Item {
             Rectangle {
                 id: satSlider
                 Layout.fillWidth: true
-                height: 24
-                radius: 12
+                height: Theme.scaled(24)
+                radius: Theme.scaled(12)
 
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -60,15 +60,15 @@ Item {
                 }
 
                 border.color: Theme.borderColor
-                border.width: 1
+                border.width: Theme.scaled(1)
 
                 Rectangle {
-                    width: 28
-                    height: 28
-                    radius: 14
+                    width: Theme.scaled(28)
+                    height: Theme.scaled(28)
+                    radius: Theme.scaled(14)
                     color: root.color
                     border.color: "white"
-                    border.width: 2
+                    border.width: Theme.scaled(2)
                     x: (root.saturation / 100) * (parent.width - width)
                     y: (parent.height - height) / 2
                 }
@@ -90,8 +90,8 @@ Item {
             Rectangle {
                 id: lightSlider
                 Layout.fillWidth: true
-                height: 24
-                radius: 12
+                height: Theme.scaled(24)
+                radius: Theme.scaled(12)
 
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -101,15 +101,15 @@ Item {
                 }
 
                 border.color: Theme.borderColor
-                border.width: 1
+                border.width: Theme.scaled(1)
 
                 Rectangle {
-                    width: 28
-                    height: 28
-                    radius: 14
+                    width: Theme.scaled(28)
+                    height: Theme.scaled(28)
+                    radius: Theme.scaled(14)
                     color: root.color
                     border.color: "white"
-                    border.width: 2
+                    border.width: Theme.scaled(2)
                     x: (root.lightness / 100) * (parent.width - width)
                     y: (parent.height - height) / 2
                 }
@@ -131,8 +131,8 @@ Item {
             Rectangle {
                 id: brightnessSlider
                 Layout.fillWidth: true
-                height: 24
-                radius: 12
+                height: Theme.scaled(24)
+                radius: Theme.scaled(12)
 
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
@@ -141,15 +141,15 @@ Item {
                 }
 
                 border.color: Theme.borderColor
-                border.width: 1
+                border.width: Theme.scaled(1)
 
                 Rectangle {
-                    width: 28
-                    height: 28
-                    radius: 14
+                    width: Theme.scaled(28)
+                    height: Theme.scaled(28)
+                    radius: Theme.scaled(14)
                     color: Qt.rgba(Settings.screenBrightness, Settings.screenBrightness, Settings.screenBrightness, 1.0)
                     border.color: "white"
-                    border.width: 2
+                    border.width: Theme.scaled(2)
                     x: Settings.screenBrightness * (parent.width - width)
                     y: (parent.height - height) / 2
                 }

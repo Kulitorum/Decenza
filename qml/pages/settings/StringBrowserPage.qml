@@ -160,7 +160,7 @@ Page {
                     height: parent.height
                     color: Theme.surfaceColor
                     radius: Theme.buttonRadius
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                     border.color: searchField.activeFocus ? Theme.primaryColor : Theme.borderColor
 
                     Row {
@@ -641,7 +641,7 @@ Page {
             height: progressContent.height + Theme.scaled(48)
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.width: 2
+            border.width: Theme.scaled(2)
             border.color: "white"
 
             Column {
@@ -733,7 +733,7 @@ Page {
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.width: 2
+            border.width: Theme.scaled(2)
             border.color: Theme.warningColor
         }
 
@@ -766,7 +766,7 @@ Page {
                     height: Theme.scaled(40)
                     color: cancelApiArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
                     radius: Theme.buttonRadius
-                    border.width: 1
+                    border.width: Theme.scaled(1)
                     border.color: Theme.borderColor
 
                     Text {
@@ -824,7 +824,7 @@ Page {
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.width: 2
+            border.width: Theme.scaled(2)
             border.color: Theme.successColor
         }
 

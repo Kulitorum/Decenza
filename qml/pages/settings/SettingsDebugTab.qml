@@ -11,31 +11,31 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         // Left column: Simulation and Window Resolution
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 15
+            spacing: Theme.scaled(15)
 
             // Simulation section
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 180
+                Layout.preferredHeight: Theme.scaled(180)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 15
-                    spacing: 12
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(12)
 
                     Tr {
                         key: "settings.debug.simulation"
                         fallback: "Simulation"
                         color: Theme.textColor
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
 
@@ -44,24 +44,24 @@ Item {
                         key: "settings.debug.simulationDesc"
                         fallback: "Enable these options to test the app without hardware connected."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 20
+                        spacing: Theme.scaled(20)
 
                         Tr {
                             key: "settings.debug.simulateMachine"
                             fallback: "Simulate machine connection"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Item { Layout.fillWidth: true }
 
-                        Switch {
+                        StyledSwitch {
                             checked: DE1Device.simulationMode
                             onToggled: {
                                 DE1Device.simulationMode = checked
@@ -74,18 +74,18 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 20
+                        spacing: Theme.scaled(20)
 
                         Tr {
                             key: "settings.debug.headlessMode"
                             fallback: "Headless mode (no GHC)"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Item { Layout.fillWidth: true }
 
-                        Switch {
+                        StyledSwitch {
                             checked: DE1Device.isHeadless
                             onToggled: {
                                 DE1Device.isHeadless = checked
@@ -98,21 +98,21 @@ Item {
             // Battery Drainer section (Android only)
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 150
+                Layout.preferredHeight: Theme.scaled(150)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
                 visible: Qt.platform.os === "android"
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 15
-                    spacing: 12
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(12)
 
                     Tr {
                         key: "settings.debug.batteryDrainTest"
                         fallback: "Battery Drain Test"
                         color: Theme.textColor
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
 
@@ -121,18 +121,18 @@ Item {
                         key: "settings.debug.batteryDrainTestDesc"
                         fallback: "Drains battery by maxing CPU, GPU, screen brightness and flashlight. Useful for testing smart charging."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 20
+                        spacing: Theme.scaled(20)
 
                         Text {
                             text: BatteryDrainer.running ? "Draining... Tap overlay to stop" : "Battery: " + BatteryManager.batteryPercent + "%"
                             color: BatteryDrainer.running ? Theme.warningColor : Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Item { Layout.fillWidth: true }
@@ -156,7 +156,7 @@ Item {
             Rectangle {
                 id: resolutionSection
                 Layout.fillWidth: true
-                Layout.preferredHeight: 120
+                Layout.preferredHeight: Theme.scaled(120)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
                 visible: Qt.platform.os === "windows"
@@ -175,33 +175,33 @@ Item {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 15
-                    spacing: 12
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(12)
 
                     Tr {
                         key: "settings.debug.windowResolution"
                         fallback: "Window Resolution"
                         color: Theme.textColor
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 20
+                        spacing: Theme.scaled(20)
 
                         Tr {
                             key: "settings.debug.resizeWindow"
                             fallback: "Resize window to test UI scaling"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.scaled(12)
                         }
 
                         Item { Layout.fillWidth: true }
 
-                        ComboBox {
+                        StyledComboBox {
                             id: resolutionCombo
-                            Layout.preferredWidth: 200
+                            Layout.preferredWidth: Theme.scaled(200)
                             model: resolutionSection.resolutions
                             textRole: "name"
                             displayText: Window.window ? (Window.window.width + " x " + Window.window.height) : "Select..."
@@ -211,7 +211,7 @@ Item {
                                 contentItem: Text {
                                     text: modelData.name + " (" + modelData.width + "x" + modelData.height + ")"
                                     color: Theme.textColor
-                                    font.pixelSize: 13
+                                    font.pixelSize: Theme.scaled(13)
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 highlighted: resolutionCombo.highlightedIndex === index
@@ -223,16 +223,16 @@ Item {
                             background: Rectangle {
                                 color: Theme.backgroundColor
                                 border.color: Theme.textSecondaryColor
-                                border.width: 1
-                                radius: 4
+                                border.width: Theme.scaled(1)
+                                radius: Theme.scaled(4)
                             }
 
                             contentItem: Text {
                                 text: resolutionCombo.displayText
                                 color: Theme.textColor
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.scaled(13)
                                 verticalAlignment: Text.AlignVCenter
-                                leftPadding: 8
+                                leftPadding: Theme.scaled(8)
                             }
 
                             onActivated: function(index) {
@@ -255,25 +255,25 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 15
+            spacing: Theme.scaled(15)
 
             // Database Import section
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 160
+                Layout.preferredHeight: Theme.scaled(160)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 15
-                    spacing: 12
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(12)
 
                     Tr {
                         key: "settings.debug.shotDatabase"
                         fallback: "Shot Database"
                         color: Theme.textColor
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
 
@@ -282,18 +282,18 @@ Item {
                         key: "settings.debug.shotDatabaseDesc"
                         fallback: "Import shots from another device. Merge adds new shots, Replace overwrites all data."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 15
+                        spacing: Theme.scaled(15)
 
                         Text {
                             text: TranslationManager.translate("settings.debug.currentShots", "Current shots:") + " " + (MainController.shotHistory ? MainController.shotHistory.totalShots : 0)
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Item { Layout.fillWidth: true }
@@ -338,20 +338,20 @@ Item {
             // Translation Developer Tools section
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 180
+                Layout.preferredHeight: Theme.scaled(180)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 15
-                    spacing: 12
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(12)
 
                     Tr {
                         key: "settings.debug.translationTools"
                         fallback: "Translation Developer Tools"
                         color: Theme.textColor
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
 
@@ -360,24 +360,24 @@ Item {
                         key: "settings.debug.translationToolsDesc"
                         fallback: "Tools for managing community translations. Enable upload to allow submitting translations from the Language settings."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 20
+                        spacing: Theme.scaled(20)
 
                         Tr {
                             key: "settings.debug.enableUpload"
                             fallback: "Enable translation upload"
                             color: Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Item { Layout.fillWidth: true }
 
-                        Switch {
+                        StyledSwitch {
                             checked: Settings.developerTranslationUpload
                             onToggled: Settings.developerTranslationUpload = checked
                         }
@@ -385,7 +385,7 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 15
+                        spacing: Theme.scaled(15)
 
                         Text {
                             text: TranslationManager.autoTranslating ?
@@ -394,7 +394,7 @@ Item {
                                    TranslationManager.translate("settings.debug.uploading", "Uploading...") :
                                    TranslationManager.translate("settings.debug.batchProcess", "Batch process all languages"))
                             color: TranslationManager.autoTranslating || TranslationManager.uploading ? Theme.primaryColor : Theme.textColor
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.scaled(14)
                         }
 
                         Item { Layout.fillWidth: true }

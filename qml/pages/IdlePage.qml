@@ -22,8 +22,8 @@ Page {
     Item {
         anchors.top: parent.top
         anchors.right: parent.right
-        width: 80
-        height: 80
+        width: Theme.scaled(80)
+        height: Theme.scaled(80)
         z: 100
 
         Timer {
@@ -709,7 +709,7 @@ Page {
                     color: "transparent"
                     border.width: Theme.focusBorderWidth
                     border.color: Theme.focusColor
-                    radius: 4
+                    radius: Theme.scaled(4)
                 }
 
                 AccessibleMouseArea {

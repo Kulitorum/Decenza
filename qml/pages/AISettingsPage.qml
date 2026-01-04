@@ -57,11 +57,11 @@ Page {
 
                 delegate: Rectangle {
                     Layout.fillWidth: true
-                    height: 60
+                    height: Theme.scaled(60)
                     radius: Theme.buttonRadius
                     color: Settings.aiProvider === modelData.id ? Theme.primaryColor : Theme.surfaceColor
                     border.color: Settings.aiProvider === modelData.id ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
+                    border.width: Theme.scaled(1)
 
                     RowLayout {
                         anchors.fill: parent
@@ -70,7 +70,7 @@ Page {
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: Theme.scaled(2)
 
                             Tr {
                                 key: modelData.nameKey
@@ -81,26 +81,26 @@ Page {
                             Tr {
                                 key: modelData.descKey
                                 fallback: modelData.desc
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.scaled(12)
                                 color: Theme.textSecondaryColor
                             }
                         }
 
                         // Checkmark if selected
                         Rectangle {
-                            width: 24
-                            height: 24
-                            radius: 12
+                            width: Theme.scaled(24)
+                            height: Theme.scaled(24)
+                            radius: Theme.scaled(12)
                             visible: Settings.aiProvider === modelData.id
                             color: "transparent"
                             border.color: Theme.textColor
-                            border.width: 2
+                            border.width: Theme.scaled(2)
 
                             Rectangle {
                                 anchors.centerIn: parent
-                                width: 12
-                                height: 12
-                                radius: 6
+                                width: Theme.scaled(12)
+                                height: Theme.scaled(12)
+                                radius: Theme.scaled(6)
                                 color: Theme.textColor
                             }
                         }
@@ -119,13 +119,13 @@ Page {
             ColumnLayout {
                 visible: Settings.aiProvider !== "ollama"
                 Layout.fillWidth: true
-                spacing: 4
+                spacing: Theme.scaled(4)
 
                 Tr {
                     key: "aisettings.label.apikey"
                     fallback: "API Key"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                 }
 
                 StyledTextField {
@@ -161,7 +161,7 @@ Page {
                     key: "aisettings.label.endpoint"
                     fallback: "Ollama Endpoint"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                 }
 
                 StyledTextField {
@@ -178,14 +178,14 @@ Page {
                     key: "aisettings.label.model"
                     fallback: "Model"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: 12
+                    font.pixelSize: Theme.scaled(12)
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
 
-                    ComboBox {
+                    StyledComboBox {
                         id: ollamaModelCombo
                         Layout.fillWidth: true
                         model: MainController.aiManager ? MainController.aiManager.ollamaModels : []
@@ -194,16 +194,16 @@ Page {
 
                         background: Rectangle {
                             color: Theme.backgroundColor
-                            radius: 4
+                            radius: Theme.scaled(4)
                             border.color: ollamaModelCombo.activeFocus ? Theme.primaryColor : Theme.borderColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
 
                         contentItem: Text {
                             text: ollamaModelCombo.displayText || TranslationManager.translate("aisettings.placeholder.model", "Select a model")
                             color: Theme.textColor
                             font: Theme.bodyFont
-                            leftPadding: 12
+                            leftPadding: Theme.scaled(12)
                             verticalAlignment: Text.AlignVCenter
                         }
                     }
@@ -217,12 +217,12 @@ Page {
                             }
                         }
                         background: Rectangle {
-                            implicitWidth: 80
-                            implicitHeight: 40
-                            radius: 6
+                            implicitWidth: Theme.scaled(80)
+                            implicitHeight: Theme.scaled(40)
+                            radius: Theme.scaled(6)
                             color: Theme.surfaceColor
                             border.color: Theme.borderColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
                         }
                         contentItem: Text {
                             text: parent.text
@@ -251,12 +251,12 @@ Page {
                         MainController.aiManager.testConnection()
                     }
                     background: Rectangle {
-                        implicitWidth: 140
-                        implicitHeight: 44
-                        radius: 6
+                        implicitWidth: Theme.scaled(140)
+                        implicitHeight: Theme.scaled(44)
+                        radius: Theme.scaled(6)
                         color: parent.enabled ? Theme.primaryColor : Theme.surfaceColor
                         border.color: parent.enabled ? Theme.primaryColor : Theme.borderColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
                     }
                     contentItem: Text {
                         text: parent.text
@@ -270,7 +270,7 @@ Page {
                 Text {
                     text: aiSettingsPage.testResultMessage
                     color: aiSettingsPage.testResultSuccess ? Theme.successColor : Theme.errorColor
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.scaled(14)
                     visible: aiSettingsPage.testResultMessage.length > 0
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
@@ -318,7 +318,7 @@ Page {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.margins: Theme.spacingMedium
-                    spacing: 4
+                    spacing: Theme.scaled(4)
 
                     Tr {
                         key: "aisettings.cost.title"
@@ -346,7 +346,7 @@ Page {
                         key: "aisettings.cost.monthly"
                         fallback: "About $0.30/month at 3 shots per day - less than one cafe espresso!"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }

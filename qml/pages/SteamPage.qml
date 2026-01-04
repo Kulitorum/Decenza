@@ -73,30 +73,30 @@ Page {
         anchors.margins: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.pageTopMargin  // Space for bottom bar
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         // === STEAMING VIEW ===
         ColumnLayout {
             visible: isSteaming
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 20
+            spacing: Theme.scaled(20)
 
             // Preset pills for quick switching during steaming
             Row {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 8
+                spacing: Theme.scaled(8)
 
                 Repeater {
                     model: Settings.steamPitcherPresets
 
                     Rectangle {
                         width: livePitcherText.implicitWidth + 24
-                        height: 36
-                        radius: 18
+                        height: Theme.scaled(36)
+                        radius: Theme.scaled(18)
                         color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.surfaceColor
                         border.color: index === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Text {
                             id: livePitcherText
@@ -125,7 +125,7 @@ Page {
             // Timer with target and adjustment buttons
             Column {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 8
+                spacing: Theme.scaled(8)
 
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -140,7 +140,7 @@ Page {
                         radius: Theme.cardRadius
                         color: decreaseMouseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
                         border.color: "white"
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Text {
                             anchors.centerIn: parent
@@ -176,7 +176,7 @@ Page {
                         radius: Theme.cardRadius
                         color: increaseMouseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
                         border.color: "white"
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Text {
                             anchors.centerIn: parent
@@ -201,14 +201,14 @@ Page {
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: steamProgressText.width + decreaseTimeBtn.width + increaseTimeBtn.width + Theme.spacingMedium * 2
-                    height: 8
-                    radius: 4
+                    height: Theme.scaled(8)
+                    radius: Theme.scaled(4)
                     color: Theme.surfaceColor
 
                     Rectangle {
                         width: parent.width * Math.min(1, MachineState.shotTime / Settings.steamTimeout)
                         height: parent.height
-                        radius: 4
+                        radius: Theme.scaled(4)
                         color: Theme.primaryColor
                     }
                 }
@@ -219,9 +219,9 @@ Page {
             // Full-width Steam Flow control
             ColumnLayout {
                 Layout.fillWidth: true
-                Layout.leftMargin: 40
-                Layout.rightMargin: 40
-                spacing: 12
+                Layout.leftMargin: Theme.scaled(40)
+                Layout.rightMargin: Theme.scaled(40)
+                spacing: Theme.scaled(12)
 
                 Tr {
                     Layout.alignment: Qt.AlignHCenter
@@ -234,7 +234,7 @@ Page {
                 ValueInput {
                     id: steamingFlowSlider
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 80
+                    Layout.preferredHeight: Theme.scaled(80)
                     from: 40
                     to: 250
                     stepSize: 5
@@ -309,7 +309,7 @@ Page {
             visible: !isSteaming
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 12
+            spacing: Theme.scaled(12)
 
             // Pitcher Presets Section
             Rectangle {
@@ -320,7 +320,7 @@ Page {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.margins: Theme.scaled(12)
                     spacing: Theme.scaled(20)
 
                     Tr {
@@ -333,7 +333,7 @@ Page {
                     // Pitcher preset buttons with drag-and-drop
                     Row {
                         id: pitcherPresetsRow
-                        spacing: 8
+                        spacing: Theme.scaled(8)
 
                         property int draggedIndex: -1
 
@@ -344,18 +344,18 @@ Page {
                             Item {
                                 id: pitcherDelegate
                                 width: pitcherPill.width
-                                height: 36
+                                height: Theme.scaled(36)
 
                                 property int pitcherIndex: index
 
                                 Rectangle {
                                     id: pitcherPill
                                     width: pitcherText.implicitWidth + 24
-                                    height: 36
-                                    radius: 18
+                                    height: Theme.scaled(36)
+                                    radius: Theme.scaled(18)
                                     color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.backgroundColor
                                     border.color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
-                                    border.width: 1
+                                    border.width: Theme.scaled(1)
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     Drag.active: dragArea.drag.active
@@ -454,18 +454,18 @@ Page {
                         // Add button
                         Rectangle {
                             id: addPitcherButton
-                            width: 36
-                            height: 36
-                            radius: 18
+                            width: Theme.scaled(36)
+                            height: Theme.scaled(36)
+                            radius: Theme.scaled(18)
                             color: Theme.backgroundColor
                             border.color: Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
 
                             Text {
                                 anchors.centerIn: parent
                                 text: "+"
                                 color: Theme.textColor
-                                font.pixelSize: 20
+                                font.pixelSize: Theme.scaled(20)
                             }
 
                             AccessibleMouseArea {
@@ -503,7 +503,7 @@ Page {
                     // Duration (per-pitcher, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 16
+                        spacing: Theme.scaled(16)
 
                         Tr {
                             key: "steam.label.duration"
@@ -537,7 +537,7 @@ Page {
                     // Steam Flow (per-pitcher, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 16
+                        spacing: Theme.scaled(16)
 
                         Column {
                             Tr {
@@ -579,7 +579,7 @@ Page {
                     // Temperature (global setting)
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 16
+                        spacing: Theme.scaled(16)
 
                         Column {
                             Tr {
@@ -689,13 +689,13 @@ Page {
 
         background: Rectangle {
             color: Theme.surfaceColor
-            radius: 10
+            radius: Theme.scaled(10)
             border.color: Theme.textSecondaryColor
-            border.width: 1
+            border.width: Theme.scaled(1)
         }
 
         contentItem: ColumnLayout {
-            spacing: 15
+            spacing: Theme.scaled(15)
 
             Tr {
                 key: "steam.popup.editPitcher"
@@ -707,17 +707,17 @@ Page {
             Tr { id: pitcherNamePlaceholder; key: "steam.placeholder.pitcherName"; fallback: "Pitcher name"; visible: false }
 
             Rectangle {
-                Layout.preferredWidth: 280
-                Layout.preferredHeight: 44
+                Layout.preferredWidth: Theme.scaled(280)
+                Layout.preferredHeight: Theme.scaled(44)
                 color: Theme.backgroundColor
                 border.color: Theme.textSecondaryColor
-                border.width: 1
-                radius: 4
+                border.width: Theme.scaled(1)
+                radius: Theme.scaled(4)
 
                 TextInput {
                     id: editPitcherNameInput
                     anchors.fill: parent
-                    anchors.margins: 10
+                    anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
@@ -739,7 +739,7 @@ Page {
             Tr { id: saveButtonText; key: "steam.button.save"; fallback: "Save"; visible: false }
 
             RowLayout {
-                spacing: 10
+                spacing: Theme.scaled(10)
 
                 AccessibleButton {
                     text: deleteButtonText.text
@@ -749,9 +749,9 @@ Page {
                         editPitcherPopup.close()
                     }
                     background: Rectangle {
-                        implicitWidth: 80
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(80)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.errorColor
                     }
                     contentItem: Text {
@@ -770,9 +770,9 @@ Page {
                     accessibleName: "Cancel"
                     onClicked: editPitcherPopup.close()
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.backgroundColor
                     }
                     contentItem: Text {
@@ -793,9 +793,9 @@ Page {
                         editPitcherPopup.close()
                     }
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.primaryColor
                     }
                     contentItem: Text {
@@ -839,13 +839,13 @@ Page {
 
         background: Rectangle {
             color: Theme.surfaceColor
-            radius: 10
+            radius: Theme.scaled(10)
             border.color: Theme.textSecondaryColor
-            border.width: 1
+            border.width: Theme.scaled(1)
         }
 
         contentItem: ColumnLayout {
-            spacing: 15
+            spacing: Theme.scaled(15)
 
             Tr {
                 key: "steam.popup.addPitcherPreset"
@@ -859,17 +859,17 @@ Page {
             Tr { id: addButtonText; key: "steam.button.add"; fallback: "Add"; visible: false }
 
             Rectangle {
-                Layout.preferredWidth: 280
-                Layout.preferredHeight: 44
+                Layout.preferredWidth: Theme.scaled(280)
+                Layout.preferredHeight: Theme.scaled(44)
                 color: Theme.backgroundColor
                 border.color: Theme.textSecondaryColor
-                border.width: 1
-                radius: 4
+                border.width: Theme.scaled(1)
+                radius: Theme.scaled(4)
 
                 TextInput {
                     id: newPitcherName
                     anchors.fill: parent
-                    anchors.margins: 10
+                    anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
@@ -887,7 +887,7 @@ Page {
             }
 
             RowLayout {
-                spacing: 10
+                spacing: Theme.scaled(10)
 
                 Item { Layout.fillWidth: true }
 
@@ -896,9 +896,9 @@ Page {
                     accessibleName: "Cancel"
                     onClicked: addPitcherDialog.close()
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.backgroundColor
                     }
                     contentItem: Text {
@@ -923,9 +923,9 @@ Page {
                         }
                     }
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.primaryColor
                     }
                     contentItem: Text {

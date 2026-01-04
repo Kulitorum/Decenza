@@ -93,7 +93,7 @@ Item {
         anchors.fill: parent
         radius: Theme.scaled(12)
         color: Theme.surfaceColor
-        border.width: 1
+        border.width: Theme.scaled(1)
         border.color: Theme.textSecondaryColor
 
         RowLayout {
@@ -166,7 +166,7 @@ Item {
 
                     drag.target: Item {}  // Enable drag detection
                     drag.axis: Drag.XAndYAxis
-                    drag.threshold: 5
+                    drag.threshold: Theme.scaled(5)
 
                     onPressed: function(mouse) {
                         startX = mouse.x
@@ -186,8 +186,9 @@ Item {
                         }
 
                         if (isDragging) {
-                            // Simple 1:1 dragging - every 20 pixels = 1 step
-                            var steps = Math.round(delta / 20)
+                            // Simple 1:1 dragging - every 20 scaled pixels = 1 step
+                            var dragStep = Theme.scaled(20)
+                            var steps = Math.round(delta / dragStep)
                             if (steps !== 0) {
                                 adjustValue(steps)
                                 startX = mouse.x
@@ -212,8 +213,8 @@ Item {
                 Item {
                     id: bubbleAnchor
                     anchors.centerIn: parent
-                    width: 1
-                    height: 1
+                    width: Theme.scaled(1)
+                    height: Theme.scaled(1)
                 }
 
                 // Floating speech bubble - rendered in overlay to be always on top
@@ -386,7 +387,7 @@ Item {
                 height: Theme.scaled(80)
                 radius: Theme.scaled(16)
                 color: Theme.surfaceColor
-                border.width: 1
+                border.width: Theme.scaled(1)
                 border.color: Theme.textSecondaryColor
 
                 RowLayout {
@@ -473,13 +474,14 @@ Item {
                                 var deltaY = startY - mouse.y
                                 var delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY
 
-                                if (Math.abs(delta) > 5) {
+                                if (Math.abs(delta) > Theme.scaled(5)) {
                                     isDragging = true
                                 }
 
                                 if (isDragging) {
-                                    // Simple 1:1 dragging - every 20 pixels = 1 step
-                                    var steps = Math.round(delta / 20)
+                                    // Simple 1:1 dragging - every 20 scaled pixels = 1 step
+                                    var dragStep = Theme.scaled(20)
+                                    var steps = Math.round(delta / dragStep)
                                     if (steps !== 0) {
                                         adjustValue(steps)
                                         startX = mouse.x
@@ -501,8 +503,8 @@ Item {
                         Item {
                             id: popupBubbleAnchor
                             anchors.centerIn: parent
-                            width: 1
-                            height: 1
+                            width: Theme.scaled(1)
+                            height: Theme.scaled(1)
                         }
 
                         // Speech bubble for popup

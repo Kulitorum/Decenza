@@ -10,15 +10,15 @@ TextField {
     placeholderTextColor: Theme.textSecondaryColor
 
     // Explicit padding prevents Material theme's floating label animation
-    leftPadding: 12
-    rightPadding: 12
-    topPadding: 12
-    bottomPadding: 12
+    leftPadding: Theme.scaled(12)
+    rightPadding: Theme.scaled(12)
+    topPadding: Theme.scaled(12)
+    bottomPadding: Theme.scaled(12)
 
     background: Rectangle {
         color: Theme.backgroundColor
-        radius: 4
+        radius: Theme.scaled(4)
         border.color: control.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-        border.width: 1
+        border.width: Theme.scaled(1)
     }
 }

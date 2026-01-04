@@ -46,30 +46,30 @@ Page {
         anchors.margins: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.pageTopMargin  // Space for bottom bar
-        spacing: 15
+        spacing: Theme.scaled(15)
 
         // === DISPENSING VIEW ===
         ColumnLayout {
             visible: isDispensing
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 20
+            spacing: Theme.scaled(20)
 
             // Preset pills for quick switching during dispensing
             Row {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 8
+                spacing: Theme.scaled(8)
 
                 Repeater {
                     model: Settings.waterVesselPresets
 
                     Rectangle {
                         width: liveVesselText.implicitWidth + 24
-                        height: 36
-                        radius: 18
+                        height: Theme.scaled(36)
+                        radius: Theme.scaled(18)
                         color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.surfaceColor
                         border.color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
-                        border.width: 1
+                        border.width: Theme.scaled(1)
 
                         Text {
                             id: liveVesselText
@@ -100,7 +100,7 @@ Page {
 
                 Column {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 8
+                    spacing: Theme.scaled(8)
 
                     Text {
                         id: hotWaterProgressText
@@ -114,14 +114,14 @@ Page {
                     Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: hotWaterProgressText.width
-                        height: 8
-                        radius: 4
+                        height: Theme.scaled(8)
+                        radius: Theme.scaled(4)
                         color: Theme.surfaceColor
 
                         Rectangle {
                             width: parent.width * Math.min(1, Math.max(0, ScaleDevice.weight) / Settings.waterVolume)
                             height: parent.height
-                            radius: 4
+                            radius: Theme.scaled(4)
                             color: Theme.primaryColor
                         }
                     }
@@ -169,7 +169,7 @@ Page {
             visible: !isDispensing
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 12
+            spacing: Theme.scaled(12)
 
             // Vessel Presets Section
             Rectangle {
@@ -180,7 +180,7 @@ Page {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.margins: Theme.scaled(12)
                     spacing: Theme.scaled(20)
 
                     Tr {
@@ -193,7 +193,7 @@ Page {
                     // Vessel preset buttons with drag-and-drop
                     Row {
                         id: vesselPresetsRow
-                        spacing: 8
+                        spacing: Theme.scaled(8)
 
                         property int draggedIndex: -1
 
@@ -204,18 +204,18 @@ Page {
                             Item {
                                 id: vesselDelegate
                                 width: vesselPill.width
-                                height: 36
+                                height: Theme.scaled(36)
 
                                 property int vesselIndex: index
 
                                 Rectangle {
                                     id: vesselPill
                                     width: vesselText.implicitWidth + 24
-                                    height: 36
-                                    radius: 18
+                                    height: Theme.scaled(36)
+                                    radius: Theme.scaled(18)
                                     color: vesselDelegate.vesselIndex === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.backgroundColor
                                     border.color: vesselDelegate.vesselIndex === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
-                                    border.width: 1
+                                    border.width: Theme.scaled(1)
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     Drag.active: dragArea.drag.active
@@ -311,18 +311,18 @@ Page {
                         // Add button
                         Rectangle {
                             id: addVesselButton
-                            width: 36
-                            height: 36
-                            radius: 18
+                            width: Theme.scaled(36)
+                            height: Theme.scaled(36)
+                            radius: Theme.scaled(18)
                             color: Theme.backgroundColor
                             border.color: Theme.textSecondaryColor
-                            border.width: 1
+                            border.width: Theme.scaled(1)
 
                             Text {
                                 anchors.centerIn: parent
                                 text: "+"
                                 color: Theme.textColor
-                                font.pixelSize: 20
+                                font.pixelSize: Theme.scaled(20)
                             }
 
                             AccessibleMouseArea {
@@ -360,7 +360,7 @@ Page {
                     // Weight (per-vessel, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 16
+                        spacing: Theme.scaled(16)
 
                         Tr {
                             key: "hotwater.label.weight"
@@ -395,7 +395,7 @@ Page {
                     // Temperature (global setting)
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 16
+                        spacing: Theme.scaled(16)
 
                         Tr {
                             key: "hotwater.label.temperature"
@@ -485,11 +485,11 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.color: Theme.textSecondaryColor
-            border.width: 1
+            border.width: Theme.scaled(1)
         }
 
         contentItem: ColumnLayout {
-            spacing: 15
+            spacing: Theme.scaled(15)
 
             Tr {
                 key: "hotwater.popup.editVesselPreset"
@@ -499,17 +499,17 @@ Page {
             }
 
             Rectangle {
-                Layout.preferredWidth: 280
-                Layout.preferredHeight: 44
+                Layout.preferredWidth: Theme.scaled(280)
+                Layout.preferredHeight: Theme.scaled(44)
                 color: Theme.backgroundColor
                 border.color: Theme.textSecondaryColor
-                border.width: 1
-                radius: 4
+                border.width: Theme.scaled(1)
+                radius: Theme.scaled(4)
 
                 TextInput {
                     id: editVesselNameInput
                     anchors.fill: parent
-                    anchors.margins: 10
+                    anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
@@ -528,7 +528,7 @@ Page {
             }
 
             RowLayout {
-                spacing: 10
+                spacing: Theme.scaled(10)
 
                 AccessibleButton {
                     text: deleteButtonText.text
@@ -539,9 +539,9 @@ Page {
                     }
                     Tr { id: deleteButtonText; key: "hotwater.button.delete"; fallback: "Delete"; visible: false }
                     background: Rectangle {
-                        implicitWidth: 80
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(80)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.errorColor
                     }
                     contentItem: Text {
@@ -561,9 +561,9 @@ Page {
                     onClicked: editVesselPopup.close()
                     Tr { id: cancelButtonText; key: "hotwater.button.cancel"; fallback: "Cancel"; visible: false }
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.backgroundColor
                     }
                     contentItem: Text {
@@ -585,9 +585,9 @@ Page {
                     }
                     Tr { id: saveButtonText; key: "hotwater.button.save"; fallback: "Save"; visible: false }
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.primaryColor
                     }
                     contentItem: Text {
@@ -632,11 +632,11 @@ Page {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.color: Theme.textSecondaryColor
-            border.width: 1
+            border.width: Theme.scaled(1)
         }
 
         contentItem: ColumnLayout {
-            spacing: 15
+            spacing: Theme.scaled(15)
 
             Tr {
                 key: "hotwater.popup.addVesselPreset"
@@ -646,17 +646,17 @@ Page {
             }
 
             Rectangle {
-                Layout.preferredWidth: 280
-                Layout.preferredHeight: 44
+                Layout.preferredWidth: Theme.scaled(280)
+                Layout.preferredHeight: Theme.scaled(44)
                 color: Theme.backgroundColor
                 border.color: Theme.textSecondaryColor
-                border.width: 1
-                radius: 4
+                border.width: Theme.scaled(1)
+                radius: Theme.scaled(4)
 
                 TextInput {
                     id: newVesselNameInput
                     anchors.fill: parent
-                    anchors.margins: 10
+                    anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
@@ -675,7 +675,7 @@ Page {
             }
 
             RowLayout {
-                spacing: 10
+                spacing: Theme.scaled(10)
 
                 Item { Layout.fillWidth: true }
 
@@ -685,9 +685,9 @@ Page {
                     onClicked: addVesselDialog.close()
                     Tr { id: addCancelButtonText; key: "hotwater.button.cancel"; fallback: "Cancel"; visible: false }
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.backgroundColor
                     }
                     contentItem: Text {
@@ -711,9 +711,9 @@ Page {
                     }
                     Tr { id: addButtonText; key: "hotwater.button.add"; fallback: "Add"; visible: false }
                     background: Rectangle {
-                        implicitWidth: 70
-                        implicitHeight: 36
-                        radius: 6
+                        implicitWidth: Theme.scaled(70)
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
                         color: Theme.primaryColor
                     }
                     contentItem: Text {
