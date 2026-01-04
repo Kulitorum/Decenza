@@ -13,17 +13,8 @@ Item {
     // Local property to track auto-sleep value
     property int autoSleepMinutes: Settings.value("autoSleepMinutes", 60)
 
-    // Local property to track per-page scale config mode
-    property bool configurePageScaleEnabled: Settings.value("ui/configurePageScale", false) === true
-
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-            if (key === "ui/configurePageScale") {
-                preferencesTab.configurePageScaleEnabled = Settings.value("ui/configurePageScale", false) === true
-            }
-        }
-    }
+    // Local property bound to Theme (single source of truth)
+    property bool configurePageScaleEnabled: Theme.configurePageScaleEnabled
 
     RowLayout {
         anchors.fill: parent
@@ -83,7 +74,7 @@ Item {
                 }
             }
 
-            // UI Scale (debug)
+            // Per-Screen Scale Configuration
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -93,75 +84,60 @@ Item {
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(8)
+                    spacing: Theme.scaled(10)
 
-                    Text {
-                        text: "UI Scale (debug)"
-                        color: Theme.warningColor
+                    Tr {
+                        key: "settings.preferences.perScreenScale"
+                        fallback: "Per-Screen Scale"
+                        color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
 
                     Tr {
                         Layout.fillWidth: true
-                        key: "settings.preferences.uiScaleDesc"
-                        fallback: "Adjust UI density. Lower = smaller elements, more detail."
+                        key: "settings.preferences.perScreenScaleDesc"
+                        fallback: "Adjust UI scale individually for each screen to optimize readability."
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap
                     }
 
                     Item { Layout.fillHeight: true }
 
-                    ValueInput {
-                        id: scaleInput
-                        from: 0.5
-                        to: 2.0
-                        stepSize: 0.01
-                        decimals: 2
-                        value: Theme.scaleMultiplier
-
-                        onValueModified: function(newValue) {
-                            Theme.scaleMultiplier = newValue
-                        }
-                    }
-
-                    Item { Layout.fillHeight: true }
-
-                    // Per-page scale configuration toggle
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: 1
-                        color: Theme.borderColor
-                    }
-
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(10)
 
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-
-                            Tr {
-                                key: "settings.preferences.configureScalePerScreen"
-                                fallback: "Configure scale per screen"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(12)
-                            }
-
-                            Tr {
-                                key: "settings.preferences.configureScalePerScreenDesc"
-                                fallback: "Shows overlay to set scale for each page"
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
-                            }
+                        Tr {
+                            key: "settings.preferences.configureScalePerScreen"
+                            fallback: "Configure scale per screen"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
                         }
+
+                        Item { Layout.fillWidth: true }
 
                         StyledSwitch {
                             checked: preferencesTab.configurePageScaleEnabled
-                            onClicked: Settings.setValue("ui/configurePageScale", checked)
+                            onClicked: {
+                                console.log("Switch clicked, checked =", checked)
+                                Settings.setValue("ui/configurePageScale", checked)
+                                // Also set Theme directly as fallback
+                                Theme.configurePageScaleEnabled = checked
+                                console.log("Theme.configurePageScaleEnabled =", Theme.configurePageScaleEnabled)
+                            }
                         }
+                    }
+
+                    Tr {
+                        visible: preferencesTab.configurePageScaleEnabled
+                        Layout.fillWidth: true
+                        key: "settings.preferences.scaleHint"
+                        fallback: "Navigate to each screen and use the floating control to adjust its scale."
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WordWrap
                     }
                 }
             }

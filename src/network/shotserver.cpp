@@ -3140,64 +3140,10 @@ void ShotServer::handleUpload(QTcpSocket* socket, const QByteArray& request)
 
     qDebug() << "APK uploaded:" << fullPath << "size:" << body.size();
 
-    // Validate APK before trying to install
-    QString validationError = validateApk(fullPath);
-    if (!validationError.isEmpty()) {
-        QFile::remove(fullPath);
-        sendResponse(socket, 400, "text/plain", "Invalid APK: " + validationError.toUtf8());
-        return;
-    }
-
     // Trigger installation on Android
     installApk(fullPath);
 
     sendResponse(socket, 200, "text/plain", "Upload complete: " + fullPath.toUtf8());
-}
-
-QString ShotServer::validateApk(const QString& apkPath)
-{
-    QFile file(apkPath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        return "Cannot open file";
-    }
-
-    qint64 fileSize = file.size();
-
-    // APK must be at least a few KB
-    if (fileSize < 4096) {
-        return QString("File too small (%1 bytes)").arg(fileSize);
-    }
-
-    // Check ZIP magic bytes (PK\x03\x04)
-    QByteArray header = file.read(4);
-    if (header.size() < 4 || header[0] != 'P' || header[1] != 'K' ||
-        header[2] != 0x03 || header[3] != 0x04) {
-        return "Not a valid ZIP/APK file (bad header)";
-    }
-
-    // Check for ZIP end-of-central-directory signature near end of file
-    // The EOCD signature is "PK\x05\x06" and must be in last 65KB
-    qint64 searchStart = qMax(0LL, fileSize - 65536);
-    file.seek(searchStart);
-    QByteArray tail = file.readAll();
-
-    // Look for EOCD signature
-    bool foundEocd = false;
-    for (int i = tail.size() - 22; i >= 0; --i) {
-        if (tail[i] == 'P' && tail[i+1] == 'K' &&
-            tail[i+2] == 0x05 && tail[i+3] == 0x06) {
-            foundEocd = true;
-            break;
-        }
-    }
-
-    if (!foundEocd) {
-        return "ZIP file appears truncated (no end-of-central-directory)";
-    }
-
-    file.close();
-    qDebug() << "APK validation passed:" << apkPath << "size:" << fileSize;
-    return QString();  // Empty = valid
 }
 
 void ShotServer::installApk(const QString& apkPath)

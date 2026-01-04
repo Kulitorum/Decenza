@@ -143,7 +143,11 @@ ApplicationWindow {
                 root.autoSleepMinutes = (val === undefined || val === null) ? 60 : parseInt(val)
                 resetInactivityTimer()
             } else if (key === "ui/configurePageScale") {
-                root.configurePageScaleEnabled = Settings.value("ui/configurePageScale", false) === true
+                var val = Settings.value("ui/configurePageScale", false)
+                console.log("configurePageScale changed:", val, "type:", typeof val)
+                // Handle both boolean and string values from QSettings
+                Theme.configurePageScaleEnabled = (val === true || val === "true")
+                console.log("configurePageScaleEnabled set to:", Theme.configurePageScaleEnabled)
             }
         }
     }
@@ -170,11 +174,9 @@ ApplicationWindow {
     // Current page title - set by each page
     property string currentPageTitle: ""
 
-    // Current page object name - for per-page scale settings
-    property string currentPageObjectName: ""
+    // Flag to prevent premature UI display
+    property bool appInitialized: false
 
-    // Per-page scale configuration mode enabled
-    property bool configurePageScaleEnabled: false
 
     // Suppress scale dialogs briefly after waking from sleep
     property bool justWokeFromSleep: false
@@ -236,7 +238,11 @@ ApplicationWindow {
         }
 
         // Initialize per-page scale settings
-        root.configurePageScaleEnabled = Settings.value("ui/configurePageScale", false) === true
+        var configVal = Settings.value("ui/configurePageScale", false)
+        console.log("Init configurePageScale:", configVal, "type:", typeof configVal)
+        // Handle both boolean and string values from QSettings
+        Theme.configurePageScaleEnabled = (configVal === true || configVal === "true")
+        console.log("Init configurePageScaleEnabled:", Theme.configurePageScaleEnabled)
 
         updateScale()
 
@@ -249,6 +255,9 @@ ApplicationWindow {
             // (e.g., after reinstall when QSettings was restored but SAF permission wasn't)
             checkStorageSetup()
         }
+
+        // Mark app as initialized
+        root.appInitialized = true
     }
 
     function updateScale() {
@@ -434,19 +443,26 @@ ApplicationWindow {
 
     function updateCurrentPageScale() {
         var pageName = pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
-        root.currentPageObjectName = pageName
+        console.log("updateCurrentPageScale: pageName =", pageName)
+        Theme.currentPageObjectName = pageName
         if (pageName) {
             Theme.pageScaleMultiplier = parseFloat(Settings.value("pageScale/" + pageName, 1.0)) || 1.0
         } else {
             Theme.pageScaleMultiplier = 1.0
         }
+        console.log("Scale config: enabled =", Theme.configurePageScaleEnabled,
+                    "page =", Theme.currentPageObjectName,
+                    "scale =", Theme.pageScaleMultiplier)
     }
 
     // Initialize page scale after pageStack is ready
     Timer {
         id: initPageScaleTimer
         interval: 100
-        onTriggered: updateCurrentPageScale()
+        onTriggered: {
+            console.log("initPageScaleTimer triggered")
+            updateCurrentPageScale()
+        }
         Component.onCompleted: start()
     }
 
@@ -1606,38 +1622,41 @@ ApplicationWindow {
     }
 
     // ============ PER-PAGE SCALE CONFIGURATION OVERLAY ============
-    // Floating overlay at bottom-right to configure scale per page
+    // Floating centered control for adjusting page scale
+    // Uses scaledBase() to maintain consistent size regardless of current page scale
     Rectangle {
         id: pageScaleOverlay
-        visible: root.configurePageScaleEnabled && !screensaverActive && root.currentPageObjectName !== ""
-        z: 9998  // Below hide keyboard button (9999), above most overlays
+        visible: root.appInitialized && Theme.configurePageScaleEnabled && !screensaverActive && Theme.currentPageObjectName !== ""
+        z: 800  // Above most content, below dialogs
 
-        anchors.right: parent.right
+        onVisibleChanged: console.log("pageScaleOverlay visible:", visible,
+            "appInit:", root.appInitialized,
+            "enabled:", Theme.configurePageScaleEnabled,
+            "screensaver:", screensaverActive,
+            "page:", Theme.currentPageObjectName)
+
+        anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.rightMargin: Theme.standardMargin
-        anchors.bottomMargin: Theme.bottomBarHeight + Theme.standardMargin
+        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaledBase(8)
 
-        width: scaleOverlayContent.width + Theme.standardMargin * 2
-        height: scaleOverlayContent.height + Theme.standardMargin * 2
-        radius: Theme.cardRadius
+        width: scaleRow.width + Theme.scaledBase(24) * 2
+        height: Theme.scaledBase(40)
+        radius: height / 2
         color: Theme.surfaceColor
-        border.width: 2
+        border.width: 1
         border.color: Theme.primaryColor
 
-        Column {
-            id: scaleOverlayContent
+        RowLayout {
+            id: scaleRow
             anchors.centerIn: parent
-            spacing: Theme.spacingSmall
+            spacing: Theme.scaledBase(8)
 
-            // Page name label
             Text {
-                text: root.currentPageObjectName.replace("Page", "").replace(/([A-Z])/g, " $1").trim()
+                text: "Scale:"
                 color: Theme.textSecondaryColor
-                font: Theme.labelFont
-                anchors.horizontalCenter: parent.horizontalCenter
+                font.pixelSize: Theme.scaledBase(12)
             }
 
-            // Scale ValueInput
             ValueInput {
                 id: pageScaleInput
                 value: Theme.pageScaleMultiplier
@@ -1647,29 +1666,11 @@ ApplicationWindow {
                 decimals: 2
                 suffix: "x"
                 valueColor: Theme.primaryColor
+                useBaseScale: true  // Use scaledBase() for consistent size
 
                 onValueModified: function(newValue) {
                     Theme.pageScaleMultiplier = newValue
-                    Settings.setValue("pageScale/" + root.currentPageObjectName, newValue)
-                }
-            }
-
-            // Reset link (only if not default)
-            Text {
-                visible: Math.abs(Theme.pageScaleMultiplier - 1.0) > 0.01
-                text: TranslationManager.translate("settings.preferences.reset", "Reset")
-                color: Theme.primaryColor
-                font: Theme.captionFont
-                anchors.horizontalCenter: parent.horizontalCenter
-
-                MouseArea {
-                    anchors.fill: parent
-                    anchors.margins: -Theme.spacingSmall
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        Theme.pageScaleMultiplier = 1.0
-                        Settings.setValue("pageScale/" + root.currentPageObjectName, 1.0)
-                    }
+                    Settings.setValue("pageScale/" + Theme.currentPageObjectName, newValue)
                 }
             }
         }

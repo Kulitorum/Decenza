@@ -15,8 +15,17 @@ QtObject {
     // Per-page scale multiplier (set by main.qml based on current page)
     property real pageScaleMultiplier: 1.0
 
+    // Per-page scale configuration mode (set by main.qml)
+    property bool configurePageScaleEnabled: false
+    property string currentPageObjectName: ""
+
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }
+
+    // Scale without page multiplier (for UI that should stay constant size across pages)
+    function scaledBase(value) {
+        return Math.round(value * scale / (pageScaleMultiplier || 1.0))
+    }
 
     // Dynamic colors - bind to Settings with fallback defaults
     property color backgroundColor: Settings.customThemeColors.backgroundColor || "#1a1a2e"

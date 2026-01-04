@@ -11,6 +11,9 @@ Page {
 
     property var comparisonModel: MainController.shotComparison
 
+    // Persisted graph height
+    property real graphHeight: Settings.value("comparison/graphHeight", Theme.scaled(280))
+
     Component.onCompleted: {
         root.currentPageTitle = "Compare Shots"
     }
@@ -66,10 +69,11 @@ Page {
                 }
             }
 
-            // Graph
+            // Graph with resize handle
             Rectangle {
+                id: graphCard
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(280)
+                Layout.preferredHeight: Math.max(Theme.scaled(150), Math.min(Theme.scaled(500), shotComparisonPage.graphHeight))
                 Layout.topMargin: Theme.spacingSmall
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
@@ -77,7 +81,66 @@ Page {
                 ComparisonGraph {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
+                    anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
                     comparisonModel: shotComparisonPage.comparisonModel
+                }
+
+                // Resize handle at bottom
+                Rectangle {
+                    id: resizeHandle
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: Theme.scaled(16)
+                    color: "transparent"
+
+                    // Visual indicator (three lines)
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: Theme.scaled(2)
+
+                        Repeater {
+                            model: 3
+                            Rectangle {
+                                width: Theme.scaled(30)
+                                height: 1
+                                color: Theme.textSecondaryColor
+                                opacity: resizeMouseArea.containsMouse || resizeMouseArea.pressed ? 0.8 : 0.4
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        id: resizeMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.SizeVerCursor
+                        preventStealing: true
+
+                        property real startY: 0
+                        property real startHeight: 0
+
+                        onPressed: function(mouse) {
+                            startY = mouse.y + resizeHandle.mapToItem(shotComparisonPage, 0, 0).y
+                            startHeight = graphCard.Layout.preferredHeight
+                        }
+
+                        onPositionChanged: function(mouse) {
+                            if (pressed) {
+                                var currentY = mouse.y + resizeHandle.mapToItem(shotComparisonPage, 0, 0).y
+                                var delta = currentY - startY
+                                var newHeight = startHeight + delta
+                                // Clamp between min and max
+                                newHeight = Math.max(Theme.scaled(150), Math.min(Theme.scaled(500), newHeight))
+                                shotComparisonPage.graphHeight = newHeight
+                            }
+                        }
+
+                        onReleased: {
+                            // Save the height
+                            Settings.setValue("comparison/graphHeight", shotComparisonPage.graphHeight)
+                        }
+                    }
                 }
             }
 

@@ -20,6 +20,14 @@ Item {
     property color valueColor: Theme.textColor
     property color accentColor: Theme.primaryColor
 
+    // Scale mode - when true, uses Theme.scaledBase() for consistent size across pages
+    property bool useBaseScale: false
+
+    // Helper to use either scaled or scaledBase based on useBaseScale property
+    function sc(value) {
+        return useBaseScale ? Theme.scaledBase(value) : Theme.scaled(value)
+    }
+
     // Signals - emits the new value for parent to apply
     signal valueModified(real newValue)
 
@@ -64,13 +72,13 @@ Item {
 
     // Auto-size based on content
     // Buttons: 32 each, margins: 4 each side, spacing: 2 each side = 76 total fixed
-    implicitWidth: Theme.scaled(76) + textMetrics.width + Theme.scaled(24)
-    implicitHeight: Theme.scaled(56)
+    implicitWidth: sc(76) + textMetrics.width + sc(24)
+    implicitHeight: sc(56)
 
     // Measure the text width for auto-sizing
     TextMetrics {
         id: textMetrics
-        font.pixelSize: Theme.scaled(24)
+        font.pixelSize: sc(24)
         font.bold: true
         text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
     }
@@ -91,21 +99,21 @@ Item {
     Rectangle {
         id: valueDisplay
         anchors.fill: parent
-        radius: Theme.scaled(12)
+        radius: sc(12)
         color: Theme.surfaceColor
         border.width: 1
         border.color: Theme.textSecondaryColor
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: Theme.scaled(4)
-            spacing: Theme.scaled(2)
+            anchors.margins: sc(4)
+            spacing: sc(2)
 
             // Minus button
             Rectangle {
-                Layout.preferredWidth: Theme.scaled(32)
+                Layout.preferredWidth: sc(32)
                 Layout.fillHeight: true
-                radius: Theme.scaled(8)
+                radius: sc(8)
                 color: minusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                 Accessible.role: Accessible.Button
@@ -115,7 +123,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: "\u2212"
-                    font.pixelSize: Theme.scaled(20)
+                    font.pixelSize: sc(20)
                     font.bold: true
                     color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
                 }
@@ -150,7 +158,7 @@ Item {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                    font.pixelSize: Theme.scaled(24)
+                    font.pixelSize: sc(24)
                     font.bold: true
                     color: root.valueColor
                     elide: Text.ElideRight
@@ -166,7 +174,7 @@ Item {
 
                     drag.target: Item {}  // Enable drag detection
                     drag.axis: Drag.XAndYAxis
-                    drag.threshold: Theme.scaled(5)
+                    drag.threshold: sc(5)
 
                     onPressed: function(mouse) {
                         startX = mouse.x
@@ -187,7 +195,7 @@ Item {
 
                         if (isDragging) {
                             // Simple 1:1 dragging - every 20 scaled pixels = 1 step
-                            var dragStep = Theme.scaled(20)
+                            var dragStep = sc(20)
                             var steps = Math.round(delta / dragStep)
                             if (steps !== 0) {
                                 adjustValue(steps)
@@ -213,8 +221,8 @@ Item {
                 Item {
                     id: bubbleAnchor
                     anchors.centerIn: parent
-                    width: Theme.scaled(1)
-                    height: Theme.scaled(1)
+                    width: sc(1)
+                    height: sc(1)
                 }
 
                 // Floating speech bubble - rendered in overlay to be always on top
@@ -234,9 +242,9 @@ Item {
 
                         property point globalPos: bubbleAnchor.mapToGlobal(0, 0)
                         x: globalPos.x - width / 2
-                        y: globalPos.y - height - Theme.scaled(15)
+                        y: globalPos.y - height - sc(15)
                         width: bubbleRect.width
-                        height: bubbleRect.height + bubbleTail.height - Theme.scaled(3)
+                        height: bubbleRect.height + bubbleTail.height - sc(3)
 
                         // Pop-in animation
                         scale: valueDragArea.pressed ? 1.0 : 0.5
@@ -248,16 +256,16 @@ Item {
                         // Bubble body - 1.5x larger
                         Rectangle {
                             id: bubbleRect
-                            width: bubbleText.width + Theme.scaled(36)
-                            height: Theme.scaled(66)
+                            width: bubbleText.width + sc(36)
+                            height: sc(66)
                             radius: height / 2
                             color: root.valueColor
 
                             // Subtle gradient shine
                             Rectangle {
                                 anchors.fill: parent
-                                anchors.margins: Theme.scaled(3)
-                                radius: parent.radius - Theme.scaled(3)
+                                anchors.margins: sc(3)
+                                radius: parent.radius - sc(3)
                                 gradient: Gradient {
                                     GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.3) }
                                     GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
@@ -268,7 +276,7 @@ Item {
                                 id: bubbleText
                                 anchors.centerIn: parent
                                 text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                                font.pixelSize: Theme.scaled(30)
+                                font.pixelSize: sc(30)
                                 font.bold: true
                                 color: speechBubble.getContrastColor(root.valueColor)
                             }
@@ -279,9 +287,9 @@ Item {
                             id: bubbleTail
                             anchors.horizontalCenter: bubbleRect.horizontalCenter
                             anchors.top: bubbleRect.bottom
-                            anchors.topMargin: -Theme.scaled(3)
-                            width: Theme.scaled(30)
-                            height: Theme.scaled(21)
+                            anchors.topMargin: -sc(3)
+                            width: sc(30)
+                            height: sc(21)
 
                             onPaint: {
                                 var ctx = getContext("2d")
@@ -308,9 +316,9 @@ Item {
 
             // Plus button
             Rectangle {
-                Layout.preferredWidth: Theme.scaled(32)
+                Layout.preferredWidth: sc(32)
                 Layout.fillHeight: true
-                radius: Theme.scaled(8)
+                radius: sc(8)
                 color: plusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                 Accessible.role: Accessible.Button
@@ -320,7 +328,7 @@ Item {
                 Text {
                     anchors.centerIn: parent
                     text: "+"
-                    font.pixelSize: Theme.scaled(20)
+                    font.pixelSize: sc(20)
                     font.bold: true
                     color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
                 }
@@ -383,23 +391,23 @@ Item {
             Rectangle {
                 id: popupControl
                 anchors.centerIn: parent
-                width: parent.width - Theme.scaled(40)
-                height: Theme.scaled(80)
-                radius: Theme.scaled(16)
+                width: parent.width - sc(40)
+                height: sc(80)
+                radius: sc(16)
                 color: Theme.surfaceColor
                 border.width: 1
                 border.color: Theme.textSecondaryColor
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: Theme.scaled(6)
-                    spacing: Theme.scaled(4)
+                    anchors.margins: sc(6)
+                    spacing: sc(4)
 
                     // Minus button
                     Rectangle {
-                        Layout.preferredWidth: Theme.scaled(70)
+                        Layout.preferredWidth: sc(70)
                         Layout.fillHeight: true
-                        radius: Theme.scaled(12)
+                        radius: sc(12)
                         color: popupMinusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                         Accessible.role: Accessible.Button
@@ -409,7 +417,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: "\u2212"
-                            font.pixelSize: Theme.scaled(32)
+                            font.pixelSize: sc(32)
                             font.bold: true
                             color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
                         }
@@ -450,7 +458,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                            font.pixelSize: Theme.scaled(40)
+                            font.pixelSize: sc(40)
                             font.bold: true
                             color: root.valueColor
                         }
@@ -474,13 +482,13 @@ Item {
                                 var deltaY = startY - mouse.y
                                 var delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY
 
-                                if (Math.abs(delta) > Theme.scaled(5)) {
+                                if (Math.abs(delta) > sc(5)) {
                                     isDragging = true
                                 }
 
                                 if (isDragging) {
                                     // Simple 1:1 dragging - every 20 scaled pixels = 1 step
-                                    var dragStep = Theme.scaled(20)
+                                    var dragStep = sc(20)
                                     var steps = Math.round(delta / dragStep)
                                     if (steps !== 0) {
                                         adjustValue(steps)
@@ -503,8 +511,8 @@ Item {
                         Item {
                             id: popupBubbleAnchor
                             anchors.centerIn: parent
-                            width: Theme.scaled(1)
-                            height: Theme.scaled(1)
+                            width: sc(1)
+                            height: sc(1)
                         }
 
                         // Speech bubble for popup
@@ -521,9 +529,9 @@ Item {
 
                                 property point globalPos: popupBubbleAnchor.mapToGlobal(0, 0)
                                 x: globalPos.x - width / 2
-                                y: globalPos.y - height - Theme.scaled(15)
+                                y: globalPos.y - height - sc(15)
                                 width: popupBubbleRect.width
-                                height: popupBubbleRect.height + popupBubbleTail.height - Theme.scaled(3)
+                                height: popupBubbleRect.height + popupBubbleTail.height - sc(3)
 
                                 scale: popupDragArea.pressed ? 1.0 : 0.5
                                 opacity: popupDragArea.pressed ? 1.0 : 0
@@ -533,15 +541,15 @@ Item {
 
                                 Rectangle {
                                     id: popupBubbleRect
-                                    width: popupBubbleText.width + Theme.scaled(36)
-                                    height: Theme.scaled(66)
+                                    width: popupBubbleText.width + sc(36)
+                                    height: sc(66)
                                     radius: height / 2
                                     color: root.valueColor
 
                                     Rectangle {
                                         anchors.fill: parent
-                                        anchors.margins: Theme.scaled(3)
-                                        radius: parent.radius - Theme.scaled(3)
+                                        anchors.margins: sc(3)
+                                        radius: parent.radius - sc(3)
                                         gradient: Gradient {
                                             GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.3) }
                                             GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
@@ -552,7 +560,7 @@ Item {
                                         id: popupBubbleText
                                         anchors.centerIn: parent
                                         text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                                        font.pixelSize: Theme.scaled(30)
+                                        font.pixelSize: sc(30)
                                         font.bold: true
                                         color: parent.parent.getContrastColor(root.valueColor)
                                     }
@@ -562,9 +570,9 @@ Item {
                                     id: popupBubbleTail
                                     anchors.horizontalCenter: popupBubbleRect.horizontalCenter
                                     anchors.top: popupBubbleRect.bottom
-                                    anchors.topMargin: -Theme.scaled(3)
-                                    width: Theme.scaled(30)
-                                    height: Theme.scaled(21)
+                                    anchors.topMargin: -sc(3)
+                                    width: sc(30)
+                                    height: sc(21)
 
                                     onPaint: {
                                         var ctx = getContext("2d")
@@ -590,9 +598,9 @@ Item {
 
                     // Plus button
                     Rectangle {
-                        Layout.preferredWidth: Theme.scaled(70)
+                        Layout.preferredWidth: sc(70)
                         Layout.fillHeight: true
-                        radius: Theme.scaled(12)
+                        radius: sc(12)
                         color: popupPlusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                         Accessible.role: Accessible.Button
@@ -602,7 +610,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: "+"
-                            font.pixelSize: Theme.scaled(32)
+                            font.pixelSize: sc(32)
                             font.bold: true
                             color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
                         }
@@ -629,7 +637,7 @@ Item {
             // Range display below
             Text {
                 anchors.top: popupControl.bottom
-                anchors.topMargin: Theme.scaled(12)
+                anchors.topMargin: sc(12)
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.from.toFixed(root.decimals) + " \u2014 " + root.to.toFixed(root.decimals)
                 font: Theme.bodyFont

@@ -588,14 +588,41 @@ Page {
     // Exit dialog for unsaved changes
     Dialog {
         id: exitDialog
-        title: qsTr("Unsaved Changes")
         anchors.centerIn: parent
-        width: Theme.scaled(480)
-        padding: Theme.scaled(20)
+        width: Theme.scaled(400)
         modal: true
+        padding: 0
 
-        ColumnLayout {
-            anchors.fill: parent
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        header: Rectangle {
+            color: "transparent"
+            height: Theme.scaled(50)
+
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("Unsaved Changes")
+                font: Theme.titleFont
+                color: Theme.textColor
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
+
+        contentItem: ColumnLayout {
             spacing: Theme.scaled(20)
 
             Tr {
@@ -605,10 +632,16 @@ Page {
                 color: Theme.textColor
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                Layout.bottomMargin: 0
             }
+
+            Item { Layout.fillHeight: true }
 
             RowLayout {
                 Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                Layout.topMargin: 0
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
@@ -624,8 +657,8 @@ Page {
                     }
                     background: Rectangle {
                         implicitWidth: Theme.scaled(90)
-                        implicitHeight: Theme.scaled(40)
-                        radius: Theme.scaled(8)
+                        implicitHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
                         color: parent.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
                     }
                     contentItem: Text {
@@ -648,14 +681,16 @@ Page {
                     }
                     background: Rectangle {
                         implicitWidth: Theme.scaled(100)
-                        implicitHeight: Theme.scaled(40)
-                        radius: Theme.scaled(8)
-                        color: parent.down ? Qt.darker(Theme.accentColor, 1.2) : Theme.accentColor
+                        implicitHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.primaryColor
                     }
                     contentItem: Text {
                         text: parent.text
                         font: Theme.bodyFont
-                        color: "white"
+                        color: Theme.primaryColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -672,10 +707,11 @@ Page {
                     }
                     background: Rectangle {
                         implicitWidth: Theme.scaled(80)
-                        implicitHeight: Theme.scaled(40)
-                        radius: Theme.scaled(8)
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                        opacity: parent.enabled ? 1.0 : 0.4
+                        implicitHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
+                        color: parent.enabled
+                            ? (parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor)
+                            : Theme.buttonDisabled
                     }
                     contentItem: Text {
                         text: parent.text

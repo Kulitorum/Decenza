@@ -365,4 +365,5 @@ Page {
             aiSettingsPage.testResultMessage = MainController.aiManager.lastTestResult
         }
     }
+
 }
