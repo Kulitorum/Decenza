@@ -115,6 +115,42 @@ Item {
                     }
 
                     Item { Layout.fillHeight: true }
+
+                    // Per-page scale configuration toggle
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: Theme.borderColor
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+
+                            Tr {
+                                key: "settings.preferences.configureScalePerScreen"
+                                fallback: "Configure scale per screen"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(12)
+                            }
+
+                            Tr {
+                                key: "settings.preferences.configureScalePerScreenDesc"
+                                fallback: "Shows overlay to set scale for each page"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(10)
+                            }
+                        }
+
+                        StyledSwitch {
+                            checked: Settings.value("ui/configurePageScale", false)
+                            onClicked: Settings.setValue("ui/configurePageScale", checked)
+                        }
+                    }
                 }
             }
         }
