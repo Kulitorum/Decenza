@@ -225,8 +225,9 @@ Item {
                         font.pixelSize: Theme.scaled(12)
                     }
 
-                    RowLayout {
+                    Row {
                         Layout.fillWidth: true
+                        height: Theme.scaled(50)
                         spacing: Theme.scaled(8)
 
                         Repeater {
@@ -238,8 +239,8 @@ Item {
 
                             delegate: Rectangle {
                                 id: chargingModeButton
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
+                                width: (parent.width - 2 * parent.spacing) / 3
+                                height: parent.height
                                 radius: Theme.scaled(6)
                                 color: BatteryManager.chargingMode === modelData.value ?
                                        Theme.primaryColor : Theme.backgroundColor
