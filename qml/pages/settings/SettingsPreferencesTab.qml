@@ -227,6 +227,7 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(50)
                         spacing: Theme.scaled(8)
 
                         Repeater {
