@@ -138,12 +138,13 @@ Page {
                 Layout.preferredHeight: Theme.scaled(60)
                 visible: DE1Device.isHeadless
                 radius: Theme.cardRadius
-                color: stopMouseArea.pressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                color: stopTapHandler.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                border.color: "white"
+                border.width: Theme.scaled(2)
 
-                Tr {
+                Text {
                     anchors.centerIn: parent
-                    key: "hotwater.button.stop"
-                    fallback: "Stop"
+                    text: "STOP"
                     color: "white"
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold

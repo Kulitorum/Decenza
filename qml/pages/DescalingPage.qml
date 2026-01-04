@@ -152,26 +152,30 @@ Page {
 
                     // Stop button (emergency only, for headless machines)
                     Rectangle {
+                        id: descaleStopButton
                         Layout.alignment: Qt.AlignHCenter
                         Layout.preferredWidth: Theme.scaled(200)
                         Layout.preferredHeight: Theme.scaled(50)
                         visible: DE1Device.isHeadless
                         radius: Theme.cardRadius
-                        color: stopArea.pressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                        color: stopTapHandler.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                        border.color: "white"
+                        border.width: Theme.scaled(2)
 
-                        Tr {
+                        Text {
                             anchors.centerIn: parent
-                            key: "descaling.button.emergencystop"
-                            fallback: "Emergency Stop"
+                            text: "STOP"
                             color: "white"
                             font.pixelSize: Theme.scaled(18)
                             font.weight: Font.Bold
                         }
 
-                        MouseArea {
-                            id: stopArea
+                        AccessibleTapHandler {
+                            id: stopTapHandler
                             anchors.fill: parent
-                            onClicked: DE1Device.stopOperation()
+                            accessibleName: "Emergency stop descaling"
+                            accessibleItem: descaleStopButton
+                            onAccessibleClicked: DE1Device.stopOperation()
                         }
                     }
 

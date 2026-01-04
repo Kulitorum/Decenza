@@ -76,8 +76,9 @@ Page {
         spacing: Theme.scaled(15)
 
         // === STEAMING VIEW ===
+        // Stay visible during soft-stop (waiting for purge)
         ColumnLayout {
-            visible: isSteaming
+            visible: isSteaming || steamSoftStopped
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.scaled(20)
@@ -268,15 +269,16 @@ Page {
                 Layout.preferredHeight: Theme.scaled(60)
                 visible: DE1Device.isHeadless
                 radius: Theme.cardRadius
-                color: stopMouseArea.pressed
+                color: stopTapHandler.isPressed
                     ? Qt.darker(steamSoftStopped ? Theme.primaryColor : Theme.errorColor, 1.2)
                     : (steamSoftStopped ? Theme.primaryColor : Theme.errorColor)
+                border.color: "white"
+                border.width: Theme.scaled(2)
 
-                Tr {
+                Text {
                     id: stopButtonText
                     anchors.centerIn: parent
-                    key: steamSoftStopped ? "steam.button.purge" : "steam.button.stop"
-                    fallback: steamSoftStopped ? "Purge" : "Stop"
+                    text: steamSoftStopped ? "PURGE" : "STOP"
                     color: "white"
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
@@ -291,11 +293,13 @@ Page {
                     onAccessibleClicked: {
                         if (steamSoftStopped) {
                             // Second press: request Idle to trigger purge
+                            steamSoftStopped = false  // Reset before navigating
                             DE1Device.requestIdle()
                             root.goToIdle()
                         } else {
-                            // First press: soft stop (machine timeout handles it)
-                            DE1Device.stopOperation()
+                            // First press: indicate ready for purge
+                            // Don't call stopOperation() - let machine timeout naturally
+                            // or user can press PURGE to stop and trigger purge sequence
                             steamSoftStopped = true
                         }
                     }
@@ -306,8 +310,9 @@ Page {
         }
 
         // === SETTINGS VIEW ===
+        // Hide during soft-stop (waiting for purge)
         ColumnLayout {
-            visible: !isSteaming
+            visible: !isSteaming && !steamSoftStopped
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.scaled(12)
@@ -622,15 +627,15 @@ Page {
             }
         }
 
-        Item { Layout.fillHeight: true; visible: isSteaming }
+        Item { Layout.fillHeight: true; visible: isSteaming || steamSoftStopped }
     }
 
     // Hidden translation helper for "No pitcher"
     Tr { id: noPitcherText; key: "steam.label.noPitcher"; fallback: "No pitcher"; visible: false }
 
-    // Bottom bar
+    // Bottom bar (hide during soft-stop waiting for purge)
     BottomBar {
-        visible: !isSteaming
+        visible: !isSteaming && !steamSoftStopped
         title: getCurrentPitcherName() || noPitcherText.text
         onBackClicked: {
             MainController.applySteamSettings()

@@ -153,6 +153,41 @@ Page {
         }
     }
 
+    // Stop button for headless machines (prominently placed above info bar)
+    Rectangle {
+        id: espressoStopButton
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: infoBar.top
+        anchors.bottomMargin: Theme.scaled(20)
+        width: Theme.scaled(200)
+        height: Theme.scaled(60)
+        visible: DE1Device.isHeadless
+        radius: Theme.cardRadius
+        color: stopTapHandler.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+        border.color: "white"
+        border.width: Theme.scaled(2)
+
+        Text {
+            anchors.centerIn: parent
+            text: "STOP"
+            color: "white"
+            font.pixelSize: Theme.scaled(24)
+            font.weight: Font.Bold
+        }
+
+        AccessibleTapHandler {
+            id: stopTapHandler
+            anchors.fill: parent
+            accessibleName: "Stop espresso shot"
+            accessibleItem: espressoStopButton
+            onAccessibleClicked: {
+                root.stopReason = "manual"
+                DE1Device.stopOperation()
+                root.goToIdle()
+            }
+        }
+    }
+
     // Bottom info bar with live values
     Rectangle {
         id: infoBar
