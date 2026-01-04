@@ -145,7 +145,7 @@ void ShotServer::onReadyRead()
             QString requestLine = lines.isEmpty() ? "" : lines.first();
 
             // Parse Content-Length
-            for (const QString& line : lines) {
+            for (const QString& line : std::as_const(lines)) {
                 if (line.startsWith("Content-Length:", Qt::CaseInsensitive)) {
                     pending.contentLength = line.mid(15).trimmed().toLongLong();
                     break;
@@ -371,7 +371,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         QString idsStr = path.mid(9);
         QStringList idParts = idsStr.split(",");
         QList<qint64> ids;
-        for (const QString& p : idParts) {
+        for (const QString& p : std::as_const(idParts)) {
             bool ok;
             qint64 id = p.toLongLong(&ok);
             if (ok) ids << id;
@@ -394,7 +394,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     else if (path == "/api/shots") {
         QVariantList shots = m_storage->getShots(0, 1000);
         QJsonArray arr;
-        for (const QVariant& v : shots) {
+        for (const QVariant& v : std::as_const(shots)) {
             arr.append(QJsonObject::fromVariantMap(v.toMap()));
         }
         sendJson(socket, QJsonDocument(arr).toJson(QJsonDocument::Compact));
@@ -435,7 +435,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         QJsonObject result;
         result["lastIndex"] = lastIndex;
         QJsonArray linesArray;
-        for (const QString& line : lines) {
+        for (const QString& line : std::as_const(lines)) {
             linesArray.append(line);
         }
         result["lines"] = linesArray;
@@ -525,7 +525,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         }
         QVariantList media = m_screensaverManager->getPersonalMediaList();
         QJsonArray arr;
-        for (const QVariant& v : media) {
+        for (const QVariant& v : std::as_const(media)) {
             arr.append(QJsonObject::fromVariantMap(v.toMap()));
         }
         sendJson(socket, QJsonDocument(arr).toJson(QJsonDocument::Compact));
@@ -664,7 +664,7 @@ QString ShotServer::generateShotListPage() const
 
     // Collect unique values for filter dropdowns
     QSet<QString> profilesSet, brandsSet, coffeesSet;
-    for (const QVariant& v : shots) {
+    for (const QVariant& v : std::as_const(shots)) {
         QVariantMap shot = v.toMap();
         QString profile = shot["profileName"].toString().trimmed();
         QString brand = shot["beanBrand"].toString().trimmed();
@@ -696,7 +696,7 @@ QString ShotServer::generateShotListPage() const
     QString coffeeOptions = generateOptions(coffees);
 
     QString rows;
-    for (const QVariant& v : shots) {
+    for (const QVariant& v : std::as_const(shots)) {
         QVariantMap shot = v.toMap();
 
         int rating = qRound(shot["enjoyment"].toDouble());  // 0-100
@@ -2155,7 +2155,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
     QString legendItems;
     int shotIndex = 0;
 
-    for (const QVariantMap& shot : shots) {
+    for (const QVariantMap& shot : std::as_const(shots)) {
         QString color = shotColors[shotIndex % shotColors.size()];
         QString name = shot["profileName"].toString();
         QString date = shot["dateTime"].toString().left(10);
@@ -3231,7 +3231,7 @@ QString ShotServer::generateMediaUploadPage() const
                 <h3>Current Personal Media</h3>
                 <div class="media-grid">)HTML";
 
-            for (const QVariant& v : media) {
+            for (const QVariant& v : std::as_const(media)) {
                 QVariantMap m = v.toMap();
                 QString type = m["type"].toString();
                 QString filename = m["filename"].toString();
@@ -4176,7 +4176,8 @@ QDateTime ShotServer::extractVideoDate(const QString& videoPath) const
     }
 
     // Look for creation_time in format tags
-    QJsonObject format = doc.object()["format"].toObject();
+    QJsonObject root = doc.object();
+    QJsonObject format = root["format"].toObject();
     QJsonObject tags = format["tags"].toObject();
 
     QString creationTime = tags["creation_time"].toString();
