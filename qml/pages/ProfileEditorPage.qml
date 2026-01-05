@@ -636,12 +636,9 @@ Page {
                 Layout.bottomMargin: 0
             }
 
-            Item { Layout.fillHeight: true }
-
             RowLayout {
                 Layout.fillWidth: true
                 Layout.margins: Theme.scaled(20)
-                Layout.topMargin: 0
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
@@ -801,7 +798,7 @@ Page {
                             color: Qt.rgba(255, 255, 255, 0.1)
                             radius: Theme.scaled(4)
                         }
-                        onTextChanged: {
+                        onEditingFinished: {
                             if (profile && selectedStepIndex >= 0 && profile.steps[selectedStepIndex].name !== text) {
                                 profile.steps[selectedStepIndex].name = text
                                 uploadProfile()
@@ -841,8 +838,8 @@ Page {
                                 leftPadding: parent.indicator.width + parent.spacing
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            onCheckedChanged: {
-                                if (checked && profile && selectedStepIndex >= 0 && profile.steps[selectedStepIndex].pump !== "pressure") {
+                            onToggled: {
+                                if (checked && profile && selectedStepIndex >= 0) {
                                     profile.steps[selectedStepIndex].pump = "pressure"
                                     uploadProfile()
                                 }
@@ -859,8 +856,8 @@ Page {
                                 leftPadding: parent.indicator.width + parent.spacing
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            onCheckedChanged: {
-                                if (checked && profile && selectedStepIndex >= 0 && profile.steps[selectedStepIndex].pump !== "flow") {
+                            onToggled: {
+                                if (checked && profile && selectedStepIndex >= 0) {
                                     profile.steps[selectedStepIndex].pump = "flow"
                                     uploadProfile()
                                 }
@@ -999,8 +996,8 @@ Page {
                                 leftPadding: parent.indicator.width + parent.spacing
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            onCheckedChanged: {
-                                if (checked && profile && selectedStepIndex >= 0 && profile.steps[selectedStepIndex].transition !== "fast") {
+                            onToggled: {
+                                if (checked && profile && selectedStepIndex >= 0) {
                                     profile.steps[selectedStepIndex].transition = "fast"
                                     uploadProfile()
                                 }
@@ -1017,8 +1014,8 @@ Page {
                                 leftPadding: parent.indicator.width + parent.spacing
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            onCheckedChanged: {
-                                if (checked && profile && selectedStepIndex >= 0 && profile.steps[selectedStepIndex].transition !== "smooth") {
+                            onToggled: {
+                                if (checked && profile && selectedStepIndex >= 0) {
                                     profile.steps[selectedStepIndex].transition = "smooth"
                                     uploadProfile()
                                 }
@@ -1059,8 +1056,8 @@ Page {
                                 leftPadding: parent.indicator.width + parent.spacing
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            onCheckedChanged: {
-                                if (profile && selectedStepIndex >= 0 && profile.steps[selectedStepIndex].exit_if !== checked) {
+                            onToggled: {
+                                if (profile && selectedStepIndex >= 0) {
                                     profile.steps[selectedStepIndex].exit_if = checked
                                     uploadProfile()
                                 }
@@ -1121,13 +1118,11 @@ Page {
                                     default: return 0
                                 }
                             }
-                            onCurrentIndexChanged: {
+                            onActivated: function(index) {
                                 if (!profile || selectedStepIndex < 0) return
                                 var types = ["pressure_over", "pressure_under", "flow_over", "flow_under"]
-                                if (profile.steps[selectedStepIndex].exit_type !== types[currentIndex]) {
-                                    profile.steps[selectedStepIndex].exit_type = types[currentIndex]
-                                    uploadProfile()
-                                }
+                                profile.steps[selectedStepIndex].exit_type = types[index]
+                                uploadProfile()
                             }
                         }
 
