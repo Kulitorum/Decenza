@@ -17,8 +17,8 @@ QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) 
         frames.append(createInfuseFrame(recipe));
     }
 
-    // Frame 3: Ramp - smooth transition to pour setpoint (if rampTime > 0)
-    if (recipe.rampTime > 0) {
+    // Frame 3: Ramp - smooth transition to pour setpoint (if enabled)
+    if (recipe.rampEnabled) {
         frames.append(createRampFrame(recipe));
     }
 

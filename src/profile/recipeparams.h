@@ -44,6 +44,7 @@ struct RecipeParams {
     double pourFlow = 2.0;              // Extraction flow (mL/s) - if flow mode
     double flowLimit = 0.0;             // Max flow in pressure mode (0=disabled)
     double pressureLimit = 6.0;         // Max pressure in flow mode (bar, 0=disabled)
+    bool rampEnabled = true;            // Enable ramp transition phase
     double rampTime = 5.0;              // Transition ramp duration (seconds)
 
     // === Decline Phase (Optional) ===

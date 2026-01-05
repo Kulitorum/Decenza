@@ -31,6 +31,7 @@ QJsonObject RecipeParams::toJson() const {
     obj["pourFlow"] = pourFlow;
     obj["flowLimit"] = flowLimit;
     obj["pressureLimit"] = pressureLimit;
+    obj["rampEnabled"] = rampEnabled;
     obj["rampTime"] = rampTime;
 
     // Decline
@@ -80,6 +81,7 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     params.pourFlow = json["pourFlow"].toDouble(2.0);
     params.flowLimit = json["flowLimit"].toDouble(0.0);
     params.pressureLimit = json["pressureLimit"].toDouble(6.0);
+    params.rampEnabled = json["rampEnabled"].toBool(true);  // Default true for legacy
     params.rampTime = json["rampTime"].toDouble(5.0);
 
     // Decline
@@ -121,6 +123,7 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["pourFlow"] = pourFlow;
     map["flowLimit"] = flowLimit;
     map["pressureLimit"] = pressureLimit;
+    map["rampEnabled"] = rampEnabled;
     map["rampTime"] = rampTime;
 
     // Decline
@@ -170,6 +173,7 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     params.pourFlow = map.value("pourFlow", 2.0).toDouble();
     params.flowLimit = map.value("flowLimit", 0.0).toDouble();
     params.pressureLimit = map.value("pressureLimit", 6.0).toDouble();
+    params.rampEnabled = map.value("rampEnabled", true).toBool();  // Default true for legacy
     params.rampTime = map.value("rampTime", 5.0).toDouble();
 
     // Decline

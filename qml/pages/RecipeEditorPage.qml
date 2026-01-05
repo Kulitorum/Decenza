@@ -547,15 +547,19 @@ Page {
 
                         // === Ramp Phase ===
                         RecipeSection {
+                            id: rampSection
                             title: qsTr("Ramp")
                             Layout.fillWidth: true
+                            canEnable: true
+                            enabled: recipe.rampEnabled !== false  // Default true
+                            onEnabledChanged: function(enabled) { updateRecipe("rampEnabled", enabled) }
 
                             RecipeRow {
                                 label: qsTr("Time")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.rampTime || 5
-                                    from: 0; to: 15; stepSize: 0.5
+                                    from: 0.5; to: 15; stepSize: 0.5
                                     suffix: "s"
                                     onValueModified: function(newValue) {
                                         updateRecipe("rampTime", newValue)
@@ -564,7 +568,7 @@ Page {
                             }
 
                             Text {
-                                text: qsTr("Smooth transition to pour (0 = instant)")
+                                text: qsTr("Smooth transition to pour setpoint")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
