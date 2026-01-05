@@ -569,10 +569,27 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         // Other values = GHC required - app CANNOT start
         // See de1app's ghc_required() in vars.tcl for reference
         uint8_t ghcStatus = d[4];
+
+        QString statusName;
+        switch (ghcStatus) {
+            case 0: statusName = "not installed"; break;
+            case 1: statusName = "unused"; break;
+            case 2: statusName = "inactive"; break;
+            case 3: statusName = "active"; break;
+            case 4: statusName = "debug"; break;
+            default: statusName = QString("unknown (%1)").arg(ghcStatus); break;
+        }
+
         bool canStartFromApp = (ghcStatus == 0 || ghcStatus == 1 || ghcStatus == 2 || ghcStatus == 4);
+        QString logMsg = QString("GHC status: %1 → app %2 start operations")
+            .arg(statusName)
+            .arg(canStartFromApp ? "CAN" : "CANNOT");
+
+        qDebug() << "DE1Device:" << logMsg;
+        emit logMessage(logMsg);
+
         if (m_isHeadless != canStartFromApp) {
             m_isHeadless = canStartFromApp;
-            qDebug() << "DE1Device: GHC status =" << ghcStatus << ", canStartFromApp =" << m_isHeadless;
             emit isHeadlessChanged();
         }
     }
@@ -851,6 +868,7 @@ void DE1Device::sendInitialSettings() {
     mmrRead[3] = 0x1C;   // Address low byte (GHC info)
 
     queueCommand([this, mmrRead]() {
+        qDebug() << "DE1Device: Requesting GHC_INFO from machine...";
         writeCharacteristic(DE1::Characteristic::READ_FROM_MMR, mmrRead);
     });
 

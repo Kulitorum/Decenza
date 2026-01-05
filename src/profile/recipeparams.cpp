@@ -253,8 +253,9 @@ RecipeParams RecipeParams::turbo() {
     params.fillTimeout = 8.0;
     params.fillExitPressure = 2.0;
 
+    params.infuseEnabled = false;  // No infuse for turbo
     params.infusePressure = 3.0;
-    params.infuseTime = 0.0;  // No infuse for turbo
+    params.infuseTime = 0.0;
     params.infuseByWeight = false;
     params.bloomEnabled = false;
 
@@ -262,6 +263,7 @@ RecipeParams RecipeParams::turbo() {
     params.pourStyle = "flow";
     params.pourFlow = 4.5;
     params.pressureLimit = 6.0;
+    params.rampEnabled = false;  // No ramp for turbo - instant jump to pour
     params.rampTime = 0.0;
 
     params.declineEnabled = false;

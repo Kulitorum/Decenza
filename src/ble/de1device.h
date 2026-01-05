@@ -141,6 +141,7 @@ signals:
     void simulationModeChanged();
     void usbChargerOnChanged();
     void isHeadlessChanged();
+    void logMessage(const QString& message);
 
 private slots:
     void onControllerConnected();

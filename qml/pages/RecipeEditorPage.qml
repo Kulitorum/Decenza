@@ -22,15 +22,18 @@ Page {
 
     // Load profile data from MainController
     function loadCurrentProfile() {
+        recipe = MainController.getCurrentRecipeParams()
+
+        // Always regenerate profile from recipe params to ensure frames match
+        MainController.uploadRecipeProfile(recipe)
+
         var loadedProfile = MainController.getCurrentProfile()
-        console.log("RecipeEditorPage: Loading profile with", loadedProfile ? loadedProfile.steps.length : 0, "steps")
         if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
             profile = loadedProfile
+            profileGraph.frames = []
             profileGraph.frames = profile.steps.slice()
-            profileGraph.refresh()
         }
-        recipe = MainController.getCurrentRecipeParams()
-        console.log("RecipeEditorPage: Recipe params - fillTemp:", recipe.fillTemperature, "pourTemp:", recipe.pourTemperature, "fillPressure:", recipe.fillPressure)
+
         originalProfileName = MainController.baseProfileName || ""
         recipeModified = false
     }
@@ -41,7 +44,9 @@ Page {
         newRecipe[key] = value
         recipe = newRecipe
         recipeModified = true
+
         MainController.uploadRecipeProfile(recipe)
+
         // Reload profile to get regenerated frames
         var loadedProfile = MainController.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps) {
@@ -358,7 +363,7 @@ Page {
                                 label: qsTr("Pressure")
                                 ValueInput {
                                     Layout.fillWidth: true
-                                    value: recipe.infusePressure || 3.0
+                                    value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0
                                     from: 0; to: 6; stepSize: 0.1
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
@@ -647,7 +652,7 @@ Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
 
         Text {
-            text: (MainController.currentProfilePtr ? MainController.currentProfilePtr.steps.length : 0) + " " + qsTr("frames")
+            text: (MainController.currentProfilePtr && MainController.currentProfilePtr.steps ? MainController.currentProfilePtr.steps.length : 0) + " " + qsTr("frames")
             color: "white"
             font: Theme.bodyFont
         }
@@ -761,6 +766,18 @@ Page {
         }
     }
 
+    // Timer for delayed graph refresh after page loads
+    Timer {
+        id: delayedRefreshTimer
+        interval: 200
+        onTriggered: {
+            if (profile && profile.steps) {
+                profileGraph.frames = profile.steps.slice()
+                profileGraph.refresh()
+            }
+        }
+    }
+
     // Load recipe when page opens
     Component.onCompleted: {
         // If not already in recipe mode, create a new recipe from current profile settings
@@ -768,10 +785,14 @@ Page {
             MainController.createNewRecipe(MainController.currentProfileName || "New Recipe")
         }
         loadCurrentProfile()
+        // Schedule a delayed refresh to ensure chart is ready
+        delayedRefreshTimer.start()
     }
 
     StackView.onActivated: {
         loadCurrentProfile()
         root.currentPageTitle = MainController.currentProfileName || qsTr("Recipe Editor")
+        // Schedule a delayed refresh
+        delayedRefreshTimer.start()
     }
 }

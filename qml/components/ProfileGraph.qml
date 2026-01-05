@@ -5,14 +5,14 @@ import DecenzaDE1
 ChartView {
     id: chart
     antialiasing: true
-    backgroundColor: Qt.darker(Theme.surfaceColor, 1.3)  // Match plot area so no gaps show
+    backgroundColor: Qt.darker(Theme.surfaceColor, 1.3)
     plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
     legend.visible: false
 
-    margins.top: -Theme.scaled(45)
-    margins.bottom: -Theme.scaled(20)
-    margins.left: -Theme.scaled(15)
-    margins.right: -Theme.scaled(15)
+    margins.top: 0
+    margins.bottom: 0
+    margins.left: 0
+    margins.right: 0
 
     // Properties
     property var frames: []
@@ -40,7 +40,7 @@ ChartView {
         return Math.max(total, 5)  // Minimum 5 seconds
     }
 
-    // Time axis (X) - title moved inside graph
+    // Time axis (X)
     ValueAxis {
         id: timeAxis
         min: 0
@@ -52,7 +52,7 @@ ChartView {
         gridLineColor: Qt.rgba(255, 255, 255, 0.1)
     }
 
-    // Pressure/Flow axis (left Y) - title moved inside graph
+    // Pressure/Flow axis (left Y)
     ValueAxis {
         id: pressureAxis
         min: 0
@@ -64,7 +64,7 @@ ChartView {
         gridLineColor: Qt.rgba(255, 255, 255, 0.1)
     }
 
-    // Temperature axis (right Y) - title moved inside graph
+    // Temperature axis (right Y)
     ValueAxis {
         id: tempAxis
         min: 80
@@ -76,9 +76,59 @@ ChartView {
         gridLineColor: "transparent"
     }
 
-    // Dynamic arrays for pressure and flow series (created on demand)
-    property var pressureSeriesList: []
-    property var flowSeriesList: []
+    // Static pressure series (up to 3 segments for discontinuous curves)
+    LineSeries {
+        id: pressureSeries0
+        name: "Pressure"
+        color: Theme.pressureGoalColor
+        width: Theme.graphLineWidth
+        style: Qt.DashLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
+    LineSeries {
+        id: pressureSeries1
+        color: Theme.pressureGoalColor
+        width: Theme.graphLineWidth
+        style: Qt.DashLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
+    LineSeries {
+        id: pressureSeries2
+        color: Theme.pressureGoalColor
+        width: Theme.graphLineWidth
+        style: Qt.DashLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
+
+    // Static flow series (up to 3 segments for discontinuous curves)
+    LineSeries {
+        id: flowSeries0
+        name: "Flow"
+        color: Theme.flowGoalColor
+        width: Theme.graphLineWidth
+        style: Qt.DashLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
+    LineSeries {
+        id: flowSeries1
+        color: Theme.flowGoalColor
+        width: Theme.graphLineWidth
+        style: Qt.DashLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
+    LineSeries {
+        id: flowSeries2
+        color: Theme.flowGoalColor
+        width: Theme.graphLineWidth
+        style: Qt.DashLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
 
     // Temperature target curve (dashed) - always continuous
     LineSeries {
@@ -91,37 +141,9 @@ ChartView {
         axisYRight: tempAxis
     }
 
-    // Create a new pressure series
-    function createPressureSeries() {
-        var series = chart.createSeries(ChartView.SeriesTypeLine, "Pressure", timeAxis, pressureAxis)
-        series.color = Theme.pressureGoalColor
-        series.width = Theme.graphLineWidth
-        series.style = Qt.DashLine
-        pressureSeriesList.push(series)
-        return series
-    }
-
-    // Create a new flow series
-    function createFlowSeries() {
-        var series = chart.createSeries(ChartView.SeriesTypeLine, "Flow", timeAxis, pressureAxis)
-        series.color = Theme.flowGoalColor
-        series.width = Theme.graphLineWidth
-        series.style = Qt.DashLine
-        flowSeriesList.push(series)
-        return series
-    }
-
-    // Clear all dynamic series
-    function clearDynamicSeries() {
-        for (var i = 0; i < pressureSeriesList.length; i++) {
-            chart.removeSeries(pressureSeriesList[i])
-        }
-        for (var j = 0; j < flowSeriesList.length; j++) {
-            chart.removeSeries(flowSeriesList[j])
-        }
-        pressureSeriesList = []
-        flowSeriesList = []
-    }
+    // Arrays to track which static series to use
+    property var pressureSeriesPool: [pressureSeries0, pressureSeries1, pressureSeries2]
+    property var flowSeriesPool: [flowSeries0, flowSeries1, flowSeries2]
 
     // Frame region overlays
     Item {
@@ -130,7 +152,7 @@ ChartView {
 
         Repeater {
             id: frameRepeater
-            model: frames  // Use frames array directly
+            model: frames
 
             delegate: Item {
                 id: frameDelegate
@@ -147,20 +169,17 @@ ChartView {
                 }
                 property double frameDuration: frame ? frame.seconds || 0 : 0
 
-                // Calculate position based on chart plot area
                 x: chart.plotArea.x + (frameStart / (totalDuration * 1.1)) * chart.plotArea.width
                 y: chart.plotArea.y
                 width: (frameDuration / (totalDuration * 1.1)) * chart.plotArea.width
                 height: chart.plotArea.height
 
-                // Frame background
                 Rectangle {
                     anchors.fill: parent
                     color: {
                         if (index === selectedFrameIndex) {
                             return Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.3)
                         }
-                        // Alternate colors for visibility
                         return index % 2 === 0 ?
                             Qt.rgba(255, 255, 255, 0.05) :
                             Qt.rgba(255, 255, 255, 0.02)
@@ -169,7 +188,6 @@ ChartView {
                     border.color: index === selectedFrameIndex ?
                         Theme.accentColor : Qt.rgba(255, 255, 255, 0.2)
 
-                    // Pump mode indicator at bottom
                     Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
@@ -180,15 +198,11 @@ ChartView {
                     }
                 }
 
-                // Frame label - rotated 90 degrees, centered at frame position
-                // Clickable to select frame (especially useful for zero-duration frames)
                 Item {
                     id: labelContainer
-                    // For rotated text: visual width = text height, visual height = text width
                     property real visualWidth: labelText.implicitHeight + Theme.scaled(8)
                     property real visualHeight: labelText.implicitWidth + Theme.scaled(8)
 
-                    // Center horizontally at frame midpoint (or left edge for zero-width frames)
                     x: parent.width / 2 - visualWidth / 2
                     y: Theme.scaled(4)
                     width: visualWidth
@@ -219,10 +233,8 @@ ChartView {
                     }
                 }
 
-                // Click handler for frame area
                 MouseArea {
                     anchors.fill: parent
-                    // Don't block label clicks
                     z: -1
                     onClicked: {
                         selectedFrameIndex = index
@@ -238,13 +250,22 @@ ChartView {
 
     // Generate target curves from frames
     function updateCurves() {
-        // Clear all dynamic series and temperature
-        clearDynamicSeries()
+        // Clear all static series
+        for (var p = 0; p < pressureSeriesPool.length; p++) {
+            pressureSeriesPool[p].clear()
+        }
+        for (var f = 0; f < flowSeriesPool.length; f++) {
+            flowSeriesPool[f].clear()
+        }
         temperatureGoalSeries.clear()
 
-        if (frames.length === 0) return
+        if (frames.length === 0) {
+            return
+        }
 
         var time = 0
+        var pressureSeriesIndex = 0
+        var flowSeriesIndex = 0
         var currentPressureSeries = null
         var currentFlowSeries = null
 
@@ -254,47 +275,53 @@ ChartView {
             var endTime = time + (frame.seconds || 0)
             var isSmooth = frame.transition === "smooth"
 
-            // Check previous frame for pump mode continuity
             var prevFrame = i > 0 ? frames[i-1] : null
             var prevSamePump = prevFrame && prevFrame.pump === frame.pump
 
-            // Get previous values for smooth transitions (only if same pump mode)
             var prevPressure = prevSamePump ? prevFrame.pressure : frame.pressure
             var prevFlow = prevSamePump ? prevFrame.flow : frame.flow
             var prevTemp = i > 0 ? frames[i-1].temperature : frame.temperature
 
             // Pressure curve (only for pressure-control frames)
             if (frame.pump === "pressure") {
-                // Create new series if this is first pressure frame or coming from flow
+                // Need new series if coming from flow mode
                 if (!currentPressureSeries || (prevFrame && prevFrame.pump !== "pressure")) {
-                    currentPressureSeries = createPressureSeries()
+                    if (pressureSeriesIndex < pressureSeriesPool.length) {
+                        currentPressureSeries = pressureSeriesPool[pressureSeriesIndex]
+                        pressureSeriesIndex++
+                    }
                 }
 
-                if (isSmooth && prevSamePump) {
-                    // Smooth transition from previous pressure frame
-                    currentPressureSeries.append(startTime, prevPressure)
-                } else {
-                    // Fast transition or first in pressure segment
-                    currentPressureSeries.append(startTime, frame.pressure)
+                if (currentPressureSeries) {
+                    if (isSmooth) {
+                        var startPressure = prevSamePump ? prevPressure : 0
+                        currentPressureSeries.append(startTime, startPressure)
+                    } else {
+                        currentPressureSeries.append(startTime, frame.pressure)
+                    }
+                    currentPressureSeries.append(endTime, frame.pressure)
                 }
-                currentPressureSeries.append(endTime, frame.pressure)
             }
 
             // Flow curve (only for flow-control frames)
             if (frame.pump === "flow") {
-                // Create new series if this is first flow frame or coming from pressure
+                // Need new series if coming from pressure mode
                 if (!currentFlowSeries || (prevFrame && prevFrame.pump !== "flow")) {
-                    currentFlowSeries = createFlowSeries()
+                    if (flowSeriesIndex < flowSeriesPool.length) {
+                        currentFlowSeries = flowSeriesPool[flowSeriesIndex]
+                        flowSeriesIndex++
+                    }
                 }
 
-                if (isSmooth && prevSamePump) {
-                    // Smooth transition from previous flow frame
-                    currentFlowSeries.append(startTime, prevFlow)
-                } else {
-                    // Fast transition or first in flow segment
-                    currentFlowSeries.append(startTime, frame.flow)
+                if (currentFlowSeries) {
+                    if (isSmooth) {
+                        var startFlow = prevSamePump ? prevFlow : 0
+                        currentFlowSeries.append(startTime, startFlow)
+                    } else {
+                        currentFlowSeries.append(startTime, frame.flow)
+                    }
+                    currentFlowSeries.append(endTime, frame.flow)
                 }
-                currentFlowSeries.append(endTime, frame.flow)
             }
 
             // Temperature curve (always shown, continuous across all frames)
@@ -314,8 +341,17 @@ ChartView {
         updateCurves()
     }
 
+    // Timer for delayed initial update (ensures chart is fully ready)
+    Timer {
+        id: initialUpdateTimer
+        interval: 100
+        onTriggered: updateCurves()
+    }
+
     Component.onCompleted: {
         updateCurves()
+        // Also schedule a delayed update to catch any initialization issues
+        initialUpdateTimer.start()
     }
 
     // Custom legend - horizontal, below graph

@@ -131,6 +131,10 @@ int main(int argc, char *argv[])
         }
     });
 
+    // Forward DE1 log messages to BLEManager for display in connection log
+    QObject::connect(&de1Device, &DE1Device::logMessage,
+                     &bleManager, &BLEManager::de1LogMessage);
+
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
                      [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &flowScaleFallbackTimer](const QBluetoothDeviceInfo& device, const QString& type) {

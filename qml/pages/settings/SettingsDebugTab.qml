@@ -87,9 +87,7 @@ Item {
 
                         StyledSwitch {
                             checked: DE1Device.isHeadless
-                            onToggled: {
-                                DE1Device.isHeadless = checked
-                            }
+                            onToggled: DE1Device.isHeadless = checked
                         }
                     }
                 }
