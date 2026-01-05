@@ -4,22 +4,29 @@
 QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) {
     QList<ProfileFrame> frames;
 
-    // Frame 0: Fill - gentle pressure to saturate puck
+    // Frame 0: Fill - flow mode to saturate puck
     frames.append(createFillFrame(recipe));
 
-    // Frame 1: Infuse - hold at soak pressure (if time > 0 or weight-based)
+    // Frame 1: Bloom - optional pause for CO2 release (before infuse)
+    if (recipe.bloomEnabled && recipe.bloomTime > 0) {
+        frames.append(createBloomFrame(recipe));
+    }
+
+    // Frame 2: Infuse - hold at soak pressure (if time > 0 or weight-based)
     if (recipe.infuseTime > 0 || recipe.infuseByWeight) {
         frames.append(createInfuseFrame(recipe));
     }
 
-    // Frame 2: Ramp - quick transition to pour setpoint
-    frames.append(createRampFrame(recipe));
+    // Frame 3: Ramp - smooth transition to pour setpoint (if rampTime > 0)
+    if (recipe.rampTime > 0) {
+        frames.append(createRampFrame(recipe));
+    }
 
-    // Frame 3: Pour - main extraction phase
+    // Frame 4: Pour - main extraction phase
     frames.append(createPourFrame(recipe));
 
-    // Frame 4: Decline - optional pressure ramp-down (only for pressure mode)
-    if (recipe.declineEnabled && recipe.pourStyle == "pressure") {
+    // Frame 5: Decline - optional pressure ramp-down
+    if (recipe.declineEnabled) {
         frames.append(createDeclineFrame(recipe));
     }
 
@@ -38,7 +45,7 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     // Targets
     profile.setTargetWeight(recipe.targetWeight);
     profile.setTargetVolume(100.0);  // Volume as backup
-    profile.setEspressoTemperature(recipe.temperature);
+    profile.setEspressoTemperature(recipe.pourTemperature);
 
     // Mode
     profile.setMode(Profile::Mode::FrameBased);
@@ -46,10 +53,13 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     // Generate and set frames
     profile.setSteps(generateFrames(recipe));
 
-    // Calculate preinfuse frame count (fill + infuse)
+    // Calculate preinfuse frame count
     int preinfuseCount = 1;  // Fill is always preinfuse
+    if (recipe.bloomEnabled && recipe.bloomTime > 0) {
+        preinfuseCount++;
+    }
     if (recipe.infuseTime > 0 || recipe.infuseByWeight) {
-        preinfuseCount = 2;  // Fill + Infuse
+        preinfuseCount++;
     }
     profile.setPreinfuseFrameCount(preinfuseCount);
 
@@ -64,25 +74,52 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
     ProfileFrame frame;
 
     frame.name = "Fill";
-    frame.pump = "pressure";
-    frame.pressure = recipe.fillPressure;
-    frame.flow = 8.0;  // Fast fill rate (will be limited)
-    frame.temperature = recipe.temperature;
+    frame.pump = "flow";
+    frame.flow = recipe.fillFlow;
+    frame.pressure = recipe.fillPressure;  // Pressure limit
+    frame.temperature = recipe.fillTemperature;
     frame.seconds = recipe.fillTimeout;
     frame.transition = "fast";
     frame.sensor = "coffee";
-    frame.volume = 0.0;
+    frame.volume = 100.0;
 
     // Exit when pressure builds (indicates puck is saturated)
     frame.exitIf = true;
     frame.exitType = "pressure_over";
-    frame.exitPressureOver = recipe.fillPressure + 0.5;
+    frame.exitPressureOver = recipe.fillExitPressure;
     frame.exitPressureUnder = 0.0;
     frame.exitFlowOver = 6.0;
     frame.exitFlowUnder = 0.0;
 
-    // Flow limiter for controlled fill
-    frame.maxFlowOrPressure = 8.0;
+    // Pressure limiter in flow mode
+    frame.maxFlowOrPressure = recipe.fillPressure;
+    frame.maxFlowOrPressureRange = 0.6;
+
+    return frame;
+}
+
+ProfileFrame RecipeGenerator::createBloomFrame(const RecipeParams& recipe) {
+    ProfileFrame frame;
+
+    frame.name = "Bloom";
+    frame.pump = "flow";
+    frame.flow = 0.0;  // Zero flow - let puck rest
+    frame.pressure = 0.0;
+    frame.temperature = recipe.fillTemperature;
+    frame.seconds = recipe.bloomTime;
+    frame.transition = "fast";
+    frame.sensor = "coffee";
+    frame.volume = 0.0;
+
+    // Exit when pressure drops (CO2 has escaped)
+    frame.exitIf = true;
+    frame.exitType = "pressure_under";
+    frame.exitPressureOver = 11.0;
+    frame.exitPressureUnder = 0.5;
+    frame.exitFlowOver = 6.0;
+    frame.exitFlowUnder = 0.0;
+
+    frame.maxFlowOrPressure = 0.0;
     frame.maxFlowOrPressureRange = 0.6;
 
     return frame;
@@ -94,21 +131,21 @@ ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
     frame.name = "Infuse";
     frame.pump = "pressure";
     frame.pressure = recipe.infusePressure;
-    frame.flow = 0.0;
-    frame.temperature = recipe.temperature;
+    frame.flow = 8.0;
+    frame.temperature = recipe.fillTemperature;  // Use fill temp for infuse
     frame.transition = "fast";
     frame.sensor = "coffee";
-    frame.volume = 0.0;
+    frame.volume = recipe.infuseVolume;
 
     // Duration depends on mode
     if (recipe.infuseByWeight) {
-        // Long timeout, actual exit handled by stop-at-weight system
+        // Long timeout, actual exit handled by weight popup
         frame.seconds = 60.0;
     } else {
         frame.seconds = recipe.infuseTime;
     }
 
-    // No exit condition - time-based or global weight system handles exit
+    // No exit condition for time-based, or weight-based handled by popup
     frame.exitIf = false;
     frame.exitType = "";
     frame.exitPressureOver = 0.0;
@@ -116,8 +153,8 @@ ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
     frame.exitFlowOver = 0.0;
     frame.exitFlowUnder = 0.0;
 
-    // No limiter during infuse
-    frame.maxFlowOrPressure = 0.0;
+    // Flow limiter
+    frame.maxFlowOrPressure = 1.0;
     frame.maxFlowOrPressureRange = 0.6;
 
     return frame;
@@ -127,17 +164,17 @@ ProfileFrame RecipeGenerator::createRampFrame(const RecipeParams& recipe) {
     ProfileFrame frame;
 
     frame.name = "Ramp";
-    frame.temperature = recipe.temperature;
-    frame.seconds = 4.0;  // Quick ramp-up
-    frame.transition = "fast";
+    frame.temperature = recipe.pourTemperature;
+    frame.seconds = recipe.rampTime;
+    frame.transition = "smooth";  // Smooth transition creates the ramp
     frame.sensor = "coffee";
-    frame.volume = 0.0;
+    frame.volume = 100.0;
 
     if (recipe.pourStyle == "flow") {
         // Flow mode ramp
         frame.pump = "flow";
         frame.flow = recipe.pourFlow;
-        frame.pressure = 0.0;
+        frame.pressure = recipe.pressureLimit;
 
         // Pressure limiter in flow mode
         if (recipe.pressureLimit > 0) {
@@ -150,7 +187,7 @@ ProfileFrame RecipeGenerator::createRampFrame(const RecipeParams& recipe) {
         // Pressure mode ramp
         frame.pump = "pressure";
         frame.pressure = recipe.pourPressure;
-        frame.flow = 0.0;
+        frame.flow = 8.0;
 
         // Flow limiter in pressure mode
         if (recipe.flowLimit > 0) {
@@ -176,17 +213,17 @@ ProfileFrame RecipeGenerator::createPourFrame(const RecipeParams& recipe) {
     ProfileFrame frame;
 
     frame.name = "Pour";
-    frame.temperature = recipe.temperature;
+    frame.temperature = recipe.pourTemperature;
     frame.seconds = 60.0;  // Long duration - weight system stops the shot
     frame.transition = "fast";
     frame.sensor = "coffee";
-    frame.volume = 0.0;
+    frame.volume = 100.0;
 
     if (recipe.pourStyle == "flow") {
         // Flow mode extraction
         frame.pump = "flow";
         frame.flow = recipe.pourFlow;
-        frame.pressure = 0.0;
+        frame.pressure = recipe.pressureLimit;
 
         // Pressure limiter in flow mode
         if (recipe.pressureLimit > 0) {
@@ -199,7 +236,7 @@ ProfileFrame RecipeGenerator::createPourFrame(const RecipeParams& recipe) {
         // Pressure mode extraction
         frame.pump = "pressure";
         frame.pressure = recipe.pourPressure;
-        frame.flow = 0.0;
+        frame.flow = 8.0;
 
         // Flow limiter in pressure mode
         if (recipe.flowLimit > 0) {
@@ -225,21 +262,35 @@ ProfileFrame RecipeGenerator::createDeclineFrame(const RecipeParams& recipe) {
     ProfileFrame frame;
 
     frame.name = "Decline";
-    frame.pump = "pressure";
-    frame.pressure = recipe.declineTo;
-    frame.flow = 0.0;
-    frame.temperature = recipe.temperature;
+    frame.temperature = recipe.pourTemperature;
     frame.seconds = recipe.declineTime;
     frame.transition = "smooth";  // Key: smooth ramp creates the decline curve
     frame.sensor = "coffee";
-    frame.volume = 0.0;
+    frame.volume = 100.0;
 
-    // Maintain flow limiter from pour phase
-    if (recipe.flowLimit > 0) {
-        frame.maxFlowOrPressure = recipe.flowLimit;
-        frame.maxFlowOrPressureRange = 0.6;
+    if (recipe.pourStyle == "flow") {
+        // Flow mode decline - reduce flow
+        frame.pump = "flow";
+        frame.flow = recipe.pourFlow * 0.5;  // Reduce to 50%
+        frame.pressure = recipe.pressureLimit;
+
+        if (recipe.pressureLimit > 0) {
+            frame.maxFlowOrPressure = recipe.pressureLimit;
+            frame.maxFlowOrPressureRange = 0.6;
+        }
     } else {
-        frame.maxFlowOrPressure = 0.0;
+        // Pressure mode decline
+        frame.pump = "pressure";
+        frame.pressure = recipe.declineTo;
+        frame.flow = 8.0;
+
+        // Maintain flow limiter from pour phase
+        if (recipe.flowLimit > 0) {
+            frame.maxFlowOrPressure = recipe.flowLimit;
+            frame.maxFlowOrPressureRange = 0.6;
+        } else {
+            frame.maxFlowOrPressure = 0.0;
+        }
     }
 
     // No exit condition - time/weight handles termination

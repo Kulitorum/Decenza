@@ -375,12 +375,15 @@ void Profile::regenerateFromRecipe() {
 
     // Update profile metadata from recipe
     m_targetWeight = m_recipeParams.targetWeight;
-    m_espressoTemperature = m_recipeParams.temperature;
+    m_espressoTemperature = m_recipeParams.pourTemperature;
 
-    // Calculate preinfuse frame count (fill + infuse)
+    // Calculate preinfuse frame count (fill + bloom + infuse)
     int preinfuseCount = 1;  // Fill is always preinfuse
+    if (m_recipeParams.bloomEnabled && m_recipeParams.bloomTime > 0) {
+        preinfuseCount++;
+    }
     if (m_recipeParams.infuseTime > 0 || m_recipeParams.infuseByWeight) {
-        preinfuseCount = 2;  // Fill + Infuse
+        preinfuseCount++;
     }
     m_preinfuseFrameCount = preinfuseCount;
 }

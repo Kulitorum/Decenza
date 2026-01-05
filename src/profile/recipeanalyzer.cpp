@@ -4,8 +4,9 @@
 bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     const auto& steps = profile.steps();
 
-    // Need at least 2 frames (Fill + Pour) and at most 5 frames
-    if (steps.size() < 2 || steps.size() > 5) {
+    // Need at least 2 frames (Fill + Pour) and at most 6 frames
+    // Pattern: Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
+    if (steps.size() < 2 || steps.size() > 6) {
         return false;
     }
 
@@ -46,13 +47,19 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         return params;
     }
 
-    // Extract target weight and temperature from profile
+    // Extract target weight from profile
     params.targetWeight = profile.targetWeight();
-    params.temperature = profile.espressoTemperature();
+
+    // Default temperatures from profile
+    double profileTemp = profile.espressoTemperature();
+    params.fillTemperature = profileTemp;
+    params.pourTemperature = profileTemp;
 
     // Find frame indices
     int fillIndex = 0;
+    int bloomIndex = -1;
     int infuseIndex = -1;
+    int rampIndex = -1;
     int pourIndex = -1;
     int declineIndex = -1;
 
@@ -73,29 +80,50 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         }
     }
 
-    // Find infuse frame (between fill and pour)
+    // Find bloom, infuse, and ramp frames (between fill and pour)
     for (int i = fillIndex + 1; i < pourIndex; i++) {
-        if (isInfuseFrame(steps[i])) {
+        if (isBloomFrame(steps[i])) {
+            bloomIndex = i;
+        } else if (isRampFrame(steps[i])) {
+            rampIndex = i;
+        } else if (isInfuseFrame(steps[i])) {
             infuseIndex = i;
-            break;
         }
     }
 
     // Extract fill parameters
     if (fillIndex >= 0 && fillIndex < steps.size()) {
-        params.fillPressure = extractFillPressure(steps[fillIndex]);
-        params.fillTimeout = steps[fillIndex].seconds;
-        // Use fill frame temperature if available
-        if (steps[fillIndex].temperature > 0) {
-            params.temperature = steps[fillIndex].temperature;
+        const auto& fillFrame = steps[fillIndex];
+        params.fillPressure = extractFillPressure(fillFrame);
+        params.fillTimeout = fillFrame.seconds;
+        params.fillFlow = fillFrame.flow > 0 ? fillFrame.flow : 8.0;
+        params.fillExitPressure = fillFrame.exitPressureOver > 0 ? fillFrame.exitPressureOver : 3.0;
+        // Use fill frame temperature
+        if (fillFrame.temperature > 0) {
+            params.fillTemperature = fillFrame.temperature;
         }
+    }
+
+    // Extract bloom parameters
+    if (bloomIndex >= 0 && bloomIndex < steps.size()) {
+        params.bloomEnabled = true;
+        params.bloomTime = steps[bloomIndex].seconds;
+    } else {
+        params.bloomEnabled = false;
     }
 
     // Extract infuse parameters
     if (infuseIndex >= 0 && infuseIndex < steps.size()) {
-        params.infusePressure = extractInfusePressure(steps[infuseIndex]);
-        params.infuseTime = extractInfuseTime(steps[infuseIndex]);
+        const auto& infuseFrame = steps[infuseIndex];
+        params.infusePressure = extractInfusePressure(infuseFrame);
+        params.infuseTime = extractInfuseTime(infuseFrame);
+        params.infuseVolume = infuseFrame.volume > 0 ? infuseFrame.volume : 100.0;
         params.infuseByWeight = false;  // Hard to detect from frames
+    }
+
+    // Extract ramp time
+    if (rampIndex >= 0 && rampIndex < steps.size()) {
+        params.rampTime = steps[rampIndex].seconds;
     }
 
     // Extract pour parameters
@@ -112,9 +140,9 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
             params.flowLimit = extractFlowLimit(pourFrame);
         }
 
-        // Use pour frame temperature if higher (main extraction temp)
-        if (pourFrame.temperature > params.temperature) {
-            params.temperature = pourFrame.temperature;
+        // Use pour frame temperature
+        if (pourFrame.temperature > 0) {
+            params.pourTemperature = pourFrame.temperature;
         }
     }
 
@@ -160,6 +188,46 @@ bool RecipeAnalyzer::isFillFrame(const ProfileFrame& frame) {
 
     // Heuristic: first frame with low pressure and pressure_over exit
     if (frame.pressure <= 6.0 && frame.exitIf && frame.exitType == "pressure_over") {
+        return true;
+    }
+
+    return false;
+}
+
+bool RecipeAnalyzer::isBloomFrame(const ProfileFrame& frame) {
+    // Bloom frame characteristics:
+    // - Usually named "Bloom"
+    // - Zero or very low flow
+    // - Short duration (5-30s)
+    // - Pressure_under exit condition (waiting for CO2 to release)
+
+    QString nameLower = frame.name.toLower();
+    if (nameLower.contains("bloom")) {
+        return true;
+    }
+
+    // Heuristic: zero flow with pressure_under exit
+    if (frame.flow <= 0.1 && frame.exitIf && frame.exitType == "pressure_under") {
+        return true;
+    }
+
+    return false;
+}
+
+bool RecipeAnalyzer::isRampFrame(const ProfileFrame& frame) {
+    // Ramp frame characteristics:
+    // - Usually named "Ramp"
+    // - Smooth transition
+    // - Short duration (2-10s)
+    // - Between infuse and pour
+
+    QString nameLower = frame.name.toLower();
+    if (nameLower.contains("ramp") && !nameLower.contains("down")) {
+        return true;
+    }
+
+    // Heuristic: smooth transition with short duration
+    if (frame.transition == "smooth" && frame.seconds > 0 && frame.seconds <= 15) {
         return true;
     }
 

@@ -42,7 +42,9 @@ public:
 private:
     // Frame pattern detection
     static bool isFillFrame(const ProfileFrame& frame);
+    static bool isBloomFrame(const ProfileFrame& frame);
     static bool isInfuseFrame(const ProfileFrame& frame);
+    static bool isRampFrame(const ProfileFrame& frame);
     static bool isPourFrame(const ProfileFrame& frame);
     static bool isDeclineFrame(const ProfileFrame& frame, const ProfileFrame* previousFrame);
 

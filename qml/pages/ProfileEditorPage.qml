@@ -586,139 +586,20 @@ Page {
     }
 
     // Exit dialog for unsaved changes
-    Dialog {
+    UnsavedChangesDialog {
         id: exitDialog
-        anchors.centerIn: parent
-        width: Theme.scaled(400)
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
+        itemType: "profile"
+        canSave: originalProfileName !== ""
+        onDiscardClicked: {
+            if (originalProfileName) {
+                MainController.loadProfile(originalProfileName)
+            }
+            root.goBack()
         }
-
-        header: Rectangle {
-            color: "transparent"
-            height: Theme.scaled(50)
-
-            Text {
-                anchors.left: parent.left
-                anchors.leftMargin: Theme.scaled(20)
-                anchors.verticalCenter: parent.verticalCenter
-                text: qsTr("Unsaved Changes")
-                font: Theme.titleFont
-                color: Theme.textColor
-            }
-
-            Rectangle {
-                anchors.bottom: parent.bottom
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: 1
-                color: Theme.borderColor
-            }
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(20)
-
-            Tr {
-                key: "profileeditor.dialog.unsavedmessage"
-                fallback: "You have unsaved changes to this profile.\nWhat would you like to do?"
-                font: Theme.bodyFont
-                color: Theme.textColor
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                Layout.bottomMargin: 0
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                spacing: Theme.scaled(10)
-
-                AccessibleButton {
-                    text: qsTr("Discard")
-                    accessibleName: qsTr("Discard changes")
-                    onClicked: {
-                        // Reload original profile to discard changes
-                        if (originalProfileName) {
-                            MainController.loadProfile(originalProfileName)
-                        }
-                        exitDialog.close()
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(90)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                AccessibleButton {
-                    text: qsTr("Save As...")
-                    accessibleName: qsTr("Save as new profile")
-                    onClicked: {
-                        exitDialog.close()
-                        saveAsDialog.open()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(100)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    text: qsTr("Save")
-                    accessibleName: qsTr("Save profile")
-                    enabled: originalProfileName !== ""
-                    onClicked: {
-                        saveProfile()
-                        exitDialog.close()
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(80)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: parent.enabled
-                            ? (parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor)
-                            : Theme.buttonDisabled
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
+        onSaveAsClicked: saveAsDialog.open()
+        onSaveClicked: {
+            saveProfile()
+            root.goBack()
         }
     }
 

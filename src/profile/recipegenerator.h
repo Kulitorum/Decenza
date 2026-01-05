@@ -15,11 +15,14 @@ class Profile;
  * the underlying machine frames.
  *
  * Generated frame structure:
- *   Frame 0: Fill      - Gentle pressure to saturate puck
- *   Frame 1: Infuse    - Hold at low pressure (preinfusion/soak)
- *   Frame 2: Ramp      - Quick transition to pour pressure/flow
- *   Frame 3: Pour      - Main extraction phase
- *   Frame 4: Decline   - Optional pressure ramp-down (Londinium style)
+ *   Frame 0: Fill      - Flow mode fill to saturate puck
+ *   Frame 1: Bloom     - Optional pause for CO2 release
+ *   Frame 2: Infuse    - Hold at low pressure (preinfusion/soak)
+ *   Frame 3: Ramp      - Smooth transition to pour setpoint
+ *   Frame 4: Pour      - Main extraction phase
+ *   Frame 5: Decline   - Optional pressure/flow ramp-down
+ *
+ * Based on the D-Flow plugin by Damian Brakel.
  */
 class RecipeGenerator {
 public:
@@ -42,6 +45,7 @@ public:
 private:
     // Individual frame generators
     static ProfileFrame createFillFrame(const RecipeParams& recipe);
+    static ProfileFrame createBloomFrame(const RecipeParams& recipe);
     static ProfileFrame createInfuseFrame(const RecipeParams& recipe);
     static ProfileFrame createRampFrame(const RecipeParams& recipe);
     static ProfileFrame createPourFrame(const RecipeParams& recipe);

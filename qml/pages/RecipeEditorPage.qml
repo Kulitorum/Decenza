@@ -30,7 +30,7 @@ Page {
             profileGraph.refresh()
         }
         recipe = MainController.getCurrentRecipeParams()
-        console.log("RecipeEditorPage: Recipe params - temp:", recipe.temperature, "fillPressure:", recipe.fillPressure)
+        console.log("RecipeEditorPage: Recipe params - fillTemp:", recipe.fillTemperature, "pourTemp:", recipe.pourTemperature, "fillPressure:", recipe.fillPressure)
         originalProfileName = MainController.baseProfileName || ""
         recipeModified = false
     }
@@ -139,6 +139,11 @@ Page {
                             onClicked: applyPreset("blooming")
                         }
 
+                        PresetButton {
+                            text: qsTr("D-Flow")
+                            onClicked: applyPreset("dflowDefault")
+                        }
+
                         Item { Layout.fillWidth: true }
 
                         // Switch to advanced editor
@@ -189,6 +194,21 @@ Page {
                             Layout.fillWidth: true
 
                             RecipeRow {
+                                label: qsTr("Dose")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.dose || 18
+                                    from: 10; to: 30; stepSize: 0.5
+                                    suffix: "g"
+                                    valueColor: Theme.weightColor
+                                    accentColor: Theme.weightColor
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("dose", newValue)
+                                    }
+                                }
+                            }
+
+                            RecipeRow {
                                 label: qsTr("Stop at")
                                 ValueInput {
                                     Layout.fillWidth: true
@@ -203,19 +223,13 @@ Page {
                                 }
                             }
 
-                            RecipeRow {
-                                label: qsTr("Temp")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.temperature || 93
-                                    from: 80; to: 100; stepSize: 0.5
-                                    suffix: "\u00B0C"
-                                    valueColor: Theme.temperatureColor
-                                    accentColor: Theme.temperatureGoalColor
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("temperature", newValue)
-                                    }
-                                }
+                            // Display ratio
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Ratio: 1:") + ((recipe.targetWeight || 36) / (recipe.dose || 18)).toFixed(1)
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                horizontalAlignment: Text.AlignRight
                             }
                         }
 
@@ -225,16 +239,61 @@ Page {
                             Layout.fillWidth: true
 
                             RecipeRow {
+                                label: qsTr("Temp")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.fillTemperature || 88
+                                    from: 80; to: 100; stepSize: 0.5
+                                    suffix: "\u00B0C"
+                                    valueColor: Theme.temperatureColor
+                                    accentColor: Theme.temperatureGoalColor
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("fillTemperature", newValue)
+                                    }
+                                }
+                            }
+
+                            RecipeRow {
                                 label: qsTr("Pressure")
                                 ValueInput {
                                     Layout.fillWidth: true
-                                    value: recipe.fillPressure || 2.0
+                                    value: recipe.fillPressure || 3.0
                                     from: 1; to: 6; stepSize: 0.1
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
                                     accentColor: Theme.pressureGoalColor
                                     onValueModified: function(newValue) {
                                         updateRecipe("fillPressure", newValue)
+                                    }
+                                }
+                            }
+
+                            RecipeRow {
+                                label: qsTr("Flow")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.fillFlow || 8.0
+                                    from: 2; to: 10; stepSize: 0.5
+                                    suffix: " mL/s"
+                                    valueColor: Theme.flowColor
+                                    accentColor: Theme.flowGoalColor
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("fillFlow", newValue)
+                                    }
+                                }
+                            }
+
+                            RecipeRow {
+                                label: qsTr("Exit at")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.fillExitPressure || 3.0
+                                    from: 0.5; to: 6; stepSize: 0.1
+                                    suffix: " bar"
+                                    valueColor: Theme.pressureColor
+                                    accentColor: Theme.pressureGoalColor
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("fillExitPressure", newValue)
                                     }
                                 }
                             }
@@ -254,6 +313,50 @@ Page {
                             }
                         }
 
+                        // === Bloom Phase (Optional) ===
+                        RecipeSection {
+                            title: qsTr("Bloom")
+                            Layout.fillWidth: true
+
+                            CheckBox {
+                                id: bloomEnabledCheck
+                                text: qsTr("Enable bloom pause")
+                                checked: recipe.bloomEnabled || false
+                                onToggled: updateRecipe("bloomEnabled", checked)
+                                contentItem: Text {
+                                    text: parent.text
+                                    font: Theme.captionFont
+                                    color: Theme.textColor
+                                    leftPadding: parent.indicator.width + parent.spacing
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+
+                            RecipeRow {
+                                visible: bloomEnabledCheck.checked
+                                label: qsTr("Time")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.bloomTime || 10
+                                    from: 1; to: 30; stepSize: 1
+                                    suffix: "s"
+                                    decimals: 0
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("bloomTime", newValue)
+                                    }
+                                }
+                            }
+
+                            Text {
+                                visible: bloomEnabledCheck.checked
+                                text: qsTr("Zero-flow pause for CO2 release")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
                         // === Infuse Phase ===
                         RecipeSection {
                             title: qsTr("Infuse")
@@ -264,7 +367,7 @@ Page {
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.infusePressure || 3.0
-                                    from: 1; to: 6; stepSize: 0.1
+                                    from: 0; to: 6; stepSize: 0.1
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
                                     accentColor: Theme.pressureGoalColor
@@ -320,12 +423,41 @@ Page {
                                     }
                                 }
                             }
+
+                            RecipeRow {
+                                label: qsTr("Volume")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.infuseVolume || 100
+                                    from: 10; to: 200; stepSize: 10
+                                    suffix: " mL"
+                                    decimals: 0
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("infuseVolume", newValue)
+                                    }
+                                }
+                            }
                         }
 
                         // === Pour Phase ===
                         RecipeSection {
                             title: qsTr("Pour")
                             Layout.fillWidth: true
+
+                            RecipeRow {
+                                label: qsTr("Temp")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.pourTemperature || 93
+                                    from: 80; to: 100; stepSize: 0.5
+                                    suffix: "\u00B0C"
+                                    valueColor: Theme.temperatureColor
+                                    accentColor: Theme.temperatureGoalColor
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("pourTemperature", newValue)
+                                    }
+                                }
+                            }
 
                             RowLayout {
                                 Layout.fillWidth: true
@@ -416,6 +548,19 @@ Page {
                                     valueColor: (recipe.pressureLimit || 0) > 0 ? Theme.pressureColor : Theme.textSecondaryColor
                                     onValueModified: function(newValue) {
                                         updateRecipe("pressureLimit", newValue)
+                                    }
+                                }
+                            }
+
+                            RecipeRow {
+                                label: qsTr("Ramp")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.rampTime || 5
+                                    from: 0; to: 15; stepSize: 0.5
+                                    suffix: "s"
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("rampTime", newValue)
                                     }
                                 }
                             }
@@ -544,139 +689,21 @@ Page {
     }
 
     // Exit dialog for unsaved changes
-    Dialog {
+    UnsavedChangesDialog {
         id: exitDialog
-        anchors.centerIn: parent
-        width: Theme.scaled(400)
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
+        itemType: "recipe"
+        canSave: originalProfileName !== ""
+        onDiscardClicked: {
+            if (originalProfileName) {
+                MainController.loadProfile(originalProfileName)
+            }
+            root.goBack()
         }
-
-        header: Rectangle {
-            color: "transparent"
-            height: Theme.scaled(50)
-
-            Text {
-                anchors.left: parent.left
-                anchors.leftMargin: Theme.scaled(20)
-                anchors.verticalCenter: parent.verticalCenter
-                text: qsTr("Unsaved Changes")
-                font: Theme.titleFont
-                color: Theme.textColor
-            }
-
-            Rectangle {
-                anchors.bottom: parent.bottom
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: 1
-                color: Theme.borderColor
-            }
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(20)
-
-            Text {
-                text: qsTr("You have unsaved changes to this recipe.\nWhat would you like to do?")
-                font: Theme.bodyFont
-                color: Theme.textColor
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                Layout.bottomMargin: 0
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                spacing: Theme.scaled(10)
-
-                AccessibleButton {
-                    text: qsTr("Discard")
-                    accessibleName: qsTr("Discard changes")
-                    onClicked: {
-                        // Reload original profile
-                        if (originalProfileName) {
-                            MainController.loadProfile(originalProfileName)
-                        }
-                        exitDialog.close()
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(90)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                AccessibleButton {
-                    text: qsTr("Save As...")
-                    accessibleName: qsTr("Save as new recipe")
-                    onClicked: {
-                        exitDialog.close()
-                        saveAsDialog.open()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(100)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    text: qsTr("Save")
-                    accessibleName: qsTr("Save recipe")
-                    enabled: originalProfileName !== ""
-                    onClicked: {
-                        MainController.saveProfile(originalProfileName)
-                        MainController.markProfileClean()
-                        exitDialog.close()
-                        root.goBack()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(80)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: parent.enabled
-                            ? (parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor)
-                            : Theme.buttonDisabled
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
+        onSaveAsClicked: saveAsDialog.open()
+        onSaveClicked: {
+            MainController.saveProfile(originalProfileName)
+            MainController.markProfileClean()
+            root.goBack()
         }
     }
 

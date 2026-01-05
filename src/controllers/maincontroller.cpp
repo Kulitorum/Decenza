@@ -846,6 +846,8 @@ void MainController::applyRecipePreset(const QString& presetName) {
         recipe = RecipeParams::turbo();
     } else if (presetName == "blooming") {
         recipe = RecipeParams::blooming();
+    } else if (presetName == "dflowDefault") {
+        recipe = RecipeParams::dflowDefault();
     } else {
         qWarning() << "Unknown recipe preset:" << presetName;
         return;
