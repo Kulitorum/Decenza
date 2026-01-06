@@ -302,16 +302,18 @@ void AndroidScaleBleTransport::enableNotifications(const QBluetoothUuid& service
 
 void AndroidScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                                    const QBluetoothUuid& characteristicUuid,
-                                                   const QByteArray& data) {
+                                                   const QByteArray& data,
+                                                   WriteType writeType) {
     if (!m_javaBleManager.isValid()) {
         BLE_LOG("ERROR: writeCharacteristic - Java manager invalid!");
         emit error("Java BLE manager not initialized");
         return;
     }
 
-    BLE_LOG(QString("writeCharacteristic: %1 data=%2")
+    BLE_LOG(QString("writeCharacteristic: %1 data=%2 writeType=%3")
             .arg(characteristicUuid.toString(QUuid::WithoutBraces))
-            .arg(QString(data.toHex(' '))));
+            .arg(QString(data.toHex(' ')))
+            .arg(writeType == WriteType::WithResponse ? "WithResponse" : "NoResponse"));
 
     QJniObject jServiceUuid = QJniObject::fromString(serviceUuid.toString(QUuid::WithoutBraces));
     QJniObject jCharUuid = QJniObject::fromString(characteristicUuid.toString(QUuid::WithoutBraces));
@@ -322,11 +324,15 @@ void AndroidScaleBleTransport::writeCharacteristic(const QBluetoothUuid& service
     env->SetByteArrayRegion(jData, 0, data.size(),
                             reinterpret_cast<const jbyte*>(data.constData()));
 
+    // Pass write type as int (matches BluetoothGattCharacteristic.WRITE_TYPE_* constants)
+    jint jWriteType = static_cast<jint>(writeType);
+
     m_javaBleManager.callMethod<void>("writeCharacteristic",
-                                       "(Ljava/lang/String;Ljava/lang/String;[B)V",
+                                       "(Ljava/lang/String;Ljava/lang/String;[BI)V",
                                        jServiceUuid.object<jstring>(),
                                        jCharUuid.object<jstring>(),
-                                       jData);
+                                       jData,
+                                       jWriteType);
 
     env->DeleteLocalRef(jData);
 }

@@ -96,7 +96,8 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
 
 void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid,
-                                              const QByteArray& data) {
+                                              const QByteArray& data,
+                                              WriteType writeType) {
     QLowEnergyService* service = m_services.value(serviceUuid);
     if (!service) {
         emit error("Service not found for write");
@@ -109,7 +110,12 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
         return;
     }
 
-    service->writeCharacteristic(characteristic, data);
+    // Map our WriteType to Qt's WriteMode
+    QLowEnergyService::WriteMode mode = (writeType == WriteType::WithoutResponse)
+        ? QLowEnergyService::WriteWithoutResponse
+        : QLowEnergyService::WriteWithResponse;
+
+    service->writeCharacteristic(characteristic, data, mode);
 }
 
 void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,

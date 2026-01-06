@@ -223,11 +223,17 @@ void AcaiaScale::sendCommand(const QByteArray& command) {
     if (!m_transport || !m_characteristicsReady) return;
 
     // Write to appropriate characteristic based on protocol
+    // CRITICAL: IPS and Pyxis require different write types!
+    // - IPS (older Lunar/Pearl): WriteWithoutResponse (fire and forget)
+    // - Pyxis (newer Lunar 2021): WriteWithResponse (waits for ack)
+    // This matches de1app's ble_write_type_no_response vs ble_write_type_default
     if (m_isPyxis) {
-        m_transport->writeCharacteristic(Scale::Acaia::SERVICE, Scale::Acaia::CMD, command);
+        m_transport->writeCharacteristic(Scale::Acaia::SERVICE, Scale::Acaia::CMD, command,
+                                         ScaleBleTransport::WriteType::WithResponse);
     } else {
-        // IPS uses same characteristic for read/write
-        m_transport->writeCharacteristic(Scale::AcaiaIPS::SERVICE, Scale::AcaiaIPS::CHARACTERISTIC, command);
+        // IPS uses same characteristic for read/write, and requires NO_RESPONSE write type
+        m_transport->writeCharacteristic(Scale::AcaiaIPS::SERVICE, Scale::AcaiaIPS::CHARACTERISTIC, command,
+                                         ScaleBleTransport::WriteType::WithoutResponse);
     }
 }
 

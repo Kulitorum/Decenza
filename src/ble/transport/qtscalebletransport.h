@@ -27,7 +27,8 @@ public:
                             const QBluetoothUuid& characteristicUuid) override;
     void writeCharacteristic(const QBluetoothUuid& serviceUuid,
                             const QBluetoothUuid& characteristicUuid,
-                            const QByteArray& data) override;
+                            const QByteArray& data,
+                            WriteType writeType = WriteType::WithResponse) override;
     void readCharacteristic(const QBluetoothUuid& serviceUuid,
                            const QBluetoothUuid& characteristicUuid) override;
     bool isConnected() const override;

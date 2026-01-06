@@ -144,7 +144,7 @@ public class ScaleBleManager extends BleManager {
             .enqueue();
     }
 
-    public void writeCharacteristic(String serviceUuid, String charUuid, byte[] data) {
+    public void writeCharacteristic(String serviceUuid, String charUuid, byte[] data, int writeType) {
         BluetoothGattCharacteristic characteristic = findCharacteristic(serviceUuid, charUuid);
         if (characteristic == null) {
             Log.e(TAG, "Characteristic not found for write: " + charUuid);
@@ -152,9 +152,16 @@ public class ScaleBleManager extends BleManager {
             return;
         }
 
-        Log.d(TAG, "Writing to: " + charUuid + " data=" + bytesToHex(data));
+        // Map writeType: 1 = NO_RESPONSE, 2 = DEFAULT (with response)
+        // This matches de1app's ble_write_type_no_response=1, ble_write_type_default=2
+        int androidWriteType = (writeType == 1)
+            ? BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            : BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT;
 
-        writeCharacteristic(characteristic, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        Log.d(TAG, "Writing to: " + charUuid + " data=" + bytesToHex(data) +
+              " writeType=" + (writeType == 1 ? "NO_RESPONSE" : "DEFAULT"));
+
+        writeCharacteristic(characteristic, data, androidWriteType)
             .done(device -> {
                 Log.d(TAG, "Write successful: " + charUuid);
                 if (mNativePtr != 0) nativeOnCharacteristicWritten(mNativePtr, charUuid);

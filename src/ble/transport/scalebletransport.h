@@ -20,6 +20,14 @@ class ScaleBleTransport : public QObject {
     Q_OBJECT
 
 public:
+    /**
+     * BLE write types - must match Android BluetoothGattCharacteristic constants
+     */
+    enum class WriteType {
+        WithResponse = 2,    // WRITE_TYPE_DEFAULT - waits for acknowledgment
+        WithoutResponse = 1  // WRITE_TYPE_NO_RESPONSE - fire and forget
+    };
+
     explicit ScaleBleTransport(QObject* parent = nullptr) : QObject(parent) {}
     virtual ~ScaleBleTransport() = default;
 
@@ -59,10 +67,16 @@ public:
 
     /**
      * Write data to a characteristic.
+     * @param writeType Controls acknowledgment behavior:
+     *   - WithResponse (default): Wait for acknowledgment (WRITE_TYPE_DEFAULT)
+     *   - WithoutResponse: Fire and forget (WRITE_TYPE_NO_RESPONSE)
+     * Note: IPS (older Acaia/Lunar) requires WithoutResponse,
+     *       Pyxis (newer Lunar 2021) requires WithResponse.
      */
     virtual void writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                      const QBluetoothUuid& characteristicUuid,
-                                     const QByteArray& data) = 0;
+                                     const QByteArray& data,
+                                     WriteType writeType = WriteType::WithResponse) = 0;
 
     /**
      * Read data from a characteristic.
