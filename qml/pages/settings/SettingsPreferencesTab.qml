@@ -337,9 +337,6 @@ Item {
                 }
             }
 
-            // Spacer to push Offline Mode to bottom
-            Item { Layout.fillHeight: true }
-
             // Unlock GUI without DE1 connection
             Rectangle {
                 Layout.fillWidth: true

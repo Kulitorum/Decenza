@@ -130,9 +130,11 @@ Item {
                             Layout.alignment: Qt.AlignHCenter
                             Layout.topMargin: Theme.spacingMedium
                             source: "qrc:/qrcode.png"
-                            width: Theme.scaled(75)
-                            height: Theme.scaled(75)
+                            width: Theme.scaled(150)
+                            height: Theme.scaled(150)
                             fillMode: Image.PreserveAspectFit
+                            sourceSize.width: 150
+                            sourceSize.height: 150
                         }
                     }
 
