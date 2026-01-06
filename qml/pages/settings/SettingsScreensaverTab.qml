@@ -13,58 +13,108 @@ Item {
     // Dialog to offer clearing video cache when switching away from videos
     Dialog {
         id: clearCacheDialog
-        title: TranslationManager.translate("settings.screensaver.clearCacheTitle", "Clear Video Cache?")
         modal: true
         anchors.centerIn: parent
         width: Theme.scaled(400)
-        standardButtons: Dialog.NoButton
+        padding: 0
 
-        ColumnLayout {
-            width: parent.width
-            spacing: Theme.scaled(15)
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
 
-            Text {
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
                 Layout.fillWidth: true
-                text: TranslationManager.translate("settings.screensaver.clearCacheMessage",
-                    "You have %1 MB of cached videos. Would you like to delete them to free up space?").arg(
-                    (ScreensaverManager.cacheUsedBytes / 1024 / 1024).toFixed(0))
-                color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
-                wrapMode: Text.WordWrap
-            }
+                Layout.preferredHeight: Theme.scaled(50)
 
-            Text {
-                Layout.fillWidth: true
-                text: TranslationManager.translate("settings.screensaver.clearCacheWarning",
-                    "Note: If you switch back to video screensaver later, videos will re-download slowly (one every 3 minutes) to conserve bandwidth. Images will download normally.")
-                color: Theme.warningColor
-                font.pixelSize: Theme.scaled(12)
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(10)
-
-                Item { Layout.fillWidth: true }
-
-                AccessibleButton {
-                    text: TranslationManager.translate("settings.screensaver.keepCache", "Keep Videos")
-                    onClicked: {
-                        // Apply type change without clearing cache
-                        ScreensaverManager.screensaverType = screensaverTab.pendingScreensaverType
-                        clearCacheDialog.close()
-                    }
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("settings.screensaver.clearCacheTitle", "Clear Video Cache?")
+                    font: Theme.titleFont
+                    color: Theme.textColor
                 }
 
-                AccessibleButton {
-                    text: TranslationManager.translate("settings.screensaver.clearCache", "Delete Videos")
-                    highlighted: true
-                    onClicked: {
-                        // Clear cache with rate limiting, then apply type change
-                        ScreensaverManager.clearCacheWithRateLimit()
-                        ScreensaverManager.screensaverType = screensaverTab.pendingScreensaverType
-                        clearCacheDialog.close()
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Content
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(15)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.screensaver.clearCacheMessage",
+                        "You have %1 MB of cached videos. Would you like to delete them to free up space?").arg(
+                        (ScreensaverManager.cacheUsedBytes / 1024 / 1024).toFixed(0))
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.screensaver.clearCacheWarning",
+                        "Note: If you switch back to video screensaver later, videos will re-download slowly (one every 3 minutes) to conserve bandwidth. Images will download normally.")
+                    color: Theme.warningColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.screensaver.keepCache", "Keep Videos")
+                        accessibleName: "Keep cached videos"
+                        onClicked: {
+                            // Apply type change without clearing cache
+                            ScreensaverManager.screensaverType = screensaverTab.pendingScreensaverType
+                            clearCacheDialog.close()
+                        }
+                    }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.screensaver.clearCache", "Delete Videos")
+                        accessibleName: "Delete cached videos"
+                        onClicked: {
+                            // Clear cache with rate limiting, then apply type change
+                            ScreensaverManager.clearCacheWithRateLimit()
+                            ScreensaverManager.screensaverType = screensaverTab.pendingScreensaverType
+                            clearCacheDialog.close()
+                        }
+                        background: Rectangle {
+                            implicitHeight: Theme.scaled(36)
+                            implicitWidth: Theme.scaled(120)
+                            radius: Theme.scaled(6)
+                            color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        }
+                        contentItem: Text {
+                            text: parent.text
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(14)
+                            color: "white"
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
                 }
             }

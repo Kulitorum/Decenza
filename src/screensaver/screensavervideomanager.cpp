@@ -235,6 +235,23 @@ void ScreensaverVideoManager::setSelectedCategoryId(const QString& categoryId)
         m_settings->setValue("screensaver/categoryId", categoryId);
         emit selectedCategoryIdChanged();
 
+        // Stop any in-progress download from the old category
+        if (m_isDownloading) {
+            qDebug() << "[Screensaver] Stopping download from previous category";
+            stopBackgroundDownload();
+        }
+
+        // When switching categories while rate limited, allow one immediate download
+        // so there's always something to show in the new category
+        bool allowImmediateDownload = false;
+        if (isRateLimited()) {
+            m_lastDownloadTime = QDateTime();
+            m_settings->setValue("screensaver/lastDownloadTime", "");
+            qDebug() << "[Screensaver] Category changed - allowing one immediate download";
+            emit rateLimitedChanged();
+            allowImmediateDownload = true;
+        }
+
         // Handle personal category - use local catalog, no network fetch
         if (categoryId == "personal") {
             qDebug() << "[Screensaver] Switched to Personal category with"
@@ -258,7 +275,11 @@ void ScreensaverVideoManager::setSelectedCategoryId(const QString& categoryId)
                      << "New catalog URL:" << m_catalogUrl;
 
             // Refresh catalog for new category (keep cache - media identified by sha256)
+            // startBackgroundDownload() will be called after catalog loads
             refreshCatalog();
+        } else if (allowImmediateDownload && m_cacheEnabled && !m_catalog.isEmpty()) {
+            // Catalog URL unchanged (rare) but we need to trigger download for the immediate allowance
+            startBackgroundDownload();
         }
     }
 }
@@ -880,6 +901,11 @@ void ScreensaverVideoManager::clearCacheWithRateLimit()
     emit rateLimitedChanged();
 
     qDebug() << "[Screensaver] Rate limiting enabled until" << m_rateLimitedUntil.toString();
+
+    // Start downloading immediately so there's something to show
+    if (m_cacheEnabled && !m_catalog.isEmpty()) {
+        startBackgroundDownload();
+    }
 }
 
 bool ScreensaverVideoManager::isRateLimited() const
@@ -911,11 +937,21 @@ int ScreensaverVideoManager::rateLimitMinutesRemaining() const
 // Download management
 void ScreensaverVideoManager::startBackgroundDownload()
 {
-    if (m_isDownloading || !m_cacheEnabled) {
+    qDebug() << "[Screensaver] startBackgroundDownload called, isDownloading:" << m_isDownloading
+             << "cacheEnabled:" << m_cacheEnabled << "catalogSize:" << m_catalog.size();
+
+    if (m_isDownloading) {
+        qDebug() << "[Screensaver] Already downloading, skipping";
+        return;
+    }
+    if (!m_cacheEnabled) {
+        qDebug() << "[Screensaver] Cache disabled, skipping download";
         return;
     }
 
     queueAllVideosForDownload();
+
+    qDebug() << "[Screensaver] Download queue size:" << m_downloadQueue.size();
 
     if (!m_downloadQueue.isEmpty()) {
         m_totalToDownload = m_downloadQueue.size();
@@ -923,6 +959,8 @@ void ScreensaverVideoManager::startBackgroundDownload()
         m_downloadProgress = 0.0;
         qDebug() << "[Screensaver] Starting background download of" << m_totalToDownload << "videos";
         processDownloadQueue();
+    } else {
+        qDebug() << "[Screensaver] All videos already cached or queue empty";
     }
 }
 
@@ -1179,23 +1217,35 @@ int ScreensaverVideoManager::selectNextVideoIndex()
     }
 
     // Only play cached videos - no streaming
-    QList<int> cachedIndices;
-
+    // First, collect all cached video indices
+    QList<int> allCachedIndices;
     for (int i = 0; i < m_catalog.size(); ++i) {
-        if (i == m_lastPlayedIndex) continue;  // Avoid immediate repeat
-
         if (isVideoCached(m_catalog[i])) {
-            cachedIndices.append(i);
+            allCachedIndices.append(i);
         }
     }
 
-    if (cachedIndices.isEmpty()) {
+    if (allCachedIndices.isEmpty()) {
         // No cached videos yet - return -1 to show fallback
         return -1;
     }
 
-    int randIndex = QRandomGenerator::global()->bounded(cachedIndices.size());
-    return cachedIndices[randIndex];
+    // If only one video cached, play it (even if it's a repeat)
+    if (allCachedIndices.size() == 1) {
+        return allCachedIndices.first();
+    }
+
+    // Multiple videos cached - avoid immediate repeat by excluding last played
+    QList<int> availableIndices;
+    for (int idx : allCachedIndices) {
+        if (idx != m_lastPlayedIndex) {
+            availableIndices.append(idx);
+        }
+    }
+
+    // Random selection from available videos
+    int randIndex = QRandomGenerator::global()->bounded(availableIndices.size());
+    return availableIndices[randIndex];
 }
 
 QString ScreensaverVideoManager::getNextVideoSource()
