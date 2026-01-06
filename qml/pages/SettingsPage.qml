@@ -52,8 +52,8 @@ Page {
         onCurrentIndexChanged: {
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                 var tabNames = Settings.isDebugBuild ?
-                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language", "History", "Update", "Debug"] :
-                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language", "History", "Update"]
+                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language", "History", "Update", "About", "Debug"] :
+                    ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Language", "History", "Update", "About"]
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
                     AccessibilityManager.announce(tabNames[currentIndex] + " tab")
                 }
@@ -336,10 +336,9 @@ Page {
         }
 
         TabButton {
-            id: debugTabButton
-            visible: Settings.isDebugBuild
-            text: TranslationManager.translate("settings.tab.debug", "Debug")
-            width: visible ? implicitWidth : 0
+            id: aboutTabButton
+            text: TranslationManager.translate("settings.tab.about", "About")
+            width: implicitWidth
             font.pixelSize: Theme.scaled(14)
             font.bold: tabBar.currentIndex === 10
             contentItem: Text {
@@ -355,9 +354,35 @@ Page {
             }
             AccessibleMouseArea {
                 anchors.fill: parent
-                accessibleName: TranslationManager.translate("settings.tab.debug", "Debug") + " " + TranslationManager.translate("common.tab", "tab") + (tabBar.currentIndex === 10 ? ", " + TranslationManager.translate("common.selected", "selected") : "")
-                accessibleItem: debugTabButton
+                accessibleName: TranslationManager.translate("settings.tab.about", "About") + " " + TranslationManager.translate("common.tab", "tab") + (tabBar.currentIndex === 10 ? ", " + TranslationManager.translate("common.selected", "selected") : "")
+                accessibleItem: aboutTabButton
                 onAccessibleClicked: tabBar.currentIndex = 10
+            }
+        }
+
+        TabButton {
+            id: debugTabButton
+            visible: Settings.isDebugBuild
+            text: TranslationManager.translate("settings.tab.debug", "Debug")
+            width: visible ? implicitWidth : 0
+            font.pixelSize: Theme.scaled(14)
+            font.bold: tabBar.currentIndex === 11
+            contentItem: Text {
+                text: parent.text
+                font: parent.font
+                color: tabBar.currentIndex === 11 ? Theme.textColor : Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                color: tabBar.currentIndex === 11 ? Theme.surfaceColor : "transparent"
+                radius: Theme.scaled(6)
+            }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: TranslationManager.translate("settings.tab.debug", "Debug") + " " + TranslationManager.translate("common.tab", "tab") + (tabBar.currentIndex === 11 ? ", " + TranslationManager.translate("common.selected", "selected") : "")
+                accessibleItem: debugTabButton
+                onAccessibleClicked: tabBar.currentIndex = 11
             }
         }
     }
@@ -466,7 +491,15 @@ Page {
             source: "settings/SettingsUpdateTab.qml"
         }
 
-        // Tab 10: Debug - only in debug builds
+        // Tab 10: About
+        Loader {
+            id: aboutLoader
+            active: true
+            asynchronous: true
+            source: "settings/SettingsAboutTab.qml"
+        }
+
+        // Tab 11: Debug - only in debug builds
         Loader {
             id: debugLoader
             active: Settings.isDebugBuild

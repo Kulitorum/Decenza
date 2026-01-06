@@ -276,7 +276,10 @@ public class ScaleBleManager extends BleManager {
 
     @Override
     public void log(int priority, @NonNull String message) {
-        Log.println(priority, TAG, message);
+        // Only log warnings and errors to reduce logcat spam
+        if (priority >= Log.WARN) {
+            Log.println(priority, TAG, message);
+        }
     }
 
     // Helper to convert bytes to hex for logging

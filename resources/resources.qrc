@@ -20,6 +20,8 @@
         <file>icons/keyboard_hide.svg</file>
         <!-- GHC Simulator -->
         <file>GHC_Small.png</file>
+        <!-- About page -->
+        <file alias="qrcode.png">../logo/qrcode.png</file>
         <!-- Profiles (filenames match profile titles) -->
         <file>profiles/7g_basket.json</file>
         <file>profiles/80_s_espresso.json</file>

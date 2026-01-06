@@ -359,10 +359,6 @@ void DE1Device::subscribeToNotifications() {
 }
 
 void DE1Device::onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    // Log ALL characteristic changes for debugging
-    QString uuidShort = c.uuid().toString().mid(1, 8);  // Extract xxxx from {0000xxxx-...}
-    qDebug() << "DE1Device: Received from" << uuidShort << "data:" << value.toHex();
-
     if (c.uuid() == DE1::Characteristic::STATE_INFO) {
         parseStateInfo(value);
     } else if (c.uuid() == DE1::Characteristic::SHOT_SAMPLE) {

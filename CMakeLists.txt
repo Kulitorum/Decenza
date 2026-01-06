@@ -279,6 +279,7 @@ set(QML_FILES
     qml/pages/settings/SettingsLanguageTab.qml
     qml/pages/settings/SettingsShotHistoryTab.qml
     qml/pages/settings/SettingsUpdateTab.qml
+    qml/pages/settings/SettingsAboutTab.qml
     qml/pages/settings/SettingsDebugTab.qml
     qml/pages/settings/AddLanguagePage.qml
     qml/pages/settings/StringBrowserPage.qml
