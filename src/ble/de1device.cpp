@@ -56,6 +56,9 @@ DE1Device::~DE1Device() {
 }
 
 bool DE1Device::isConnected() const {
+    // In simulation mode, we're "connected" to the simulated machine
+    if (m_simulationMode) return true;
+
     // After service discovery, controller is in DiscoveredState, not ConnectedState
     return m_controller &&
            (m_controller->state() == QLowEnergyController::ConnectedState ||
@@ -88,6 +91,8 @@ void DE1Device::setSimulationMode(bool enabled) {
         m_headTemp = 93.0;
         m_mixTemp = 92.5;
         m_waterLevel = 75.0;
+        m_waterLevelMm = 31.25;  // ~75% = (31.25-5)/(40-5)*100
+        m_waterLevelMl = 872;    // From lookup table at ~31mm
         m_firmwareVersion = "SIM-1.0";
         emit stateChanged();
         emit subStateChanged();
@@ -518,6 +523,28 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     // Calculate percentage: 0% at refill point, 100% at full point
     double range = FULL_POINT - REFILL_POINT;
     m_waterLevel = qBound(0.0, ((m_waterLevelMm - REFILL_POINT) / range) * 100.0, 100.0);
+
+    // Lookup table from de1app CAD data (vars.tcl water_tank_level_to_milliliters)
+    // Maps mm (0-65) to ml volume, accounting for non-linear tank geometry
+    static const int mmToMl[] = {
+        0, 16, 43, 70, 97, 124, 151, 179, 206, 233,      // 0-9mm
+        261, 288, 316, 343, 371, 398, 426, 453, 481, 509, // 10-19mm
+        537, 564, 592, 620, 648, 676, 704, 732, 760, 788, // 20-29mm
+        816, 844, 872, 900, 929, 957, 985, 1013, 1042, 1070, // 30-39mm
+        1104, 1138, 1172, 1207, 1242, 1277, 1312, 1347, 1382, 1417, // 40-49mm
+        1453, 1488, 1523, 1559, 1594, 1630, 1665, 1701, 1736, 1772, // 50-59mm
+        1808, 1843, 1879, 1915, 1951, 1986  // 60-65mm
+    };
+    constexpr int tableSize = sizeof(mmToMl) / sizeof(mmToMl[0]);
+
+    int index = static_cast<int>(m_waterLevelMm);
+    if (index < 0) {
+        m_waterLevelMl = 0;
+    } else if (index >= tableSize) {
+        m_waterLevelMl = mmToMl[tableSize - 1];  // Max value
+    } else {
+        m_waterLevelMl = mmToMl[index];
+    }
 
     emit waterLevelChanged();
 }

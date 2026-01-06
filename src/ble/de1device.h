@@ -48,6 +48,7 @@ class DE1Device : public QObject {
     Q_PROPERTY(double steamTemperature READ steamTemperature NOTIFY shotSampleReceived)
     Q_PROPERTY(double waterLevel READ waterLevel NOTIFY waterLevelChanged)
     Q_PROPERTY(double waterLevelMm READ waterLevelMm NOTIFY waterLevelChanged)
+    Q_PROPERTY(int waterLevelMl READ waterLevelMl NOTIFY waterLevelChanged)
     Q_PROPERTY(QString firmwareVersion READ firmwareVersion NOTIFY firmwareVersionChanged)
     Q_PROPERTY(bool usbChargerOn READ usbChargerOn NOTIFY usbChargerOnChanged)
     Q_PROPERTY(bool isHeadless READ isHeadless NOTIFY isHeadlessChanged)
@@ -74,6 +75,7 @@ public:
     double steamTemperature() const { return m_steamTemp; }
     double waterLevel() const { return m_waterLevel; }
     double waterLevelMm() const { return m_waterLevelMm; }
+    int waterLevelMl() const { return m_waterLevelMl; }
     QString firmwareVersion() const { return m_firmwareVersion; }
     bool usbChargerOn() const { return m_usbChargerOn; }
     bool isHeadless() const { return m_isHeadless; }
@@ -184,6 +186,7 @@ private:
     double m_steamTemp = 0.0;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
+    int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)
     QString m_firmwareVersion;
 
     QQueue<std::function<void()>> m_commandQueue;

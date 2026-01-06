@@ -71,16 +71,20 @@ Rectangle {
 
         // Water level
         Text {
-            text: DE1Device.waterLevel.toFixed(0) + "%"
+            property bool showMl: Settings.waterLevelDisplayUnit === "ml"
+            text: showMl ? DE1Device.waterLevelMl + " ml" : DE1Device.waterLevel.toFixed(0) + "%"
             color: DE1Device.waterLevel > 20 ? Theme.primaryColor : Theme.warningColor
             font: Theme.bodyFont
 
             Accessible.role: Accessible.StaticText
-            Accessible.name: waterLevelAccessible.text + DE1Device.waterLevel.toFixed(0) + " " + percentAccessible.text
+            Accessible.name: showMl
+                ? waterLevelAccessible.text + DE1Device.waterLevelMl + " " + mlAccessible.text
+                : waterLevelAccessible.text + DE1Device.waterLevel.toFixed(0) + " " + percentAccessible.text
 
             // Hidden Tr elements for accessible names
             Tr { id: waterLevelAccessible; key: "statusbar.water_level"; fallback: "Water level: "; visible: false }
             Tr { id: percentAccessible; key: "statusbar.percent"; fallback: "percent"; visible: false }
+            Tr { id: mlAccessible; key: "statusbar.ml"; fallback: "milliliters"; visible: false }
         }
 
         // Separator

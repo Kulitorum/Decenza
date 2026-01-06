@@ -521,12 +521,16 @@ Page {
                 implicitWidth: waterLevelColumn.width
                 implicitHeight: waterLevelColumn.height
 
+                property bool showMl: Settings.waterLevelDisplayUnit === "ml"
+
                 ColumnLayout {
                     id: waterLevelColumn
                     spacing: Theme.spacingSmall
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: DE1Device.waterLevel.toFixed(0) + "%"
+                        text: waterLevelStatus.showMl
+                            ? DE1Device.waterLevelMl + " ml"
+                            : DE1Device.waterLevel.toFixed(0) + "%"
                         color: DE1Device.waterLevel > 20 ? Theme.primaryColor : Theme.warningColor
                         font: Theme.valueFont
                     }
@@ -542,9 +546,12 @@ Page {
                     anchors.fill: parent
                     onClicked: {
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                            var level = DE1Device.waterLevel.toFixed(0)
-                            var warning = level <= 20 ? ". Warning: water level is low" : ""
-                            AccessibilityManager.announceLabel("Water level: " + level + " percent" + warning)
+                            var warning = DE1Device.waterLevel <= 20 ? ". Warning: water level is low" : ""
+                            if (waterLevelStatus.showMl) {
+                                AccessibilityManager.announceLabel("Water level: " + DE1Device.waterLevelMl + " milliliters" + warning)
+                            } else {
+                                AccessibilityManager.announceLabel("Water level: " + DE1Device.waterLevel.toFixed(0) + " percent" + warning)
+                            }
                         }
                     }
                 }

@@ -231,6 +231,18 @@ void Settings::setKeepSteamHeaterOn(bool keep) {
     }
 }
 
+// Headless machine settings
+bool Settings::headlessSkipPurgeConfirm() const {
+    return m_settings.value("headless/skipPurgeConfirm", false).toBool();
+}
+
+void Settings::setHeadlessSkipPurgeConfirm(bool skip) {
+    if (headlessSkipPurgeConfirm() != skip) {
+        m_settings.setValue("headless/skipPurgeConfirm", skip);
+        emit headlessSkipPurgeConfirmChanged();
+    }
+}
+
 // Steam pitcher presets
 QVariantList Settings::steamPitcherPresets() const {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
@@ -1587,6 +1599,17 @@ void Settings::setAutoCheckUpdates(bool enabled) {
     if (autoCheckUpdates() != enabled) {
         m_settings.setValue("updates/autoCheck", enabled);
         emit autoCheckUpdatesChanged();
+    }
+}
+
+QString Settings::waterLevelDisplayUnit() const {
+    return m_settings.value("display/waterLevelUnit", "percent").toString();
+}
+
+void Settings::setWaterLevelDisplayUnit(const QString& unit) {
+    if (waterLevelDisplayUnit() != unit) {
+        m_settings.setValue("display/waterLevelUnit", unit);
+        emit waterLevelDisplayUnitChanged();
     }
 }
 

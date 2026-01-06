@@ -33,6 +33,9 @@ class Settings : public QObject {
     Q_PROPERTY(QVariantList steamPitcherPresets READ steamPitcherPresets NOTIFY steamPitcherPresetsChanged)
     Q_PROPERTY(int selectedSteamPitcher READ selectedSteamPitcher WRITE setSelectedSteamCup NOTIFY selectedSteamPitcherChanged)
 
+    // Headless machine settings
+    Q_PROPERTY(bool headlessSkipPurgeConfirm READ headlessSkipPurgeConfirm WRITE setHeadlessSkipPurgeConfirm NOTIFY headlessSkipPurgeConfirmChanged)
+
     // Profile favorites
     Q_PROPERTY(QVariantList favoriteProfiles READ favoriteProfiles NOTIFY favoriteProfilesChanged)
     Q_PROPERTY(int selectedFavoriteProfile READ selectedFavoriteProfile WRITE setSelectedFavoriteProfile NOTIFY selectedFavoriteProfileChanged)
@@ -109,6 +112,9 @@ class Settings : public QObject {
     // Auto-update settings
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
 
+    // Water level display setting
+    Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit WRITE setWaterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged)
+
     // Developer settings
     Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
 
@@ -161,6 +167,10 @@ public:
     Q_INVOKABLE void removeSteamPitcherPreset(int index);
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
+
+    // Headless machine settings
+    bool headlessSkipPurgeConfirm() const;
+    void setHeadlessSkipPurgeConfirm(bool skip);
 
     // Profile favorites (max 5)
     QVariantList favoriteProfiles() const;
@@ -347,6 +357,10 @@ public:
     bool autoCheckUpdates() const;
     void setAutoCheckUpdates(bool enabled);
 
+    // Water level display
+    QString waterLevelDisplayUnit() const;
+    void setWaterLevelDisplayUnit(const QString& unit);
+
     // Developer settings
     bool developerTranslationUpload() const;
     void setDeveloperTranslationUpload(bool enabled);
@@ -369,6 +383,7 @@ signals:
     void keepSteamHeaterOnChanged();
     void steamPitcherPresetsChanged();
     void selectedSteamPitcherChanged();
+    void headlessSkipPurgeConfirmChanged();
     void favoriteProfilesChanged();
     void selectedFavoriteProfileChanged();
     void selectedBuiltInProfilesChanged();
@@ -417,6 +432,7 @@ signals:
     void shotServerHostnameChanged();
     void shotServerPortChanged();
     void autoCheckUpdatesChanged();
+    void waterLevelDisplayUnitChanged();
     void developerTranslationUploadChanged();
     void valueChanged(const QString& key);
 
