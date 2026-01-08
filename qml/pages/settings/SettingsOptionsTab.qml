@@ -254,14 +254,74 @@ Item {
                 }
             }
 
-            // Placeholder card
+            // Shot Map Settings
             Rectangle {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                implicitHeight: shotMapContent.implicitHeight + Theme.scaled(30)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                opacity: 0.3
+
+                ColumnLayout {
+                    id: shotMapContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(10)
+
+                    Tr {
+                        key: "settings.shotmap.title"
+                        fallback: "Shot Map"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.shotmap.description"
+                        fallback: "Share your shots on the global map at decenza.coffee"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Tr {
+                            key: "settings.shotmap.enable"
+                            fallback: "Enable Shot Map"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: MainController.shotReporter ? MainController.shotReporter.enabled : false
+                            onCheckedChanged: {
+                                if (MainController.shotReporter) {
+                                    MainController.shotReporter.enabled = checked
+                                }
+                            }
+                        }
+                    }
+
+                    // Location status (only when enabled)
+                    Text {
+                        visible: MainController.shotReporter && MainController.shotReporter.enabled
+                        text: MainController.shotReporter && MainController.shotReporter.hasLocation
+                            ? "Location: " + MainController.shotReporter.currentCity() + (MainController.shotReporter.currentCountryCode() ? ", " + MainController.shotReporter.currentCountryCode() : "")
+                            : "Waiting for location..."
+                        color: MainController.shotReporter && MainController.shotReporter.hasLocation ? Theme.textColor : Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+                }
             }
+
+            // Spacer
+            Item { Layout.fillHeight: true }
         }
 
         // Right column: placeholder

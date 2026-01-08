@@ -21,6 +21,7 @@ Page {
     property bool isFlipClockMode: screensaverType === "flipclock"
     property bool isAttractorMode: screensaverType === "attractor"
     property bool isDisabledMode: screensaverType === "disabled"
+    property bool isShotMapMode: screensaverType === "shotmap"
 
     property int videoFailCount: 0
     property bool mediaPlaying: false
@@ -251,6 +252,15 @@ Page {
         anchors.fill: parent
         visible: isAttractorMode
         running: isAttractorMode && screensaverPage.visible
+        z: 0
+    }
+
+    // Shot Map screensaver
+    ShotMapScreensaver {
+        id: shotMapScreensaver
+        anchors.fill: parent
+        visible: isShotMapMode
+        running: isShotMapMode && screensaverPage.visible
         z: 0
     }
 

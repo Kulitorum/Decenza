@@ -125,7 +125,8 @@ Item {
             typeComboBox.currentIndex = ScreensaverManager.screensaverType === "videos" ? 1 :
                                         ScreensaverManager.screensaverType === "pipes" ? 2 :
                                         ScreensaverManager.screensaverType === "flipclock" ? 3 :
-                                        ScreensaverManager.screensaverType === "attractor" ? 4 : 0
+                                        ScreensaverManager.screensaverType === "attractor" ? 4 :
+                                      ScreensaverManager.screensaverType === "shotmap" ? 5 : 0
         }
     }
 
@@ -259,14 +260,16 @@ Item {
                             TranslationManager.translate("settings.screensaver.type.videos", "Videos & Images"),
                             TranslationManager.translate("settings.screensaver.type.pipes", "3D Pipes"),
                             TranslationManager.translate("settings.screensaver.type.flipclock", "Flip Clock"),
-                            TranslationManager.translate("settings.screensaver.type.attractor", "Strange Attractors")
+                            TranslationManager.translate("settings.screensaver.type.attractor", "Strange Attractors"),
+                            TranslationManager.translate("settings.screensaver.type.shotmap", "Shot Map")
                         ]
                         currentIndex: ScreensaverManager.screensaverType === "videos" ? 1 :
                                       ScreensaverManager.screensaverType === "pipes" ? 2 :
                                       ScreensaverManager.screensaverType === "flipclock" ? 3 :
-                                      ScreensaverManager.screensaverType === "attractor" ? 4 : 0
+                                      ScreensaverManager.screensaverType === "attractor" ? 4 :
+                                      ScreensaverManager.screensaverType === "shotmap" ? 5 : 0
                         onActivated: {
-                            var types = ["disabled", "videos", "pipes", "flipclock", "attractor"]
+                            var types = ["disabled", "videos", "pipes", "flipclock", "attractor", "shotmap"]
                             var newType = types[currentIndex]
 
                             // If switching away from videos and we have cached videos, offer to clear
@@ -413,6 +416,42 @@ Item {
                         StyledSwitch {
                             checked: ScreensaverManager.attractorShowClock
                             onCheckedChanged: ScreensaverManager.attractorShowClock = checked
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
+                // Shot Map settings (shotmap mode only)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(30)
+                    visible: ScreensaverManager.screensaverType === "shotmap"
+
+                    RowLayout {
+                        spacing: Theme.scaled(10)
+
+                        Tr {
+                            key: "settings.screensaver.shotmap.style"
+                            fallback: "Map Style"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        StyledComboBox {
+                            id: shotMapStyleCombo
+                            width: Theme.scaled(150)
+                            model: [
+                                TranslationManager.translate("settings.screensaver.shotmap.dark", "Dark"),
+                                TranslationManager.translate("settings.screensaver.shotmap.globe", "Globe"),
+                                TranslationManager.translate("settings.screensaver.shotmap.bright", "Bright")
+                            ]
+                            currentIndex: ScreensaverManager.shotMapStyle === "globe" ? 1 :
+                                          ScreensaverManager.shotMapStyle === "bright" ? 2 : 0
+                            onActivated: {
+                                var styles = ["dark", "globe", "bright"]
+                                ScreensaverManager.shotMapStyle = styles[currentIndex]
+                            }
                         }
                     }
 

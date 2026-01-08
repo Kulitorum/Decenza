@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza_DE1 VERSION 1.1.19 LANGUAGES CXX)
+project(Decenza_DE1 VERSION 1.1.20 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -329,6 +329,7 @@ set(QML_FILES
     qml/components/PipesScreensaver.qml
     qml/components/FlipClockScreensaver.qml
     qml/components/StrangeAttractorScreensaver.qml
+    qml/components/ShotMapScreensaver.qml
     qml/components/UnsavedChangesDialog.qml
 )
 

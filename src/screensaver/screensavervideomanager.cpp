@@ -67,6 +67,7 @@ ScreensaverVideoManager::ScreensaverVideoManager(Settings* settings, ProfileStor
     m_videosShowClock = m_settings->value("screensaver/videosShowClock", true).toBool();
     m_pipesShowClock = m_settings->value("screensaver/pipesShowClock", true).toBool();
     m_attractorShowClock = m_settings->value("screensaver/attractorShowClock", false).toBool();
+    m_shotMapStyle = m_settings->value("screensaver/shotMapStyle", "dark").toString();
 
     // Load rate limit state
     QString rateLimitStr = m_settings->value("screensaver/rateLimitedUntil", "").toString();
@@ -380,6 +381,14 @@ void ScreensaverVideoManager::setAttractorShowClock(bool show)
         m_attractorShowClock = show;
         m_settings->setValue("screensaver/attractorShowClock", show);
         emit attractorShowClockChanged();
+    }
+}
+void ScreensaverVideoManager::setShotMapStyle(const QString& style)
+{
+    if (m_shotMapStyle != style) {
+        m_shotMapStyle = style;
+        m_settings->setValue("screensaver/shotMapStyle", style);
+        emit shotMapStyleChanged();
     }
 }
 
