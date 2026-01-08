@@ -28,7 +28,7 @@ ShotReporter::ShotReporter(Settings* settings, LocationProvider* locationProvide
 
     // Load enabled state from settings
     if (m_settings) {
-        m_enabled = m_settings->value("shotmap/enabled", false).toBool();
+        m_enabled = m_settings->value("shotmap/enabled", true).toBool();
     }
 }
 
