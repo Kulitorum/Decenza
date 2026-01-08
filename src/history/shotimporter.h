@@ -44,13 +44,14 @@ public:
     QString statusMessage() const { return m_statusMessage; }
 
     // Import methods - all run asynchronously
-    Q_INVOKABLE void importFromZip(const QString& zipPath);
-    Q_INVOKABLE void importFromDirectory(const QString& dirPath);
-    Q_INVOKABLE void importSingleFile(const QString& filePath);
+    // If overwriteExisting is true, duplicate shots will be replaced instead of skipped
+    Q_INVOKABLE void importFromZip(const QString& zipPath, bool overwriteExisting = false);
+    Q_INVOKABLE void importFromDirectory(const QString& dirPath, bool overwriteExisting = false);
+    Q_INVOKABLE void importSingleFile(const QString& filePath, bool overwriteExisting = false);
 
     // Auto-detect DE1 app history folder
     Q_INVOKABLE QString detectDE1AppHistoryPath();
-    Q_INVOKABLE void importFromDE1App();
+    Q_INVOKABLE void importFromDE1App(bool overwriteExisting = false);
 
     // Cancel ongoing import
     Q_INVOKABLE void cancel();
@@ -66,6 +67,7 @@ signals:
 
 private slots:
     void processNextFile();
+    void performZipExtraction();
 
 private:
     bool extractZip(const QString& zipPath, const QString& destDir);
@@ -73,8 +75,10 @@ private:
     bool extractZipFromContentUri(const QString& contentUri, const QString& destDir);
 #endif
     QStringList findShotFiles(const QString& dirPath);
-    void startImport(const QStringList& files);
+    void startImport(const QStringList& files, bool overwriteExisting);
     void setStatus(const QString& message);
+
+    QString m_pendingZipPath;
 
     ShotHistoryStorage* m_storage;
     QTemporaryDir* m_tempDir = nullptr;
@@ -82,6 +86,7 @@ private:
     bool m_importing = false;
     bool m_extracting = false;
     bool m_cancelled = false;
+    bool m_overwriteExisting = false;
     int m_totalFiles = 0;
     int m_processedFiles = 0;
     int m_importedFiles = 0;

@@ -49,7 +49,7 @@ QString ProfileConverter::detectDE1AppProfilesPath() const
     return QString();
 }
 
-bool ProfileConverter::convertProfiles(const QString& sourceDir, const QString& destDir)
+bool ProfileConverter::convertProfiles(const QString& sourceDir, const QString& destDir, bool overwriteExisting)
 {
     if (m_converting) {
         emit conversionError("Conversion already in progress");
@@ -83,10 +83,12 @@ bool ProfileConverter::convertProfiles(const QString& sourceDir, const QString& 
     }
 
     m_destDir = destDir;
+    m_overwriteExisting = overwriteExisting;
     m_totalFiles = m_pendingFiles.size();
     m_processedFiles = 0;
     m_successCount = 0;
     m_errorCount = 0;
+    m_skippedCount = 0;
     m_errors.clear();
     m_converting = true;
 
@@ -109,7 +111,14 @@ void ProfileConverter::processNextFile()
         m_converting = false;
         emit isConvertingChanged();
 
-        setStatus(QString("Complete: %1 converted, %2 errors").arg(m_successCount).arg(m_errorCount));
+        QString statusMsg = QString("Complete: %1 converted").arg(m_successCount);
+        if (m_skippedCount > 0) {
+            statusMsg += QString(", %1 skipped").arg(m_skippedCount);
+        }
+        if (m_errorCount > 0) {
+            statusMsg += QString(", %1 errors").arg(m_errorCount);
+        }
+        setStatus(statusMsg);
         emit conversionComplete(m_successCount, m_errorCount);
         return;
     }
@@ -132,24 +141,30 @@ void ProfileConverter::processNextFile()
         QString outputFilename = generateFilename(profile.title());
         QString outputPath = m_destDir + "/" + outputFilename + ".json";
 
-        // Try to convert to D-Flow (recipe) mode if the profile structure is simple enough
-        // Complex profiles (like Damian's LRv3 with 8 frames) stay as frame-based
-        if (RecipeAnalyzer::canConvertToRecipe(profile)) {
-            RecipeAnalyzer::convertToRecipeMode(profile);
-            qDebug() << "ProfileConverter:" << filename << "→ D-Flow mode";
+        // Check if file already exists
+        if (QFile::exists(outputPath) && !m_overwriteExisting) {
+            m_skippedCount++;
+            qDebug() << "ProfileConverter: Skipped" << filename << "(already exists)";
         } else {
-            profile.setRecipeMode(false);
-            qDebug() << "ProfileConverter:" << filename << "→ Advanced mode (complex profile)";
-        }
+            // Try to convert to D-Flow (recipe) mode if the profile structure is simple enough
+            // Complex profiles (like Damian's LRv3 with 8 frames) stay as frame-based
+            if (RecipeAnalyzer::canConvertToRecipe(profile)) {
+                RecipeAnalyzer::convertToRecipeMode(profile);
+                qDebug() << "ProfileConverter:" << filename << "→ D-Flow mode";
+            } else {
+                profile.setRecipeMode(false);
+                qDebug() << "ProfileConverter:" << filename << "→ Advanced mode (complex profile)";
+            }
 
-        if (profile.saveToFile(outputPath)) {
-            m_successCount++;
-            qDebug() << "ProfileConverter: Converted" << filename << "→" << outputFilename + ".json";
-        } else {
-            QString error = QString("Failed to save: %1").arg(outputFilename);
-            m_errors.append(error);
-            m_errorCount++;
-            qWarning() << "ProfileConverter:" << error;
+            if (profile.saveToFile(outputPath)) {
+                m_successCount++;
+                qDebug() << "ProfileConverter: Converted" << filename << "→" << outputFilename + ".json";
+            } else {
+                QString error = QString("Failed to save: %1").arg(outputFilename);
+                m_errors.append(error);
+                m_errorCount++;
+                qWarning() << "ProfileConverter:" << error;
+            }
         }
     }
 

@@ -130,6 +130,10 @@ public:
     Q_INVOKABLE void createNewRecipe(const QString& title = "New Recipe");
     Q_INVOKABLE void applyRecipePreset(const QString& presetName);
 
+    // Profile mode conversion
+    Q_INVOKABLE void convertCurrentProfileToRecipe();   // Advanced -> D-Flow (simplifies profile)
+    Q_INVOKABLE void convertCurrentProfileToAdvanced(); // D-Flow -> Advanced (expands capabilities)
+
     // === D-Flow Frame Editor Methods ===
     // Frame operations
     Q_INVOKABLE void addFrame(int afterIndex = -1);       // Add new frame after index (-1 = at end)

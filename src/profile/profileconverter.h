@@ -24,6 +24,7 @@ class ProfileConverter : public QObject {
     Q_PROPERTY(int processedFiles READ processedFiles NOTIFY progressChanged)
     Q_PROPERTY(int successCount READ successCount NOTIFY progressChanged)
     Q_PROPERTY(int errorCount READ errorCount NOTIFY progressChanged)
+    Q_PROPERTY(int skippedCount READ skippedCount NOTIFY progressChanged)
     Q_PROPERTY(QString currentFile READ currentFile NOTIFY currentFileChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
 
@@ -35,6 +36,7 @@ public:
     int processedFiles() const { return m_processedFiles; }
     int successCount() const { return m_successCount; }
     int errorCount() const { return m_errorCount; }
+    int skippedCount() const { return m_skippedCount; }
     QString currentFile() const { return m_currentFile; }
     QString statusMessage() const { return m_statusMessage; }
 
@@ -43,7 +45,8 @@ public:
 
     // Convert all .tcl files from source to destination directory
     // Returns true if conversion started, false if already running or paths invalid
-    Q_INVOKABLE bool convertProfiles(const QString& sourceDir, const QString& destDir);
+    // If overwriteExisting is false, profiles that already exist will be skipped
+    Q_INVOKABLE bool convertProfiles(const QString& sourceDir, const QString& destDir, bool overwriteExisting = false);
 
     // Get list of errors encountered during conversion
     Q_INVOKABLE QStringList errors() const { return m_errors; }
@@ -69,10 +72,12 @@ private:
     int m_processedFiles = 0;
     int m_successCount = 0;
     int m_errorCount = 0;
+    int m_skippedCount = 0;
     QString m_currentFile;
     QString m_statusMessage;
     QStringList m_errors;
 
     QStringList m_pendingFiles;
     QString m_destDir;
+    bool m_overwriteExisting = false;
 };

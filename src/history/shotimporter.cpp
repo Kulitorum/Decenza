@@ -27,7 +27,7 @@ ShotImporter::~ShotImporter()
     delete m_tempDir;
 }
 
-void ShotImporter::importFromZip(const QString& zipPath)
+void ShotImporter::importFromZip(const QString& zipPath, bool overwriteExisting)
 {
     if (m_importing) {
         emit importError("Import already in progress");
@@ -43,6 +43,10 @@ void ShotImporter::importFromZip(const QString& zipPath)
         return;
     }
 
+    // Store parameters for deferred extraction
+    m_pendingZipPath = zipPath;
+    m_overwriteExisting = overwriteExisting;
+
     setStatus("Extracting archive...");
     m_importing = true;
     m_extracting = true;
@@ -50,11 +54,14 @@ void ShotImporter::importFromZip(const QString& zipPath)
     emit isImportingChanged();
     emit isExtractingChanged();
 
-    // Process events to let UI update before blocking extraction
-    QCoreApplication::processEvents();
+    // Defer extraction to allow UI to render the popup first
+    QTimer::singleShot(100, this, &ShotImporter::performZipExtraction);
+}
 
+void ShotImporter::performZipExtraction()
+{
     // Extract zip to temp directory
-    bool extractSuccess = extractZip(zipPath, m_tempDir->path());
+    bool extractSuccess = extractZip(m_pendingZipPath, m_tempDir->path());
 
     m_extracting = false;
     emit isExtractingChanged();
@@ -76,10 +83,10 @@ void ShotImporter::importFromZip(const QString& zipPath)
         return;
     }
 
-    startImport(shotFiles);
+    startImport(shotFiles, m_overwriteExisting);
 }
 
-void ShotImporter::importFromDirectory(const QString& dirPath)
+void ShotImporter::importFromDirectory(const QString& dirPath, bool overwriteExisting)
 {
     if (m_importing) {
         emit importError("Import already in progress");
@@ -97,10 +104,10 @@ void ShotImporter::importFromDirectory(const QString& dirPath)
     m_cancelled = false;
     emit isImportingChanged();
 
-    startImport(shotFiles);
+    startImport(shotFiles, overwriteExisting);
 }
 
-void ShotImporter::importSingleFile(const QString& filePath)
+void ShotImporter::importSingleFile(const QString& filePath, bool overwriteExisting)
 {
     if (m_importing) {
         emit importError("Import already in progress");
@@ -116,7 +123,7 @@ void ShotImporter::importSingleFile(const QString& filePath)
     m_cancelled = false;
     emit isImportingChanged();
 
-    startImport(QStringList() << filePath);
+    startImport(QStringList() << filePath, overwriteExisting);
 }
 
 QString ShotImporter::detectDE1AppHistoryPath()
@@ -148,7 +155,7 @@ QString ShotImporter::detectDE1AppHistoryPath()
     return QString();  // Not found
 }
 
-void ShotImporter::importFromDE1App()
+void ShotImporter::importFromDE1App(bool overwriteExisting)
 {
     QString historyPath = detectDE1AppHistoryPath();
     if (historyPath.isEmpty()) {
@@ -156,7 +163,7 @@ void ShotImporter::importFromDE1App()
         return;
     }
 
-    importFromDirectory(historyPath);
+    importFromDirectory(historyPath, overwriteExisting);
 }
 
 void ShotImporter::cancel()
@@ -440,9 +447,10 @@ QStringList ShotImporter::findShotFiles(const QString& dirPath)
     return files;
 }
 
-void ShotImporter::startImport(const QStringList& files)
+void ShotImporter::startImport(const QStringList& files, bool overwriteExisting)
 {
     m_pendingFiles = files;
+    m_overwriteExisting = overwriteExisting;
     m_totalFiles = files.size();
     m_processedFiles = 0;
     m_importedFiles = 0;
@@ -501,7 +509,7 @@ void ShotImporter::processNextFile()
             m_failedFiles++;
         } else {
             // Try to import into database
-            qint64 shotId = m_storage->importShotRecord(result.record);
+            qint64 shotId = m_storage->importShotRecord(result.record, m_overwriteExisting);
 
             if (shotId > 0) {
                 m_importedFiles++;

@@ -1397,7 +1397,7 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
     return true;
 }
 
-qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record)
+qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overwriteExisting)
 {
     if (!m_ready) {
         qWarning() << "ShotHistoryStorage: Cannot import - not ready";
@@ -1409,8 +1409,14 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record)
     query.prepare("SELECT id FROM shots WHERE uuid = ?");
     query.bindValue(0, record.summary.uuid);
     if (query.exec() && query.next()) {
-        // Duplicate found
-        return 0;
+        if (overwriteExisting) {
+            // Delete existing record to allow re-import
+            qint64 existingId = query.value(0).toLongLong();
+            deleteShot(existingId);
+        } else {
+            // Duplicate found, skip
+            return 0;
+        }
     }
 
     // Also check by timestamp (within 5 seconds) and profile to catch near-duplicates
@@ -1418,8 +1424,14 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record)
     query.bindValue(0, record.summary.timestamp);
     query.bindValue(1, record.summary.profileName);
     if (query.exec() && query.next()) {
-        // Near-duplicate found
-        return 0;
+        if (overwriteExisting) {
+            // Delete existing record to allow re-import
+            qint64 existingId = query.value(0).toLongLong();
+            deleteShot(existingId);
+        } else {
+            // Near-duplicate found, skip
+            return 0;
+        }
     }
 
     // Begin transaction

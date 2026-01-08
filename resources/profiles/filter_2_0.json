@@ -42,9 +42,8 @@
         },
         {
             "exit_flow_over": 6,
-            "exit_if": true,
+            "exit_if": false,
             "exit_pressure_over": 11,
-            "exit_type": "weight",
             "exit_weight": 150,
             "flow": 3,
             "max_flow_or_pressure": 3,

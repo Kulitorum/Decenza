@@ -5,6 +5,7 @@
 #include "../machine/machinestate.h"
 #include "../models/shotdatamodel.h"
 #include "../profile/recipegenerator.h"
+#include "../profile/recipeanalyzer.h"
 #include "../models/shotcomparisonmodel.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -923,6 +924,40 @@ void MainController::createNewRecipe(const QString& title) {
     qDebug() << "Created new recipe profile:" << title;
 }
 
+void MainController::convertCurrentProfileToRecipe() {
+    // Force convert the current profile to recipe mode
+    // This simplifies complex profiles to fit D-Flow pattern
+    RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
+
+    // Regenerate frames from recipe params
+    RecipeParams params = m_currentProfile.recipeParams();
+    auto frames = RecipeGenerator::generateFrames(params);
+    m_currentProfile.setSteps(frames);
+
+    m_profileModified = true;
+
+    emit currentProfileChanged();
+    emit profileModifiedChanged();
+
+    // Upload the converted profile to machine
+    uploadCurrentProfile();
+
+    qDebug() << "Converted profile to D-Flow mode:" << m_currentProfile.title();
+}
+
+void MainController::convertCurrentProfileToAdvanced() {
+    // Convert from recipe mode to advanced mode
+    // The frames are already generated, just disable recipe mode
+    m_currentProfile.setRecipeMode(false);
+
+    m_profileModified = true;
+
+    emit currentProfileChanged();
+    emit profileModifiedChanged();
+
+    qDebug() << "Converted profile to Advanced mode:" << m_currentProfile.title();
+}
+
 void MainController::applyRecipePreset(const QString& presetName) {
     RecipeParams recipe;
 
@@ -1250,9 +1285,17 @@ bool MainController::saveProfileAs(const QString& filename, const QString& title
         m_baseProfileName = filename;
         if (m_settings) {
             m_settings->setCurrentProfile(filename);
-            // Always update favorite (handles both filename and title changes)
-            if (!oldFilename.isEmpty()) {
+
+            // Handle favorites based on whether this is a true "Save As" or just "Save"
+            if (!oldFilename.isEmpty() && oldFilename != filename) {
+                // True "Save As" - keep original favorite, add new profile to favorites
+                m_settings->addFavoriteProfile(title, filename);
+            } else if (!oldFilename.isEmpty()) {
+                // Same filename - just update the title if it changed
                 m_settings->updateFavoriteProfile(oldFilename, filename, title);
+            } else {
+                // New profile (no old filename) - add to favorites
+                m_settings->addFavoriteProfile(title, filename);
             }
         }
         markProfileClean();

@@ -231,6 +231,17 @@ Item {
 
                         Item { Layout.fillWidth: true }
 
+                        Text {
+                            text: "Overwrite"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        StyledSwitch {
+                            id: overwriteSwitch
+                            checked: false
+                        }
+
                         AccessibleButton {
                             text: "Convert Profiles"
                             accessibleName: "Convert DE1 app profiles to native format"
@@ -241,7 +252,7 @@ Item {
                                 var sourcePath = parent.de1AppPath
                                 // For development, use the source directory
                                 var destPath = "C:/CODE/de1-qt/resources/profiles"
-                                MainController.profileConverter.convertProfiles(sourcePath, destPath)
+                                MainController.profileConverter.convertProfiles(sourcePath, destPath, overwriteSwitch.checked)
                             }
                         }
                     }
@@ -252,9 +263,16 @@ Item {
             Connections {
                 target: MainController.profileConverter
                 function onConversionComplete(success, errors) {
+                    var skipped = MainController.profileConverter.skippedCount
                     profileConvertResultDialog.title = errors > 0 ? "Conversion Complete (with errors)" : "Conversion Complete"
-                    profileConvertResultDialog.message = "Successfully converted: " + success + " profiles\n" +
-                                                         (errors > 0 ? "Errors: " + errors : "")
+                    var msg = "Successfully converted: " + success + " profiles"
+                    if (skipped > 0) {
+                        msg += "\nSkipped (already exist): " + skipped
+                    }
+                    if (errors > 0) {
+                        msg += "\nErrors: " + errors
+                    }
+                    profileConvertResultDialog.message = msg
                     profileConvertResultDialog.isError = errors > 0
                     profileConvertResultDialog.open()
                 }

@@ -172,6 +172,121 @@ bool RecipeAnalyzer::convertToRecipeMode(Profile& profile) {
     return true;
 }
 
+void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
+    // Try normal conversion first
+    if (canConvertToRecipe(profile)) {
+        RecipeParams params = extractRecipeParams(profile);
+        profile.setRecipeMode(true);
+        profile.setRecipeParams(params);
+        qDebug() << "Profile" << profile.title() << "converted to recipe mode (standard)";
+        return;
+    }
+
+    // Force conversion for complex profiles
+    // Extract what we can from the frames and fill in defaults for the rest
+    const auto& steps = profile.steps();
+    RecipeParams params;
+
+    // Get target weight and temperature from profile
+    params.targetWeight = profile.targetWeight() > 0 ? profile.targetWeight() : 36.0;
+    double profileTemp = profile.espressoTemperature();
+    params.fillTemperature = profileTemp > 0 ? profileTemp : 93.0;
+    params.pourTemperature = profileTemp > 0 ? profileTemp : 93.0;
+
+    if (steps.isEmpty()) {
+        // No frames at all, use pure defaults
+        profile.setRecipeMode(true);
+        profile.setRecipeParams(params);
+        qDebug() << "Profile" << profile.title() << "converted to recipe mode (empty, using defaults)";
+        return;
+    }
+
+    // Try to identify key frames and extract their parameters
+    bool foundFill = false;
+    bool foundInfuse = false;
+    bool foundPour = false;
+
+    for (int i = 0; i < steps.size(); i++) {
+        const auto& frame = steps[i];
+
+        // Look for fill-like frame (first frame with exit condition, or explicitly named)
+        if (!foundFill && (isFillFrame(frame) || i == 0)) {
+            foundFill = true;
+            params.fillPressure = extractFillPressure(frame);
+            params.fillTimeout = frame.seconds > 0 ? frame.seconds : 25.0;
+            params.fillFlow = frame.flow > 0 ? frame.flow : 8.0;
+            params.fillExitPressure = frame.exitPressureOver > 0 ? frame.exitPressureOver : 3.0;
+            if (frame.temperature > 0) {
+                params.fillTemperature = frame.temperature;
+            }
+            continue;
+        }
+
+        // Look for bloom frame
+        if (foundFill && !foundInfuse && isBloomFrame(frame)) {
+            params.bloomEnabled = true;
+            params.bloomTime = frame.seconds > 0 ? frame.seconds : 10.0;
+            continue;
+        }
+
+        // Look for infuse-like frame
+        if (foundFill && !foundInfuse && (isInfuseFrame(frame) || frame.pump == "pressure")) {
+            foundInfuse = true;
+            params.infusePressure = extractInfusePressure(frame);
+            params.infuseTime = extractInfuseTime(frame);
+            params.infuseVolume = frame.volume > 0 ? frame.volume : 100.0;
+            continue;
+        }
+
+        // Look for pour-like frame (last significant frame, or high pressure/flow)
+        if (foundFill && (isPourFrame(frame) || frame.pressure >= 6.0 || frame.pump == "flow")) {
+            foundPour = true;
+            if (frame.pump == "flow") {
+                params.pourStyle = "flow";
+                params.pourFlow = extractPourFlow(frame);
+                params.pressureLimit = extractPressureLimit(frame);
+            } else {
+                params.pourStyle = "pressure";
+                params.pourPressure = extractPourPressure(frame);
+                params.flowLimit = extractFlowLimit(frame);
+            }
+            if (frame.temperature > 0) {
+                params.pourTemperature = frame.temperature;
+            }
+            // Check next frame for decline
+            if (i + 1 < steps.size()) {
+                const auto& nextFrame = steps[i + 1];
+                if (isDeclineFrame(nextFrame, &frame)) {
+                    params.declineEnabled = true;
+                    params.declineTo = extractDeclinePressure(nextFrame);
+                    params.declineTime = extractDeclineTime(nextFrame);
+                }
+            }
+            break;  // Pour found, we're done
+        }
+    }
+
+    // If we didn't find a pour frame, use the last frame as pour
+    if (!foundPour && steps.size() > 0) {
+        const auto& lastFrame = steps.last();
+        if (lastFrame.pump == "flow") {
+            params.pourStyle = "flow";
+            params.pourFlow = lastFrame.flow > 0 ? lastFrame.flow : 2.0;
+        } else {
+            params.pourStyle = "pressure";
+            params.pourPressure = lastFrame.pressure > 0 ? lastFrame.pressure : 9.0;
+        }
+        if (lastFrame.temperature > 0) {
+            params.pourTemperature = lastFrame.temperature;
+        }
+    }
+
+    profile.setRecipeMode(true);
+    profile.setRecipeParams(params);
+    qDebug() << "Profile" << profile.title() << "force-converted to recipe mode (simplified from"
+             << steps.size() << "frames)";
+}
+
 // === Frame Pattern Detection ===
 
 bool RecipeAnalyzer::isFillFrame(const ProfileFrame& frame) {

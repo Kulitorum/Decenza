@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "A-Flow: an alternative profile for D-Flow",
-    "preinfuse_frame_count": 3,
+    "preinfuse_frame_count": 1,
     "profile_type": "settings_2c",
     "recipe": {
         "bloomEnabled": false,
@@ -58,7 +58,7 @@
         },
         {
             "exit_flow_over": 6,
-            "exit_if": true,
+            "exit_if": false,
             "exit_pressure_over": 3,
             "exit_type": "pressure_over",
             "exit_weight": 2,

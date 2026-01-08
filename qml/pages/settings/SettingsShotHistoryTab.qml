@@ -107,6 +107,24 @@ Item {
                     font.bold: true
                 }
 
+                // Overwrite toggle
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    Text {
+                        text: "Overwrite existing"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(12)
+                        Layout.fillWidth: true
+                    }
+
+                    StyledSwitch {
+                        id: overwriteSwitch
+                        checked: false
+                    }
+                }
+
                 // Progress bar (visible during import)
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -179,7 +197,7 @@ Item {
                         visible: de1AppStatus.detectedPath !== ""
                         onClicked: {
                             if (MainController.shotImporter) {
-                                MainController.shotImporter.importFromDE1App()
+                                MainController.shotImporter.importFromDE1App(overwriteSwitch.checked)
                             }
                         }
                     }
@@ -192,14 +210,20 @@ Item {
                             Layout.fillWidth: true
                             text: "ZIP..."
                             accessibleName: "Import shot history from ZIP archive"
-                            onClicked: shotZipDialog.open()
+                            onClicked: {
+                                shotZipDialog.overwrite = overwriteSwitch.checked
+                                shotZipDialog.open()
+                            }
                         }
 
                         AccessibleButton {
                             Layout.fillWidth: true
                             text: "Folder..."
                             accessibleName: "Import shot history from folder"
-                            onClicked: shotFolderDialog.open()
+                            onClicked: {
+                                shotFolderDialog.overwrite = overwriteSwitch.checked
+                                shotFolderDialog.open()
+                            }
                         }
                     }
                 }
@@ -213,10 +237,11 @@ Item {
             id: shotZipDialog
             title: "Select shot history ZIP archive"
             nameFilters: ["ZIP archives (*.zip)", "All files (*)"]
+            property bool overwrite: false
 
             onAccepted: {
                 if (MainController.shotImporter) {
-                    MainController.shotImporter.importFromZip(selectedFile)
+                    MainController.shotImporter.importFromZip(selectedFile, overwrite)
                 }
             }
         }
@@ -224,10 +249,11 @@ Item {
         FolderDialog {
             id: shotFolderDialog
             title: "Select folder containing .shot files"
+            property bool overwrite: false
 
             onAccepted: {
                 if (MainController.shotImporter) {
-                    MainController.shotImporter.importFromDirectory(selectedFolder)
+                    MainController.shotImporter.importFromDirectory(selectedFolder, overwrite)
                 }
             }
         }

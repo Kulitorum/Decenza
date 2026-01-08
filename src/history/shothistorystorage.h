@@ -157,7 +157,8 @@ public:
 
     // Import a shot record directly (for .shot file import)
     // Returns: shot ID on success, 0 if duplicate (skipped), -1 on error
-    qint64 importShotRecord(const ShotRecord& record);
+    // If overwriteExisting is true, duplicates will be replaced instead of skipped
+    qint64 importShotRecord(const ShotRecord& record, bool overwriteExisting = false);
 
     // Refresh the total shots count (call after bulk import)
     Q_INVOKABLE void refreshTotalShots();

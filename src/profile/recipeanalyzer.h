@@ -39,6 +39,14 @@ public:
      */
     static bool convertToRecipeMode(Profile& profile);
 
+    /**
+     * Force convert any profile to recipe mode.
+     * Even complex profiles will be simplified to fit the D-Flow pattern.
+     * This may result in loss of advanced settings.
+     * @param profile The profile to convert (modified in place)
+     */
+    static void forceConvertToRecipe(Profile& profile);
+
 private:
     // Frame pattern detection
     static bool isFillFrame(const ProfileFrame& frame);

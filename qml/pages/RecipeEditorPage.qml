@@ -204,7 +204,7 @@ Page {
 
             Button {
                 text: qsTr("Switch to Advanced Editor")
-                onClicked: root.switchToAdvancedEditor()
+                onClicked: switchToAdvancedDialog.open()
                 background: Rectangle {
                     implicitWidth: Theme.scaled(180)
                     implicitHeight: Theme.scaled(32)
@@ -219,6 +219,134 @@ Page {
                     color: "white"
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
+                }
+            }
+        }
+    }
+
+    // Switch to Advanced Editor confirmation dialog
+    Dialog {
+        id: switchToAdvancedDialog
+        anchors.centerIn: parent
+        width: Theme.scaled(450)
+        modal: true
+        padding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: "white"
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+                Layout.topMargin: Theme.scaled(10)
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Switch to Advanced Editor")
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Content
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(12)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("This will convert the profile to Advanced mode with full frame-by-frame control.")
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("You will gain access to advanced settings like custom exit conditions, per-frame limiters, popup messages, and arbitrary frame structures.")
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Note: Once converted, this profile can no longer be edited in the D-Flow editor.")
+                    font: Theme.captionFont
+                    color: Theme.warningColor
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            // Buttons
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                spacing: Theme.scaled(10)
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(50)
+                    text: qsTr("Cancel")
+                    accessibleName: qsTr("Cancel and stay in D-Flow Editor")
+                    onClicked: switchToAdvancedDialog.close()
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(50)
+                    text: qsTr("Convert")
+                    accessibleName: qsTr("Convert to Advanced format")
+                    onClicked: {
+                        switchToAdvancedDialog.close()
+                        MainController.convertCurrentProfileToAdvanced()
+                        root.switchToAdvancedEditor()
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                 }
             }
         }

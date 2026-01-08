@@ -151,7 +151,7 @@ Page {
 
             Button {
                 text: qsTr("Switch to D-Flow Editor")
-                onClicked: root.switchToRecipeEditor()
+                onClicked: switchToDFlowDialog.open()
                 background: Rectangle {
                     implicitWidth: Theme.scaled(180)
                     implicitHeight: Theme.scaled(32)
@@ -1481,6 +1481,134 @@ Page {
             nameField.text = profile ? profile.title : ""
             nameField.selectAll()
             nameField.forceActiveFocus()
+        }
+    }
+
+    // Switch to D-Flow confirmation dialog
+    Dialog {
+        id: switchToDFlowDialog
+        anchors.centerIn: parent
+        width: Theme.scaled(450)
+        modal: true
+        padding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: "white"
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+                Layout.topMargin: Theme.scaled(10)
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Switch to D-Flow Editor")
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Content
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(12)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("This will simplify the profile to fit the D-Flow format.")
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("The converter will attempt to retain the main idea of your profile, but advanced settings like custom exit conditions, per-frame weight exits, and popup messages may be lost.")
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("D-Flow profiles use a fixed structure: Fill → Bloom → Infuse → Ramp → Pour → Decline")
+                    font: Theme.captionFont
+                    color: Theme.warningColor
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            // Buttons
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                spacing: Theme.scaled(10)
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(50)
+                    text: qsTr("Cancel")
+                    accessibleName: qsTr("Cancel and stay in Advanced Editor")
+                    onClicked: switchToDFlowDialog.close()
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(50)
+                    text: qsTr("Convert")
+                    accessibleName: qsTr("Convert to D-Flow format")
+                    onClicked: {
+                        switchToDFlowDialog.close()
+                        MainController.convertCurrentProfileToRecipe()
+                        root.switchToRecipeEditor()
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+            }
         }
     }
 
