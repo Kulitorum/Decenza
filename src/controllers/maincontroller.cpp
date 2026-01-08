@@ -26,6 +26,36 @@
 #include <QRandomGenerator>
 #include <algorithm>
 
+#ifndef Q_OS_WIN
+#include <dlfcn.h>   // For dladdr() to resolve caller symbols
+#include <unwind.h>  // For _Unwind_Backtrace stack walking
+
+// Helper for stack unwinding
+struct BacktraceState {
+    void** current;
+    void** end;
+};
+
+static _Unwind_Reason_Code unwindCallback(struct _Unwind_Context* context, void* arg) {
+    BacktraceState* state = static_cast<BacktraceState*>(arg);
+    uintptr_t pc = _Unwind_GetIP(context);
+    if (pc) {
+        if (state->current == state->end) {
+            return _URC_END_OF_STACK;
+        }
+        *state->current++ = reinterpret_cast<void*>(pc);
+    }
+    return _URC_NO_REASON;
+}
+
+static size_t captureBacktrace(void** buffer, size_t maxFrames) {
+    BacktraceState state = {buffer, buffer + maxFrames};
+    _Unwind_Backtrace(unwindCallback, &state);
+    return state.current - buffer;
+}
+#endif
+
+
 MainController::MainController(Settings* settings, DE1Device* device,
                                MachineState* machineState, ShotDataModel* shotDataModel,
                                ProfileStorage* profileStorage,
@@ -740,6 +770,55 @@ void MainController::refreshProfiles() {
 }
 
 void MainController::uploadCurrentProfile() {
+    // Guard: Don't upload profile during active operations - this corrupts the running shot!
+    if (m_machineState) {
+        auto phase = m_machineState->phase();
+        bool isActivePhase = (phase == MachineState::Phase::EspressoPreheating ||
+                              phase == MachineState::Phase::Preinfusion ||
+                              phase == MachineState::Phase::Pouring ||
+                              phase == MachineState::Phase::Ending ||
+                              phase == MachineState::Phase::Steaming ||
+                              phase == MachineState::Phase::HotWater ||
+                              phase == MachineState::Phase::Flushing ||
+                              phase == MachineState::Phase::Descaling ||
+                              phase == MachineState::Phase::Cleaning);
+
+        if (isActivePhase) {
+            qWarning() << "uploadCurrentProfile() BLOCKED during active phase:"
+                       << m_machineState->phaseString();
+
+            QString stackTrace = "Stack trace:\n";
+#ifndef Q_OS_WIN
+            void* stack[15];
+            size_t frameCount = captureBacktrace(stack, 15);
+            for (size_t i = 0; i < frameCount; i++) {
+                Dl_info info;
+                QString frameLine;
+                if (dladdr(stack[i], &info) && info.dli_sname) {
+                    frameLine = QString("  #%1: %2 (+%3)")
+                        .arg(i)
+                        .arg(info.dli_sname)
+                        .arg(reinterpret_cast<quintptr>(stack[i]) - reinterpret_cast<quintptr>(info.dli_saddr));
+                } else {
+                    frameLine = QString("  #%1: 0x%2")
+                        .arg(i)
+                        .arg(reinterpret_cast<quintptr>(stack[i]), 0, 16);
+                }
+                stackTrace += frameLine + "\n";
+                qWarning().noquote() << frameLine;
+            }
+#else
+            stackTrace += "  (not available on Windows)\n";
+#endif
+            if (m_shotDebugLogger) {
+                m_shotDebugLogger->logInfo(QString("BLOCKED uploadCurrentProfile() during %1\n%2")
+                    .arg(m_machineState->phaseString())
+                    .arg(stackTrace));
+            }
+            return;  // Don't upload!
+        }
+    }
+
     if (m_device && m_device->isConnected()) {
         m_device->uploadProfile(m_currentProfile);
     }

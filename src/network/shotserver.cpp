@@ -1873,7 +1873,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             <button onclick="downloadProfile()" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
                 &#128196; Download Profile JSON
             </button>
-            <button onclick="showDebugLog()" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
+            <button onclick="var c=document.getElementById('debugLogContainer'); if(c){if(c.style.display==='none'){c.style.display='block';c.scrollIntoView({behavior:'smooth'});}else{c.style.display='none';}}" style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.75rem 1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.875rem;cursor:pointer;">
                 &#128203; View Debug Log
             </button>
         </div>
@@ -1901,11 +1901,19 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         }
         function copyDebugLog() {
             var text = document.getElementById('debugLogContent').textContent;
-            navigator.clipboard.writeText(text).then(function() {
-                alert('Debug log copied to clipboard!');
-            }).catch(function(err) {
+            // Use fallback for non-HTTPS (clipboard API requires secure context)
+            var textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+            } catch (err) {
                 alert('Failed to copy: ' + err);
-            });
+            }
+            document.body.removeChild(textarea);
         }
     </script>
     <script>
