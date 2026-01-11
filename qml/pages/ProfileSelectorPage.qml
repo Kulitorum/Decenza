@@ -161,6 +161,28 @@ Page {
                             rightPadding: Theme.scaled(12)
                         }
                     }
+
+                    StyledButton {
+                        text: TranslationManager.translate("profileselector.button.import_tablet", "Import from Tablet")
+                        Layout.preferredHeight: Theme.scaled(44)
+                        onClicked: root.goToProfileImport()
+
+                        background: Rectangle {
+                            radius: Theme.scaled(4)
+                            color: Theme.surfaceColor
+                            border.color: Theme.primaryColor
+                            border.width: 1
+                        }
+                        contentItem: Text {
+                            text: parent.text
+                            color: Theme.primaryColor
+                            font: Theme.captionFont
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.scaled(12)
+                            rightPadding: Theme.scaled(12)
+                        }
+                    }
                 }
 
                 ListView {

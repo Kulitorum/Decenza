@@ -12,6 +12,7 @@
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../profile/profileconverter.h"
+#include "../profile/profileimporter.h"
 #include "../models/shotcomparisonmodel.h"
 #include "../network/shotserver.h"
 #include "../network/shotreporter.h"
@@ -68,6 +69,7 @@ class MainController : public QObject {
     Q_PROPERTY(ShotHistoryStorage* shotHistory READ shotHistory CONSTANT)
     Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)
     Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT)
+    Q_PROPERTY(ProfileImporter* profileImporter READ profileImporter CONSTANT)
     Q_PROPERTY(ShotComparisonModel* shotComparison READ shotComparison CONSTANT)
     Q_PROPERTY(ShotServer* shotServer READ shotServer CONSTANT)
     Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT)
@@ -110,6 +112,7 @@ public:
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
     ProfileConverter* profileConverter() const { return m_profileConverter; }
+    ProfileImporter* profileImporter() const { return m_profileImporter; }
     ShotComparisonModel* shotComparison() const { return m_shotComparison; }
     ShotServer* shotServer() const { return m_shotServer; }
     UpdateChecker* updateChecker() const { return m_updateChecker; }
@@ -261,6 +264,7 @@ private:
     ShotHistoryStorage* m_shotHistory = nullptr;
     ShotImporter* m_shotImporter = nullptr;
     ProfileConverter* m_profileConverter = nullptr;
+    ProfileImporter* m_profileImporter = nullptr;
     ShotDebugLogger* m_shotDebugLogger = nullptr;
     ShotComparisonModel* m_shotComparison = nullptr;
     ShotServer* m_shotServer = nullptr;

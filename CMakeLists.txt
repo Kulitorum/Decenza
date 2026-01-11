@@ -106,6 +106,7 @@ set(SOURCES
     src/profile/profile.cpp
     src/profile/profileframe.cpp
     src/profile/profileconverter.cpp
+    src/profile/profileimporter.cpp
     src/profile/recipeparams.cpp
     src/profile/recipegenerator.cpp
     src/profile/recipeanalyzer.cpp
@@ -180,6 +181,7 @@ set(HEADERS
     src/profile/profile.h
     src/profile/profileframe.h
     src/profile/profileconverter.h
+    src/profile/profileimporter.h
     src/profile/recipeparams.h
     src/profile/recipegenerator.h
     src/profile/recipeanalyzer.h
@@ -275,6 +277,7 @@ set(QML_FILES
     qml/pages/ScreensaverPage.qml
     qml/pages/FlushPage.qml
     qml/pages/VisualizerBrowserPage.qml
+    qml/pages/ProfileImportPage.qml
     qml/pages/VisualizerMultiImportPage.qml
     qml/pages/BeanInfoPage.qml
     qml/pages/PostShotReviewPage.qml

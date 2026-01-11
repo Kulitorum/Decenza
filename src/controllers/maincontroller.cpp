@@ -114,6 +114,9 @@ MainController::MainController(Settings* settings, DE1Device* device,
     // Create profile converter for batch converting DE1 app profiles
     m_profileConverter = new ProfileConverter(this);
 
+    // Create profile importer for importing profiles from DE1 tablet
+    m_profileImporter = new ProfileImporter(this, settings, this);
+
     m_shotComparison = new ShotComparisonModel(this);
     m_shotComparison->setStorage(m_shotHistory);
 

@@ -490,6 +490,11 @@ ApplicationWindow {
         }
 
         Component {
+            id: profileImportPage
+            ProfileImportPage {}
+        }
+
+        Component {
             id: beanInfoPage
             BeanInfoPage {}
         }
@@ -1465,6 +1470,11 @@ ApplicationWindow {
     function goToVisualizerBrowser() {
         announceNavigation("Visualizer browser")
         pageStack.push(visualizerBrowserPage)
+    }
+
+    function goToProfileImport() {
+        announceNavigation("Import from tablet")
+        pageStack.push(profileImportPage)
     }
 
     function goToShotMetadata(hasPending) {
