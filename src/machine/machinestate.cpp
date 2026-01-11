@@ -254,6 +254,13 @@ void MachineState::updatePhase() {
             }
         });
     }
+
+    // Also check for timer stop on substate changes (even if phase didn't change)
+    // This handles steam stopping (Puffing/Ending substates) where phase stays Steaming
+    if (!isFlowing() && m_shotTimer->isActive()) {
+        qDebug() << "=== TIMER STOP: isFlowing() became false (substate change) ===";
+        stopShotTimer();
+    }
 }
 
 void MachineState::onScaleWeightChanged(double weight) {
