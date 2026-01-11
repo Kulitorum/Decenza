@@ -143,7 +143,7 @@ Page {
                     }
 
                     StyledButton {
-                        text: TranslationManager.translate("profileselector.button.import_visualizer", "Import from Visualizer")
+                        text: TranslationManager.translate("profileselector.button.import_visualizer", "From Visualizer")
                         Layout.preferredHeight: Theme.scaled(44)
                         onClicked: root.goToVisualizerBrowser()
 
