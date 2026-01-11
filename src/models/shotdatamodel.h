@@ -44,7 +44,8 @@ public:
     QVector<QPointF> pressureGoalData() const;  // Combines all segments
     QVector<QPointF> flowGoalData() const;      // Combines all segments
     const QVector<QPointF>& temperatureGoalData() const { return m_temperatureGoalPoints; }
-    const QVector<QPointF>& weightData() const { return m_weightPoints; }
+    const QVector<QPointF>& weightData() const { return m_weightPoints; }  // Flow rate (g/s) for graph
+    const QVector<QPointF>& cumulativeWeightData() const { return m_cumulativeWeightPoints; }  // Cumulative weight for export
 
 public slots:
     void clear();
@@ -75,7 +76,8 @@ private:
     QVector<QVector<QPointF>> m_pressureGoalSegments;  // Separate segments for clean breaks
     QVector<QVector<QPointF>> m_flowGoalSegments;      // Separate segments for clean breaks
     QVector<QPointF> m_temperatureGoalPoints;
-    QVector<QPointF> m_weightPoints;
+    QVector<QPointF> m_weightPoints;  // Flow rate from scale (g/s) - for graphing
+    QVector<QPointF> m_cumulativeWeightPoints;  // Cumulative weight (g) - for export
 
     // Chart series pointers (QPointer auto-nulls when QML destroys them)
     QPointer<QLineSeries> m_pressureSeries;

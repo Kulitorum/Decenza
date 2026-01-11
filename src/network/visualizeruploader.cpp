@@ -237,7 +237,8 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     const auto& pressureGoalData = shotData->pressureGoalData();
     const auto& flowGoalData = shotData->flowGoalData();
     const auto& temperatureGoalData = shotData->temperatureGoalData();
-    const auto& weightData = shotData->weightData();
+    const auto& weightFlowData = shotData->weightData();  // Flow rate from scale (g/s)
+    const auto& cumulativeWeightData = shotData->cumulativeWeightData();  // Cumulative weight (g)
 
     // Use de1app version 2 format
     root["version"] = 2;
@@ -285,10 +286,10 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
         }
         flow["goal"] = flowGoalValues;
     }
-    if (!weightData.isEmpty()) {
+    if (!weightFlowData.isEmpty()) {
         QJsonArray byWeight;
-        for (const auto& pt : weightData) {
-            byWeight.append(pt.y() * 5.0);  // Undo the /5 scaling
+        for (const auto& pt : weightFlowData) {
+            byWeight.append(pt.y());  // Flow rate from scale (g/s)
         }
         flow["by_weight"] = byWeight;
     }
@@ -312,10 +313,10 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
 
     // Totals object
     QJsonObject totals;
-    if (!weightData.isEmpty()) {
+    if (!cumulativeWeightData.isEmpty()) {
         QJsonArray weightValues;
-        for (const auto& pt : weightData) {
-            weightValues.append(pt.y() * 5.0);  // Undo the /5 scaling
+        for (const auto& pt : cumulativeWeightData) {
+            weightValues.append(pt.y());  // Cumulative weight (g)
         }
         totals["weight"] = weightValues;
     }

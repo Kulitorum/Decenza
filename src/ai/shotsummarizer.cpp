@@ -33,7 +33,8 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     const auto& pressureData = shotData->pressureData();
     const auto& flowData = shotData->flowData();
     const auto& tempData = shotData->temperatureData();
-    const auto& weightData = shotData->weightData();
+    const auto& weightFlowData = shotData->weightData();  // Flow rate from scale (g/s)
+    const auto& cumulativeWeightData = shotData->cumulativeWeightData();  // Cumulative weight (g)
 
     if (pressureData.isEmpty()) {
         return summary;
@@ -43,7 +44,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.pressureCurve = pressureData;
     summary.flowCurve = flowData;
     summary.tempCurve = tempData;
-    summary.weightCurve = weightData;
+    summary.weightCurve = weightFlowData;  // Flow rate useful for AI analysis (detecting channeling spikes)
 
     // Store target/goal curves (what the profile intended)
     summary.pressureGoalCurve = shotData->pressureGoalData();
@@ -120,8 +121,8 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         phase.avgTemperature = calculateAverage(tempData, 0, summary.totalDuration);
         phase.tempStability = calculateStdDev(tempData, 0, summary.totalDuration);
 
-        double startWeight = findValueAtTime(weightData, 0);
-        double endWeight = findValueAtTime(weightData, summary.totalDuration);
+        double startWeight = findValueAtTime(cumulativeWeightData, 0);
+        double endWeight = findValueAtTime(cumulativeWeightData, summary.totalDuration);
         phase.weightGained = endWeight - startWeight;
 
         summary.phases.append(phase);
@@ -164,8 +165,8 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
             phase.tempStability = calculateStdDev(tempData, startTime, endTime);
 
             // Weight gained
-            double startWeight = findValueAtTime(weightData, startTime);
-            double endWeight = findValueAtTime(weightData, endTime);
+            double startWeight = findValueAtTime(cumulativeWeightData, startTime);
+            double endWeight = findValueAtTime(cumulativeWeightData, endTime);
             phase.weightGained = endWeight - startWeight;
 
             // Track preinfusion duration

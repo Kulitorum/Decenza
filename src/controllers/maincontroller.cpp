@@ -1800,11 +1800,11 @@ void MainController::onShotEnded() {
 
     double duration = m_shotDataModel->rawTime();  // Use rawTime, not maxTime (which is for graph axis)
 
-    // Get final weight from shot data
-    const auto& weightData = m_shotDataModel->weightData();
+    // Get final weight from shot data (cumulative weight, not flow rate)
+    const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
     double finalWeight = 0;
-    if (!weightData.isEmpty()) {
-        finalWeight = weightData.last().y() * 5.0;  // Undo the /5 scaling
+    if (!cumulativeWeight.isEmpty()) {
+        finalWeight = cumulativeWeight.last().y();
     }
 
     double doseWeight = m_settings->dyeBeanWeight();  // Use DYE bean weight as dose
@@ -2141,8 +2141,8 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     // Detailed logging for development (reduce frequency)
     static int logCounter = 0;
     if (++logCounter % 10 == 0) {
-        const auto& weightData = m_shotDataModel->weightData();
-        double currentWeight = weightData.isEmpty() ? 0.0 : weightData.last().y();
+        const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
+        double currentWeight = cumulativeWeight.isEmpty() ? 0.0 : cumulativeWeight.last().y();
         qDebug().nospace()
             << "SHOT [" << QString::number(time, 'f', 1) << "s] "
             << "F#" << sample.frameNumber << " "
@@ -2172,7 +2172,9 @@ void MainController::onScaleWeightChanged(double weight) {
     // Don't record if we haven't synced yet (no shot samples received)
     if (time < 0) return;
 
-    m_shotDataModel->addWeightSample(time, weight, 0);
+    // Get flow rate from scale (g/s) for graphing
+    double flowRate = m_machineState->scaleFlowRate();
+    m_shotDataModel->addWeightSample(time, weight, flowRate);
 
     // Per-frame weight exit check for frame-based profiles
     // Skip to next frame when the current frame's weight exit condition is met

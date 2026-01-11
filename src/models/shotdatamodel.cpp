@@ -10,6 +10,7 @@ ShotDataModel::ShotDataModel(QObject* parent)
     m_temperaturePoints.reserve(INITIAL_CAPACITY);
     m_temperatureGoalPoints.reserve(INITIAL_CAPACITY);
     m_weightPoints.reserve(INITIAL_CAPACITY);
+    m_cumulativeWeightPoints.reserve(INITIAL_CAPACITY);
 
     // Initialize first segments for goal curves
     m_pressureGoalSegments.append(QVector<QPointF>());
@@ -102,6 +103,7 @@ void ShotDataModel::clear() {
     m_temperaturePoints.clear();
     m_temperatureGoalPoints.clear();
     m_weightPoints.clear();
+    m_cumulativeWeightPoints.clear();
     m_pendingMarkers.clear();
 
     // Reset goal segments - keep first segment with capacity
@@ -154,6 +156,7 @@ void ShotDataModel::clear() {
 void ShotDataModel::clearWeightData() {
     // Clear any pre-tare weight samples (race condition fix)
     m_weightPoints.clear();
+    m_cumulativeWeightPoints.clear();
     if (m_weightSeries) {
         m_weightSeries->clear();
     }
@@ -208,21 +211,25 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
 }
 
 void ShotDataModel::addWeightSample(double time, double weight, double flowRate) {
-    Q_UNUSED(flowRate);
+    // Store cumulative weight for export (visualizer, shot history)
+    if (weight >= 0.1) {  // Ignore near-zero weights (scale noise)
+        m_cumulativeWeightPoints.append(QPointF(time, weight));
+    }
 
-    // Ignore near-zero weights (scale noise, tare values)
-    // Only start recording when we have actual weight
-    if (weight < 0.1) {
+    // Ignore very small flow rates (noise during preinfusion, etc.)
+    // This prevents the graph from starting with noisy data before actual flow begins
+    if (flowRate < 0.05) {
         return;
     }
 
-    // Add initial zero point when weight curve starts (so line starts from zero at correct time)
+    // Add initial zero point when flow rate curve starts (so line starts from zero at correct time)
     if (m_weightPoints.isEmpty()) {
         m_weightPoints.append(QPointF(time, 0.0));
     }
 
-    // Scale weight to fit pressure axis (divide by 5)
-    m_weightPoints.append(QPointF(time, weight / 5.0));
+    // Plot flow rate directly (g/s) - no scaling needed
+    // Flow rate typically ranges 0-6 g/s which fits well on the 0-12 pressure axis
+    m_weightPoints.append(QPointF(time, flowRate));
     m_dirty = true;
 }
 

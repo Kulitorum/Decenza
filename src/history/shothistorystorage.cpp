@@ -252,12 +252,10 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData)
     root["flowGoal"] = pointsToJsonObject(shotData->flowGoalData());
     root["temperatureGoal"] = pointsToJsonObject(shotData->temperatureGoalData());
 
-    // Weight data needs to be scaled back (stored as /5 in model)
-    QVector<QPointF> weightData = shotData->weightData();
-    for (auto& pt : weightData) {
-        pt.setY(pt.y() * 5.0);  // Undo the /5 scaling
-    }
-    root["weight"] = pointsToJsonObject(weightData);
+    // Weight data - store cumulative weight for history
+    root["weight"] = pointsToJsonObject(shotData->cumulativeWeightData());
+    // Also store flow rate from scale for future graph display
+    root["weightFlow"] = pointsToJsonObject(shotData->weightData());
 
     QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
     return qCompress(json, 9);  // Max compression
