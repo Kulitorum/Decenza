@@ -2,6 +2,8 @@
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
+#include "../profile/recipeparams.h"
+#include "../profile/recipegenerator.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -666,6 +668,20 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
         profile.addStep(frame);
     }
 
+    // Handle recipe mode for simple profiles (2a/2b) that may not have pre-generated steps
+    // If steps are empty but we have recipe data, generate frames from the recipe
+    bool isRecipeMode = json["is_recipe_mode"].toBool(false);
+    if (profile.steps().isEmpty() && isRecipeMode && json.contains("recipe")) {
+        qDebug() << "Profile has no steps but is recipe mode - generating frames from recipe";
+        RecipeParams recipeParams = RecipeParams::fromJson(json["recipe"].toObject());
+        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipeParams);
+        for (const auto& frame : frames) {
+            profile.addStep(frame);
+        }
+        profile.setRecipeMode(true);
+        profile.setRecipeParams(recipeParams);
+    }
+
     if (!profile.steps().isEmpty()) {
         profile.setEspressoTemperature(profile.steps().first().temperature);
     }
@@ -706,8 +722,11 @@ ProfileFrame VisualizerImporter::parseVisualizerStep(const QJsonObject& json) {
     frame.seconds = toDouble(json["seconds"], 30.0);
     frame.volume = toDouble(json["volume"], 0.0);
 
+    // Handle exit conditions - support both nested "exit" object format (Visualizer)
+    // and flat field format (DE1 app native)
     QJsonObject exitObj = json["exit"].toObject();
     if (!exitObj.isEmpty()) {
+        // Nested format: {"exit": {"type": "pressure", "condition": "over", "value": 4}}
         frame.exitIf = true;
         QString exitType = exitObj["type"].toString();
         QString condition = exitObj["condition"].toString();
@@ -728,12 +747,34 @@ ProfileFrame VisualizerImporter::parseVisualizerStep(const QJsonObject& json) {
                 frame.exitFlowUnder = value;
             }
         }
+    } else if (json.contains("exit_if")) {
+        // Flat format: {"exit_if": true, "exit_type": "pressure_over", "exit_pressure_over": 4}
+        frame.exitIf = json["exit_if"].toBool(false);
+        frame.exitType = json["exit_type"].toString();
+        frame.exitPressureOver = toDouble(json["exit_pressure_over"]);
+        frame.exitPressureUnder = toDouble(json["exit_pressure_under"]);
+        frame.exitFlowOver = toDouble(json["exit_flow_over"]);
+        frame.exitFlowUnder = toDouble(json["exit_flow_under"]);
     }
 
+    // Handle weight exit (independent of other exit conditions)
+    double weightExit = toDouble(json["weight"], 0.0);
+    if (weightExit <= 0) {
+        weightExit = toDouble(json["exit_weight"], 0.0);
+    }
+    if (weightExit > 0) {
+        frame.exitWeight = weightExit;
+    }
+
+    // Handle limiter - support both nested "limiter" object and flat fields
     QJsonObject limiterObj = json["limiter"].toObject();
     if (!limiterObj.isEmpty()) {
         frame.maxFlowOrPressure = toDouble(limiterObj["value"]);
         frame.maxFlowOrPressureRange = toDouble(limiterObj["range"], 0.6);
+    } else {
+        // Flat format fields
+        frame.maxFlowOrPressure = toDouble(json["max_flow_or_pressure"]);
+        frame.maxFlowOrPressureRange = toDouble(json["max_flow_or_pressure_range"], 0.6);
     }
 
     return frame;

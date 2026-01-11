@@ -510,7 +510,7 @@ Page {
                                 Layout.fillWidth: true
                                 height: Theme.scaled(40)
                                 from: 0
-                                to: 100
+                                to: 500
                                 stepSize: 0.1
                                 decimals: 1
                                 suffix: "g"
