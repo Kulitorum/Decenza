@@ -157,8 +157,8 @@ Page {
                             font: Theme.captionFont
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.scaled(12)
-                            rightPadding: Theme.scaled(12)
+                            leftPadding: Theme.scaled(6)
+                            rightPadding: Theme.scaled(6)
                         }
                     }
 
@@ -179,8 +179,8 @@ Page {
                             font: Theme.captionFont
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.scaled(12)
-                            rightPadding: Theme.scaled(12)
+                            leftPadding: Theme.scaled(6)
+                            rightPadding: Theme.scaled(6)
                         }
                     }
                 }
