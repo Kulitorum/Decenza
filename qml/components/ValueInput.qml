@@ -35,9 +35,10 @@ Item {
     activeFocusOnTab: true
     focus: true
 
-    // Accessibility - expose as a slider
+    // Accessibility - expose as a slider with contextual label
     Accessible.role: Accessible.Slider
-    Accessible.name: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
+    Accessible.name: (root.accessibleName ? root.accessibleName + " " : "") +
+                     (root.displayText || (root.value.toFixed(root.decimals) + root.suffix))
     Accessible.description: TranslationManager.translate("valueinput.accessibility.description", "Use plus and minus buttons to adjust. Tap center for full-screen editor.")
     Accessible.focusable: true
 

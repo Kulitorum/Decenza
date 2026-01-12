@@ -5,6 +5,9 @@ import DecenzaDE1
 Switch {
     id: control
 
+    // Optional accessibility label for context when text is empty
+    property string accessibleName: ""
+
     implicitWidth: Theme.scaled(48)
     implicitHeight: Theme.scaled(28)
 
@@ -41,6 +44,13 @@ Switch {
     }
 
     Accessible.role: Accessible.CheckBox
-    Accessible.name: control.text || (control.checked ? "On" : "Off")
+    Accessible.name: {
+        var label = control.accessibleName || control.text || TranslationManager.translate("switch.accessibility.toggle", "Toggle")
+        var state = control.checked ?
+            TranslationManager.translate("accessibility.on", "On") :
+            TranslationManager.translate("accessibility.off", "Off")
+        return label + ", " + state
+    }
     Accessible.checked: control.checked
+    Accessible.focusable: true
 }

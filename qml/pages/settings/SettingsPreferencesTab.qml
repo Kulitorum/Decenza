@@ -63,6 +63,7 @@ Item {
                         decimals: 0
                         value: preferencesTab.autoSleepMinutes
                         displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") : (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
+                        accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
 
                         onValueModified: function(newValue) {
                             preferencesTab.autoSleepMinutes = newValue

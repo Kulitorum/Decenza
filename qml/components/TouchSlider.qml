@@ -22,6 +22,15 @@ Item {
     property bool showButtons: true
     property real buttonSize: Theme.scaled(44)
 
+    // Accessibility
+    property string accessibleName: ""
+    property int decimals: stepSize < 1 ? 1 : 0
+    property string suffix: ""
+
+    Accessible.role: Accessible.Slider
+    Accessible.name: (accessibleName ? accessibleName + " " : "") + value.toFixed(decimals) + suffix
+    Accessible.focusable: true
+
     // Signals
     signal moved()
 
@@ -42,6 +51,11 @@ Item {
             color: minusTapHandler.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : Theme.surfaceColor
             border.width: 1
             border.color: Theme.borderColor
+
+            Accessible.role: Accessible.Button
+            Accessible.name: TranslationManager.translate("touchslider.button.decrease", "Decrease") +
+                             (root.accessibleName ? " " + root.accessibleName : "")
+            Accessible.focusable: true
 
             Text {
                 anchors.centerIn: parent
@@ -165,6 +179,11 @@ Item {
             color: plusTapHandler.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : Theme.surfaceColor
             border.width: 1
             border.color: Theme.borderColor
+
+            Accessible.role: Accessible.Button
+            Accessible.name: TranslationManager.translate("touchslider.button.increase", "Increase") +
+                             (root.accessibleName ? " " + root.accessibleName : "")
+            Accessible.focusable: true
 
             Text {
                 anchors.centerIn: parent

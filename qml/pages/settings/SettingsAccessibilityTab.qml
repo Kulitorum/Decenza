@@ -179,6 +179,128 @@ Item {
             }
         }
 
+        // Extraction announcements card
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(200)
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.scaled(15)
+                spacing: Theme.scaled(12)
+
+                Tr {
+                    key: "settings.accessibility.extractionTitle"
+                    fallback: "Extraction Announcements"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(16)
+                    font.bold: true
+                }
+
+                Tr {
+                    Layout.fillWidth: true
+                    key: "settings.accessibility.extractionDesc"
+                    fallback: "Spoken updates during espresso extraction"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                // Enable extraction announcements
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+
+                    Tr {
+                        key: "settings.accessibility.extractionEnable"
+                        fallback: "Enable During Extraction"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    StyledSwitch {
+                        checked: AccessibilityManager.extractionAnnouncementsEnabled
+                        enabled: AccessibilityManager.enabled
+                        accessibleName: TranslationManager.translate("settings.accessibility.extractionEnable", "Enable During Extraction")
+                        onCheckedChanged: AccessibilityManager.extractionAnnouncementsEnabled = checked
+                    }
+                }
+
+                // Announcement mode
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+                    opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
+
+                    Tr {
+                        key: "settings.accessibility.announcementMode"
+                        fallback: "Mode"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    StyledComboBox {
+                        id: modeComboBox
+                        Layout.preferredWidth: Theme.scaled(180)
+                        enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
+                        model: [
+                            TranslationManager.translate("settings.accessibility.modeBoth", "Time + Milestones"),
+                            TranslationManager.translate("settings.accessibility.modeTimed", "Timed Updates"),
+                            TranslationManager.translate("settings.accessibility.modeMilestones", "Weight Milestones")
+                        ]
+                        currentIndex: {
+                            var mode = AccessibilityManager.extractionAnnouncementMode
+                            if (mode === "both") return 0
+                            if (mode === "timed") return 1
+                            if (mode === "milestones_only") return 2
+                            return 0
+                        }
+                        onCurrentIndexChanged: {
+                            var modes = ["both", "timed", "milestones_only"]
+                            AccessibilityManager.extractionAnnouncementMode = modes[currentIndex]
+                        }
+                    }
+                }
+
+                // Update interval (only visible when timed mode is active)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+                    visible: AccessibilityManager.extractionAnnouncementMode !== "milestones_only"
+                    opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
+
+                    Tr {
+                        key: "settings.accessibility.updateInterval"
+                        fallback: "Update Interval"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    ValueInput {
+                        value: AccessibilityManager.extractionAnnouncementInterval
+                        from: 5
+                        to: 30
+                        stepSize: 5
+                        suffix: "s"
+                        accessibleName: TranslationManager.translate("settings.accessibility.updateInterval", "Update Interval")
+                        enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
+                        onValueModified: function(newValue) {
+                            AccessibilityManager.extractionAnnouncementInterval = newValue
+                        }
+                    }
+                }
+            }
+        }
+
         // Spacer
         Item { Layout.fillHeight: true }
     }

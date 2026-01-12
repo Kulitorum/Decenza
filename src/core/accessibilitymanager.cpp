@@ -59,6 +59,11 @@ void AccessibilityManager::loadSettings()
     m_tickEnabled = m_settings.value("accessibility/tickEnabled", true).toBool();
     m_tickSoundIndex = m_settings.value("accessibility/tickSoundIndex", 1).toInt();
     m_tickVolume = m_settings.value("accessibility/tickVolume", 100).toInt();
+
+    // Extraction announcement settings
+    m_extractionAnnouncementsEnabled = m_settings.value("accessibility/extractionAnnouncementsEnabled", true).toBool();
+    m_extractionAnnouncementInterval = m_settings.value("accessibility/extractionAnnouncementInterval", 5).toInt();
+    m_extractionAnnouncementMode = m_settings.value("accessibility/extractionAnnouncementMode", "both").toString();
 }
 
 void AccessibilityManager::saveSettings()
@@ -68,6 +73,12 @@ void AccessibilityManager::saveSettings()
     m_settings.setValue("accessibility/tickEnabled", m_tickEnabled);
     m_settings.setValue("accessibility/tickSoundIndex", m_tickSoundIndex);
     m_settings.setValue("accessibility/tickVolume", m_tickVolume);
+
+    // Extraction announcement settings
+    m_settings.setValue("accessibility/extractionAnnouncementsEnabled", m_extractionAnnouncementsEnabled);
+    m_settings.setValue("accessibility/extractionAnnouncementInterval", m_extractionAnnouncementInterval);
+    m_settings.setValue("accessibility/extractionAnnouncementMode", m_extractionAnnouncementMode);
+
     m_settings.sync();
 }
 
@@ -185,6 +196,36 @@ void AccessibilityManager::setLastAnnouncedItem(QObject* item)
     if (m_lastAnnouncedItem == item) return;
     m_lastAnnouncedItem = item;
     emit lastAnnouncedItemChanged();
+}
+
+void AccessibilityManager::setExtractionAnnouncementsEnabled(bool enabled)
+{
+    if (m_extractionAnnouncementsEnabled == enabled) return;
+    m_extractionAnnouncementsEnabled = enabled;
+    saveSettings();
+    emit extractionAnnouncementsEnabledChanged();
+}
+
+void AccessibilityManager::setExtractionAnnouncementInterval(int seconds)
+{
+    seconds = qBound(5, seconds, 30);  // 5-30 seconds
+    if (m_extractionAnnouncementInterval == seconds) return;
+    m_extractionAnnouncementInterval = seconds;
+    saveSettings();
+    emit extractionAnnouncementIntervalChanged();
+}
+
+void AccessibilityManager::setExtractionAnnouncementMode(const QString& mode)
+{
+    // Valid modes: "timed", "milestones_only", "both"
+    QString validMode = mode;
+    if (mode != "timed" && mode != "milestones_only" && mode != "both") {
+        validMode = "both";  // Default
+    }
+    if (m_extractionAnnouncementMode == validMode) return;
+    m_extractionAnnouncementMode = validMode;
+    saveSettings();
+    emit extractionAnnouncementModeChanged();
 }
 
 void AccessibilityManager::announce(const QString& text, bool interrupt)

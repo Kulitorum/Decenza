@@ -263,6 +263,7 @@ Page {
                     decimals: 0
                     value: Settings.steamFlow
                     displayText: flowToDisplay(value)
+                    accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                     onValueModified: function(newValue) {
                         steamingFlowSlider.value = newValue
                         MainController.setSteamFlowImmediate(newValue)
@@ -388,6 +389,12 @@ Page {
                                     border.color: pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
+
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: modelData.name + " " + TranslationManager.translate("steam.accessibility.preset", "preset") +
+                                                     (pitcherDelegate.pitcherIndex === Settings.selectedSteamPitcher ?
+                                                      ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    Accessible.focusable: true
 
                                     Drag.active: dragArea.drag.active
                                     Drag.source: pitcherDelegate
@@ -556,6 +563,7 @@ Page {
                             suffix: " s"
                             value: getCurrentPitcherDuration()
                             valueColor: Theme.primaryColor
+                            accessibleName: TranslationManager.translate("steam.label.duration", "Duration")
                             onValueModified: function(newValue) {
                                 durationSlider.value = newValue
                                 Settings.steamTimeout = newValue
@@ -598,6 +606,7 @@ Page {
                             value: getCurrentPitcherFlow()
                             displayText: flowToDisplay(value)
                             valueColor: Theme.primaryColor
+                            accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                             onValueModified: function(newValue) {
                                 flowSlider.value = newValue
                                 MainController.setSteamFlowImmediate(newValue)
@@ -640,6 +649,7 @@ Page {
                             suffix: "°C"
                             value: Settings.steamTemperature
                             valueColor: Theme.temperatureColor
+                            accessibleName: TranslationManager.translate("steam.label.temperature", "Steam Temperature")
                             onValueModified: function(newValue) {
                                 steamTempSlider.value = newValue
                                 MainController.setSteamTemperatureImmediate(newValue)

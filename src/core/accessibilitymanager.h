@@ -19,6 +19,11 @@ class AccessibilityManager : public QObject
     Q_PROPERTY(int tickVolume READ tickVolume WRITE setTickVolume NOTIFY tickVolumeChanged)
     Q_PROPERTY(QObject* lastAnnouncedItem READ lastAnnouncedItem WRITE setLastAnnouncedItem NOTIFY lastAnnouncedItemChanged)
 
+    // Extraction announcement settings
+    Q_PROPERTY(bool extractionAnnouncementsEnabled READ extractionAnnouncementsEnabled WRITE setExtractionAnnouncementsEnabled NOTIFY extractionAnnouncementsEnabledChanged)
+    Q_PROPERTY(int extractionAnnouncementInterval READ extractionAnnouncementInterval WRITE setExtractionAnnouncementInterval NOTIFY extractionAnnouncementIntervalChanged)
+    Q_PROPERTY(QString extractionAnnouncementMode READ extractionAnnouncementMode WRITE setExtractionAnnouncementMode NOTIFY extractionAnnouncementModeChanged)
+
 public:
     explicit AccessibilityManager(QObject *parent = nullptr);
     ~AccessibilityManager();
@@ -40,6 +45,16 @@ public:
 
     QObject* lastAnnouncedItem() const { return m_lastAnnouncedItem; }
     void setLastAnnouncedItem(QObject* item);
+
+    // Extraction announcement settings
+    bool extractionAnnouncementsEnabled() const { return m_extractionAnnouncementsEnabled; }
+    void setExtractionAnnouncementsEnabled(bool enabled);
+
+    int extractionAnnouncementInterval() const { return m_extractionAnnouncementInterval; }
+    void setExtractionAnnouncementInterval(int seconds);
+
+    QString extractionAnnouncementMode() const { return m_extractionAnnouncementMode; }
+    void setExtractionAnnouncementMode(const QString& mode);
 
     // Called from QML
     Q_INVOKABLE void announce(const QString& text, bool interrupt = false);
@@ -63,6 +78,9 @@ signals:
     void tickSoundIndexChanged();
     void tickVolumeChanged();
     void lastAnnouncedItemChanged();
+    void extractionAnnouncementsEnabledChanged();
+    void extractionAnnouncementIntervalChanged();
+    void extractionAnnouncementModeChanged();
 
 private:
     void loadSettings();
@@ -77,6 +95,11 @@ private:
     int m_tickVolume = 100;    // 0-100%, default full volume
     QPointer<QObject> m_lastAnnouncedItem;
     bool m_shuttingDown = false;
+
+    // Extraction announcement settings
+    bool m_extractionAnnouncementsEnabled = true;  // Default: enabled
+    int m_extractionAnnouncementInterval = 5;      // Default: 5 seconds
+    QString m_extractionAnnouncementMode = "both"; // "timed", "milestones_only", "both"
 
     QTextToSpeech* m_tts = nullptr;
     QSoundEffect* m_tickSounds[4] = {nullptr, nullptr, nullptr, nullptr};  // Pre-loaded sounds

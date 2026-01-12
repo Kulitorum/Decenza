@@ -220,6 +220,12 @@ Page {
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.preset", "preset") +
+                                                     (vesselDelegate.vesselIndex === Settings.selectedWaterVessel ?
+                                                      ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    Accessible.focusable: true
+
                                     Drag.active: dragArea.drag.active
                                     Drag.source: vesselDelegate
                                     Drag.hotSpot.x: width / 2
@@ -383,6 +389,7 @@ Page {
                             stepSize: 10
                             suffix: " g"
                             valueColor: Theme.primaryColor
+                            accessibleName: TranslationManager.translate("hotwater.label.weight", "Weight")
 
                             onValueModified: function(newValue) {
                                 volumeInput.value = newValue
@@ -418,6 +425,7 @@ Page {
                             stepSize: 1
                             suffix: "°C"
                             valueColor: Theme.temperatureColor
+                            accessibleName: TranslationManager.translate("hotwater.label.temperature", "Temperature")
 
                             onValueModified: function(newValue) {
                                 temperatureInput.value = newValue

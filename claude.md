@@ -456,3 +456,73 @@ Each operation page (Steam, HotWater, Flush) has:
 - Tags allow users to reference exact builds by version code
 - **Version codes are global** across all platforms (Android, iOS, Desktop) - a build on any platform increments the shared counter in `versioncode.txt`
 - **IMPORTANT**: Always include version files in every commit if they've changed: `versioncode.txt`, `android/AndroidManifest.xml`, `installer/version.iss`. Never leave these unstaged.
+
+## Accessibility (TalkBack/VoiceOver)
+
+### Current Implementation
+The app has accessibility support via `AccessibilityManager` (C++) with:
+- Text-to-speech announcements via `AccessibilityManager.announce()`
+- Tick sounds for frame changes
+- `AccessibleTapHandler` and `AccessibleMouseArea` for touch handling
+- Extraction announcements (phase changes, weight milestones, periodic updates)
+- User-configurable settings in Settings → Accessibility
+
+### Key Components
+- `src/core/accessibilitymanager.h/cpp` - TTS, tick sounds, settings persistence
+- `qml/components/AccessibleTapHandler.qml` - Touch handler that works with TalkBack
+- `qml/components/AccessibleMouseArea.qml` - Simpler version of above
+- `qml/components/AccessibleButton.qml` - Button with required accessibleName
+- `qml/components/AccessibleLabel.qml` - Tap-to-announce text
+
+### TODO: Focus Order Improvements
+
+**Problem:** Screen reader users report unpredictable navigation order when swiping through elements. Focus jumps unexpectedly and some elements are skipped.
+
+**Root Cause:** Many interactive elements lack proper focus configuration:
+1. Missing `Accessible.focusable: true` on interactive items
+2. No logical `KeyNavigation.tab` / `KeyNavigation.backtab` chains
+3. Missing `FocusScope` wrappers for grouped controls
+4. No `focus: true` on first focusable element in pages
+
+**Fix Required:** Go through each page and ensure:
+```qml
+// 1. All interactive elements are focusable
+Rectangle {
+    Accessible.role: Accessible.Button
+    Accessible.name: "My Button"
+    Accessible.focusable: true  // ADD THIS
+}
+
+// 2. Logical tab order with KeyNavigation
+Item {
+    id: firstControl
+    KeyNavigation.tab: secondControl
+    KeyNavigation.backtab: lastControl
+}
+
+// 3. Group related controls
+FocusScope {
+    // Controls inside share focus context
+}
+
+// 4. Set initial focus
+Page {
+    Component.onCompleted: firstControl.forceActiveFocus()
+}
+```
+
+**Pages to Review:**
+- `qml/pages/IdlePage.qml`
+- `qml/pages/EspressoPage.qml`
+- `qml/pages/SteamPage.qml`
+- `qml/pages/HotWaterPage.qml`
+- `qml/pages/FlushPage.qml`
+- `qml/pages/SettingsPage.qml` (and all settings tabs)
+- `qml/pages/RecipesPage.qml`
+- `qml/pages/ProfileEditorPage.qml`
+
+**Testing:** Enable TalkBack on Android, then:
+1. Swipe right repeatedly - should move through all controls in logical order
+2. No elements should be skipped
+3. Focus should not jump unexpectedly
+4. First element on each page should receive focus when page opens

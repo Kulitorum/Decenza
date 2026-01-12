@@ -233,6 +233,12 @@ Page {
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
+                                                     (presetDelegate.presetIndex === Settings.selectedFlushPreset ?
+                                                      ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    Accessible.focusable: true
+
                                     Drag.active: dragArea.drag.active
                                     Drag.source: presetDelegate
                                     Drag.hotSpot.x: width / 2
@@ -398,6 +404,7 @@ Page {
                             stepSize: 0.5
                             suffix: " s"
                             valueColor: Theme.primaryColor
+                            accessibleName: TranslationManager.translate("flush.label.duration", "Duration")
 
                             onValueModified: function(newValue) {
                                 secondsInput.value = newValue
@@ -433,6 +440,7 @@ Page {
                             stepSize: 0.5
                             suffix: " mL/s"
                             valueColor: Theme.flowColor
+                            accessibleName: TranslationManager.translate("flush.label.flowRate", "Flow Rate")
 
                             onValueModified: function(newValue) {
                                 flowInput.value = newValue

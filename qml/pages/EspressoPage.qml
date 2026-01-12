@@ -119,6 +119,130 @@ Page {
         }
     }
 
+    // ========== ACCESSIBILITY ANNOUNCEMENTS ==========
+
+    // Track last announced weight for milestone announcements
+    property real lastAnnouncedWeight: 0
+
+    // Helper to check if accessibility announcements are enabled
+    function accessibilityEnabled() {
+        return typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+    }
+
+    // Get phase announcement text
+    function getPhaseAnnouncement(phase) {
+        switch (phase) {
+            case MachineStateType.Phase.EspressoPreheating:
+                return TranslationManager.translate("espresso.accessibility.preheating", "Preheating")
+            case MachineStateType.Phase.Preinfusion:
+                return TranslationManager.translate("espresso.accessibility.preinfusion", "Preinfusion started")
+            case MachineStateType.Phase.Pouring:
+                return TranslationManager.translate("espresso.accessibility.pouring", "Pouring")
+            case MachineStateType.Phase.Ending:
+                return TranslationManager.translate("espresso.accessibility.ending", "Extraction ending")
+            default:
+                return ""
+        }
+    }
+
+    // Announce phase transitions
+    Connections {
+        target: MachineState
+        function onPhaseChanged() {
+            if (!accessibilityEnabled()) return
+            var announcement = getPhaseAnnouncement(MachineState.phase)
+            if (announcement) {
+                AccessibilityManager.announce(announcement, true)
+            }
+        }
+    }
+
+    // Announce extraction start
+    Connections {
+        target: MachineState
+        function onShotStarted() {
+            if (!accessibilityEnabled()) return
+            lastAnnouncedWeight = 0
+            AccessibilityManager.announce(
+                TranslationManager.translate("espresso.accessibility.started", "Extraction started"),
+                true
+            )
+        }
+    }
+
+    // Announce extraction end with full status
+    Connections {
+        target: MachineState
+        function onShotEnded() {
+            if (!accessibilityEnabled()) return
+            accessibilityUpdateTimer.stop()
+            // Wait a moment then announce final status
+            Qt.callLater(function() {
+                var finalStatus = TranslationManager.translate("espresso.accessibility.ended", "Extraction finished") + ". "
+                finalStatus += getAccessibilityValue(1) + ". "  // Time
+                finalStatus += getAccessibilityValue(5)         // Weight
+                AccessibilityManager.announce(finalStatus, true)
+            })
+        }
+    }
+
+    // Announce target weight reached
+    Connections {
+        target: MachineState
+        function onTargetWeightReached() {
+            if (!accessibilityEnabled()) return
+            AccessibilityManager.announce(
+                TranslationManager.translate("espresso.accessibility.targetReached", "Target weight reached"),
+                true
+            )
+        }
+    }
+
+    // Announce weight milestones (every 10g) - respects user settings
+    Connections {
+        target: MachineState
+        function onScaleWeightChanged() {
+            if (!accessibilityEnabled()) return
+            if (!AccessibilityManager.extractionAnnouncementsEnabled) return
+            // Only announce milestones if mode includes milestones
+            var mode = AccessibilityManager.extractionAnnouncementMode
+            if (mode !== "milestones_only" && mode !== "both") return
+
+            var w = MachineState.scaleWeight
+            // Announce every 10g milestone
+            if (Math.floor(w / 10) > Math.floor(lastAnnouncedWeight / 10) && w > 0) {
+                AccessibilityManager.announce(Math.floor(w) + " " +
+                    TranslationManager.translate("espresso.accessibility.grams", "grams"))
+                lastAnnouncedWeight = w
+            }
+        }
+    }
+
+    // Periodic update timer - uses configurable interval from AccessibilityManager
+    Timer {
+        id: accessibilityUpdateTimer
+        interval: AccessibilityManager.extractionAnnouncementInterval * 1000
+        repeat: true
+        running: accessibilityEnabled() &&
+                 AccessibilityManager.extractionAnnouncementsEnabled &&
+                 (AccessibilityManager.extractionAnnouncementMode === "timed" ||
+                  AccessibilityManager.extractionAnnouncementMode === "both") &&
+                 (MachineState.phase === MachineStateType.Phase.Preinfusion ||
+                  MachineState.phase === MachineStateType.Phase.Pouring)
+        onTriggered: {
+            var time = MachineState.shotTime.toFixed(0)
+            var weight = espressoPage.currentWeight.toFixed(1)
+            AccessibilityManager.announce(
+                TranslationManager.translate("espresso.accessibility.time", "Time") + " " + time + " " +
+                TranslationManager.translate("espresso.accessibility.seconds", "seconds") + ", " +
+                TranslationManager.translate("espresso.accessibility.weight", "weight") + " " + weight + " " +
+                TranslationManager.translate("espresso.accessibility.grams", "grams")
+            )
+        }
+    }
+
+    // ========== END ACCESSIBILITY ANNOUNCEMENTS ==========
+
     // Full-screen shot graph
     ShotGraph {
         id: shotGraph
