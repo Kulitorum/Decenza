@@ -374,7 +374,19 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
 
     // App info with settings (Visualizer extracts metadata from app.data.settings)
     QJsonObject app;
+#if defined(Q_OS_IOS)
+    app["app_name"] = "Decenza DE1 iOS";
+#elif defined(Q_OS_ANDROID)
+    app["app_name"] = "Decenza DE1 Android";
+#elif defined(Q_OS_WIN)
+    app["app_name"] = "Decenza DE1 Windows";
+#elif defined(Q_OS_MACOS)
+    app["app_name"] = "Decenza DE1 macOS";
+#elif defined(Q_OS_LINUX)
+    app["app_name"] = "Decenza DE1 Linux";
+#else
     app["app_name"] = "Decenza DE1";
+#endif
     app["app_version"] = VERSION_STRING;
 
     // Build settings object with all metadata (de1app field names)
