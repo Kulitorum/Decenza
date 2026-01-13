@@ -130,6 +130,169 @@ Item {
         }
     }
 
+    // Dialog to confirm clearing personal media
+    Dialog {
+        id: clearPersonalMediaDialog
+        modal: true
+        anchors.centerIn: parent
+        width: Theme.scaled(400)
+        padding: 0
+
+        property bool isDeleting: false
+        property int itemCount: ScreensaverManager.personalMediaCount
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("settings.screensaver.clearPersonalTitle", "Clear Personal Media?")
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Content
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(15)
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: !clearPersonalMediaDialog.isDeleting
+                    text: TranslationManager.translate("settings.screensaver.clearPersonalMessage",
+                        "This will delete all %1 personal media files. This action cannot be undone.").arg(clearPersonalMediaDialog.itemCount)
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    wrapMode: Text.WordWrap
+                }
+
+                // Deleting state
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: clearPersonalMediaDialog.isDeleting
+                    spacing: Theme.scaled(10)
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("settings.screensaver.deletingPersonal", "Deleting personal media...")
+                        color: Theme.textColor
+                        font: Theme.bodyFont
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    // Progress bar (indeterminate)
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: Theme.scaled(6)
+                        radius: Theme.scaled(3)
+                        color: Qt.darker(Theme.surfaceColor, 1.3)
+
+                        Rectangle {
+                            id: progressIndicator
+                            width: parent.width * 0.3
+                            height: parent.height
+                            radius: Theme.scaled(3)
+                            color: Theme.primaryColor
+
+                            SequentialAnimation on x {
+                                loops: Animation.Infinite
+                                running: clearPersonalMediaDialog.isDeleting
+                                NumberAnimation {
+                                    from: 0
+                                    to: progressIndicator.parent.width - progressIndicator.width
+                                    duration: 800
+                                    easing.type: Easing.InOutQuad
+                                }
+                                NumberAnimation {
+                                    from: progressIndicator.parent.width - progressIndicator.width
+                                    to: 0
+                                    duration: 800
+                                    easing.type: Easing.InOutQuad
+                                }
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+                    visible: !clearPersonalMediaDialog.isDeleting
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: "Cancel"
+                        onClicked: clearPersonalMediaDialog.close()
+                    }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.screensaver.deleteAll", "Delete All")
+                        accessibleName: "Delete all personal media"
+                        onClicked: {
+                            clearPersonalMediaDialog.isDeleting = true
+                            // Use a timer to allow the UI to update before blocking deletion
+                            deleteTimer.start()
+                        }
+                        background: Rectangle {
+                            implicitHeight: Theme.scaled(36)
+                            implicitWidth: Theme.scaled(120)
+                            radius: Theme.scaled(6)
+                            color: parent.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                        }
+                        contentItem: Text {
+                            text: parent.text
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(14)
+                            color: "white"
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                }
+            }
+        }
+
+        Timer {
+            id: deleteTimer
+            interval: 100  // Brief delay to show progress animation
+            onTriggered: {
+                ScreensaverManager.clearPersonalMedia()
+                clearPersonalMediaDialog.isDeleting = false
+                clearPersonalMediaDialog.close()
+            }
+        }
+
+        onClosed: {
+            isDeleting = false
+        }
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: Theme.scaled(15)
@@ -695,7 +858,7 @@ Item {
                         visible: ScreensaverManager.isPersonalCategory
                         text: TranslationManager.translate("settings.screensaver.clearPersonal", "Clear Personal Media")
                         accessibleName: "Clear personal media"
-                        onClicked: ScreensaverManager.clearPersonalMedia()
+                        onClicked: clearPersonalMediaDialog.open()
                     }
 
                     Item { Layout.fillWidth: true }

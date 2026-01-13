@@ -1761,7 +1761,20 @@ void ScreensaverVideoManager::clearPersonalMedia()
 
     m_personalCatalog.clear();
     savePersonalCatalog();
+
+    // If personal category was selected, switch to first available category
+    if (m_selectedCategoryId == "personal") {
+        if (!m_categories.isEmpty()) {
+            setSelectedCategoryId(m_categories.first().id);
+        } else {
+            // No categories available, set to empty
+            m_selectedCategoryId.clear();
+            emit selectedCategoryIdChanged();
+        }
+    }
+
     emit personalMediaChanged();
+    emit categoriesChanged();  // Update category list to remove "Personal"
 
     qDebug() << "[Screensaver] Cleared all personal media, freed" << (freedBytes / 1024 / 1024) << "MB";
 }

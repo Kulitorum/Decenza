@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kulitorum.decenza_de1"
-    android:versionCode="1802"
+    android:versionCode="1803"
     android:versionName="1.1.30">
 
     <uses-permission android:name="android.permission.BLUETOOTH" />
