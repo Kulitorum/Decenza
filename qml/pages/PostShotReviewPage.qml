@@ -796,10 +796,10 @@ Page {
             }
         }
 
-        // AI Advice button - visible whenever we have shot data (not just pending) and not in edit mode
+        // AI Advice button - visible when we have shot data (pending or historical)
         Rectangle {
             id: aiAdviceButton
-            visible: !isEditMode && MainController.aiManager && ShotDataModel.maxTime > 0
+            visible: MainController.aiManager && (isEditMode ? (editShotData.id > 0) : (ShotDataModel.maxTime > 0))
             Layout.preferredWidth: aiAdviceContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -841,23 +841,27 @@ Page {
                 anchors.fill: parent
                 enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
                 onClicked: {
-                    // Generate shot summary and store it (don't send yet)
-                    postShotReviewPage.pendingShotSummary = MainController.aiManager.generateShotSummary(
-                        MainController.shotDataModel,
-                        MainController.currentProfilePtr,
-                        Settings.dyeBeanWeight,
-                        Settings.dyeDrinkWeight,
-                        {
-                            "beanBrand": Settings.dyeBeanBrand,
-                            "beanType": Settings.dyeBeanType,
-                            "roastDate": Settings.dyeRoastDate,
-                            "roastLevel": Settings.dyeRoastLevel,
-                            "grinderModel": Settings.dyeGrinderModel,
-                            "grinderSetting": Settings.dyeGrinderSetting,
-                            "enjoymentScore": Settings.dyeEspressoEnjoyment,
-                            "tastingNotes": Settings.dyeEspressoNotes
-                        }
-                    )
+                    // Generate shot summary - use history method for edit mode, live method otherwise
+                    if (isEditMode) {
+                        postShotReviewPage.pendingShotSummary = MainController.aiManager.generateHistoryShotSummary(editShotData)
+                    } else {
+                        postShotReviewPage.pendingShotSummary = MainController.aiManager.generateShotSummary(
+                            MainController.shotDataModel,
+                            MainController.currentProfilePtr,
+                            Settings.dyeBeanWeight,
+                            Settings.dyeDrinkWeight,
+                            {
+                                "beanBrand": Settings.dyeBeanBrand,
+                                "beanType": Settings.dyeBeanType,
+                                "roastDate": Settings.dyeRoastDate,
+                                "roastLevel": Settings.dyeRoastLevel,
+                                "grinderModel": Settings.dyeGrinderModel,
+                                "grinderSetting": Settings.dyeGrinderSetting,
+                                "enjoymentScore": Settings.dyeEspressoEnjoyment,
+                                "tastingNotes": Settings.dyeEspressoNotes
+                            }
+                        )
+                    }
 
                     // Open conversation overlay so user can type their question
                     conversationOverlay.visible = true
@@ -868,7 +872,8 @@ Page {
         // Email Prompt button - fallback for users without API keys
         Rectangle {
             id: emailPromptButton
-            visible: !isEditMode && MainController.aiManager && !MainController.aiManager.isConfigured && ShotDataModel.maxTime > 0
+            visible: MainController.aiManager && !MainController.aiManager.isConfigured &&
+                     (isEditMode ? (editShotData.id > 0) : (ShotDataModel.maxTime > 0))
             Layout.preferredWidth: emailPromptContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -905,22 +910,27 @@ Page {
                 id: emailPromptArea
                 anchors.fill: parent
                 onClicked: {
-                    var prompt = MainController.aiManager.generateEmailPrompt(
-                        MainController.shotDataModel,
-                        MainController.currentProfilePtr,
-                        Settings.dyeBeanWeight,
-                        Settings.dyeDrinkWeight,
-                        {
-                            "beanBrand": Settings.dyeBeanBrand,
-                            "beanType": Settings.dyeBeanType,
-                            "roastDate": Settings.dyeRoastDate,
-                            "roastLevel": Settings.dyeRoastLevel,
-                            "grinderModel": Settings.dyeGrinderModel,
-                            "grinderSetting": Settings.dyeGrinderSetting,
-                            "enjoymentScore": Settings.dyeEspressoEnjoyment,
-                            "tastingNotes": Settings.dyeEspressoNotes
-                        }
-                    )
+                    var prompt
+                    if (isEditMode) {
+                        prompt = MainController.aiManager.generateHistoryShotSummary(editShotData)
+                    } else {
+                        prompt = MainController.aiManager.generateEmailPrompt(
+                            MainController.shotDataModel,
+                            MainController.currentProfilePtr,
+                            Settings.dyeBeanWeight,
+                            Settings.dyeDrinkWeight,
+                            {
+                                "beanBrand": Settings.dyeBeanBrand,
+                                "beanType": Settings.dyeBeanType,
+                                "roastDate": Settings.dyeRoastDate,
+                                "roastLevel": Settings.dyeRoastLevel,
+                                "grinderModel": Settings.dyeGrinderModel,
+                                "grinderSetting": Settings.dyeGrinderSetting,
+                                "enjoymentScore": Settings.dyeEspressoEnjoyment,
+                                "tastingNotes": Settings.dyeEspressoNotes
+                            }
+                        )
+                    }
                     // Open mailto: with prompt in body
                     Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis") +
                                         "&body=" + encodeURIComponent(prompt))

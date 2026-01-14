@@ -82,6 +82,9 @@ public:
                                              double finalWeight,
                                              const QVariantMap& metadata);
 
+    // Generate shot summary from historical shot data (for ShotDetailPage)
+    Q_INVOKABLE QString generateHistoryShotSummary(const QVariantMap& shotData);
+
     // Provider testing
     Q_INVOKABLE void testConnection();
 

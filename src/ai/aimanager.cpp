@@ -237,6 +237,118 @@ QString AIManager::generateShotSummary(ShotDataModel* shotData,
     return m_summarizer->buildUserPrompt(summary);
 }
 
+QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
+{
+    QString prompt;
+    QTextStream out(&prompt);
+
+    // Shot summary
+    out << "## Shot Summary\n\n";
+    out << "- **Profile**: " << shotData.value("profileName", "Unknown").toString() << "\n";
+
+    double doseWeight = shotData.value("doseWeight", 0.0).toDouble();
+    double finalWeight = shotData.value("finalWeight", 0.0).toDouble();
+    double ratio = doseWeight > 0 ? finalWeight / doseWeight : 0;
+
+    out << "- **Dose**: " << QString::number(doseWeight, 'f', 1) << "g -> ";
+    out << "**Yield**: " << QString::number(finalWeight, 'f', 1) << "g ";
+    out << "(ratio 1:" << QString::number(ratio, 'f', 1) << ")\n";
+    out << "- **Duration**: " << QString::number(shotData.value("duration", 0.0).toDouble(), 'f', 0) << "s\n";
+
+    // Coffee info
+    QString beanBrand = shotData.value("beanBrand").toString();
+    QString beanType = shotData.value("beanType").toString();
+    QString roastLevel = shotData.value("roastLevel").toString();
+    QString grinderModel = shotData.value("grinderModel").toString();
+    QString grinderSetting = shotData.value("grinderSetting").toString();
+
+    if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
+        out << "- **Coffee**: " << beanBrand;
+        if (!beanBrand.isEmpty() && !beanType.isEmpty()) out << " - ";
+        out << beanType;
+        if (!roastLevel.isEmpty()) out << " (" << roastLevel << ")";
+        out << "\n";
+    }
+    if (!grinderModel.isEmpty()) {
+        out << "- **Grinder**: " << grinderModel;
+        if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
+        out << "\n";
+    }
+    out << "\n";
+
+    // Extract curve data for analysis
+    QVariantList pressureData = shotData.value("pressure").toList();
+    QVariantList flowData = shotData.value("flow").toList();
+    QVariantList tempData = shotData.value("temperature").toList();
+    QVariantList weightData = shotData.value("weight").toList();
+
+    // Sample curve data at key points for AI analysis
+    double duration = shotData.value("duration", 60.0).toDouble();
+    out << "## Curve Samples\n\n";
+    out << "Sample points from the extraction curves:\n\n";
+
+    // Helper lambda to find value at time
+    auto findValueAtTime = [](const QVariantList& data, double targetTime) -> double {
+        if (data.isEmpty()) return 0;
+        for (const QVariant& point : data) {
+            QVariantMap p = point.toMap();
+            double t = p.value("x", 0.0).toDouble();
+            if (t >= targetTime) {
+                return p.value("y", 0.0).toDouble();
+            }
+        }
+        // Return last value if past end
+        if (!data.isEmpty()) {
+            return data.last().toMap().value("y", 0.0).toDouble();
+        }
+        return 0;
+    };
+
+    // Sample at 25%, 50%, 75% of extraction
+    double times[] = { duration * 0.25, duration * 0.5, duration * 0.75 };
+    const char* labels[] = { "Early", "Middle", "Late" };
+
+    for (int i = 0; i < 3; i++) {
+        double t = times[i];
+        double pressure = findValueAtTime(pressureData, t);
+        double flow = findValueAtTime(flowData, t);
+        double temp = findValueAtTime(tempData, t);
+        double weight = findValueAtTime(weightData, t);
+
+        out << "- **" << labels[i] << "** @" << QString::number(t, 'f', 0) << "s: ";
+        out << QString::number(pressure, 'f', 1) << " bar, ";
+        out << QString::number(flow, 'f', 1) << " ml/s, ";
+        out << QString::number(temp, 'f', 0) << " C, ";
+        out << QString::number(weight, 'f', 1) << "g\n";
+    }
+    out << "\n";
+
+    // Tasting feedback
+    out << "## Tasting Feedback\n\n";
+    int enjoyment = shotData.value("enjoyment", 0).toInt();
+    QString notes = shotData.value("espressoNotes").toString();
+
+    if (enjoyment > 0) {
+        out << "- **Score**: " << enjoyment << "/100";
+        if (enjoyment >= 80) out << " - Good shot!";
+        else if (enjoyment >= 60) out << " - Decent, room for improvement";
+        else if (enjoyment >= 40) out << " - Needs work";
+        else out << " - Problematic";
+        out << "\n";
+    }
+    if (!notes.isEmpty()) {
+        out << "- **Notes**: \"" << notes << "\"\n";
+    }
+    if (enjoyment == 0 && notes.isEmpty()) {
+        out << "- No tasting feedback provided\n";
+    }
+    out << "\n";
+
+    out << "Analyze the curve data and sensory feedback. Provide ONE specific, evidence-based recommendation.\n";
+
+    return prompt;
+}
+
 void AIManager::testConnection()
 {
     AIProvider* provider = currentProvider();

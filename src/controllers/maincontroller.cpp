@@ -1889,7 +1889,12 @@ void MainController::onShotEnded() {
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
     // Check if we should show metadata page after shot (regardless of auto-upload)
-    if (m_settings->visualizerExtendedMetadata() && m_settings->visualizerShowAfterShot()) {
+    // Show when: (extended metadata enabled AND show after shot) OR (AI configured AND show after shot)
+    bool hasAI = m_aiManager && m_aiManager->isConfigured();
+    bool showPostShot = m_settings->visualizerShowAfterShot() &&
+                        (m_settings->visualizerExtendedMetadata() || hasAI);
+
+    if (showPostShot) {
         // Store pending shot data for later upload
         m_hasPendingShot = true;
         m_pendingShotDuration = duration;

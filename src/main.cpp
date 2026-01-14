@@ -5,6 +5,7 @@
 #include <QSettings>
 #include <QIcon>
 #include <QTimer>
+#include <QEventLoop>
 #include <QGuiApplication>
 #include <QDebug>
 #include <memory>
@@ -455,6 +456,11 @@ int main(int argc, char *argv[])
 
             if (physicalScale && physicalScale->isConnected()) {
                 physicalScale->sleep();
+                // Give BLE write time to complete before app suspends
+                // de1app waits 1 second, we use 500ms as a compromise
+                QEventLoop waitLoop;
+                QTimer::singleShot(500, &waitLoop, &QEventLoop::quit);
+                waitLoop.exec();
             }
             // DE1 intentionally NOT put to sleep - user may be checking other apps
             // while machine heats up
@@ -485,16 +491,29 @@ int main(int argc, char *argv[])
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &physicalScale]() {
         qDebug() << "Application exiting - shutting down devices";
 
+        bool needBleWait = false;
+
         // Put DE1 to sleep if connected (this is more reliable than QML onClosing on mobile)
         if (de1Device.isConnected()) {
             qDebug() << "Sending DE1 to sleep on app exit";
             de1Device.goToSleep();
+            needBleWait = true;
         }
 
         // Put scale to sleep if connected
         if (physicalScale && physicalScale->isConnected()) {
             qDebug() << "Sending physical scale to sleep on app exit";
             physicalScale->sleep();
+            needBleWait = true;
+        }
+
+        // Wait for BLE writes to complete before exiting
+        // de1app waits 5-10 seconds; we use 1 second as compromise
+        if (needBleWait) {
+            qDebug() << "Waiting 1s for BLE writes to complete...";
+            QEventLoop waitLoop;
+            QTimer::singleShot(1000, &waitLoop, &QEventLoop::quit);
+            waitLoop.exec();
         }
 
         // IMPORTANT: Ensure charger is ON before exiting
