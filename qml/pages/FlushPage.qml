@@ -463,7 +463,12 @@ Page {
         title: getCurrentPresetName() || pageTitle
         onBackClicked: {
             MainController.applyFlushSettings()
-            root.goToIdle()
+            // Handle both pushed (user nav) and replaced (auto nav) cases
+            if (pageStack.depth > 1) {
+                root.goBack()
+            } else {
+                root.goToIdle()
+            }
         }
 
         Text {

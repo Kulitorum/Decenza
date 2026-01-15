@@ -474,10 +474,30 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     }
     else if (path == "/api/debug/clear") {
         if (WebDebugLogger::instance()) {
-            WebDebugLogger::instance()->clear();
+            WebDebugLogger::instance()->clear(false);  // Don't clear file by default
         }
         QJsonObject result;
         result["success"] = true;
+        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    }
+    else if (path == "/api/debug/clearall") {
+        if (WebDebugLogger::instance()) {
+            WebDebugLogger::instance()->clear(true);  // Clear memory and file
+        }
+        QJsonObject result;
+        result["success"] = true;
+        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    }
+    else if (path == "/api/debug/file") {
+        // Return persisted log file content (survives crashes)
+        QJsonObject result;
+        if (WebDebugLogger::instance()) {
+            result["log"] = WebDebugLogger::instance()->getPersistedLog();
+            result["path"] = WebDebugLogger::instance()->logFilePath();
+        } else {
+            result["log"] = "";
+            result["path"] = "";
+        }
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     }
     else if (path == "/api/power" || path == "/api/power/status") {
@@ -1790,13 +1810,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                 <div class="menu-dropdown" id="menuDropdown">
                     <a href="#" class="menu-item" id="powerToggle" onclick="togglePower(); return false;">&#9889; Loading...</a>
                     <a href="/" class="menu-item">&#127866; Shot History</a>
-                    <a href="/debug" class="menu-item">&#128196; Live Debug Log</a>
-                    <a href="/remote" class="menu-item">&#128421; Remote Control</a>)HTML"
-#ifdef Q_OS_ANDROID
-                    R"HTML(<a href="/upload" class="menu-item">&#128230; Upload APK</a>)HTML"
-#endif
-                    R"HTML(<a href="/database.db" class="menu-item">&#128190; Download Database</a>
+                    <a href="/remote" class="menu-item">&#128421; Remote Control</a>
                     <a href="/upload/media" class="menu-item">&#127912; Upload Screensaver Media</a>
+                    <a href="/debug" class="menu-item">&#128736; Debug &amp; Dev Tools</a>
                 </div>
             </div>
         </div>
@@ -2477,13 +2493,9 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 <div class="menu-dropdown" id="menuDropdown">
                     <a href="#" class="menu-item" id="powerToggle" onclick="togglePower(); return false;">&#9889; Loading...</a>
                     <a href="/" class="menu-item">&#127866; Shot History</a>
-                    <a href="/debug" class="menu-item">&#128196; Live Debug Log</a>
-                    <a href="/remote" class="menu-item">&#128421; Remote Control</a>)HTML"
-#ifdef Q_OS_ANDROID
-                    R"HTML(<a href="/upload" class="menu-item">&#128230; Upload APK</a>)HTML"
-#endif
-                    R"HTML(<a href="/database.db" class="menu-item">&#128190; Download Database</a>
+                    <a href="/remote" class="menu-item">&#128421; Remote Control</a>
                     <a href="/upload/media" class="menu-item">&#127912; Upload Screensaver Media</a>
+                    <a href="/debug" class="menu-item">&#128736; Debug &amp; Dev Tools</a>
                 </div>
             </div>
         </div>
@@ -2733,7 +2745,7 @@ QString ShotServer::generateDebugPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Debug Log - Decenza DE1</title>
+    <title>Debug &amp; Dev Tools - Decenza DE1</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -2836,7 +2848,7 @@ QString ShotServer::generateDebugPage() const
     <header class="header">
         <div class="header-content">
             <a href="/" class="back-btn">&#8592;</a>
-            <h1>Live Debug Log</h1>
+            <h1>Debug &amp; Dev Tools</h1>
             <div class="status">
                 <span class="status-dot"></span>
                 <span id="lineCount">0 lines</span>
@@ -2844,10 +2856,16 @@ QString ShotServer::generateDebugPage() const
             <div class="controls">
                 <button class="btn active" id="autoScrollBtn" onclick="toggleAutoScroll()">Auto-scroll</button>
                 <button class="btn" onclick="clearLog()">Clear</button>
+                <button class="btn" onclick="loadPersistedLog()">Load Saved Log</button>
+                <button class="btn" onclick="clearAll()">Clear All</button>
             </div>
         </div>
     </header>
     <main class="container">
+        <div style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <a href="/database.db" class="btn" style="text-decoration:none;">&#128190; Download Database</a>
+            <a href="/upload" class="btn" style="text-decoration:none;">&#128230; Upload APK</a>
+        </div>
         <div class="log-container" id="logContainer"></div>
     </main>
     <script>
@@ -2904,6 +2922,38 @@ QString ShotServer::generateDebugPage() const
                 .then(function() {
                     container.innerHTML = "";
                     lastIndex = 0;
+                });
+        }
+
+        function clearAll() {
+            if (confirm("Clear both live log and saved log file?")) {
+                fetch("/api/debug/clearall", { method: "POST" })
+                    .then(function() {
+                        container.innerHTML = "";
+                        lastIndex = 0;
+                    });
+            }
+        }
+
+        function loadPersistedLog() {
+            fetch("/api/debug/file")
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.log) {
+                        container.innerHTML = "";
+                        var lines = data.log.split("\n");
+                        var html = "";
+                        for (var i = 0; i < lines.length; i++) {
+                            if (lines[i]) html += colorize(lines[i]);
+                        }
+                        container.innerHTML = html;
+                        lineCountEl.textContent = lines.length + " lines (from file)";
+                        if (autoScroll) {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    } else {
+                        alert("No saved log file found");
+                    }
                 });
         }
 

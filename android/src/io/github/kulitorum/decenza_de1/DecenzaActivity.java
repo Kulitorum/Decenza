@@ -14,7 +14,13 @@ public class DecenzaActivity extends QtActivity {
 
         // Start the shutdown service so onTaskRemoved() will be called
         // when the app is swiped away from recent tasks
-        Intent serviceIntent = new Intent(this, DeviceShutdownService.class);
-        startService(serviceIntent);
+        try {
+            Intent serviceIntent = new Intent(this, DeviceShutdownService.class);
+            startService(serviceIntent);
+        } catch (IllegalStateException e) {
+            // Android may block startService() if app is considered "in background"
+            // This can happen during certain wake scenarios - safe to ignore
+            android.util.Log.w("DecenzaActivity", "Could not start shutdown service: " + e.getMessage());
+        }
     }
 }

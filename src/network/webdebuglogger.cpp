@@ -2,6 +2,9 @@
 
 #include <QDebug>
 #include <QTime>
+#include <QStandardPaths>
+#include <QDir>
+#include <QTextStream>
 
 WebDebugLogger* WebDebugLogger::s_instance = nullptr;
 QtMessageHandler WebDebugLogger::s_previousHandler = nullptr;
@@ -24,6 +27,18 @@ WebDebugLogger::WebDebugLogger(QObject* parent)
     , m_startTime(QDateTime::currentDateTime())
 {
     m_timer.start();
+
+    // Set up log file path
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dataDir);
+    m_logFilePath = dataDir + "/debug.log";
+
+    // Write session start marker
+    QFile file(m_logFilePath);
+    if (file.open(QIODevice::Append | QIODevice::Text)) {
+        QTextStream stream(&file);
+        stream << "\n========== SESSION START: " << m_startTime.toString(Qt::ISODate) << " ==========\n";
+    }
 }
 
 void WebDebugLogger::messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
@@ -64,6 +79,70 @@ void WebDebugLogger::handleMessage(QtMsgType type, const QString& message)
     while (m_lines.size() > m_maxLines) {
         m_lines.removeFirst();
     }
+
+    // Also write to file (outside mutex to avoid blocking)
+    locker.unlock();
+    writeToFile(line);
+}
+
+void WebDebugLogger::writeToFile(const QString& line)
+{
+    QFile file(m_logFilePath);
+    if (file.open(QIODevice::Append | QIODevice::Text)) {
+        QTextStream stream(&file);
+        stream << line << "\n";
+        file.close();
+
+        // Check if we need to trim
+        if (file.size() > MAX_LOG_FILE_SIZE) {
+            trimLogFile();
+        }
+    }
+}
+
+void WebDebugLogger::trimLogFile()
+{
+    QFile file(m_logFilePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return;
+    }
+
+    // Read all content
+    QByteArray content = file.readAll();
+    file.close();
+
+    // Keep last ~80% of max size to avoid frequent trimming
+    qint64 keepSize = MAX_LOG_FILE_SIZE * 80 / 100;
+    if (content.size() <= keepSize) {
+        return;
+    }
+
+    // Find a newline near the trim point to keep lines intact
+    qint64 trimPoint = content.size() - keepSize;
+    int newlinePos = content.indexOf('\n', trimPoint);
+    if (newlinePos == -1) {
+        newlinePos = trimPoint;
+    }
+
+    // Write trimmed content
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        file.write("... [log trimmed] ...\n");
+        file.write(content.mid(newlinePos + 1));
+    }
+}
+
+QString WebDebugLogger::getPersistedLog() const
+{
+    QFile file(m_logFilePath);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return QString::fromUtf8(file.readAll());
+    }
+    return QString();
+}
+
+QString WebDebugLogger::logFilePath() const
+{
+    return m_logFilePath;
 }
 
 QStringList WebDebugLogger::getLines(int afterIndex, int* lastIndex) const
@@ -91,10 +170,19 @@ QStringList WebDebugLogger::getAllLines() const
     return m_lines;
 }
 
-void WebDebugLogger::clear()
+void WebDebugLogger::clear(bool clearFile)
 {
     QMutexLocker locker(&m_mutex);
     m_lines.clear();
+
+    if (clearFile && !m_logFilePath.isEmpty()) {
+        locker.unlock();
+        QFile file(m_logFilePath);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            QTextStream stream(&file);
+            stream << "========== LOG CLEARED: " << QDateTime::currentDateTime().toString(Qt::ISODate) << " ==========\n";
+        }
+    }
 }
 
 int WebDebugLogger::lineCount() const

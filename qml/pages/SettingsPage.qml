@@ -923,6 +923,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("settings.title", "Settings")
-        onBackClicked: root.goToIdle()
+        onBackClicked: root.goBack()
     }
 }

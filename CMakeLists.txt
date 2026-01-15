@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza_DE1 VERSION 1.1.34 LANGUAGES CXX)
+project(Decenza_DE1 VERSION 1.1.35 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -389,14 +389,14 @@ add_custom_target(increment_version_code ALL
 add_dependencies(Decenza_DE1 increment_version_code)
 
 # Force QML resource rebuild when source files change
-# Delete the compiled resource file to force rcc regeneration
-set(QML_RCC_CPP "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc/qrc_Decenza_DE1_raw_qml_0.cpp")
-
-add_custom_target(qml_force_rebuild ALL
-    COMMAND ${CMAKE_COMMAND} -E rm -f ${QML_RCC_CPP}
-    COMMENT "Invalidating QML resources for rebuild..."
-)
-add_dependencies(Decenza_DE1 qml_force_rebuild)
+# NOTE: Disabled - defeats QML caching which slows page loads
+# Re-enable temporarily if QML changes aren't being picked up
+# set(QML_RCC_CPP "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc/qrc_Decenza_DE1_raw_qml_0.cpp")
+# add_custom_target(qml_force_rebuild ALL
+#     COMMAND ${CMAKE_COMMAND} -E rm -f ${QML_RCC_CPP}
+#     COMMENT "Invalidating QML resources for rebuild..."
+# )
+# add_dependencies(Decenza_DE1 qml_force_rebuild)
 
 # Also add QML files as sources so IDE can find them
 set_property(TARGET Decenza_DE1 APPEND PROPERTY SOURCES ${QML_FILES})

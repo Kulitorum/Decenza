@@ -403,6 +403,97 @@ ApplicationWindow {
         }
     }
 
+    // Pre-compile pages at startup by loading them once (warms QML cache)
+    // These are NOT used for navigation - StackView uses Components below
+    // The Loaders just ensure QML is parsed/compiled before first navigation
+    Loader {
+        id: preloadIdle
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { IdlePage {} }
+        onLoaded: active = false  // Unload after compilation (Loader owns the item)
+    }
+    Loader {
+        id: preloadEspresso
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { EspressoPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadSteam
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { SteamPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadHotWater
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { HotWaterPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadFlush
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { FlushPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadSettings
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { SettingsPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadProfileSelector
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { ProfileSelectorPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadProfileEditor
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { ProfileEditorPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadRecipeEditor
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { RecipeEditorPage {} }
+        onLoaded: active = false
+    }
+
+    // Navigation guard to prevent double-taps during page transitions
+    property bool navigationInProgress: false
+    Timer {
+        id: navigationGuardTimer
+        interval: 300  // Block navigation for 300ms after a transition starts
+        onTriggered: root.navigationInProgress = false
+    }
+
+    function startNavigation() {
+        if (navigationInProgress || pageStack.busy) return false
+        navigationInProgress = true
+        navigationGuardTimer.restart()
+        return true
+    }
+
     // Page stack for navigation
     StackView {
         id: pageStack
@@ -463,6 +554,11 @@ ApplicationWindow {
         }
 
         Component {
+            id: flushPage
+            FlushPage {}
+        }
+
+        Component {
             id: profileEditorPage
             ProfileEditorPage {}
         }
@@ -480,11 +576,6 @@ ApplicationWindow {
         Component {
             id: descalingPage
             DescalingPage {}
-        }
-
-        Component {
-            id: flushPage
-            FlushPage {}
         }
 
         Component {
@@ -975,7 +1066,9 @@ ApplicationWindow {
         onTriggered: {
             console.log("completionTimer: triggered, navigating to idlePage")
             completionOverlay.opacity = 0
-            pageStack.replace(idlePage)
+            if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
+                pageStack.replace(idlePage)
+            }
         }
     }
 
@@ -1374,39 +1467,56 @@ ApplicationWindow {
     }
 
     // Helper functions for navigation
+    // Note: startNavigation() guard prevents double-taps on user-initiated navigation
     function goToIdle() {
-        pageStack.replace(idlePage)
+        if (!startNavigation()) return
+        if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
+            pageStack.replace(idlePage)
+        }
     }
 
     function goToEspresso() {
-        pageStack.replace(espressoPage)
+        if (!startNavigation()) return
+        if (pageStack.currentItem && pageStack.currentItem.objectName !== "espressoPage") {
+            pageStack.replace(espressoPage)
+        }
     }
 
     function goToSteam() {
+        if (!startNavigation()) return
         announceNavigation("Steam settings")
-        pageStack.replace(steamPage)
+        if (pageStack.currentItem && pageStack.currentItem.objectName !== "steamPage") {
+            pageStack.replace(steamPage)
+        }
     }
 
     function goToHotWater() {
+        if (!startNavigation()) return
         announceNavigation("Hot water settings")
-        pageStack.replace(hotWaterPage)
+        if (pageStack.currentItem && pageStack.currentItem.objectName !== "hotWaterPage") {
+            pageStack.replace(hotWaterPage)
+        }
     }
 
     function goToSettings(tabIndex) {
+        if (!startNavigation()) return
         announceNavigation("Settings")
         if (tabIndex !== undefined && tabIndex >= 0) {
-            settingsPage.requestedTabIndex = tabIndex
+            pageStack.push(settingsPage, {requestedTabIndex: tabIndex})
+        } else {
+            pageStack.push(settingsPage)
         }
-        pageStack.push(settingsPage)
     }
 
     function goBack() {
+        if (!startNavigation()) return
         if (pageStack.depth > 1) {
             pageStack.pop()
         }
     }
 
     function goToProfileEditor() {
+        if (!startNavigation()) return
         // Route to D-Flow editor for recipe-mode profiles, Advanced editor for frame-based
         if (MainController.isCurrentProfileRecipe) {
             announceNavigation("D-Flow editor")
@@ -1418,55 +1528,65 @@ ApplicationWindow {
     }
 
     function goToRecipeEditor() {
+        if (!startNavigation()) return
         // Explicitly go to D-Flow editor
         announceNavigation("D-Flow editor")
         pageStack.push(recipeEditorPage)
     }
 
     function switchToRecipeEditor() {
+        if (!startNavigation()) return
         // Replace current editor with D-Flow editor (for switching between editors)
         announceNavigation("D-Flow editor")
         pageStack.replace(recipeEditorPage)
     }
 
     function switchToAdvancedEditor() {
+        if (!startNavigation()) return
         // Replace current editor with Advanced editor (for switching between editors)
         announceNavigation("Advanced editor")
         pageStack.replace(profileEditorPage)
     }
 
     function goToAdvancedEditor() {
+        if (!startNavigation()) return
         // Explicitly go to Advanced editor
         announceNavigation("Advanced editor")
         pageStack.push(profileEditorPage)
     }
 
     function goToProfileSelector() {
+        if (!startNavigation()) return
         announceNavigation("Select profile")
         pageStack.push(profileSelectorPage)
     }
 
     function goToDescaling() {
+        if (!startNavigation()) return
         announceNavigation("Descaling wizard")
         pageStack.push(descalingPage)
     }
 
     function goToFlush() {
+        if (!startNavigation()) return
         announceNavigation("Flush settings")
         pageStack.push(flushPage)
     }
 
     function goToVisualizerBrowser() {
+        if (!startNavigation()) return
         announceNavigation("Visualizer browser")
         pageStack.push(visualizerBrowserPage)
     }
 
     function goToProfileImport() {
+        if (!startNavigation()) return
         announceNavigation("Import from tablet")
         pageStack.push(profileImportPage)
     }
 
     function goToShotMetadata(hasPending) {
+        if (!startNavigation()) return
         announceNavigation("Shot review")
         // Pass hasPendingShot as initial property so it's set before Component.onCompleted
         pageStack.push(postShotReviewPage, { hasPendingShot: hasPending || false })
