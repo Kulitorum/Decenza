@@ -550,7 +550,8 @@ void ScreensaverVideoManager::parseCategories(const QByteArray& data)
 
     m_categories = newCategories;
     qDebug() << "[Screensaver] Loaded" << m_categories.size() << "categories";
-    emit categoriesChanged();
+    // Defer signal to avoid QML delegate model crash during rapid updates
+    QTimer::singleShot(0, this, &ScreensaverVideoManager::categoriesChanged);
 
     // Update catalog URL based on selected category
     QString newCatalogUrl = buildCatalogUrlForCategory(m_selectedCategoryId);
@@ -1785,7 +1786,8 @@ void ScreensaverVideoManager::clearPersonalMedia()
     }
 
     emit personalMediaChanged();
-    emit categoriesChanged();  // Update category list to remove "Personal"
+    // Defer signal to avoid QML delegate model crash during rapid updates
+    QTimer::singleShot(0, this, &ScreensaverVideoManager::categoriesChanged);
 
     qDebug() << "[Screensaver] Cleared all personal media, freed" << (freedBytes / 1024 / 1024) << "MB";
 }
