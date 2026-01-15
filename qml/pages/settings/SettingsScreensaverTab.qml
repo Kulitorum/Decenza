@@ -330,19 +330,40 @@ Item {
                 Item { height: 10 }
 
                 // Category list
+                // Use local model copy to avoid delegate crash during rapid updates
                 ListView {
                     id: categoryList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
-                    model: ScreensaverManager.categories
+                    model: categoryModelCopy
                     spacing: Theme.scaled(2)
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
+                    // Local copy of categories - updated via timer to avoid delegate model crash
+                    property var categoryModelCopy: []
+
+                    Timer {
+                        id: categoryUpdateTimer
+                        interval: 50
+                        onTriggered: categoryList.categoryModelCopy = ScreensaverManager.categories
+                    }
+
+                    Connections {
+                        target: ScreensaverManager
+                        function onCategoriesChanged() {
+                            categoryUpdateTimer.restart()
+                        }
+                    }
+
+                    Component.onCompleted: {
+                        categoryModelCopy = ScreensaverManager.categories
+                    }
+
                     delegate: ItemDelegate {
-                        width: ListView.view.width
+                        width: ListView.view ? ListView.view.width : 0
                         height: Theme.scaled(36)
-                        highlighted: modelData.id === ScreensaverManager.selectedCategoryId
+                        highlighted: modelData && modelData.id === ScreensaverManager.selectedCategoryId
 
                         background: Rectangle {
                             color: parent.highlighted ? Theme.primaryColor :
@@ -351,7 +372,7 @@ Item {
                         }
 
                         contentItem: Text {
-                            text: modelData.name
+                            text: modelData ? modelData.name : ""
                             color: parent.highlighted ? "white" : Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                             font.bold: parent.highlighted
@@ -360,7 +381,9 @@ Item {
                         }
 
                         onClicked: {
-                            ScreensaverManager.selectedCategoryId = modelData.id
+                            if (modelData) {
+                                ScreensaverManager.selectedCategoryId = modelData.id
+                            }
                         }
                     }
 
