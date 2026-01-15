@@ -75,8 +75,6 @@ if(IOS)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
-    # Generate dSYM files for App Store crash reports
-    set(CMAKE_XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym")
 endif()
 
 # Enable parallel builds
@@ -423,6 +421,8 @@ if(IOS)
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${CMAKE_PROJECT_VERSION}"
         XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${NEXT_VERSION_CODE}"
+        XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"
+        XCODE_ATTRIBUTE_DWARF_DSYM_FOLDER_PATH "${CMAKE_BINARY_DIR}"
     )
     # Add iOS asset catalog for app icon
     target_sources(Decenza_DE1 PRIVATE
