@@ -38,6 +38,7 @@ DecentScale::DecentScale(ScaleBleTransport* transport, QObject* parent)
 }
 
 DecentScale::~DecentScale() {
+    stopHeartbeat();
     if (m_transport) {
         m_transport->disconnectFromDevice();
     }
@@ -61,6 +62,7 @@ void DecentScale::onTransportConnected() {
 }
 
 void DecentScale::onTransportDisconnected() {
+    stopHeartbeat();
     setConnected(false);
 }
 
@@ -94,6 +96,9 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     DECENT_LOG("Characteristics discovered");
     m_characteristicsReady = true;
     setConnected(true);
+
+    // Start periodic heartbeat to keep connection alive
+    startHeartbeat();
 
     // Follow de1app sequence EXACTLY:
     // 1. Heartbeat immediately
@@ -220,11 +225,38 @@ void DecentScale::wake() {
     sendCommand(QByteArray::fromHex("0A01010001"));
 }
 
+void DecentScale::disableLcd() {
+    // Command 0A 00 00 turns off LCD but keeps scale powered
+    // This is different from sleep() which powers off the scale completely
+    DECENT_LOG("Disabling LCD (scale stays powered)");
+    sendCommand(QByteArray::fromHex("0A0000"));
+}
+
 void DecentScale::sendHeartbeat() {
     // Heartbeat command from de1app: 0A 03 FF FF
     // Tells scale we're still connected
-    DECENT_LOG("Sending heartbeat");
     sendCommand(QByteArray::fromHex("0A03FFFF"));
+}
+
+void DecentScale::startHeartbeat() {
+    if (!m_heartbeatTimer) {
+        m_heartbeatTimer = new QTimer(this);
+        m_heartbeatTimer->setInterval(1000);  // Every 1 second like de1app
+        connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
+            if (m_characteristicsReady) {
+                sendHeartbeat();
+            }
+        });
+    }
+    DECENT_LOG("Starting heartbeat timer");
+    m_heartbeatTimer->start();
+}
+
+void DecentScale::stopHeartbeat() {
+    if (m_heartbeatTimer) {
+        DECENT_LOG("Stopping heartbeat timer");
+        m_heartbeatTimer->stop();
+    }
 }
 
 void DecentScale::setLed(int r, int g, int b) {

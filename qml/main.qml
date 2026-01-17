@@ -205,9 +205,9 @@ ApplicationWindow {
     }
 
     function triggerAutoSleep() {
-        // Put scale to sleep
+        // Put scale to LCD-off mode (keep connected for wake)
         if (ScaleDevice && ScaleDevice.connected) {
-            ScaleDevice.sleep()
+            ScaleDevice.disableLcd()  // LCD off only, stay connected
         }
         // Put DE1 to sleep
         if (DE1Device && DE1Device.connected) {

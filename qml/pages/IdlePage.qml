@@ -60,7 +60,7 @@ Page {
     }
 
     // Track which function's presets are showing
-    property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush"
+    property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans"
 
     // Announce presets when they appear (accessibility)
     onActivePresetFunctionChanged: {
@@ -90,6 +90,12 @@ Page {
                     presets = Settings.flushPresets
                     if (Settings.selectedFlushPreset >= 0 && Settings.selectedFlushPreset < presets.length) {
                         selectedName = presets[Settings.selectedFlushPreset].name
+                    }
+                    break
+                case "beans":
+                    presets = Settings.beanPresets
+                    if (Settings.selectedBeanPreset >= 0 && Settings.selectedBeanPreset < presets.length) {
+                        selectedName = presets[Settings.selectedBeanPreset].name
                     }
                     break
             }
@@ -238,16 +244,21 @@ Page {
                     translationFallback: "Bean Info"
                     iconSource: "qrc:/icons/edit.svg"
                     iconSize: Theme.scaled(43)
-                    backgroundColor: Theme.primaryColor
+                    // Highlight when a bean preset is selected
+                    backgroundColor: Settings.selectedBeanPreset >= 0 ? Theme.successColor : Theme.primaryColor
                     visible: Settings.visualizerExtendedMetadata
                     enabled: DE1Device.guiEnabled
-                    onClicked: pageStack.push(Qt.resolvedUrl("BeanInfoPage.qml"))
+                    onClicked: {
+                        activePresetFunction = (activePresetFunction === "beans") ? "" : "beans"
+                    }
+                    onPressAndHold: pageStack.push(Qt.resolvedUrl("BeanInfoPage.qml"))
+                    onDoubleClicked: pageStack.push(Qt.resolvedUrl("BeanInfoPage.qml"))
 
                     KeyNavigation.left: flushButton
                     KeyNavigation.right: historyButton.visible ? historyButton : null
-                    KeyNavigation.down: settingsButton
+                    KeyNavigation.down: activePresetFunction === "beans" ? beanPresetRow : settingsButton
 
-                    Accessible.description: TranslationManager.translate("idle.accessible.beaninfo.description", "Set up bean and grinder info for your shots.")
+                    Accessible.description: TranslationManager.translate("idle.accessible.beaninfo.description", "Set up bean and grinder info for your shots. Long-press for settings.")
                 }
 
                 ActionButton {
@@ -287,6 +298,7 @@ Page {
                     case "espresso": return espressoColumn
                     case "hotwater": return hotWaterPresetRow
                     case "flush": return flushPresetRow
+                    case "beans": return beanPresetRow
                     default: return steamPresetRow  // fallback
                 }
             }
@@ -515,6 +527,29 @@ Page {
 
                 Behavior on opacity { NumberAnimation { duration: 150 } }
             }
+
+            PresetPillRow {
+                id: beanPresetRow
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: activePresetFunction === "beans"
+                opacity: visible ? 1.0 : 0.0
+
+                presets: Settings.beanPresets
+                selectedIndex: Settings.selectedBeanPreset
+
+                KeyNavigation.up: beanInfoButton
+                KeyNavigation.down: settingsButton
+
+                onPresetSelected: function(index) {
+                    console.log("[IdlePage] Bean pill selected, index:", index)
+                    Settings.selectedBeanPreset = index
+                    Settings.applyBeanPreset(index)
+                    // Note: Unlike other functions, no "start operation" for beans
+                    // Just applies the bean info to the DYE settings
+                }
+
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+            }
         }
     }
 
@@ -681,10 +716,10 @@ Page {
                 function doSleep() {
                     console.log("[IdlePage] doSleep called, enabled:", enabled)
                     if (!enabled) return
-                    // Put scale to sleep and disconnect (if connected)
+                    // Put scale to LCD-off mode (keep connected for wake)
                     if (ScaleDevice && ScaleDevice.connected) {
-                        ScaleDevice.sleep()
-                        scaleDisconnectTimer.start()
+                        ScaleDevice.disableLcd()  // LCD off only, stay connected
+                        // Do NOT disconnect - scale stays connected for wake
                     }
                     DE1Device.goToSleep()
                     console.log("[IdlePage] Calling goToScreensaver")
@@ -694,17 +729,6 @@ Page {
                 Keys.onReturnPressed: doSleep()
                 Keys.onEnterPressed: doSleep()
                 Keys.onSpacePressed: doSleep()
-
-                Timer {
-                    id: scaleDisconnectTimer
-                    interval: 300
-                    repeat: false
-                    onTriggered: {
-                        if (ScaleDevice) {
-                            ScaleDevice.disconnectFromScale()
-                        }
-                    }
-                }
 
                 Rectangle {
                     id: sleepButtonBg

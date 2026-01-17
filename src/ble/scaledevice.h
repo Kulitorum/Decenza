@@ -37,8 +37,9 @@ public slots:
     virtual void startTimer() {}
     virtual void stopTimer() {}
     virtual void resetTimer() {}
-    virtual void sleep() {}  // Put scale to sleep (battery power saving)
+    virtual void sleep() {}  // Put scale to sleep (battery power saving - full power off)
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
+    virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)
     virtual void disconnectFromScale();  // Disconnect BLE from scale
     void resetFlowCalculation();  // Call after tare to avoid flow rate spikes
 

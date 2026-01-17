@@ -22,6 +22,7 @@ public slots:
     void resetTimer() override;
     void sleep() override;
     void wake() override;
+    void disableLcd() override;
     void setLed(int r, int g, int b);
 
 private slots:
@@ -37,10 +38,13 @@ private:
     void parseWeightData(const QByteArray& data);
     void sendCommand(const QByteArray& command);
     void sendHeartbeat();
+    void startHeartbeat();
+    void stopHeartbeat();
     uint8_t calculateXor(const QByteArray& data);
 
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "Decent Scale";
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
+    QTimer* m_heartbeatTimer = nullptr;
 };
