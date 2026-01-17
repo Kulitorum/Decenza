@@ -17,8 +17,7 @@ Page {
     }
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
 
-    property bool hasPendingShot: false  // Set to true by goToShotMetadata() after a shot
-    property int editShotId: 0  // Set > 0 to edit existing shot from history
+    property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
     property bool keyboardVisible: Qt.inputMethod.visible
@@ -101,7 +100,24 @@ Page {
             "espressoNotes": editNotes
         }
         MainController.shotHistory.updateShotMetadata(editShotId, metadata)
-        root.goBack()
+
+        // Also sync metadata back to Settings so it becomes the default for the next shot
+        Settings.dyeBeanBrand = editBeanBrand
+        Settings.dyeBeanType = editBeanType
+        Settings.dyeRoastDate = editRoastDate
+        Settings.dyeRoastLevel = editRoastLevel
+        Settings.dyeGrinderModel = editGrinderModel
+        Settings.dyeGrinderSetting = editGrinderSetting
+        Settings.dyeBarista = editBarista
+        Settings.dyeBeanWeight = editDoseWeight
+        Settings.dyeDrinkWeight = editDrinkWeight
+        Settings.dyeDrinkTds = editDrinkTds
+        Settings.dyeDrinkEy = editDrinkEy
+        Settings.dyeEspressoEnjoyment = editEnjoyment
+        Settings.dyeEspressoNotes = editNotes
+
+        // Reload the shot data to mark changes as saved (clears hasUnsavedChanges)
+        loadShotForEditing()
     }
 
     function scrollToFocusedField() {
@@ -153,7 +169,7 @@ Page {
         }
     }
 
-    // Announce upload status changes
+    // Handle upload status changes
     Connections {
         target: MainController.visualizer
         function onUploadingChanged() {
@@ -166,6 +182,14 @@ Page {
         function onLastUploadStatusChanged() {
             if (AccessibilityManager.enabled && MainController.visualizer.lastUploadStatus.length > 0) {
                 AccessibilityManager.announce(MainController.visualizer.lastUploadStatus, true)
+            }
+        }
+        function onUploadSuccess(shotId, url) {
+            // Update the shot history with visualizer info
+            if (editShotId > 0) {
+                MainController.shotHistory.updateVisualizerInfo(editShotId, shotId, url)
+                // Reload shot data to update the UI (hides upload button)
+                loadShotForEditing()
             }
         }
     }
@@ -206,28 +230,18 @@ Page {
                 Layout.preferredHeight: Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), postShotReviewPage.graphHeight))
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: isEditMode ? (editShotData.pressure && editShotData.pressure.length > 0) :
-                         (ShotDataModel.maxTime > 0)
+                visible: editShotData.pressure && editShotData.pressure.length > 0
 
                 HistoryShotGraph {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
-                    pressureData: isEditMode ? (editShotData.pressure || []) : []
-                    flowData: isEditMode ? (editShotData.flow || []) : []
-                    temperatureData: isEditMode ? (editShotData.temperature || []) : []
-                    weightData: isEditMode ? (editShotData.weight || []) : []
-                    phaseMarkers: isEditMode ? (editShotData.phases || []) : []
-                    maxTime: isEditMode ? (editShotData.duration || 60) : ShotDataModel.maxTime
-                    visible: isEditMode
-                }
-
-                // Live graph for current shot (non-edit mode)
-                ShotGraph {
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingSmall
-                    anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
-                    visible: !isEditMode
+                    pressureData: editShotData.pressure || []
+                    flowData: editShotData.flow || []
+                    temperatureData: editShotData.temperature || []
+                    weightData: editShotData.weight || []
+                    phaseMarkers: editShotData.phases || []
+                    maxTime: editShotData.duration || 60
                 }
 
                 // Resize handle at bottom
@@ -300,24 +314,24 @@ Page {
                 LabeledField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
-                    text: isEditMode ? editBeanBrand : Settings.dyeBeanBrand
-                    onTextEdited: function(t) { isEditMode ? editBeanBrand = t : Settings.dyeBeanBrand = t }
+                    text: editBeanBrand
+                    onTextEdited: function(t) { editBeanBrand = t }
                 }
 
                 LabeledField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
-                    text: isEditMode ? editBeanType : Settings.dyeBeanType
-                    onTextEdited: function(t) { isEditMode ? editBeanType = t : Settings.dyeBeanType = t }
+                    text: editBeanType
+                    onTextEdited: function(t) { editBeanType = t }
                 }
 
                 LabeledField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roastdate", "Roast date (yyyy-mm-dd)")
-                    text: isEditMode ? editRoastDate : Settings.dyeRoastDate
+                    text: editRoastDate
                     inputHints: Qt.ImhDate
                     inputMask: "9999-99-99"
-                    onTextEdited: function(t) { isEditMode ? editRoastDate = t : Settings.dyeRoastDate = t }
+                    onTextEdited: function(t) { editRoastDate = t }
                 }
 
                 // === ROW 2: Roast level, Grinder ===
@@ -330,30 +344,30 @@ Page {
                         TranslationManager.translate("postshotreview.roastlevel.medium", "Medium"),
                         TranslationManager.translate("postshotreview.roastlevel.mediumdark", "Medium-Dark"),
                         TranslationManager.translate("postshotreview.roastlevel.dark", "Dark")]
-                    currentValue: isEditMode ? editRoastLevel : Settings.dyeRoastLevel
-                    onValueChanged: function(v) { isEditMode ? editRoastLevel = v : Settings.dyeRoastLevel = v }
+                    currentValue: editRoastLevel
+                    onValueChanged: function(v) { editRoastLevel = v }
                 }
 
                 LabeledField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.grinder", "Grinder")
-                    text: isEditMode ? editGrinderModel : Settings.dyeGrinderModel
-                    onTextEdited: function(t) { isEditMode ? editGrinderModel = t : Settings.dyeGrinderModel = t }
+                    text: editGrinderModel
+                    onTextEdited: function(t) { editGrinderModel = t }
                 }
 
                 LabeledField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.setting", "Setting")
-                    text: isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
-                    onTextEdited: function(t) { isEditMode ? editGrinderSetting = t : Settings.dyeGrinderSetting = t }
+                    text: editGrinderSetting
+                    onTextEdited: function(t) { editGrinderSetting = t }
                 }
 
                 // === ROW 3: Barista, Preset, Shot Date ===
                 LabeledField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
-                    text: isEditMode ? editBarista : Settings.dyeBarista
-                    onTextEdited: function(t) { isEditMode ? editBarista = t : Settings.dyeBarista = t }
+                    text: editBarista
+                    onTextEdited: function(t) { editBarista = t }
                 }
 
                 // Preset (read-only display)
@@ -386,7 +400,7 @@ Page {
                             anchors.fill: parent
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.rightMargin: Theme.scaled(12)
-                            text: isEditMode ? (editShotData.profileName || "") : (MainController.currentProfileName || "")
+                            text: editShotData.profileName || ""
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                             verticalAlignment: Text.AlignVCenter
@@ -394,7 +408,7 @@ Page {
                         }
 
                         Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.preset", "Preset") + ": " + (isEditMode ? editShotData.profileName : MainController.currentProfileName)
+                        Accessible.name: TranslationManager.translate("postshotreview.label.preset", "Preset") + ": " + (editShotData.profileName || "")
                     }
                 }
 
@@ -428,7 +442,7 @@ Page {
                             anchors.fill: parent
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.rightMargin: Theme.scaled(12)
-                            text: isEditMode ? (editShotData.dateTime || "") : (Settings.dyeShotDateTime || "")
+                            text: editShotData.dateTime || ""
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                             verticalAlignment: Text.AlignVCenter
@@ -436,7 +450,7 @@ Page {
                         }
 
                         Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.shotdate", "Shot date") + ": " + (isEditMode ? editShotData.dateTime : Settings.dyeShotDateTime)
+                        Accessible.name: TranslationManager.translate("postshotreview.label.shotdate", "Shot date") + ": " + (editShotData.dateTime || "")
                     }
                 }
 
@@ -484,12 +498,11 @@ Page {
                                 decimals: 1
                                 suffix: "g"
                                 valueColor: Theme.dyeDoseColor
-                                value: isEditMode ? editDoseWeight : Settings.dyeBeanWeight
+                                value: editDoseWeight
                                 accessibleName: TranslationManager.translate("postshotreview.label.dose", "Dose") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
                                 onValueModified: function(newValue) {
                                     doseInput.value = newValue
-                                    if (isEditMode) editDoseWeight = newValue
-                                    else Settings.dyeBeanWeight = newValue
+                                    editDoseWeight = newValue
                                 }
                                 onActiveFocusChanged: if (activeFocus) hideKeyboard()
                             }
@@ -515,12 +528,11 @@ Page {
                                 decimals: 1
                                 suffix: "g"
                                 valueColor: Theme.dyeOutputColor
-                                value: isEditMode ? editDrinkWeight : Settings.dyeDrinkWeight
+                                value: editDrinkWeight
                                 accessibleName: TranslationManager.translate("postshotreview.accessible.output", "Output") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
                                 onValueModified: function(newValue) {
                                     outInput.value = newValue
-                                    if (isEditMode) editDrinkWeight = newValue
-                                    else Settings.dyeDrinkWeight = newValue
+                                    editDrinkWeight = newValue
                                 }
                                 onActiveFocusChanged: if (activeFocus) hideKeyboard()
                             }
@@ -546,12 +558,11 @@ Page {
                                 decimals: 2
                                 suffix: "%"
                                 valueColor: Theme.dyeTdsColor
-                                value: isEditMode ? editDrinkTds : Settings.dyeDrinkTds
+                                value: editDrinkTds
                                 accessibleName: TranslationManager.translate("postshotreview.label.tds", "TDS") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                                 onValueModified: function(newValue) {
                                     tdsInput.value = newValue
-                                    if (isEditMode) editDrinkTds = newValue
-                                    else Settings.dyeDrinkTds = newValue
+                                    editDrinkTds = newValue
                                 }
                                 onActiveFocusChanged: if (activeFocus) hideKeyboard()
                             }
@@ -577,12 +588,11 @@ Page {
                                 decimals: 1
                                 suffix: "%"
                                 valueColor: Theme.dyeEyColor
-                                value: isEditMode ? editDrinkEy : Settings.dyeDrinkEy
+                                value: editDrinkEy
                                 accessibleName: TranslationManager.translate("postshotreview.accessible.extractionyield", "Extraction yield") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                                 onValueModified: function(newValue) {
                                     eyInput.value = newValue
-                                    if (isEditMode) editDrinkEy = newValue
-                                    else Settings.dyeDrinkEy = newValue
+                                    editDrinkEy = newValue
                                 }
                                 onActiveFocusChanged: if (activeFocus) hideKeyboard()
                             }
@@ -620,12 +630,11 @@ Page {
                         decimals: 0
                         suffix: " %"
                         valueColor: Theme.primaryColor  // Blue (default accent)
-                        value: isEditMode ? editEnjoyment : (Settings.dyeEspressoEnjoyment > 0 ? Settings.dyeEspressoEnjoyment : 75)
+                        value: editEnjoyment
                         accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                         onValueModified: function(newValue) {
                             ratingInput.value = newValue
-                            if (isEditMode) editEnjoyment = newValue
-                            else Settings.dyeEspressoEnjoyment = newValue
+                            editEnjoyment = newValue
                         }
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -659,7 +668,7 @@ Page {
                         anchors.topMargin: Theme.scaled(2)
                         // Size to content with minimum height of 100px
                         height: Math.max(100, contentHeight + topPadding + bottomPadding)
-                        text: isEditMode ? editNotes : Settings.dyeEspressoNotes
+                        text: editNotes
                         font: Theme.bodyFont
                         color: Theme.textColor
                         placeholderTextColor: Theme.textSecondaryColor
@@ -671,10 +680,7 @@ Page {
                             border.color: notesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                             border.width: 1
                         }
-                        onTextChanged: {
-                            if (isEditMode) editNotes = text
-                            else Settings.dyeEspressoNotes = text
-                        }
+                        onTextChanged: editNotes = text
 
                         Accessible.role: Accessible.EditableText
                         Accessible.name: TranslationManager.translate("postshotreview.label.notes", "Notes")
@@ -739,25 +745,17 @@ Page {
     // Bottom bar (stays visible under keyboard)
     BottomBar {
         onBackClicked: {
-            if (isEditMode && hasUnsavedChanges) {
+            if (hasUnsavedChanges) {
                 unsavedChangesDialog.open()
             } else {
-                root.goBack()
+                goToIdle()
             }
         }
 
-        Tr {
-            visible: MainController.visualizer.uploading && !isEditMode
-            key: "postshotreview.status.uploading"
-            fallback: "Uploading..."
-            color: Theme.textSecondaryColor
-            font: Theme.labelFont
-        }
-
-        // Save button - visible in edit mode
+        // Save button - only visible when there are unsaved changes
         Rectangle {
             id: saveButton
-            visible: isEditMode
+            visible: hasUnsavedChanges
             Layout.preferredWidth: saveButtonContent.width + 40
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -796,10 +794,62 @@ Page {
             }
         }
 
-        // AI Advice button - visible when we have shot data (pending or historical)
+        // Upload to Visualizer button - visible when shot not yet uploaded
+        Rectangle {
+            id: uploadButton
+            visible: editShotData.id > 0 && !editShotData.visualizerId && !MainController.visualizer.uploading
+            Layout.preferredWidth: uploadButtonContent.width + 32
+            Layout.preferredHeight: Theme.scaled(44)
+            radius: Theme.scaled(8)
+            color: uploadArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+
+            Accessible.role: Accessible.Button
+            Accessible.name: TranslationManager.translate("postshotreview.button.upload", "Upload to Visualizer")
+            Accessible.onPressAction: uploadArea.clicked(null)
+
+            Row {
+                id: uploadButtonContent
+                anchors.centerIn: parent
+                spacing: Theme.scaled(6)
+
+                Text {
+                    text: "\u2601"  // Cloud icon
+                    font.pixelSize: Theme.scaled(16)
+                    color: "white"
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Tr {
+                    key: "postshotreview.button.upload"
+                    fallback: "Upload to Visualizer"
+                    color: "white"
+                    font: Theme.bodyFont
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            MouseArea {
+                id: uploadArea
+                anchors.fill: parent
+                onClicked: {
+                    MainController.visualizer.uploadShotFromHistory(editShotData)
+                }
+            }
+        }
+
+        // Uploading indicator
+        Tr {
+            visible: MainController.visualizer.uploading
+            key: "postshotreview.status.uploading"
+            fallback: "Uploading..."
+            color: Theme.textSecondaryColor
+            font: Theme.labelFont
+        }
+
+        // AI Advice button - visible when we have shot data
         Rectangle {
             id: aiAdviceButton
-            visible: MainController.aiManager && (isEditMode ? (editShotData.id > 0) : (ShotDataModel.maxTime > 0))
+            visible: MainController.aiManager && editShotData.id > 0
             Layout.preferredWidth: aiAdviceContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -836,33 +886,13 @@ Page {
                 }
             }
 
-            MouseArea {
+                MouseArea {
                 id: aiAdviceArea
                 anchors.fill: parent
                 enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
                 onClicked: {
-                    // Generate shot summary - use history method for edit mode, live method otherwise
-                    if (isEditMode) {
-                        postShotReviewPage.pendingShotSummary = MainController.aiManager.generateHistoryShotSummary(editShotData)
-                    } else {
-                        postShotReviewPage.pendingShotSummary = MainController.aiManager.generateShotSummary(
-                            MainController.shotDataModel,
-                            MainController.currentProfilePtr,
-                            Settings.dyeBeanWeight,
-                            Settings.dyeDrinkWeight,
-                            {
-                                "beanBrand": Settings.dyeBeanBrand,
-                                "beanType": Settings.dyeBeanType,
-                                "roastDate": Settings.dyeRoastDate,
-                                "roastLevel": Settings.dyeRoastLevel,
-                                "grinderModel": Settings.dyeGrinderModel,
-                                "grinderSetting": Settings.dyeGrinderSetting,
-                                "enjoymentScore": Settings.dyeEspressoEnjoyment,
-                                "tastingNotes": Settings.dyeEspressoNotes
-                            }
-                        )
-                    }
-
+                    // Generate shot summary from history shot data
+                    postShotReviewPage.pendingShotSummary = MainController.aiManager.generateHistoryShotSummary(editShotData)
                     // Open conversation overlay so user can type their question
                     conversationOverlay.visible = true
                 }
@@ -872,8 +902,7 @@ Page {
         // Email Prompt button - fallback for users without API keys
         Rectangle {
             id: emailPromptButton
-            visible: MainController.aiManager && !MainController.aiManager.isConfigured &&
-                     (isEditMode ? (editShotData.id > 0) : (ShotDataModel.maxTime > 0))
+            visible: MainController.aiManager && !MainController.aiManager.isConfigured && editShotData.id > 0
             Layout.preferredWidth: emailPromptContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
@@ -910,27 +939,7 @@ Page {
                 id: emailPromptArea
                 anchors.fill: parent
                 onClicked: {
-                    var prompt
-                    if (isEditMode) {
-                        prompt = MainController.aiManager.generateHistoryShotSummary(editShotData)
-                    } else {
-                        prompt = MainController.aiManager.generateEmailPrompt(
-                            MainController.shotDataModel,
-                            MainController.currentProfilePtr,
-                            Settings.dyeBeanWeight,
-                            Settings.dyeDrinkWeight,
-                            {
-                                "beanBrand": Settings.dyeBeanBrand,
-                                "beanType": Settings.dyeBeanType,
-                                "roastDate": Settings.dyeRoastDate,
-                                "roastLevel": Settings.dyeRoastLevel,
-                                "grinderModel": Settings.dyeGrinderModel,
-                                "grinderSetting": Settings.dyeGrinderSetting,
-                                "enjoymentScore": Settings.dyeEspressoEnjoyment,
-                                "tastingNotes": Settings.dyeEspressoNotes
-                            }
-                        )
-                    }
+                    var prompt = MainController.aiManager.generateHistoryShotSummary(editShotData)
                     // Open mailto: with prompt in body
                     Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis") +
                                         "&body=" + encodeURIComponent(prompt))
@@ -938,36 +947,6 @@ Page {
             }
         }
 
-        Rectangle {
-            id: uploadButton
-            visible: !isEditMode && hasPendingShot && !MainController.visualizer.uploading
-            Layout.preferredWidth: uploadText.width + 40
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: uploadArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("postshotreview.button.upload", "Upload to Visualizer")
-            Accessible.onPressAction: uploadArea.clicked(null)
-
-            Tr {
-                id: uploadText
-                anchors.centerIn: parent
-                key: "postshotreview.button.upload"
-                fallback: "Upload to Visualizer"
-                color: "white"
-                font: Theme.bodyFont
-            }
-
-            MouseArea {
-                id: uploadArea
-                anchors.fill: parent
-                onClicked: {
-                    MainController.uploadPendingShot()
-                    hasPendingShot = false
-                }
-            }
-        }
     }
 
     // === Inline Components ===
@@ -1128,8 +1107,11 @@ Page {
         id: unsavedChangesDialog
         itemType: "shot"
         showSaveAs: false
-        onDiscardClicked: root.goBack()
-        onSaveClicked: saveEditedShot()
+        onDiscardClicked: goToIdle()
+        onSaveClicked: {
+            saveEditedShot()
+            goToIdle()
+        }
     }
 
     // Conversation overlay panel - full screen with keyboard awareness

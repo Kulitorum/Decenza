@@ -44,20 +44,10 @@ Page {
             id: fakeShowMetadataTimer
             interval: 300
             onTriggered: {
-                pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"))
-                // Wait for page to actually load before setting property
-                fakeSetPendingTimer.start()
-            }
-        }
-
-        Timer {
-            id: fakeSetPendingTimer
-            interval: 100
-            onTriggered: {
-                if (pageStack.currentItem && pageStack.currentItem.objectName === "postShotReviewPage") {
-                    pageStack.currentItem.hasPendingShot = true
-                    console.log("DEV: Set hasPendingShot=true")
-                }
+                // DEV: Show post-shot review with most recent shot (if any)
+                var shotId = MainController.lastSavedShotId
+                console.log("DEV: Opening PostShotReviewPage with shotId:", shotId)
+                pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"), { editShotId: shotId })
             }
         }
 

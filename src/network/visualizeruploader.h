@@ -49,6 +49,9 @@ public:
                                  double doseWeight = 0,
                                  const ShotMetadata& metadata = ShotMetadata());
 
+    // Upload a shot from history (takes QVariantMap from ShotHistoryStorage::getShot())
+    Q_INVOKABLE void uploadShotFromHistory(const QVariantMap& shotData);
+
     // Test connection with current credentials
     Q_INVOKABLE void testConnection();
 

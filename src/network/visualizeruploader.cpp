@@ -189,6 +189,213 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
     qDebug() << "Visualizer: Uploading shot...";
 }
 
+void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
+{
+    if (shotData.isEmpty()) {
+        emit uploadFailed("No shot data available");
+        return;
+    }
+
+    // Check credentials
+    QString username = m_settings->value("visualizer/username", "").toString();
+    QString password = m_settings->value("visualizer/password", "").toString();
+
+    if (username.isEmpty() || password.isEmpty()) {
+        m_lastUploadStatus = "No credentials configured";
+        emit lastUploadStatusChanged();
+        emit uploadFailed("Visualizer credentials not configured");
+        return;
+    }
+
+    double duration = shotData["duration"].toDouble();
+    double minDuration = m_settings->value("visualizer/minDuration", 6.0).toDouble();
+    if (duration < minDuration) {
+        m_lastUploadStatus = QString("Shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
+        emit lastUploadStatusChanged();
+        emit uploadFailed(m_lastUploadStatus);
+        qDebug() << "Visualizer: Shot too short, not uploading";
+        return;
+    }
+
+    m_uploading = true;
+    emit uploadingChanged();
+    m_lastUploadStatus = "Uploading...";
+    emit lastUploadStatusChanged();
+
+    // Build JSON from history data
+    QJsonObject root;
+    root["version"] = 2;
+
+    // Use original timestamp from the shot
+    qint64 timestamp = shotData["timestamp"].toLongLong();
+    root["clock"] = timestamp;
+    root["timestamp"] = timestamp;
+    root["date"] = QDateTime::fromSecsSinceEpoch(timestamp).toString(Qt::ISODate);
+
+    // Helper to convert QVariantList of {x,y} points to arrays
+    auto extractTimeSeries = [](const QVariantList& points) -> std::pair<QJsonArray, QJsonArray> {
+        QJsonArray times, values;
+        for (const auto& pt : points) {
+            QVariantMap p = pt.toMap();
+            times.append(p["x"].toDouble());
+            values.append(p["y"].toDouble());
+        }
+        return {times, values};
+    };
+
+    // Elapsed time array (from pressure data)
+    QVariantList pressurePoints = shotData["pressure"].toList();
+    auto [elapsed, pressureValues] = extractTimeSeries(pressurePoints);
+    root["elapsed"] = elapsed;
+
+    // Pressure object
+    QJsonObject pressure;
+    pressure["pressure"] = pressureValues;
+    QVariantList pressureGoalPoints = shotData["pressureGoal"].toList();
+    auto [_, pressureGoalValues] = extractTimeSeries(pressureGoalPoints);
+    pressure["goal"] = pressureGoalValues;
+    root["pressure"] = pressure;
+
+    // Flow object
+    QJsonObject flow;
+    QVariantList flowPoints = shotData["flow"].toList();
+    auto [__, flowValues] = extractTimeSeries(flowPoints);
+    flow["flow"] = flowValues;
+    QVariantList flowGoalPoints = shotData["flowGoal"].toList();
+    auto [___, flowGoalValues] = extractTimeSeries(flowGoalPoints);
+    flow["goal"] = flowGoalValues;
+    root["flow"] = flow;
+
+    // Temperature object
+    QJsonObject temperature;
+    QVariantList tempPoints = shotData["temperature"].toList();
+    auto [____, tempValues] = extractTimeSeries(tempPoints);
+    temperature["basket"] = tempValues;
+    QVariantList tempGoalPoints = shotData["temperatureGoal"].toList();
+    auto [_____, tempGoalValues] = extractTimeSeries(tempGoalPoints);
+    temperature["goal"] = tempGoalValues;
+    root["temperature"] = temperature;
+
+    // Totals object (weight)
+    QJsonObject totals;
+    QVariantList weightPoints = shotData["weight"].toList();
+    if (!weightPoints.isEmpty()) {
+        auto [______, weightValues] = extractTimeSeries(weightPoints);
+        totals["weight"] = weightValues;
+    }
+    root["totals"] = totals;
+
+    // Meta object
+    QJsonObject meta;
+
+    // Bean info
+    QJsonObject bean;
+    QString beanBrand = shotData["beanBrand"].toString();
+    QString beanType = shotData["beanType"].toString();
+    QString roastDate = shotData["roastDate"].toString();
+    QString roastLevel = shotData["roastLevel"].toString();
+    if (!beanBrand.isEmpty()) bean["brand"] = beanBrand;
+    if (!beanType.isEmpty()) bean["type"] = beanType;
+    if (!roastDate.isEmpty()) bean["roast_date"] = roastDate;
+    if (!roastLevel.isEmpty()) bean["roast_level"] = roastLevel;
+    meta["bean"] = bean;
+
+    // Shot info
+    QJsonObject shot;
+    int enjoyment = shotData["enjoyment"].toInt();
+    QString notes = shotData["espressoNotes"].toString();
+    double tds = shotData["drinkTds"].toDouble();
+    double ey = shotData["drinkEy"].toDouble();
+    if (enjoyment > 0) shot["enjoyment"] = enjoyment;
+    if (!notes.isEmpty()) shot["notes"] = notes;
+    if (tds > 0) shot["tds"] = tds;
+    if (ey > 0) shot["ey"] = ey;
+    meta["shot"] = shot;
+
+    // Grinder info
+    QJsonObject grinder;
+    QString grinderModel = shotData["grinderModel"].toString();
+    QString grinderSetting = shotData["grinderSetting"].toString();
+    if (!grinderModel.isEmpty()) grinder["model"] = grinderModel;
+    if (!grinderSetting.isEmpty()) grinder["setting"] = grinderSetting;
+    meta["grinder"] = grinder;
+
+    // Weights
+    double doseWeight = shotData["doseWeight"].toDouble();
+    double finalWeight = shotData["finalWeight"].toDouble();
+    if (doseWeight > 0) meta["in"] = doseWeight;
+    if (finalWeight > 0) meta["out"] = finalWeight;
+    meta["time"] = duration;
+
+    root["meta"] = meta;
+
+    // App info
+    QJsonObject app;
+#if defined(Q_OS_IOS)
+    app["app_name"] = "Decenza DE1 iOS";
+#elif defined(Q_OS_ANDROID)
+    app["app_name"] = "Decenza DE1 Android";
+#elif defined(Q_OS_WIN)
+    app["app_name"] = "Decenza DE1 Windows";
+#elif defined(Q_OS_MACOS)
+    app["app_name"] = "Decenza DE1 macOS";
+#else
+    app["app_name"] = "Decenza DE1";
+#endif
+    app["app_version"] = VERSION_STRING;
+    root["app"] = app;
+
+    // Profile
+    QString profileJson = shotData["profileJson"].toString();
+    if (!profileJson.isEmpty()) {
+        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+        if (!profileDoc.isNull()) {
+            root["profile"] = profileDoc.object();
+        }
+    }
+
+    // Convert to JSON bytes
+    QJsonDocument doc(root);
+    QByteArray jsonData = doc.toJson(QJsonDocument::Compact);
+
+    // Save JSON to file for debugging
+    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (debugPath.isEmpty()) {
+        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    }
+    QDir().mkpath(debugPath);
+    QString debugFile = debugPath + "/last_upload.json";
+    QFile file(debugFile);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(doc.toJson(QJsonDocument::Indented));
+        file.close();
+    }
+
+    // Create multipart form data
+    QString boundary = "----DecenzaBoundary" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    QByteArray multipartData;
+    multipartData.append("--" + boundary.toUtf8() + "\r\n");
+    multipartData.append("Content-Disposition: form-data; name=\"file\"; filename=\"shot.json\"\r\n");
+    multipartData.append("Content-Type: application/json\r\n\r\n");
+    multipartData.append(jsonData);
+    multipartData.append("\r\n--" + boundary.toUtf8() + "--\r\n");
+
+    // Send request
+    QUrl url(VISUALIZER_API_URL);
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", authHeader().toUtf8());
+    request.setRawHeader("Content-Type", QString("multipart/form-data; boundary=%1").arg(boundary).toUtf8());
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply* reply = m_networkManager->post(request, multipartData);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onUploadFinished(reply);
+    });
+
+    qDebug() << "Visualizer: Uploading shot from history...";
+}
+
 void VisualizerUploader::testConnection()
 {
     QString username = m_settings->value("visualizer/username", "").toString();

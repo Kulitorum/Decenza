@@ -145,17 +145,19 @@ ApplicationWindow {
         interval: root.autoSleepMinutes * 60 * 1000  // Convert minutes to ms
         running: root.autoSleepMinutes > 0 && !screensaverActive && !root.operationActive
         repeat: false
-        property bool restarting: false  // Guard to prevent re-entrancy
         // CRITICAL: When running changes from false to true via the binding,
         // QML timers resume from their previous elapsed time, not from 0.
         // This caused a bug where exiting the screensaver would immediately
         // trigger auto-sleep because the timer resumed near the end.
-        // By calling restart() here, we ensure the timer always starts fresh.
+        // FIX: Toggle interval to reset elapsed time WITHOUT breaking the running binding.
+        // Previously we called restart() here, but restart() breaks the binding,
+        // causing the timer to keep running even when screensaverActive becomes true.
         onRunningChanged: {
-            if (running && !restarting) {
-                restarting = true
-                restart()
-                restarting = false
+            if (running) {
+                // Toggle interval to reset elapsed time - preserves the running binding
+                var savedInterval = interval
+                interval = savedInterval + 1
+                interval = savedInterval
             }
         }
         onTriggered: {
@@ -183,8 +185,12 @@ ApplicationWindow {
     }
 
     function resetInactivityTimer() {
-        if (root.autoSleepMinutes > 0) {
-            inactivityTimer.restart()
+        if (root.autoSleepMinutes > 0 && inactivityTimer.running) {
+            // Reset elapsed time by toggling interval - preserves the running binding
+            // (calling restart() would break the binding)
+            var savedInterval = inactivityTimer.interval
+            inactivityTimer.interval = savedInterval + 1
+            inactivityTimer.interval = savedInterval
         }
     }
 
@@ -1585,11 +1591,11 @@ ApplicationWindow {
         pageStack.push(profileImportPage)
     }
 
-    function goToShotMetadata(hasPending) {
+    function goToShotMetadata(shotId) {
         if (!startNavigation()) return
         announceNavigation("Shot review")
-        // Pass hasPendingShot as initial property so it's set before Component.onCompleted
-        pageStack.push(postShotReviewPage, { hasPendingShot: hasPending || false })
+        // Pass editShotId to edit the just-saved shot (always use edit mode now)
+        pageStack.push(postShotReviewPage, { editShotId: shotId || 0 })
     }
 
     // Helper to announce page navigation for accessibility
@@ -1728,12 +1734,10 @@ ApplicationWindow {
         target: MainController
 
         function onShotEndedShowMetadata() {
-            console.log("Shot ended, showing metadata page")
-            // Record the shot timestamp
-            Settings.dyeShotDateTime = Qt.formatDateTime(new Date(), "yyyy-MM-dd hh:mm")
+            console.log("Shot ended, showing metadata page with shotId:", MainController.lastSavedShotId)
             // Restart timer to ensure overlay survives page change
             stopOverlayTimer.restart()
-            goToShotMetadata(true)
+            goToShotMetadata(MainController.lastSavedShotId)
         }
     }
 

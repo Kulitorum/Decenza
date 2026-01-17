@@ -75,6 +75,7 @@ class MainController : public QObject {
     Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT)
     Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT)
     Q_PROPERTY(bool isCurrentProfileRecipe READ isCurrentProfileRecipe NOTIFY currentProfileChanged)
+    Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
 
 public:
     explicit MainController(Settings* settings, DE1Device* device,
@@ -117,6 +118,7 @@ public:
     ShotServer* shotServer() const { return m_shotServer; }
     UpdateChecker* updateChecker() const { return m_updateChecker; }
     ShotReporter* shotReporter() const { return m_shotReporter; }
+    qint64 lastSavedShotId() const { return m_lastSavedShotId; }
 
     const Profile& currentProfile() const { return m_currentProfile; }
     Profile currentProfileObject() const { return m_currentProfile; }
@@ -209,6 +211,7 @@ signals:
 
     // DYE: emitted when shot ends and should show metadata page
     void shotEndedShowMetadata();
+    void lastSavedShotIdChanged();
 
 private slots:
     void onShotSampleReceived(const ShotSample& sample);
@@ -259,6 +262,7 @@ private:
     double m_pendingShotDuration = 0;
     double m_pendingShotFinalWeight = 0;
     double m_pendingShotDoseWeight = 0;
+    qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
 
     // Shot history and comparison
     ShotHistoryStorage* m_shotHistory = nullptr;

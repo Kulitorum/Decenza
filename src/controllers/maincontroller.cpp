@@ -1857,6 +1857,10 @@ void MainController::onShotEnded() {
             metadata, debugLog);
         qDebug() << "[metadata] Shot saved to history with ID:" << shotId;
 
+        // Store shot ID for post-shot review page (so it can edit the saved shot)
+        m_lastSavedShotId = shotId;
+        emit lastSavedShotIdChanged();
+
         // Set shot date/time for display on metadata page
         QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
         m_settings->setDyeShotDateTime(shotDateTime);
