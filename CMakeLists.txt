@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza_DE1 VERSION 1.1.35 LANGUAGES CXX)
+project(Decenza_DE1 VERSION 1.1.36 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
