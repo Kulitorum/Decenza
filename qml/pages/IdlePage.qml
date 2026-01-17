@@ -349,6 +349,7 @@ Page {
 
                     presets: Settings.favoriteProfiles
                     selectedIndex: Settings.selectedFavoriteProfile
+                    supportLongPress: true  // Enable long-press for profile preview
 
                     KeyNavigation.up: espressoButton
                     KeyNavigation.down: sleepButton
@@ -383,6 +384,23 @@ Page {
                                 console.log("[IdlePage] Loading profile:", preset.filename)
                                 MainController.loadProfile(preset.filename)
                             }
+                        }
+                    }
+
+                    onPresetLongPressed: function(index) {
+                        var preset = Settings.getFavoriteProfile(index)
+                        if (preset && preset.filename) {
+                            // Select the profile first (same as tap behavior)
+                            if (index !== Settings.selectedFavoriteProfile) {
+                                console.log("[IdlePage] Long-press selecting profile:", preset.filename)
+                                Settings.selectedFavoriteProfile = index
+                                MainController.loadProfile(preset.filename)
+                            }
+                            // Then show the preview popup
+                            console.log("[IdlePage] Long-press showing preview for:", preset.filename)
+                            profilePreviewPopup.profileFilename = preset.filename
+                            profilePreviewPopup.profileName = preset.name || ""
+                            profilePreviewPopup.open()
                         }
                     }
                 }
@@ -791,6 +809,11 @@ Page {
                 }
             }
         }
+    }
+
+    // Profile preview popup for long-press on espresso pills
+    ProfilePreviewPopup {
+        id: profilePreviewPopup
     }
 
 }

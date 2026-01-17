@@ -132,6 +132,7 @@ public:
     Q_INVOKABLE QString findProfileByTitle(const QString& title) const;  // Returns filename or empty string
     Q_INVOKABLE bool profileExists(const QString& filename) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);  // Delete user/downloaded profile
+    Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;  // Load profile for preview (without setting as current)
 
     // Recipe Editor methods (DEPRECATED - kept for backward compatibility)
     Q_INVOKABLE void uploadRecipeProfile(const QVariantMap& recipeParams);

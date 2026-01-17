@@ -330,6 +330,7 @@ set(QML_FILES
     qml/components/ShotGraph.qml
     qml/components/StatusBar.qml
     qml/components/ProfileGraph.qml
+    qml/components/ProfilePreviewPopup.qml
     qml/components/BottomBar.qml
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml

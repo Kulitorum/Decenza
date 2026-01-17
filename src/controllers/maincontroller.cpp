@@ -548,6 +548,86 @@ QVariantMap MainController::getCurrentProfile() const {
     return profile;
 }
 
+QVariantMap MainController::getProfileByFilename(const QString& filename) const {
+    Profile profile;
+    bool found = false;
+
+    // 1. Check ProfileStorage first (SAF folder on Android)
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        QString jsonContent = m_profileStorage->readProfile(filename);
+        if (!jsonContent.isEmpty()) {
+            profile = Profile::loadFromJsonString(jsonContent);
+            found = true;
+        }
+    }
+
+    // 2. Check user profiles (local fallback)
+    if (!found) {
+        QString path = userProfilesPath() + "/" + filename + ".json";
+        if (QFile::exists(path)) {
+            profile = Profile::loadFromFile(path);
+            found = true;
+        }
+    }
+
+    // 3. Check downloaded profiles (local fallback)
+    if (!found) {
+        QString path = downloadedProfilesPath() + "/" + filename + ".json";
+        if (QFile::exists(path)) {
+            profile = Profile::loadFromFile(path);
+            found = true;
+        }
+    }
+
+    // 4. Check built-in profiles
+    if (!found) {
+        QString path = ":/profiles/" + filename + ".json";
+        if (QFile::exists(path)) {
+            profile = Profile::loadFromFile(path);
+            found = true;
+        }
+    }
+
+    if (!found) {
+        return QVariantMap();  // Return empty map if not found
+    }
+
+    // Build result map (same format as getCurrentProfile)
+    QVariantMap result;
+    result["title"] = profile.title();
+    result["target_weight"] = profile.targetWeight();
+    result["espresso_temperature"] = profile.espressoTemperature();
+    result["mode"] = profile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
+
+    QVariantList steps;
+    for (const auto& frame : profile.steps()) {
+        QVariantMap step;
+        step["name"] = frame.name;
+        step["temperature"] = frame.temperature;
+        step["sensor"] = frame.sensor;
+        step["pump"] = frame.pump;
+        step["transition"] = frame.transition;
+        step["pressure"] = frame.pressure;
+        step["flow"] = frame.flow;
+        step["seconds"] = frame.seconds;
+        step["volume"] = frame.volume;
+        step["exit_if"] = frame.exitIf;
+        step["exit_type"] = frame.exitType;
+        step["exit_pressure_over"] = frame.exitPressureOver;
+        step["exit_pressure_under"] = frame.exitPressureUnder;
+        step["exit_flow_over"] = frame.exitFlowOver;
+        step["exit_flow_under"] = frame.exitFlowUnder;
+        step["exit_weight"] = frame.exitWeight;
+        step["popup"] = frame.popup;
+        step["max_flow_or_pressure"] = frame.maxFlowOrPressure;
+        step["max_flow_or_pressure_range"] = frame.maxFlowOrPressureRange;
+        steps.append(step);
+    }
+    result["steps"] = steps;
+
+    return result;
+}
+
 void MainController::loadProfile(const QString& profileName) {
     QString path;
     bool found = false;

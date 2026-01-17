@@ -9,8 +9,10 @@ FocusScope {
     property int selectedIndex: -1
     property int focusedIndex: 0  // Currently focused pill for keyboard nav
     property real maxWidth: Math.min(Theme.scaled(825), parent ? parent.width - Theme.scaled(24) : Theme.scaled(825))  // Clamp to parent width with margins
+    property bool supportLongPress: false  // Enable long-press on pills
 
     signal presetSelected(int index)
+    signal presetLongPressed(int index)
 
     implicitHeight: contentColumn.implicitHeight
     implicitWidth: maxWidth
@@ -210,6 +212,7 @@ FocusScope {
                         // Using TapHandler for better touch responsiveness (avoids Flickable conflicts)
                         AccessibleTapHandler {
                             anchors.fill: parent
+                            supportLongPress: root.supportLongPress
 
                             accessibleName: {
                                 if (!modelData || !modelData.preset) return ""
@@ -226,6 +229,11 @@ FocusScope {
                                     AccessibilityManager.announce(modelData.preset.name + " " + TranslationManager.translate("presets.selected", "selected"))
                                 }
                                 root.presetSelected(modelData.index)
+                            }
+
+                            onAccessibleLongPressed: {
+                                if (!modelData || !modelData.preset) return
+                                root.presetLongPressed(modelData.index)
                             }
                         }
                     }
