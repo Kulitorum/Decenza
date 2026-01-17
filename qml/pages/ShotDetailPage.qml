@@ -186,7 +186,7 @@ Page {
 
                     Tr {
                         key: "shotdetail.beaninfo"
-                        fallback: "Bean Info"
+                        fallback: "Beans"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }

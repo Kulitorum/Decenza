@@ -15,6 +15,24 @@ Item {
 
     implicitHeight: fieldLabel.height + Theme.scaled(48) + 2
 
+    // Sync textInput when root.text changes from parent binding
+    onTextChanged: {
+        if (textInput.text !== text) {
+            textInput.text = text
+        }
+    }
+
+    // Handle selection from suggestion list (called from delegate)
+    function selectSuggestion(selectedText) {
+        justSelected = true
+        suggestionPopup.close()
+        textInput.text = selectedText
+        // Don't set root.text directly - emit signal and let parent update via binding
+        root.textEdited(selectedText)
+        textInput.focus = false
+        Qt.inputMethod.hide()
+    }
+
     // Filter suggestions based on current input
     function getFilteredSuggestions() {
         if (!textInput.text || textInput.text.length === 0) {
@@ -54,7 +72,8 @@ Item {
         rightPadding: Theme.scaled(84)
 
         onTextEdited: {
-            root.text = text
+            // Don't set root.text here - that breaks the parent binding!
+            // Just emit the signal and let parent update via its binding
             root.textEdited(text)
             // Show dropdown when typing if we have matching suggestions (but not after selection)
             if (!justSelected && text.length > 0 && getFilteredSuggestions().length > 0) {
@@ -71,6 +90,9 @@ Item {
                     suggestionPopup.open()
                 }
             } else {
+                // Emit textEdited to ensure value is committed when losing focus
+                // Don't set root.text here - that breaks the parent binding!
+                root.textEdited(text)
                 // Small delay before closing to allow clicking on popup items
                 closeTimer.restart()
             }
@@ -78,7 +100,7 @@ Item {
 
         Keys.onReturnPressed: {
             // Accept current text and close
-            root.text = text
+            // Don't set root.text = text - that breaks the parent binding!
             root.textEdited(text)
             suggestionPopup.close()
             focus = false
@@ -211,16 +233,20 @@ Item {
             model: getFilteredSuggestions()
             currentIndex: -1
 
-            // Reference to root for delegate access
-            property Item suggestionRoot: root
+            // Store reference to root for delegate access
+            property var suggestionRoot: root
 
             delegate: ItemDelegate {
+                id: suggestionDelegate
                 width: suggestionList.width
                 height: Theme.scaled(44)
                 highlighted: index === suggestionList.currentIndex
 
+                // Store reference to avoid scope issues
+                property string itemText: modelData
+
                 contentItem: Text {
-                    text: modelData
+                    text: suggestionDelegate.itemText
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(18)
                     verticalAlignment: Text.AlignVCenter
@@ -233,13 +259,10 @@ Item {
                 }
 
                 onClicked: {
-                    suggestionList.suggestionRoot.justSelected = true
-                    suggestionPopup.close()
-                    textInput.text = modelData
-                    suggestionList.suggestionRoot.text = modelData
-                    suggestionList.suggestionRoot.textEdited(modelData)
-                    textInput.focus = false
-                    Qt.inputMethod.hide()
+                    var listView = suggestionDelegate.ListView.view
+                    if (listView && listView.suggestionRoot) {
+                        listView.suggestionRoot.selectSuggestion(suggestionDelegate.itemText)
+                    }
                 }
             }
 

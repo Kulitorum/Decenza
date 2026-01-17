@@ -520,32 +520,11 @@ Page {
                         MouseArea {
                             anchors.fill: parent
                             onClicked: {
-                                var profileTitle = model.profileName || ""
-                                if (!profileTitle) return
-
-                                // First try to find installed profile by title
-                                var filename = MainController.findProfileByTitle(profileTitle)
-                                if (filename) {
-                                    MainController.loadProfile(filename)
-                                    // Check if this profile is a favorite and update selection
-                                    var favIndex = Settings.findFavoriteIndexByFilename(filename)
-                                    Settings.selectedFavoriteProfile = favIndex
-                                    pageStack.pop()
-                                    return
-                                }
-
-                                // Profile not installed - try to load from shot's stored profileJson
-                                var shotData = MainController.shotHistory.getShot(model.id)
-                                if (shotData && shotData.profileJson) {
-                                    if (MainController.loadProfileFromJson(shotData.profileJson)) {
-                                        Settings.selectedFavoriteProfile = -1  // Not a favorite
-                                        pageStack.pop()
-                                    } else {
-                                        console.log("Failed to load profile from shot JSON")
-                                    }
-                                } else {
-                                    console.log("Profile not found and no stored profile data:", profileTitle)
-                                }
+                                // Load profile + metadata from history shot
+                                MainController.loadShotWithMetadata(model.id)
+                                // This profile is loaded from history, not a favorite
+                                Settings.selectedFavoriteProfile = -1
+                                pageStack.pop()
                             }
                         }
                     }

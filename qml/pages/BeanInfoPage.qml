@@ -9,13 +9,7 @@ Page {
     objectName: "shotMetadataPage"
     background: Rectangle { color: Theme.backgroundColor }
 
-    Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Bean Info")
-        if (editShotId > 0) {
-            loadShotForEditing()
-        }
-    }
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Bean Info")
+    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
 
     property bool hasPendingShot: false  // Set to true by goToShotMetadata() after a shot
     property int editShotId: 0  // Set > 0 to edit existing shot from history
@@ -23,6 +17,17 @@ Page {
     property bool isEditMode: editShotId > 0
     property bool keyboardVisible: Qt.inputMethod.visible
     property Item focusedField: null
+
+    // Preset dialog properties
+    property int editPresetIndex: -1
+    property string editPresetName: ""
+
+    Component.onCompleted: {
+        root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
+        if (editShotId > 0) {
+            loadShotForEditing()
+        }
+    }
 
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("shotMetadata/graphHeight", Theme.scaled(200))
@@ -261,6 +266,206 @@ Page {
                 }
             }
 
+            // Bean presets section (only in non-edit mode)
+            Rectangle {
+                id: presetsCard
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(90)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+                visible: !isEditMode
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(20)
+
+                    Tr {
+                        key: "beaninfo.presets.title"
+                        fallback: "Bean Preset"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(24)
+                    }
+
+                    // Bean preset pills with drag-and-drop
+                    Row {
+                        id: beanPresetsRow
+                        spacing: Theme.scaled(8)
+
+                        property int draggedIndex: -1
+                        // Store reference to Settings for use in deeply nested delegates
+                        property var settings: Settings
+
+                        Repeater {
+                            id: beanRepeater
+                            model: Settings.beanPresets
+
+                            Item {
+                                id: beanDelegate
+                                width: beanPill.width
+                                height: Theme.scaled(36)
+
+                                property int beanIndex: index
+
+                                Rectangle {
+                                    id: beanPill
+                                    width: beanText.implicitWidth + 24
+                                    height: Theme.scaled(36)
+                                    radius: Theme.scaled(18)
+                                    color: beanDelegate.beanIndex === Settings.selectedBeanPreset ? Theme.primaryColor : Theme.backgroundColor
+                                    border.color: beanDelegate.beanIndex === Settings.selectedBeanPreset ? Theme.primaryColor : Theme.textSecondaryColor
+                                    border.width: 1
+                                    opacity: beanDragArea.drag.active ? 0.8 : 1.0
+
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: modelData.name + " " + TranslationManager.translate("beaninfo.accessibility.preset", "preset") +
+                                                     (beanDelegate.beanIndex === Settings.selectedBeanPreset ?
+                                                      ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    Accessible.focusable: true
+
+                                    Drag.active: beanDragArea.drag.active
+                                    Drag.source: beanDelegate
+                                    Drag.hotSpot.x: width / 2
+                                    Drag.hotSpot.y: height / 2
+
+                                    states: State {
+                                        when: beanDragArea.drag.active
+                                        ParentChange { target: beanPill; parent: beanPresetsRow }
+                                        AnchorChanges { target: beanPill; anchors.verticalCenter: undefined }
+                                    }
+
+                                    Text {
+                                        id: beanText
+                                        anchors.centerIn: parent
+                                        text: modelData.name
+                                        color: beanDelegate.beanIndex === Settings.selectedBeanPreset ? "white" : Theme.textColor
+                                        font: Theme.bodyFont
+                                    }
+
+                                    MouseArea {
+                                        id: beanDragArea
+                                        anchors.fill: parent
+                                        drag.target: beanPill
+                                        drag.axis: Drag.XAxis
+
+                                        property bool held: false
+                                        property bool moved: false
+
+                                        onPressed: {
+                                            held = false
+                                            moved = false
+                                            beanHoldTimer.start()
+                                        }
+
+                                        onReleased: {
+                                            beanHoldTimer.stop()
+                                            var s = beanPresetsRow.settings
+                                            if (!moved && !held) {
+                                                // Remove focus from any text fields first to ensure clean state
+                                                shotMetadataPage.forceActiveFocus()
+
+                                                // Save current values to the previously selected preset before switching
+                                                if (s.selectedBeanPreset >= 0 && s.selectedBeanPreset !== beanDelegate.beanIndex) {
+                                                    var oldPreset = s.getBeanPreset(s.selectedBeanPreset)
+                                                    s.updateBeanPreset(s.selectedBeanPreset,
+                                                        oldPreset.name || "",
+                                                        s.dyeBeanBrand,
+                                                        s.dyeBeanType,
+                                                        s.dyeRoastDate,
+                                                        s.dyeRoastLevel,
+                                                        s.dyeGrinderModel,
+                                                        s.dyeGrinderSetting)
+                                                }
+                                                // Now select and apply the new preset
+                                                s.selectedBeanPreset = beanDelegate.beanIndex
+                                                s.applyBeanPreset(beanDelegate.beanIndex)
+                                            }
+                                            beanPill.Drag.drop()
+                                            beanPresetsRow.draggedIndex = -1
+                                        }
+
+                                        onPositionChanged: {
+                                            if (drag.active) {
+                                                moved = true
+                                                beanPresetsRow.draggedIndex = beanDelegate.beanIndex
+                                            }
+                                        }
+
+                                        onDoubleClicked: {
+                                            beanHoldTimer.stop()
+                                            held = true  // Prevent single-click selection on release
+                                            editPresetIndex = beanDelegate.beanIndex
+                                            var preset = beanPresetsRow.settings.getBeanPreset(beanDelegate.beanIndex)
+                                            editPresetName = preset.name || ""
+                                            editPresetDialog.open()
+                                        }
+
+                                        Timer {
+                                            id: beanHoldTimer
+                                            interval: 500
+                                            onTriggered: {
+                                                if (!beanDragArea.moved) {
+                                                    beanDragArea.held = true
+                                                    editPresetIndex = beanDelegate.beanIndex
+                                                    var preset = beanPresetsRow.settings.getBeanPreset(beanDelegate.beanIndex)
+                                                    editPresetName = preset.name || ""
+                                                    editPresetDialog.open()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                DropArea {
+                                    anchors.fill: parent
+                                    onEntered: function(drag) {
+                                        var fromIndex = drag.source.beanIndex
+                                        var toIndex = beanDelegate.beanIndex
+                                        if (fromIndex !== toIndex) {
+                                            beanPresetsRow.settings.moveBeanPreset(fromIndex, toIndex)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Add button
+                        Rectangle {
+                            id: addBeanButton
+                            width: Theme.scaled(36)
+                            height: Theme.scaled(36)
+                            radius: Theme.scaled(18)
+                            color: Theme.backgroundColor
+                            border.color: Theme.textSecondaryColor
+                            border.width: 1
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "+"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(20)
+                            }
+
+                            AccessibleTapHandler {
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate("beaninfo.accessibility.addpreset", "Add new bean preset")
+                                accessibleItem: addBeanButton
+                                onAccessibleClicked: savePresetDialog.open()
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Tr {
+                        key: "beaninfo.hint.reorder"
+                        fallback: "Drag to reorder, hold or double-click to edit"
+                        color: Theme.textSecondaryColor
+                        font: Theme.labelFont
+                    }
+                }
+            }
+
             // 3-column grid for all fields
             GridLayout {
                 Layout.fillWidth: true
@@ -376,7 +581,26 @@ Page {
 
     // Bottom bar
     BottomBar {
-        onBackClicked: root.goBack()
+        barColor: "transparent"
+
+        onBackClicked: {
+            // Remove focus first to ensure any text field changes are committed
+            shotMetadataPage.forceActiveFocus()
+
+            // Save current values to the selected preset (if any)
+            if (!isEditMode && Settings.selectedBeanPreset >= 0) {
+                var preset = Settings.getBeanPreset(Settings.selectedBeanPreset)
+                Settings.updateBeanPreset(Settings.selectedBeanPreset,
+                    preset.name || "",
+                    Settings.dyeBeanBrand,
+                    Settings.dyeBeanType,
+                    Settings.dyeRoastDate,
+                    Settings.dyeRoastLevel,
+                    Settings.dyeGrinderModel,
+                    Settings.dyeGrinderSetting)
+            }
+            root.goBack()
+        }
 
         // Save button - visible in edit mode only
         Rectangle {
@@ -573,4 +797,206 @@ Page {
             onCurrentTextChanged: parent.valueChanged(currentText)
         }
     }
+
+    // Add Preset Popup
+    Popup {
+        id: savePresetDialog
+        x: (parent.width - width) / 2
+        y: (parent.height - height) / 2
+        padding: 20
+        modal: true
+        focus: true
+
+        onOpened: {
+            newBeanNameInput.text = ""
+            newBeanNameInput.forceActiveFocus()
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.textSecondaryColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(15)
+
+            Tr {
+                key: "beaninfo.popup.addPreset"
+                fallback: "Add Bean Preset"
+                color: Theme.textColor
+                font: Theme.subtitleFont
+            }
+
+            Rectangle {
+                Layout.preferredWidth: Theme.scaled(280)
+                Layout.preferredHeight: Theme.scaled(44)
+                color: Theme.backgroundColor
+                border.color: Theme.textSecondaryColor
+                border.width: 1
+                radius: Theme.scaled(4)
+
+                TextInput {
+                    id: newBeanNameInput
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(10)
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    verticalAlignment: TextInput.AlignVCenter
+                    inputMethodHints: Qt.ImhNoPredictiveText
+
+                    Tr {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        key: "beaninfo.placeholder.presetName"
+                        fallback: "Preset name"
+                        color: Theme.textSecondaryColor
+                        font: parent.font
+                        visible: !parent.text && !parent.activeFocus
+                    }
+                }
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+
+                Item { Layout.fillWidth: true }
+
+                StyledButton {
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    onClicked: savePresetDialog.close()
+                }
+
+                StyledButton {
+                    primary: true
+                    text: TranslationManager.translate("common.add", "Add")
+                    onClicked: {
+                        if (newBeanNameInput.text.trim().length > 0) {
+                            Settings.saveBeanPresetFromCurrent(newBeanNameInput.text.trim())
+                            Settings.selectedBeanPreset = Settings.beanPresets.length - 1
+                            newBeanNameInput.text = ""
+                            savePresetDialog.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Edit Preset Popup
+    Popup {
+        id: editPresetDialog
+        x: (parent.width - width) / 2
+        y: (parent.height - height) / 2
+        padding: 20
+        modal: true
+        focus: true
+
+        onOpened: {
+            editBeanNameInput.text = editPresetName
+            editBeanNameInput.forceActiveFocus()
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.textSecondaryColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(15)
+
+            Tr {
+                key: "beaninfo.popup.editPreset"
+                fallback: "Edit Bean Preset"
+                color: Theme.textColor
+                font: Theme.subtitleFont
+            }
+
+            Rectangle {
+                Layout.preferredWidth: Theme.scaled(280)
+                Layout.preferredHeight: Theme.scaled(44)
+                color: Theme.backgroundColor
+                border.color: Theme.textSecondaryColor
+                border.width: 1
+                radius: Theme.scaled(4)
+
+                TextInput {
+                    id: editBeanNameInput
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(10)
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    verticalAlignment: TextInput.AlignVCenter
+                    inputMethodHints: Qt.ImhNoPredictiveText
+
+                    Tr {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        key: "beaninfo.placeholder.presetName"
+                        fallback: "Preset name"
+                        color: Theme.textSecondaryColor
+                        font: parent.font
+                        visible: !parent.text && !parent.activeFocus
+                    }
+                }
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+
+                StyledButton {
+                    id: deleteBeanBtn
+                    text: TranslationManager.translate("common.delete", "Delete")
+                    onClicked: {
+                        Settings.removeBeanPreset(editPresetIndex)
+                        editPresetDialog.close()
+                    }
+                    background: Rectangle {
+                        implicitWidth: deleteBeanBtn.implicitWidth
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.scaled(6)
+                        color: deleteBeanBtn.down ? Qt.darker(Theme.errorColor, 1.1) : Theme.errorColor
+                    }
+                    contentItem: Text {
+                        text: deleteBeanBtn.text
+                        font.pixelSize: Theme.scaled(14)
+                        font.family: Theme.bodyFont.family
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                StyledButton {
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    onClicked: editPresetDialog.close()
+                }
+
+                StyledButton {
+                    primary: true
+                    text: TranslationManager.translate("common.save", "Save")
+                    onClicked: {
+                        if (editBeanNameInput.text.trim().length > 0 && editPresetIndex >= 0) {
+                            var preset = Settings.getBeanPreset(editPresetIndex)
+                            Settings.updateBeanPreset(editPresetIndex,
+                                editBeanNameInput.text.trim(),
+                                preset.brand || "",
+                                preset.type || "",
+                                preset.roastDate || "",
+                                preset.roastLevel || "",
+                                preset.grinderModel || "",
+                                preset.grinderSetting || "")
+                        }
+                        editPresetDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
 }
