@@ -33,7 +33,7 @@ jobs:
           arch: 'ios'
           modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets'
           cache: true
-          cache-key-prefix: 'qt-ios-v3'
+          cache-key-prefix: 'qt-ios-v4'
 
       - name: Install Apple certificate and provisioning profile
         env:
@@ -116,7 +116,14 @@ jobs:
               <key>destination</key>
               <string>export</string>
               <key>signingStyle</key>
-              <string>automatic</string>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.kulitorum.decenza</key>
+                  <string>Decenza App Store Manual</string>
+              </dict>
           </dict>
           </plist>
           PLIST
