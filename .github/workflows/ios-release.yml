@@ -121,8 +121,8 @@ jobs:
               <string>Apple Distribution</string>
               <key>provisioningProfiles</key>
               <dict>
-                  <key>com.kulitorum.decenza</key>
-                  <string>Decenza App Store Manual</string>
+                  <key>io.github.kulitorum.decenza</key>
+                  <string>Decenza App Store</string>
               </dict>
           </dict>
           </plist>

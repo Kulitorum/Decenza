@@ -135,10 +135,10 @@ These secrets are configured in the repository and should NOT be modified unless
 
 **Cause:** The app's bundle ID doesn't match the provisioning profile.
 
-**Current bundle ID:** `com.kulitorum.decenza` (set in CMakeLists.txt line 429)
+**Current bundle ID:** `io.github.kulitorum.decenza` (set in CMakeLists.txt line 434)
 
 **Solution:**
-- Verify CMakeLists.txt has: `XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.kulitorum.decenza"`
+- Verify CMakeLists.txt has: `XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "io.github.kulitorum.decenza"`
 - If changed, create new provisioning profile in Apple Developer Portal
 
 ### 3. "API key not authorized"
@@ -182,7 +182,7 @@ On a Mac:
 ### When provisioning profile expires (yearly):
 
 1. Go to https://developer.apple.com/account/resources/profiles
-2. Create new App Store profile for `com.kulitorum.decenza`
+2. Create new App Store profile for `io.github.kulitorum.decenza`
 3. Download and convert: `base64 -i profile.mobileprovision | tr -d '\n'`
 4. Update `PROVISIONING_PROFILE_BASE64` secret
 5. Update `PROVISIONING_PROFILE_NAME` if name changed
@@ -252,7 +252,7 @@ This builds and archives but skips the upload step. You can download the IPA art
 
 ## Architecture Notes
 
-- **Bundle ID**: `com.kulitorum.decenza` (different from Android's `io.github.kulitorum.decenza_de1`)
+- **Bundle ID**: `io.github.kulitorum.decenza` (Android uses `io.github.kulitorum.decenza_de1`)
 - **Team ID**: `HKHN2RK2P4`
 - **Minimum iOS**: 14.0 (set in CMakeLists.txt)
 - **Qt Version**: 6.10.1

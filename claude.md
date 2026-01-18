@@ -104,7 +104,7 @@ gh run view --repo Kulitorum/de1-qt --log-failed
 4. App is built, archived, and uploaded to App Store Connect
 
 **Important:**
-- iOS bundle ID is `com.kulitorum.decenza` (different from Android)
+- iOS bundle ID is `io.github.kulitorum.decenza` (Android uses `io.github.kulitorum.decenza_de1`)
 - Signing credentials stored in GitHub Secrets (expire yearly)
 - See `docs/IOS_CI_FOR_CLAUDE.md` for troubleshooting and credential renewal
 
