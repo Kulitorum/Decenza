@@ -116,14 +116,7 @@ jobs:
               <key>destination</key>
               <string>export</string>
               <key>signingStyle</key>
-              <string>manual</string>
-              <key>signingCertificate</key>
-              <string>Apple Distribution</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                  <key>com.kulitorum.decenza</key>
-                  <string>Decenza App Store Manual</string>
-              </dict>
+              <string>automatic</string>
           </dict>
           </plist>
           PLIST
