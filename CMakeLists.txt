@@ -157,7 +157,6 @@ set(SOURCES
     src/models/shotcomparisonmodel.cpp
     src/network/shotserver.cpp
     src/network/mqttclient.cpp
-    src/network/mdnsdiscovery.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
     src/network/shotreporter.cpp
@@ -238,7 +237,6 @@ set(HEADERS
     src/models/shotcomparisonmodel.h
     src/network/shotserver.h
     src/network/mqttclient.h
-    src/network/mdnsdiscovery.h
     src/network/webdebuglogger.h
     src/network/locationprovider.h
     src/network/shotreporter.h

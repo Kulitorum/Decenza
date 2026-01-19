@@ -163,9 +163,6 @@ MainController::MainController(Settings* settings, DE1Device* device,
     // Emit remoteSleepRequested when sleep command received via REST API
     connect(m_shotServer, &ShotServer::sleepRequested, this, &MainController::remoteSleepRequested);
 
-    // Create mDNS discovery for finding MQTT brokers
-    m_mdnsDiscovery = new MdnsDiscovery(this);
-
     // Create MQTT client for home automation
     m_mqttClient = new MqttClient(m_device, m_machineState, m_settings, this);
 

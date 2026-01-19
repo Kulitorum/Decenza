@@ -17,7 +17,6 @@
 #include "../network/shotserver.h"
 #include "../network/shotreporter.h"
 #include "../network/mqttclient.h"
-#include "../network/mdnsdiscovery.h"
 #include "../core/updatechecker.h"
 #include "../core/datamigrationclient.h"
 
@@ -76,7 +75,6 @@ class MainController : public QObject {
     Q_PROPERTY(ShotComparisonModel* shotComparison READ shotComparison CONSTANT)
     Q_PROPERTY(ShotServer* shotServer READ shotServer CONSTANT)
     Q_PROPERTY(MqttClient* mqttClient READ mqttClient CONSTANT)
-    Q_PROPERTY(MdnsDiscovery* mdnsDiscovery READ mdnsDiscovery CONSTANT)
     Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT)
     Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT)
     Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT)
@@ -124,7 +122,6 @@ public:
     ShotComparisonModel* shotComparison() const { return m_shotComparison; }
     ShotServer* shotServer() const { return m_shotServer; }
     MqttClient* mqttClient() const { return m_mqttClient; }
-    MdnsDiscovery* mdnsDiscovery() const { return m_mdnsDiscovery; }
     UpdateChecker* updateChecker() const { return m_updateChecker; }
     ShotReporter* shotReporter() const { return m_shotReporter; }
     DataMigrationClient* dataMigration() const { return m_dataMigration; }
@@ -295,7 +292,6 @@ private:
     ShotComparisonModel* m_shotComparison = nullptr;
     ShotServer* m_shotServer = nullptr;
     MqttClient* m_mqttClient = nullptr;
-    MdnsDiscovery* m_mdnsDiscovery = nullptr;
     UpdateChecker* m_updateChecker = nullptr;
     LocationProvider* m_locationProvider = nullptr;
     DataMigrationClient* m_dataMigration = nullptr;
