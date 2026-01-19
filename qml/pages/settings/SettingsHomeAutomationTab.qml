@@ -39,7 +39,7 @@ Item {
                     // Enable MQTT
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
+                        Layout.rightMargin: Theme.scaled(5)
 
                         Text {
                             text: "Enable MQTT"
@@ -70,33 +70,33 @@ Item {
                     }
 
                     // Broker Host
-                    Text {
-                        text: "Broker Host"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                    }
-
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(5)
+                        spacing: Theme.scaled(10)
 
-                        StyledTextField {
-                            id: hostField
+                        Text {
+                            text: "Broker Host"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
                             Layout.fillWidth: true
-                            text: Settings.mqttBrokerHost
-                            placeholderText: "e.g., 192.168.1.100"
-                            onTextChanged: Settings.mqttBrokerHost = text
                         }
 
-                        ActionButton {
+                        StyledButton {
                             text: "Scan"
-                            Layout.preferredWidth: Theme.scaled(50)
+                            primary: true
                             enabled: !MainController.mdnsDiscovery.scanning
                             onClicked: {
                                 MainController.mdnsDiscovery.clearServices()
                                 MainController.mdnsDiscovery.startDiscovery()
                             }
                         }
+                    }
+
+                    StyledTextField {
+                        id: hostField
+                        Layout.fillWidth: true
+                        text: Settings.mqttBrokerHost
+                        onEditingFinished: Settings.mqttBrokerHost = text
                     }
 
                     // Discovered services list (visible when scanning or services found)
@@ -170,9 +170,8 @@ Item {
                     StyledTextField {
                         Layout.fillWidth: true
                         text: Settings.mqttBrokerPort
-                        placeholderText: "1883"
                         inputMethodHints: Qt.ImhDigitsOnly
-                        onTextChanged: {
+                        onEditingFinished: {
                             var port = parseInt(text)
                             if (!isNaN(port) && port > 0 && port <= 65535) {
                                 Settings.mqttBrokerPort = port
@@ -190,8 +189,7 @@ Item {
                     StyledTextField {
                         Layout.fillWidth: true
                         text: Settings.mqttUsername
-                        placeholderText: "Leave empty if not required"
-                        onTextChanged: Settings.mqttUsername = text
+                        onEditingFinished: Settings.mqttUsername = text
                     }
 
                     // Password
@@ -204,9 +202,8 @@ Item {
                     StyledTextField {
                         Layout.fillWidth: true
                         text: Settings.mqttPassword
-                        placeholderText: "Leave empty if not required"
                         echoMode: TextInput.Password
-                        onTextChanged: Settings.mqttPassword = text
+                        onEditingFinished: Settings.mqttPassword = text
                     }
 
                     // Base Topic
@@ -219,8 +216,7 @@ Item {
                     StyledTextField {
                         Layout.fillWidth: true
                         text: Settings.mqttBaseTopic
-                        placeholderText: "decenza"
-                        onTextChanged: Settings.mqttBaseTopic = text
+                        onEditingFinished: Settings.mqttBaseTopic = text
                     }
 
                     // Connection status
@@ -253,21 +249,22 @@ Item {
                     // Connect/Disconnect buttons
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
+                        spacing: Theme.scaled(8)
 
-                        ActionButton {
+                        StyledButton {
                             text: "Connect"
-                            Layout.fillWidth: true
+                            primary: true
                             enabled: !MainController.mqttClient.connected && Settings.mqttBrokerHost.length > 0
                             onClicked: MainController.mqttClient.connectToBroker()
                         }
 
-                        ActionButton {
+                        StyledButton {
                             text: "Disconnect"
-                            Layout.fillWidth: true
                             enabled: MainController.mqttClient.connected
                             onClicked: MainController.mqttClient.disconnectFromBroker()
                         }
+
+                        Item { Layout.fillWidth: true }
                     }
                 }
             }
@@ -340,7 +337,7 @@ Item {
                     // Retain Messages
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
+                        Layout.rightMargin: Theme.scaled(5)
 
                         Text {
                             text: "Retain Messages"
@@ -382,7 +379,7 @@ Item {
                     // Home Assistant Discovery
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
+                        Layout.rightMargin: Theme.scaled(5)
 
                         Text {
                             text: "Auto-Discovery"
@@ -405,9 +402,9 @@ Item {
                         Layout.fillWidth: true
                     }
 
-                    ActionButton {
+                    StyledButton {
                         text: "Publish Discovery Now"
-                        Layout.fillWidth: true
+                        primary: true
                         enabled: MainController.mqttClient.connected
                         onClicked: MainController.mqttClient.publishDiscovery()
                     }
