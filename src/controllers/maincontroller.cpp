@@ -226,6 +226,9 @@ MainController::MainController(Settings* settings, DE1Device* device,
         // Get the base profile name from settings
         if (m_settings) {
             m_baseProfileName = m_settings->currentProfile();
+            // Sync selectedFavoriteProfile so UI shows correct pill
+            int favoriteIndex = m_settings->findFavoriteIndexByFilename(m_baseProfileName);
+            m_settings->setSelectedFavoriteProfile(favoriteIndex);
         }
         if (m_machineState) {
             m_machineState->setTargetWeight(m_currentProfile.targetWeight());
@@ -716,6 +719,10 @@ void MainController::loadProfile(const QString& profileName) {
 
     if (m_settings) {
         m_settings->setCurrentProfile(profileName);
+        // Sync selectedFavoriteProfile with the loaded profile
+        // This ensures the UI shows the correct pill as selected, or -1 if not a favorite
+        int favoriteIndex = m_settings->findFavoriteIndexByFilename(profileName);
+        m_settings->setSelectedFavoriteProfile(favoriteIndex);
     }
 
     if (m_machineState) {
@@ -757,6 +764,12 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
     // Use title as base name since this profile isn't from a file
     m_baseProfileName = m_currentProfile.title();
     m_profileModified = false;
+
+    if (m_settings) {
+        // Set selectedFavoriteProfile to -1 to show non-favorite pill
+        // Profiles loaded from JSON (e.g., shot history) are typically not in favorites
+        m_settings->setSelectedFavoriteProfile(-1);
+    }
 
     if (m_machineState) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
@@ -991,6 +1004,8 @@ void MainController::uploadCurrentProfile() {
     }
 
     if (m_device && m_device->isConnected()) {
+        double groupTemp;
+
         // Apply temperature override if set
         if (m_settings && m_settings->hasTemperatureOverride()) {
             Profile modifiedProfile = m_currentProfile;
@@ -1003,8 +1018,24 @@ void MainController::uploadCurrentProfile() {
             modifiedProfile.setEspressoTemperature(overrideTemp);
             qDebug() << "Uploading profile with temperature override:" << overrideTemp << "°C";
             m_device->uploadProfile(modifiedProfile);
+            groupTemp = overrideTemp;
         } else {
             m_device->uploadProfile(m_currentProfile);
+            groupTemp = m_currentProfile.espressoTemperature();
+        }
+
+        // Update shot settings with the profile's target temperature
+        // This controls what temperature the machine heats to in Ready state
+        if (m_settings) {
+            double steamTemp = m_settings->steamDisabled() ? 0.0 : m_settings->steamTemperature();
+            m_device->setShotSettings(
+                steamTemp,
+                m_settings->steamTimeout(),
+                m_settings->waterTemperature(),
+                m_settings->waterVolume(),
+                groupTemp
+            );
+            qDebug() << "Set group temp to" << groupTemp << "°C for profile" << m_currentProfile.title();
         }
     }
 }
@@ -1180,6 +1211,10 @@ void MainController::createNewRecipe(const QString& title) {
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
     m_baseProfileName = "";  // New profile, no base filename yet
     m_profileModified = true;
+
+    if (m_settings) {
+        m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
+    }
 
     emit currentProfileChanged();
     emit profileModifiedChanged();
@@ -1513,6 +1548,10 @@ void MainController::createNewProfile(const QString& title) {
     m_baseProfileName = "";
     m_profileModified = true;
 
+    if (m_settings) {
+        m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
+    }
+
     emit currentProfileChanged();
     emit profileModifiedChanged();
     emit targetWeightChanged();
@@ -1646,13 +1685,18 @@ void MainController::applySteamSettings() {
     // Respect steamDisabled flag - send 0 if disabled, otherwise use saved temperature
     double steamTemp = m_settings->steamDisabled() ? 0.0 : m_settings->steamTemperature();
 
+    // Use profile temperature (or override if set) for group temp
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
+
     // Send shot settings (includes steam temp/timeout)
     m_device->setShotSettings(
         steamTemp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
         m_settings->waterVolume(),
-        93.0  // Group temp (could be from settings too)
+        groupTemp
     );
 
     // Send steam flow via MMR
@@ -1669,13 +1713,18 @@ void MainController::applyHotWaterSettings() {
     // Respect steamDisabled flag
     double steamTemp = m_settings->steamDisabled() ? 0.0 : m_settings->steamTemperature();
 
+    // Use profile temperature (or override if set) for group temp
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
+
     // Send shot settings (includes water temp/volume)
     m_device->setShotSettings(
         steamTemp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
         m_settings->waterVolume(),
-        93.0  // Group temp
+        groupTemp
     );
 
     // Reset flush timeout MMR to high value (255 seconds) to prevent
@@ -1721,13 +1770,18 @@ void MainController::setSteamTemperatureImmediate(double temp) {
         m_settings->setSteamDisabled(false);
     }
 
+    // Use profile temperature (or override if set) for group temp
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
+
     // Send all shot settings with updated temperature
     m_device->setShotSettings(
         temp,
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
         m_settings->waterVolume(),
-        93.0
+        groupTemp
     );
 
     qDebug() << "Steam temperature set to:" << temp;
@@ -1760,11 +1814,17 @@ void MainController::sendSteamTemperature(double temp) {
         return;
     }
 
-    logToFile(QString("Sending: steamTemp=%1 timeout=%2 waterTemp=%3 waterVol=%4")
+    // Use profile temperature (or override if set) for group temp
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
+
+    logToFile(QString("Sending: steamTemp=%1 timeout=%2 waterTemp=%3 waterVol=%4 groupTemp=%5")
               .arg(temp)
               .arg(m_settings->steamTimeout())
               .arg(m_settings->waterTemperature())
-              .arg(m_settings->waterVolume()));
+              .arg(m_settings->waterVolume())
+              .arg(groupTemp));
 
     // Send to machine without saving to settings (for enable/disable toggle)
     m_device->setShotSettings(
@@ -1772,7 +1832,7 @@ void MainController::sendSteamTemperature(double temp) {
         m_settings->steamTimeout(),
         m_settings->waterTemperature(),
         m_settings->waterVolume(),
-        93.0
+        groupTemp
     );
 
     logToFile("Command queued successfully");
@@ -1794,13 +1854,18 @@ void MainController::setSteamTimeoutImmediate(int timeout) {
 
     m_settings->setSteamTimeout(timeout);
 
+    // Use profile temperature (or override if set) for group temp
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
+
     // Send all shot settings with updated timeout
     m_device->setShotSettings(
         m_settings->steamTemperature(),
         timeout,
         m_settings->waterTemperature(),
         m_settings->waterVolume(),
-        93.0
+        groupTemp
     );
 
     qDebug() << "Steam timeout set to:" << timeout;
@@ -1808,6 +1873,11 @@ void MainController::setSteamTimeoutImmediate(int timeout) {
 
 void MainController::softStopSteam() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    // Use profile temperature (or override if set) for group temp
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
 
     // Send shot settings with 1-second timeout to trigger elapsed > target stop
     // This stops steam without triggering the purge sequence (which requestIdle() would do)
@@ -1817,7 +1887,7 @@ void MainController::softStopSteam() {
         1,  // 1 second - any elapsed time > 1 will trigger stop
         m_settings->waterTemperature(),
         m_settings->waterVolume(),
-        93.0
+        groupTemp
     );
 
     qDebug() << "Soft stop steam: sent 1-second timeout to trigger natural stop";
@@ -2451,6 +2521,10 @@ void MainController::loadDefaultProfile() {
     m_currentProfile.addStep(preinfusion);
     m_currentProfile.addStep(extraction);
     m_currentProfile.setPreinfuseFrameCount(1);
+
+    if (m_settings) {
+        m_settings->setSelectedFavoriteProfile(-1);  // Default profile, not in favorites
+    }
 }
 
 QString MainController::profilesPath() const {

@@ -415,6 +415,8 @@ Page {
                             for (var i = 0; i < profile.steps.length; i++) {
                                 profile.steps[i].temperature = newValue
                             }
+                            // Also update the profile-level espresso_temperature
+                            profile.espresso_temperature = newValue
                             uploadProfile()
                         }
                     }

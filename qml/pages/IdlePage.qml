@@ -369,15 +369,9 @@ Page {
                         KeyNavigation.up: espressoButton
                         KeyNavigation.down: sleepButton
 
-                        Component.onCompleted: {
-                            // Pre-load the selected profile when created
-                            if (Settings.selectedFavoriteProfile >= 0) {
-                                var preset = Settings.getFavoriteProfile(Settings.selectedFavoriteProfile)
-                                if (preset && preset.filename) {
-                                    MainController.loadProfile(preset.filename)
-                                }
-                            }
-                        }
+                        // Note: Profile is already loaded by MainController on startup.
+                        // Don't re-load here as it would override the correct profile with
+                        // whatever is at selectedFavoriteProfile index (bug fix).
 
                         onPresetSelected: function(index) {
                             var wasAlreadySelected = (index === Settings.selectedFavoriteProfile)

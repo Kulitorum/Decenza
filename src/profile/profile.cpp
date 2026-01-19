@@ -307,6 +307,17 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
     }
 
+    // Sync espresso_temperature with first frame if they differ
+    // This handles profiles edited before the bug fix where only frame temps were updated
+    if (!profile.m_steps.isEmpty()) {
+        double firstFrameTemp = profile.m_steps.first().temperature;
+        if (qAbs(profile.m_espressoTemperature - firstFrameTemp) > 0.1) {
+            qDebug() << "Syncing espresso_temperature from" << profile.m_espressoTemperature
+                     << "to first frame temp" << firstFrameTemp;
+            profile.m_espressoTemperature = firstFrameTemp;
+        }
+    }
+
     return profile;
 }
 
