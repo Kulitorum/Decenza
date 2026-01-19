@@ -211,8 +211,10 @@ int main(int argc, char *argv[])
             // Compare types (case-insensitive) - if different, we need to create a new scale
             if (physicalScale->type().compare(type, Qt::CaseInsensitive) != 0) {
                 qDebug() << "Scale type changed from" << physicalScale->type() << "to" << type << "- creating new scale";
-                bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference before deleting
-                physicalScale.reset();  // Delete old scale, fall through to create new one
+                // IMPORTANT: Clear all references before deleting the scale to prevent dangling pointers
+                machineState.setScale(&flowScale);  // Switch to FlowScale first
+                bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference
+                physicalScale.reset();  // Now safe to delete old scale
             } else {
                 flowScaleFallbackTimer.stop();  // Stop timer - we found a scale
                 // Re-wire to use physical scale
