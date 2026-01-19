@@ -86,6 +86,18 @@ bool ShotServer::start()
         return false;
     }
 
+    // Start UDP discovery socket
+    m_discoverySocket = new QUdpSocket(this);
+    if (m_discoverySocket->bind(QHostAddress::Any, DISCOVERY_PORT, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+        connect(m_discoverySocket, &QUdpSocket::readyRead, this, &ShotServer::onDiscoveryDatagram);
+        qDebug() << "ShotServer: Discovery listener started on UDP port" << DISCOVERY_PORT;
+    } else {
+        qWarning() << "ShotServer: Failed to bind discovery socket on port" << DISCOVERY_PORT << m_discoverySocket->errorString();
+        delete m_discoverySocket;
+        m_discoverySocket = nullptr;
+        // Continue anyway - discovery is optional
+    }
+
     m_cleanupTimer->start();
     qDebug() << "ShotServer: Started on" << url();
     emit runningChanged();
@@ -95,6 +107,12 @@ bool ShotServer::start()
 
 void ShotServer::stop()
 {
+    if (m_discoverySocket) {
+        m_discoverySocket->close();
+        delete m_discoverySocket;
+        m_discoverySocket = nullptr;
+    }
+
     if (m_server) {
         m_cleanupTimer->stop();
         m_server->close();
@@ -342,6 +360,46 @@ void ShotServer::cleanupStaleConnections()
         m_pendingRequests.remove(socket);
         socket->close();
         socket->deleteLater();
+    }
+}
+
+void ShotServer::onDiscoveryDatagram()
+{
+    while (m_discoverySocket && m_discoverySocket->hasPendingDatagrams()) {
+        QByteArray datagram;
+        datagram.resize(m_discoverySocket->pendingDatagramSize());
+        QHostAddress senderAddress;
+        quint16 senderPort;
+
+        m_discoverySocket->readDatagram(datagram.data(), datagram.size(), &senderAddress, &senderPort);
+
+        // Check if this is a discovery request
+        if (datagram.trimmed() == "DECENZA_DISCOVER") {
+            qDebug() << "ShotServer: Discovery request from" << senderAddress.toString() << ":" << senderPort;
+
+            // Build response with device info
+            QString deviceName = QSysInfo::machineHostName();
+            if (deviceName.isEmpty() || deviceName == "localhost") {
+                QString productName = QSysInfo::prettyProductName();
+                if (!productName.isEmpty()) {
+                    deviceName = productName;
+                } else {
+                    deviceName = QSysInfo::productType() + " device";
+                }
+            }
+
+            QJsonObject response;
+            response["type"] = "DECENZA_SERVER";
+            response["deviceName"] = deviceName;
+            response["platform"] = QSysInfo::productType();
+            response["appVersion"] = QString(VERSION_STRING);
+            response["serverUrl"] = url();
+            response["port"] = m_port;
+
+            QByteArray responseData = QJsonDocument(response).toJson(QJsonDocument::Compact);
+            m_discoverySocket->writeDatagram(responseData, senderAddress, senderPort);
+            qDebug() << "ShotServer: Sent discovery response to" << senderAddress.toString();
+        }
     }
 }
 
@@ -4409,7 +4467,18 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
     QJsonObject manifest;
 
     // Device and app info
-    manifest["deviceName"] = QSysInfo::machineHostName();
+    QString deviceName = QSysInfo::machineHostName();
+    if (deviceName.isEmpty() || deviceName == "localhost") {
+        // Android devices often don't have a proper hostname
+        // Use a more descriptive name
+        QString productName = QSysInfo::prettyProductName();
+        if (!productName.isEmpty()) {
+            deviceName = productName;
+        } else {
+            deviceName = QSysInfo::productType() + " device";
+        }
+    }
+    manifest["deviceName"] = deviceName;
     manifest["platform"] = QSysInfo::productType();
     manifest["appVersion"] = QString(VERSION_STRING);
 
@@ -4430,12 +4499,18 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         QString userPath = m_profileStorage->userProfilesPath();
         QString downloadedPath = m_profileStorage->downloadedProfilesPath();
 
+        qDebug() << "ShotServer: Profile paths for backup manifest:";
+        qDebug() << "  User profiles path:" << userPath;
+        qDebug() << "  Downloaded profiles path:" << downloadedPath;
+
         int userProfileCount = 0;
         qint64 userProfilesSize = 0;
         QDir userDir(userPath);
+        qDebug() << "  User dir exists:" << userDir.exists();
         if (userDir.exists()) {
             QFileInfoList files = userDir.entryInfoList(QStringList() << "*.json", QDir::Files);
             userProfileCount = files.size();
+            qDebug() << "  User profile .json files found:" << userProfileCount;
             for (const QFileInfo& fi : files) {
                 userProfilesSize += fi.size();
             }
@@ -4444,19 +4519,23 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         int downloadedProfileCount = 0;
         qint64 downloadedProfilesSize = 0;
         QDir downloadedDir(downloadedPath);
+        qDebug() << "  Downloaded dir exists:" << downloadedDir.exists();
         if (downloadedDir.exists()) {
             QFileInfoList files = downloadedDir.entryInfoList(QStringList() << "*.json", QDir::Files);
             downloadedProfileCount = files.size();
+            qDebug() << "  Downloaded profile .json files found:" << downloadedProfileCount;
             for (const QFileInfo& fi : files) {
                 downloadedProfilesSize += fi.size();
             }
         }
 
+        qDebug() << "  Total profile count:" << (userProfileCount + downloadedProfileCount);
         manifest["profileCount"] = userProfileCount + downloadedProfileCount;
         manifest["userProfileCount"] = userProfileCount;
         manifest["downloadedProfileCount"] = downloadedProfileCount;
         manifest["profilesSize"] = userProfilesSize + downloadedProfilesSize;
     } else {
+        qDebug() << "ShotServer: m_profileStorage is null, cannot enumerate profiles";
         manifest["profileCount"] = 0;
         manifest["profilesSize"] = 0;
     }

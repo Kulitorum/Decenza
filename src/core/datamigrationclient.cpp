@@ -13,6 +13,7 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QUrl>
+#include <QNetworkInterface>
 
 DataMigrationClient::DataMigrationClient(QObject* parent)
     : QObject(parent)
@@ -107,7 +108,7 @@ void DataMigrationClient::onManifestReply()
              << "- Media:" << m_manifest["mediaCount"].toInt();
 }
 
-void DataMigrationClient::importAll()
+void DataMigrationClient::startImport(const QStringList& types)
 {
     if (m_importing || m_serverUrl.isEmpty()) {
         return;
@@ -126,29 +127,74 @@ void DataMigrationClient::importAll()
     emit progressChanged();
     emit errorMessageChanged();
 
-    // Calculate total bytes for progress
-    m_totalBytes = m_manifest["settingsSize"].toLongLong()
-                 + m_manifest["profilesSize"].toLongLong()
-                 + m_manifest["shotsSize"].toLongLong()
-                 + m_manifest["mediaSize"].toLongLong();
+    // Calculate total bytes for progress based on requested types
+    m_totalBytes = 0;
+    if (types.contains("settings")) {
+        m_totalBytes += m_manifest["settingsSize"].toLongLong();
+    }
+    if (types.contains("profiles")) {
+        m_totalBytes += m_manifest["profilesSize"].toLongLong();
+    }
+    if (types.contains("shots")) {
+        m_totalBytes += m_manifest["shotsSize"].toLongLong();
+    }
+    if (types.contains("media")) {
+        m_totalBytes += m_manifest["mediaSize"].toLongLong();
+    }
     m_receivedBytes = 0;
 
-    // Queue imports
-    m_importQueue.clear();
-    if (m_manifest["hasSettings"].toBool()) {
-        m_importQueue << "settings";
-    }
-    if (m_manifest["profileCount"].toInt() > 0) {
-        m_importQueue << "profiles";
-    }
-    if (m_manifest["shotCount"].toInt() > 0) {
-        m_importQueue << "shots";
-    }
-    if (m_manifest["mediaCount"].toInt() > 0) {
-        m_importQueue << "media";
-    }
+    // Set up the import queue
+    m_importQueue = types;
 
     startNextImport();
+}
+
+void DataMigrationClient::importAll()
+{
+    // Build list of all available data types
+    QStringList types;
+    if (m_manifest["hasSettings"].toBool()) {
+        types << "settings";
+    }
+    if (m_manifest["profileCount"].toInt() > 0) {
+        types << "profiles";
+    }
+    if (m_manifest["shotCount"].toInt() > 0) {
+        types << "shots";
+    }
+    if (m_manifest["mediaCount"].toInt() > 0) {
+        types << "media";
+    }
+
+    startImport(types);
+}
+
+void DataMigrationClient::importOnlySettings()
+{
+    if (m_manifest["hasSettings"].toBool()) {
+        startImport(QStringList{"settings"});
+    }
+}
+
+void DataMigrationClient::importOnlyProfiles()
+{
+    if (m_manifest["profileCount"].toInt() > 0) {
+        startImport(QStringList{"profiles"});
+    }
+}
+
+void DataMigrationClient::importOnlyShots()
+{
+    if (m_manifest["shotCount"].toInt() > 0) {
+        startImport(QStringList{"shots"});
+    }
+}
+
+void DataMigrationClient::importOnlyMedia()
+{
+    if (m_manifest["mediaCount"].toInt() > 0) {
+        startImport(QStringList{"media"});
+    }
 }
 
 void DataMigrationClient::startNextImport()
@@ -172,17 +218,17 @@ void DataMigrationClient::startNextImport()
     QString next = m_importQueue.takeFirst();
 
     if (next == "settings") {
-        importSettings();
+        doImportSettings();
     } else if (next == "profiles") {
-        importProfiles();
+        doImportProfiles();
     } else if (next == "shots") {
-        importShots();
+        doImportShots();
     } else if (next == "media") {
-        importMedia();
+        doImportMedia();
     }
 }
 
-void DataMigrationClient::importSettings()
+void DataMigrationClient::doImportSettings()
 {
     setCurrentOperation(tr("Importing settings..."));
 
@@ -219,7 +265,7 @@ void DataMigrationClient::onSettingsReply()
     startNextImport();
 }
 
-void DataMigrationClient::importProfiles()
+void DataMigrationClient::doImportProfiles()
 {
     setCurrentOperation(tr("Fetching profile list..."));
 
@@ -351,7 +397,7 @@ void DataMigrationClient::onProfileFileReply()
     downloadNextProfile();
 }
 
-void DataMigrationClient::importShots()
+void DataMigrationClient::doImportShots()
 {
     setCurrentOperation(tr("Importing shot history..."));
 
@@ -400,7 +446,7 @@ void DataMigrationClient::onShotsReply()
     startNextImport();
 }
 
-void DataMigrationClient::importMedia()
+void DataMigrationClient::doImportMedia()
 {
     setCurrentOperation(tr("Fetching media list..."));
 
@@ -571,4 +617,152 @@ void DataMigrationClient::setError(const QString& error)
     m_errorMessage = error;
     emit errorMessageChanged();
     qWarning() << "DataMigrationClient:" << error;
+}
+
+// ============================================================================
+// Device Discovery
+// ============================================================================
+
+void DataMigrationClient::startDiscovery()
+{
+    if (m_searching) {
+        return;
+    }
+
+    m_searching = true;
+    m_discoveredDevices.clear();
+    emit isSearchingChanged();
+    emit discoveredDevicesChanged();
+
+    setCurrentOperation(tr("Searching for devices..."));
+
+    // Create UDP socket for discovery
+    if (m_discoverySocket) {
+        m_discoverySocket->close();
+        delete m_discoverySocket;
+    }
+    m_discoverySocket = new QUdpSocket(this);
+
+    // Bind to receive responses (random port)
+    if (!m_discoverySocket->bind(QHostAddress::Any, 0)) {
+        qWarning() << "DataMigrationClient: Failed to bind discovery socket:" << m_discoverySocket->errorString();
+        stopDiscovery();
+        return;
+    }
+
+    connect(m_discoverySocket, &QUdpSocket::readyRead, this, &DataMigrationClient::onDiscoveryDatagram);
+
+    // Send broadcast discovery message
+    QByteArray discoveryMessage = "DECENZA_DISCOVER";
+
+    // Send to broadcast address
+    qint64 sent = m_discoverySocket->writeDatagram(discoveryMessage, QHostAddress::Broadcast, DISCOVERY_PORT);
+    if (sent == -1) {
+        qWarning() << "DataMigrationClient: Failed to send broadcast:" << m_discoverySocket->errorString();
+    } else {
+        qDebug() << "DataMigrationClient: Sent discovery broadcast to port" << DISCOVERY_PORT;
+    }
+
+    // Also try sending to common subnet broadcast addresses (255.255.255.255 may not work on all networks)
+    // Get local addresses and compute their broadcast addresses
+    for (const QNetworkInterface& interface : QNetworkInterface::allInterfaces()) {
+        if (!(interface.flags() & QNetworkInterface::IsUp) ||
+            !(interface.flags() & QNetworkInterface::IsRunning) ||
+            (interface.flags() & QNetworkInterface::IsLoopBack)) {
+            continue;
+        }
+
+        for (const QNetworkAddressEntry& entry : interface.addressEntries()) {
+            if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
+                QHostAddress broadcast = entry.broadcast();
+                if (!broadcast.isNull() && broadcast != QHostAddress::Broadcast) {
+                    m_discoverySocket->writeDatagram(discoveryMessage, broadcast, DISCOVERY_PORT);
+                    qDebug() << "DataMigrationClient: Sent discovery to" << broadcast.toString();
+                }
+            }
+        }
+    }
+
+    // Set up timeout timer
+    if (!m_discoveryTimer) {
+        m_discoveryTimer = new QTimer(this);
+        m_discoveryTimer->setSingleShot(true);
+        connect(m_discoveryTimer, &QTimer::timeout, this, &DataMigrationClient::onDiscoveryTimeout);
+    }
+    m_discoveryTimer->start(DISCOVERY_TIMEOUT_MS);
+}
+
+void DataMigrationClient::stopDiscovery()
+{
+    if (m_discoveryTimer) {
+        m_discoveryTimer->stop();
+    }
+
+    if (m_discoverySocket) {
+        m_discoverySocket->close();
+        delete m_discoverySocket;
+        m_discoverySocket = nullptr;
+    }
+
+    if (m_searching) {
+        m_searching = false;
+        emit isSearchingChanged();
+        setCurrentOperation(m_discoveredDevices.isEmpty() ? tr("No devices found") : tr("Search complete"));
+    }
+}
+
+void DataMigrationClient::onDiscoveryDatagram()
+{
+    while (m_discoverySocket && m_discoverySocket->hasPendingDatagrams()) {
+        QByteArray datagram;
+        datagram.resize(m_discoverySocket->pendingDatagramSize());
+        QHostAddress senderAddress;
+
+        m_discoverySocket->readDatagram(datagram.data(), datagram.size(), &senderAddress);
+
+        // Parse response JSON
+        QJsonDocument doc = QJsonDocument::fromJson(datagram);
+        if (!doc.isObject()) {
+            continue;
+        }
+
+        QJsonObject obj = doc.object();
+        if (obj["type"].toString() != "DECENZA_SERVER") {
+            continue;
+        }
+
+        // Check if we already have this server (by URL)
+        QString serverUrl = obj["serverUrl"].toString();
+        bool alreadyFound = false;
+        for (const QVariant& device : m_discoveredDevices) {
+            QVariantMap deviceMap = device.toMap();
+            if (deviceMap["serverUrl"].toString() == serverUrl) {
+                alreadyFound = true;
+                break;
+            }
+        }
+
+        if (!alreadyFound) {
+            QVariantMap device;
+            device["deviceName"] = obj["deviceName"].toString();
+            device["platform"] = obj["platform"].toString();
+            device["appVersion"] = obj["appVersion"].toString();
+            device["serverUrl"] = serverUrl;
+            device["port"] = obj["port"].toInt();
+            device["ipAddress"] = senderAddress.toString();
+
+            m_discoveredDevices.append(device);
+            emit discoveredDevicesChanged();
+
+            qDebug() << "DataMigrationClient: Found device:" << device["deviceName"].toString()
+                     << "at" << serverUrl;
+        }
+    }
+}
+
+void DataMigrationClient::onDiscoveryTimeout()
+{
+    qDebug() << "DataMigrationClient: Discovery timeout, found" << m_discoveredDevices.size() << "devices";
+    stopDiscovery();
+    emit discoveryComplete();
 }

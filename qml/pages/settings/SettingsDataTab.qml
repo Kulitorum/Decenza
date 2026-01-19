@@ -219,6 +219,98 @@ Item {
                             }
                         }
                     }
+
+                    StyledButton {
+                        text: MainController.dataMigration.isSearching ?
+                              TranslationManager.translate("settings.data.searching", "Searching...") :
+                              TranslationManager.translate("settings.data.search", "Search")
+                        enabled: !MainController.dataMigration.isConnecting && !MainController.dataMigration.isImporting &&
+                                 !MainController.dataMigration.isSearching
+                        onClicked: MainController.dataMigration.startDiscovery()
+                    }
+                }
+
+                // Discovered devices list
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(4)
+                    visible: MainController.dataMigration.discoveredDevices.length > 0 ||
+                             MainController.dataMigration.isSearching
+
+                    // Searching indicator
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+                        visible: MainController.dataMigration.isSearching
+
+                        BusyIndicator {
+                            running: true
+                            Layout.preferredWidth: Theme.scaled(16)
+                            Layout.preferredHeight: Theme.scaled(16)
+                        }
+
+                        Text {
+                            text: TranslationManager.translate("settings.data.searchingdevices", "Searching for Decenza devices...")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                        }
+                    }
+
+                    // Device list
+                    Repeater {
+                        model: MainController.dataMigration.discoveredDevices
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: deviceRow.height + Theme.scaled(16)
+                            color: deviceMouseArea.containsMouse ? Theme.surfaceColor : Theme.backgroundColor
+                            radius: Theme.scaled(6)
+                            border.width: 1
+                            border.color: Theme.borderColor
+
+                            RowLayout {
+                                id: deviceRow
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.margins: Theme.scaled(8)
+                                spacing: Theme.scaled(10)
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.scaled(2)
+
+                                    Text {
+                                        text: modelData.deviceName || "Unknown Device"
+                                        color: Theme.textColor
+                                        font.pixelSize: Theme.scaled(13)
+                                        font.bold: true
+                                    }
+
+                                    Text {
+                                        text: modelData.platform + " • v" + modelData.appVersion
+                                        color: Theme.textSecondaryColor
+                                        font.pixelSize: Theme.scaled(11)
+                                    }
+                                }
+
+                                Text {
+                                    text: modelData.ipAddress
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(11)
+                                }
+                            }
+
+                            MouseArea {
+                                id: deviceMouseArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: {
+                                    MainController.dataMigration.connectToServer(modelData.serverUrl)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Connection status
@@ -375,26 +467,66 @@ Item {
                 }
 
                 // Action buttons
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
+                    spacing: Theme.scaled(8)
                     visible: MainController.dataMigration.manifest && MainController.dataMigration.manifest.deviceName !== undefined
 
-                    StyledButton {
-                        primary: true
-                        text: TranslationManager.translate("settings.data.importall", "Import All")
+                    // Import All button
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+
+                        StyledButton {
+                            primary: true
+                            text: TranslationManager.translate("settings.data.importall", "Import All")
+                            visible: !MainController.dataMigration.isImporting
+                            enabled: !MainController.dataMigration.isImporting
+                            onClicked: MainController.dataMigration.importAll()
+                        }
+
+                        StyledButton {
+                            text: TranslationManager.translate("common.cancel", "Cancel")
+                            visible: MainController.dataMigration.isImporting
+                            onClicked: MainController.dataMigration.cancel()
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    // Individual import buttons
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
                         visible: !MainController.dataMigration.isImporting
-                        enabled: !MainController.dataMigration.isImporting
-                        onClicked: MainController.dataMigration.importAll()
-                    }
 
-                    StyledButton {
-                        text: TranslationManager.translate("common.cancel", "Cancel")
-                        visible: MainController.dataMigration.isImporting
-                        onClicked: MainController.dataMigration.cancel()
-                    }
+                        StyledButton {
+                            text: TranslationManager.translate("settings.data.importsettings", "Import Settings")
+                            enabled: MainController.dataMigration.manifest.hasSettings === true
+                            onClicked: MainController.dataMigration.importOnlySettings()
+                        }
 
-                    Item { Layout.fillWidth: true }
+                        StyledButton {
+                            text: TranslationManager.translate("settings.data.importprofiles", "Import Profiles") +
+                                  " (" + (MainController.dataMigration.manifest.profileCount || 0) + ")"
+                            enabled: (MainController.dataMigration.manifest.profileCount || 0) > 0
+                            onClicked: MainController.dataMigration.importOnlyProfiles()
+                        }
+
+                        StyledButton {
+                            text: TranslationManager.translate("settings.data.importshots", "Import Shots") +
+                                  " (" + (MainController.dataMigration.manifest.shotCount || 0) + ")"
+                            enabled: (MainController.dataMigration.manifest.shotCount || 0) > 0
+                            onClicked: MainController.dataMigration.importOnlyShots()
+                        }
+
+                        StyledButton {
+                            text: TranslationManager.translate("settings.data.importmedia", "Import Media") +
+                                  " (" + (MainController.dataMigration.manifest.mediaCount || 0) + ")"
+                            enabled: (MainController.dataMigration.manifest.mediaCount || 0) > 0
+                            onClicked: MainController.dataMigration.importOnlyMedia()
+                        }
+                    }
                 }
 
                 Item { Layout.fillHeight: true }

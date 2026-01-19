@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QUdpSocket>
 #include <QHash>
 #include <QFile>
 #include <QTimer>
@@ -62,6 +63,7 @@ private slots:
     void onReadyRead();
     void onDisconnected();
     void cleanupStaleConnections();
+    void onDiscoveryDatagram();
 
 private:
     void handleRequest(QTcpSocket* socket, const QByteArray& request);
@@ -100,6 +102,7 @@ private:
     void handleBackupMediaFile(QTcpSocket* socket, const QString& filename);
 
     QTcpServer* m_server = nullptr;
+    QUdpSocket* m_discoverySocket = nullptr;
     ShotHistoryStorage* m_storage = nullptr;
     DE1Device* m_device = nullptr;
     ScreensaverVideoManager* m_screensaverManager = nullptr;
@@ -116,4 +119,5 @@ private:
     static constexpr qint64 MAX_UPLOAD_SIZE = 500 * 1024 * 1024;   // 500 MB max per file
     static constexpr int MAX_CONCURRENT_UPLOADS = 2;               // Limit concurrent media uploads
     static constexpr int CONNECTION_TIMEOUT_MS = 300000;           // 5 minute timeout
+    static constexpr int DISCOVERY_PORT = 8889;                    // UDP port for device discovery
 };

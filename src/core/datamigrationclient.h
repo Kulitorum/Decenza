@@ -3,10 +3,13 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <QVariantList>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QUdpSocket>
 #include <QTemporaryDir>
 #include <QList>
+#include <QTimer>
 
 class Settings;
 class ProfileStorage;
@@ -24,11 +27,13 @@ class DataMigrationClient : public QObject {
 
     Q_PROPERTY(bool isConnecting READ isConnecting NOTIFY isConnectingChanged)
     Q_PROPERTY(bool isImporting READ isImporting NOTIFY isImportingChanged)
+    Q_PROPERTY(bool isSearching READ isSearching NOTIFY isSearchingChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
     Q_PROPERTY(QString currentOperation READ currentOperation NOTIFY currentOperationChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QVariantMap manifest READ manifest NOTIFY manifestChanged)
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY serverUrlChanged)
+    Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY discoveredDevicesChanged)
 
 public:
     explicit DataMigrationClient(QObject* parent = nullptr);
@@ -43,11 +48,17 @@ public:
     // Property getters
     bool isConnecting() const { return m_connecting; }
     bool isImporting() const { return m_importing; }
+    bool isSearching() const { return m_searching; }
     double progress() const { return m_progress; }
     QString currentOperation() const { return m_currentOperation; }
     QString errorMessage() const { return m_errorMessage; }
     QVariantMap manifest() const { return m_manifest; }
     QString serverUrl() const { return m_serverUrl; }
+    QVariantList discoveredDevices() const { return m_discoveredDevices; }
+
+    // Device discovery
+    Q_INVOKABLE void startDiscovery();
+    Q_INVOKABLE void stopDiscovery();
 
     // Connect to a server and fetch its manifest
     Q_INVOKABLE void connectToServer(const QString& serverUrl);
@@ -58,11 +69,11 @@ public:
     // Import all data types
     Q_INVOKABLE void importAll();
 
-    // Import individual data types
-    Q_INVOKABLE void importSettings();
-    Q_INVOKABLE void importProfiles();
-    Q_INVOKABLE void importShots();
-    Q_INVOKABLE void importMedia();
+    // Import individual data types (can be called from QML)
+    Q_INVOKABLE void importOnlySettings();
+    Q_INVOKABLE void importOnlyProfiles();
+    Q_INVOKABLE void importOnlyShots();
+    Q_INVOKABLE void importOnlyMedia();
 
     // Cancel ongoing import
     Q_INVOKABLE void cancel();
@@ -70,15 +81,18 @@ public:
 signals:
     void isConnectingChanged();
     void isImportingChanged();
+    void isSearchingChanged();
     void progressChanged();
     void currentOperationChanged();
     void errorMessageChanged();
     void manifestChanged();
     void serverUrlChanged();
+    void discoveredDevicesChanged();
     void connected();
     void connectionFailed(const QString& error);
     void importComplete(int settingsImported, int profilesImported, int shotsImported, int mediaImported);
     void importFailed(const QString& error);
+    void discoveryComplete();
 
 private slots:
     void onManifestReply();
@@ -89,6 +103,8 @@ private slots:
     void onMediaListReply();
     void onMediaFileReply();
     void onDownloadProgress(qint64 received, qint64 total);
+    void onDiscoveryDatagram();
+    void onDiscoveryTimeout();
 
 private:
     // Helper structs for tracking downloads
@@ -106,9 +122,16 @@ private:
     void setProgress(double progress);
     void setCurrentOperation(const QString& operation);
     void setError(const QString& error);
+    void startImport(const QStringList& types);  // Common setup for all import methods
     void startNextImport();
     void downloadNextProfile();
     void downloadNextMedia();
+
+    // Internal import methods (used by queue)
+    void doImportSettings();
+    void doImportProfiles();
+    void doImportShots();
+    void doImportMedia();
 
     QNetworkAccessManager* m_networkManager;
     QNetworkReply* m_currentReply = nullptr;
@@ -142,4 +165,12 @@ private:
     // For progress calculation
     qint64 m_totalBytes = 0;
     qint64 m_receivedBytes = 0;
+
+    // Device discovery
+    QUdpSocket* m_discoverySocket = nullptr;
+    QTimer* m_discoveryTimer = nullptr;
+    QVariantList m_discoveredDevices;
+    bool m_searching = false;
+    static constexpr int DISCOVERY_PORT = 8889;
+    static constexpr int DISCOVERY_TIMEOUT_MS = 3000;  // Search for 3 seconds
 };
