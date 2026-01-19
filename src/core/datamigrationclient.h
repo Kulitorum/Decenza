@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 #include <QList>
 #include <QTimer>
+#include <QPointer>
 
 class Settings;
 class ProfileStorage;
@@ -134,7 +135,7 @@ private:
     void doImportMedia();
 
     QNetworkAccessManager* m_networkManager;
-    QNetworkReply* m_currentReply = nullptr;
+    QPointer<QNetworkReply> m_currentReply;
     QTemporaryDir* m_tempDir = nullptr;
 
     Settings* m_settings = nullptr;

@@ -73,6 +73,12 @@ void DataMigrationClient::onManifestReply()
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) return;
 
+    // Safety check: if reply doesn't match (stale signal from race condition)
+    if (reply != m_currentReply) {
+        reply->deleteLater();
+        return;
+    }
+
     m_connecting = false;
     emit isConnectingChanged();
 
@@ -245,8 +251,8 @@ void DataMigrationClient::onSettingsReply()
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) return;
 
-    // Safety check if cancelled while signal was queued
-    if (m_cancelled) {
+    // Safety check: if cancelled or reply doesn't match (stale signal from race condition)
+    if (m_cancelled || reply != m_currentReply) {
         reply->deleteLater();
         return;
     }
@@ -288,8 +294,8 @@ void DataMigrationClient::onProfileListReply()
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) return;
 
-    // Safety check if cancelled while signal was queued
-    if (m_cancelled) {
+    // Safety check: if cancelled or reply doesn't match (stale signal from race condition)
+    if (m_cancelled || reply != m_currentReply) {
         reply->deleteLater();
         return;
     }
@@ -363,8 +369,8 @@ void DataMigrationClient::onProfileFileReply()
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) return;
 
-    // Safety check if cancelled while signal was queued
-    if (m_cancelled) {
+    // Safety check: if cancelled or reply doesn't match (stale signal from race condition)
+    if (m_cancelled || reply != m_currentReply) {
         reply->deleteLater();
         return;
     }
@@ -433,8 +439,8 @@ void DataMigrationClient::onShotsReply()
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) return;
 
-    // Safety check if cancelled while signal was queued
-    if (m_cancelled) {
+    // Safety check: if cancelled or reply doesn't match (stale signal from race condition)
+    if (m_cancelled || reply != m_currentReply) {
         reply->deleteLater();
         return;
     }
@@ -488,8 +494,8 @@ void DataMigrationClient::onMediaListReply()
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) return;
 
-    // Safety check if cancelled while signal was queued
-    if (m_cancelled) {
+    // Safety check: if cancelled or reply doesn't match (stale signal from race condition)
+    if (m_cancelled || reply != m_currentReply) {
         reply->deleteLater();
         return;
     }
@@ -561,8 +567,8 @@ void DataMigrationClient::onMediaFileReply()
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
     if (!reply) return;
 
-    // Safety check if cancelled while signal was queued
-    if (m_cancelled) {
+    // Safety check: if cancelled or reply doesn't match (stale signal from race condition)
+    if (m_cancelled || reply != m_currentReply) {
         reply->deleteLater();
         return;
     }
@@ -602,11 +608,15 @@ void DataMigrationClient::cancel()
     m_cancelled = true;
 
     if (m_currentReply) {
-        // Disconnect all signals BEFORE aborting to prevent handlers from running
-        m_currentReply->disconnect(this);
-        m_currentReply->abort();
-        m_currentReply->deleteLater();
+        // Store pointer locally and clear member FIRST
+        // This ensures any queued signal handlers will see reply != m_currentReply
+        QNetworkReply* reply = m_currentReply;
         m_currentReply = nullptr;
+
+        // Now disconnect and abort
+        reply->disconnect(this);
+        reply->abort();
+        reply->deleteLater();
     }
 
     if (m_connecting) {
