@@ -143,9 +143,9 @@ KeyboardAwareContainer {
                     }
 
                     // Auto flush steam wand setting
-                    RowLayout {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(8)
+                        spacing: Theme.scaled(4)
 
                         Text {
                             text: "Auto flush wand after"
@@ -153,14 +153,12 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(14)
                         }
 
-                        Item { Layout.fillWidth: true }
-
                         ValueInput {
-                            Layout.preferredWidth: Theme.scaled(80)
+                            Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(36)
                             from: 0
                             to: 60
-                            stepSize: 5
+                            stepSize: 1
                             decimals: 0
                             value: Settings.steamAutoFlushSeconds
                             valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
