@@ -251,6 +251,43 @@ if (frame.exitWeight > 0) {
 if (frame.exitIf && frame.exitType == "weight" ...) // BUG!
 ```
 
+## Data Migration (Device-to-Device Transfer)
+
+Transfer profiles, shots, settings, and media between devices over WiFi.
+
+### Architecture
+- **Server**: `ShotServer` (same as Remote Access) exposes `/backup/*` REST endpoints
+- **Client**: `DataMigrationClient` discovers servers and imports data
+- **Discovery**: UDP broadcast on port 8889 for automatic device finding
+- **UI**: Settings → Data tab
+
+### Key Files
+- `src/core/datamigrationclient.cpp/.h` - Client-side discovery and import
+- `src/network/shotserver.cpp` - Server-side backup endpoints (lines 4400+)
+- `qml/pages/settings/SettingsDataTab.qml` - UI
+
+### How It Works
+1. **Source device**: Enable "Remote Access" in Settings → Shot History tab
+2. **Target device**: Go to Settings → Data tab, tap "Search"
+3. Client broadcasts UDP discovery packet to port 8889
+4. Servers respond with device info (name, URL, platform)
+5. Client filters out own device, shows discovered servers
+6. User selects device and imports desired data types
+
+### REST Endpoints (on ShotServer)
+- `GET /backup/manifest` - List available data (counts, sizes)
+- `GET /backup/settings` - Export settings JSON
+- `GET /backup/profiles` - List profile filenames
+- `GET /backup/profiles/{name}` - Download single profile
+- `GET /backup/shots` - List shot IDs
+- `GET /backup/shots/{id}` - Download single shot
+- `GET /backup/media` - List media files
+- `GET /backup/media/{name}` - Download media file
+
+### Import Options
+- **Import All**: Settings, profiles, shots, media
+- **Individual**: Import only specific data types (Settings, Profiles, Shots, Media buttons)
+
 ## Visualizer Integration
 
 ### DYE (Describe Your Espresso) Metadata
