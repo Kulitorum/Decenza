@@ -11,6 +11,7 @@
 
 #include <QNetworkInterface>
 #include <QUdpSocket>
+#include <QSet>
 #include <QFile>
 #include <QBuffer>
 #include <algorithm>
@@ -4495,45 +4496,58 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
     }
 
     // Profiles info
+    // Profiles are stored flat in externalProfilesPath() and/or fallbackPath()
+    // NOT in /user/ or /downloaded/ subdirectories
     if (m_profileStorage) {
-        QString userPath = m_profileStorage->userProfilesPath();
-        QString downloadedPath = m_profileStorage->downloadedProfilesPath();
+        QString extPath = m_profileStorage->externalProfilesPath();
+        QString fallbackPath = m_profileStorage->fallbackPath();
 
         qDebug() << "ShotServer: Profile paths for backup manifest:";
-        qDebug() << "  User profiles path:" << userPath;
-        qDebug() << "  Downloaded profiles path:" << downloadedPath;
+        qDebug() << "  External path:" << extPath;
+        qDebug() << "  Fallback path:" << fallbackPath;
 
-        int userProfileCount = 0;
-        qint64 userProfilesSize = 0;
-        QDir userDir(userPath);
-        qDebug() << "  User dir exists:" << userDir.exists();
-        if (userDir.exists()) {
-            QFileInfoList files = userDir.entryInfoList(QStringList() << "*.json", QDir::Files);
-            userProfileCount = files.size();
-            qDebug() << "  User profile .json files found:" << userProfileCount;
-            for (const QFileInfo& fi : files) {
-                userProfilesSize += fi.size();
+        int profileCount = 0;
+        qint64 profilesSize = 0;
+        QSet<QString> seenFiles;  // Avoid counting duplicates
+
+        // Check external storage
+        if (!extPath.isEmpty()) {
+            QDir extDir(extPath);
+            qDebug() << "  External dir exists:" << extDir.exists();
+            if (extDir.exists()) {
+                QFileInfoList files = extDir.entryInfoList(QStringList() << "*.json", QDir::Files);
+                for (const QFileInfo& fi : files) {
+                    // Skip temp/internal files
+                    if (!fi.fileName().startsWith("_")) {
+                        seenFiles.insert(fi.fileName());
+                        profileCount++;
+                        profilesSize += fi.size();
+                    }
+                }
+                qDebug() << "  External profile .json files found:" << profileCount;
             }
         }
 
-        int downloadedProfileCount = 0;
-        qint64 downloadedProfilesSize = 0;
-        QDir downloadedDir(downloadedPath);
-        qDebug() << "  Downloaded dir exists:" << downloadedDir.exists();
-        if (downloadedDir.exists()) {
-            QFileInfoList files = downloadedDir.entryInfoList(QStringList() << "*.json", QDir::Files);
-            downloadedProfileCount = files.size();
-            qDebug() << "  Downloaded profile .json files found:" << downloadedProfileCount;
+        // Check fallback path (avoid duplicates)
+        QDir fallbackDir(fallbackPath);
+        qDebug() << "  Fallback dir exists:" << fallbackDir.exists();
+        if (fallbackDir.exists()) {
+            QFileInfoList files = fallbackDir.entryInfoList(QStringList() << "*.json", QDir::Files);
+            int fallbackCount = 0;
             for (const QFileInfo& fi : files) {
-                downloadedProfilesSize += fi.size();
+                if (!fi.fileName().startsWith("_") && !seenFiles.contains(fi.fileName())) {
+                    seenFiles.insert(fi.fileName());
+                    profileCount++;
+                    profilesSize += fi.size();
+                    fallbackCount++;
+                }
             }
+            qDebug() << "  Fallback profile .json files found:" << fallbackCount;
         }
 
-        qDebug() << "  Total profile count:" << (userProfileCount + downloadedProfileCount);
-        manifest["profileCount"] = userProfileCount + downloadedProfileCount;
-        manifest["userProfileCount"] = userProfileCount;
-        manifest["downloadedProfileCount"] = downloadedProfileCount;
-        manifest["profilesSize"] = userProfilesSize + downloadedProfilesSize;
+        qDebug() << "  Total profile count:" << profileCount;
+        manifest["profileCount"] = profileCount;
+        manifest["profilesSize"] = profilesSize;
     } else {
         qDebug() << "ShotServer: m_profileStorage is null, cannot enumerate profiles";
         manifest["profileCount"] = 0;
@@ -4593,32 +4607,40 @@ void ShotServer::handleBackupProfilesList(QTcpSocket* socket)
     }
 
     QJsonArray profiles;
+    QSet<QString> seenFiles;
 
-    // Add user profiles
-    QString userPath = m_profileStorage->userProfilesPath();
-    QDir userDir(userPath);
-    if (userDir.exists()) {
-        QFileInfoList files = userDir.entryInfoList(QStringList() << "*.json", QDir::Files);
-        for (const QFileInfo& fi : files) {
-            QJsonObject profile;
-            profile["category"] = "user";
-            profile["filename"] = fi.fileName();
-            profile["size"] = fi.size();
-            profiles.append(profile);
+    // Add profiles from external storage
+    QString extPath = m_profileStorage->externalProfilesPath();
+    if (!extPath.isEmpty()) {
+        QDir extDir(extPath);
+        if (extDir.exists()) {
+            QFileInfoList files = extDir.entryInfoList(QStringList() << "*.json", QDir::Files);
+            for (const QFileInfo& fi : files) {
+                if (!fi.fileName().startsWith("_")) {
+                    seenFiles.insert(fi.fileName());
+                    QJsonObject profile;
+                    profile["category"] = "external";
+                    profile["filename"] = fi.fileName();
+                    profile["size"] = fi.size();
+                    profiles.append(profile);
+                }
+            }
         }
     }
 
-    // Add downloaded profiles
-    QString downloadedPath = m_profileStorage->downloadedProfilesPath();
-    QDir downloadedDir(downloadedPath);
-    if (downloadedDir.exists()) {
-        QFileInfoList files = downloadedDir.entryInfoList(QStringList() << "*.json", QDir::Files);
+    // Add profiles from fallback path (avoid duplicates)
+    QString fallbackPath = m_profileStorage->fallbackPath();
+    QDir fallbackDir(fallbackPath);
+    if (fallbackDir.exists()) {
+        QFileInfoList files = fallbackDir.entryInfoList(QStringList() << "*.json", QDir::Files);
         for (const QFileInfo& fi : files) {
-            QJsonObject profile;
-            profile["category"] = "downloaded";
-            profile["filename"] = fi.fileName();
-            profile["size"] = fi.size();
-            profiles.append(profile);
+            if (!fi.fileName().startsWith("_") && !seenFiles.contains(fi.fileName())) {
+                QJsonObject profile;
+                profile["category"] = "fallback";
+                profile["filename"] = fi.fileName();
+                profile["size"] = fi.size();
+                profiles.append(profile);
+            }
         }
     }
 
@@ -4634,10 +4656,10 @@ void ShotServer::handleBackupProfileFile(QTcpSocket* socket, const QString& cate
     }
 
     QString basePath;
-    if (category == "user") {
-        basePath = m_profileStorage->userProfilesPath();
-    } else if (category == "downloaded") {
-        basePath = m_profileStorage->downloadedProfilesPath();
+    if (category == "external") {
+        basePath = m_profileStorage->externalProfilesPath();
+    } else if (category == "fallback") {
+        basePath = m_profileStorage->fallbackPath();
     } else {
         sendResponse(socket, 400, "application/json", R"({"error":"Invalid category"})");
         return;

@@ -378,11 +378,12 @@ void DataMigrationClient::onProfileFileReply()
         QByteArray content = reply->readAll();
         m_receivedBytes += content.size();
 
-        QString basePath;
-        if (category == "user") {
-            basePath = m_profileStorage->userProfilesPath();
-        } else {
-            basePath = m_profileStorage->downloadedProfilesPath();
+        // Save to external storage if available, otherwise fallback
+        // (the category just tells us where it came FROM, not where to save)
+        Q_UNUSED(category)
+        QString basePath = m_profileStorage->externalProfilesPath();
+        if (basePath.isEmpty()) {
+            basePath = m_profileStorage->fallbackPath();
         }
 
         QDir().mkpath(basePath);
