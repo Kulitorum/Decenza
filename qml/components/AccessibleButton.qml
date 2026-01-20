@@ -88,4 +88,12 @@ Button {
             }
         }
     }
+
+    // Announce button name when focused via keyboard (for accessibility)
+    onActiveFocusChanged: {
+        if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            AccessibilityManager.lastAnnouncedItem = root
+            AccessibilityManager.announce(root.accessibleName)
+        }
+    }
 }

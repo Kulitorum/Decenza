@@ -9,7 +9,8 @@ QStringList SettingsSerializer::sensitiveKeys()
         "visualizerPassword",
         "openaiApiKey",
         "anthropicApiKey",
-        "geminiApiKey"
+        "geminiApiKey",
+        "mqttPassword"
     };
 }
 

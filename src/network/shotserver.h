@@ -106,6 +106,11 @@ private:
     void handleBackupMediaList(QTcpSocket* socket);
     void handleBackupMediaFile(QTcpSocket* socket, const QString& filename);
 
+    // Settings web UI
+    QString generateSettingsPage() const;
+    void handleGetSettings(QTcpSocket* socket);
+    void handleSaveSettings(QTcpSocket* socket, const QByteArray& body);
+
     QTcpServer* m_server = nullptr;
     QUdpSocket* m_discoverySocket = nullptr;
     ShotHistoryStorage* m_storage = nullptr;

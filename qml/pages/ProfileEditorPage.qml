@@ -446,6 +446,7 @@ Page {
                     suffix: stopAtVolumeRadio.checked ? " ml" : " g"
                     valueColor: stopAtVolumeRadio.checked ? Theme.flowColor : Theme.weightColor
                     accentColor: stopAtVolumeRadio.checked ? Theme.flowColor : Theme.weightColor
+                    accessibleName: stopAtVolumeRadio.checked ? qsTr("Target volume") : qsTr("Target weight")
                     onValueModified: function(newValue) {
                         if (profile) {
                             if (stopAtVolumeRadio.checked) {
@@ -484,6 +485,7 @@ Page {
                     suffix: "\u00B0C"
                     valueColor: Theme.temperatureColor
                     accentColor: Theme.temperatureGoalColor
+                    accessibleName: qsTr("Global temperature")
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
                             for (var i = 0; i < profile.steps.length; i++) {
@@ -849,6 +851,7 @@ Page {
                         suffix: step && step.pump === "flow" ? " mL/s" : " bar"
                         valueColor: step && step.pump === "flow" ? Theme.flowColor : Theme.pressureColor
                         accentColor: step && step.pump === "flow" ? Theme.flowGoalColor : Theme.pressureGoalColor
+                        accessibleName: step && step.pump === "flow" ? qsTr("Flow setpoint") : qsTr("Pressure setpoint")
                         onValueModified: function(newValue) {
                             if (profile && selectedStepIndex >= 0) {
                                 if (profile.steps[selectedStepIndex].pump === "flow") {
@@ -885,6 +888,7 @@ Page {
                         suffix: "\u00B0C"
                         valueColor: Theme.temperatureColor
                         accentColor: Theme.temperatureGoalColor
+                        accessibleName: qsTr("Step temperature")
                         onValueModified: function(newValue) {
                             if (profile && selectedStepIndex >= 0) {
                                 profile.steps[selectedStepIndex].temperature = newValue
@@ -917,6 +921,7 @@ Page {
                         decimals: 0
                         suffix: "s"
                         accentColor: Theme.accentColor
+                        accessibleName: qsTr("Step duration")
                         onValueModified: function(newValue) {
                             if (profile && selectedStepIndex >= 0) {
                                 profile.steps[selectedStepIndex].seconds = newValue
@@ -1159,6 +1164,17 @@ Page {
                                         return Theme.textSecondaryColor
                                 }
                             }
+                            accessibleName: {
+                                if (!step) return qsTr("Exit value")
+                                switch (step.exit_type) {
+                                    case "flow_over": return qsTr("Exit flow over")
+                                    case "flow_under": return qsTr("Exit flow under")
+                                    case "weight": return qsTr("Exit weight")
+                                    case "pressure_over": return qsTr("Exit pressure over")
+                                    case "pressure_under": return qsTr("Exit pressure under")
+                                    default: return qsTr("Exit value")
+                                }
+                            }
                             onValueModified: function(newValue) {
                                 if (!profile || selectedStepIndex < 0) return
                                 var s = profile.steps[selectedStepIndex]
@@ -1277,6 +1293,7 @@ Page {
                                 suffix: " mL"
                                 valueColor: value > 0 ? Theme.flowColor : Theme.textSecondaryColor
                                 accentColor: Theme.flowColor
+                                accessibleName: qsTr("Step volume limit")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].volume = newValue
@@ -1307,6 +1324,7 @@ Page {
                                 suffix: " g"
                                 valueColor: value > 0 ? Theme.weightColor : Theme.textSecondaryColor
                                 accentColor: Theme.weightColor
+                                accessibleName: qsTr("Step weight limit")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].exit_weight = newValue
@@ -1361,6 +1379,7 @@ Page {
                                 suffix: step && step.pump === "flow" ? " bar" : " mL/s"
                                 valueColor: value > 0 ? Theme.warningColor : Theme.textSecondaryColor
                                 accentColor: Theme.warningColor
+                                accessibleName: step && step.pump === "flow" ? qsTr("Pressure limit") : qsTr("Flow limit")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].max_flow_or_pressure = newValue
@@ -1391,6 +1410,7 @@ Page {
                                 suffix: step && step.pump === "flow" ? " bar" : " mL/s"
                                 valueColor: Theme.textSecondaryColor
                                 accentColor: Theme.warningColor
+                                accessibleName: qsTr("Limiter range")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].max_flow_or_pressure_range = newValue
