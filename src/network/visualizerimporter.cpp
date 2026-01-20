@@ -12,6 +12,21 @@
 #include <QDir>
 #include <QDebug>
 
+// Sanitize JSON to fix malformed numbers from Visualizer API
+// Fixes: .5 -> 0.5, 9. -> 9.0
+static QByteArray sanitizeVisualizerJson(const QByteArray& data)
+{
+    QString jsonStr = QString::fromUtf8(data);
+
+    // Fix numbers starting with decimal point (e.g., .5 -> 0.5)
+    jsonStr.replace(QRegularExpression(R"(([:,\[]\s*)\.(\d))"), "\\10.\\2");
+
+    // Fix numbers ending with decimal point (e.g., 9. -> 9.0)
+    jsonStr.replace(QRegularExpression(R"((\d)\.([,\]\s}]))"), "\\1.0\\2");
+
+    return jsonStr.toUtf8();
+}
+
 VisualizerImporter::VisualizerImporter(MainController* controller, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_controller(controller)
@@ -349,6 +364,50 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
     QByteArray data = reply->readAll();
     qDebug() << "Visualizer API response:" << data.left(2000);
 
+    // Check if response is TCL format instead of JSON
+    // TCL profiles start with "profile_" while JSON starts with "{" or "["
+    QString dataStr = QString::fromUtf8(data).trimmed();
+    bool isTclFormat = dataStr.startsWith("profile_") || dataStr.startsWith("advanced_shot");
+
+    if (isTclFormat) {
+        // Handle TCL format response (some Visualizer profiles return TCL instead of JSON)
+        qDebug() << "Detected TCL format profile from Visualizer";
+
+        Profile profile = Profile::loadFromTclString(dataStr);
+
+        if (!profile.isValid() || profile.steps().isEmpty()) {
+            qWarning() << "TCL profile has no steps - shot was uploaded without complete profile data";
+            m_importing = false;
+            m_requestType = RequestType::None;
+            emit importingChanged();
+            QString title = profile.title();
+            if (title.isEmpty()) title = "This profile";
+            m_lastError = QString("%1 is not available - the shot was uploaded without complete profile data. Try the built-in profiles or import from a different source.").arg(title);
+            emit lastErrorChanged();
+            emit importFailed(m_lastError);
+            return;
+        }
+
+        m_importing = false;
+        m_requestType = RequestType::None;
+        emit importingChanged();
+
+        // Save the TCL profile
+        int result = saveImportedProfile(profile);
+        if (result == 1) {
+            qDebug() << "Successfully imported TCL profile:" << profile.title();
+            emit importSuccess(profile.title());
+        } else if (result == -1) {
+            m_lastError = "Failed to save profile";
+            emit lastErrorChanged();
+            emit importFailed(m_lastError);
+        }
+        // result == 0 means duplicate dialog shown, waiting for user
+        return;
+    }
+
+    data = sanitizeVisualizerJson(data);
+
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
 
@@ -358,8 +417,11 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         m_requestType = RequestType::None;
         emit importingChanged();
         emit fetchingChanged();
-        m_lastError = QString("JSON parse error: %1").arg(parseError.errorString());
-        qWarning() << "Visualizer request failed:" << m_lastError;
+        m_lastError = QString("JSON parse error: %1 (at position %2)")
+            .arg(parseError.errorString())
+            .arg(parseError.offset);
+        qWarning() << "Visualizer JSON parse failed:" << m_lastError;
+        qWarning() << "JSON snippet around error:" << data.mid(qMax(0, parseError.offset - 50), 100);
         emit lastErrorChanged();
         emit importFailed(m_lastError);
         return;
@@ -467,7 +529,19 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         qDebug() << "Got shot ID from share code:" << shotId << "- fetching profile...";
         m_requestType = RequestType::FetchProfile;
 
-        QString url = QString(VISUALIZER_PROFILE_API).arg(shotId);
+        // Use profile_url from shot metadata if available, otherwise construct from shot ID
+        // Always request JSON format explicitly to get complete profile data
+        QString url = json["profile_url"].toString();
+        if (url.isEmpty()) {
+            url = QString("https://visualizer.coffee/api/shots/%1/profile").arg(shotId);
+        }
+        // Add format=json to get structured JSON instead of TCL
+        if (!url.contains("?")) {
+            url += "?format=json";
+        } else {
+            url += "&format=json";
+        }
+        qDebug() << "Fetching profile from:" << url;
         QNetworkRequest request(url);
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
@@ -565,53 +639,59 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
         return;
     }
 
-    QByteArray data = reply->readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QByteArray rawData = reply->readAll();
+    QString dataStr = QString::fromUtf8(rawData).trimmed();
+    bool isTclFormat = dataStr.startsWith("profile_") || dataStr.startsWith("advanced_shot");
 
-    if (doc.isNull() || !doc.isObject()) {
+    Profile profile;
+    if (isTclFormat) {
+        profile = Profile::loadFromTclString(dataStr);
+    } else {
+        QByteArray data = sanitizeVisualizerJson(rawData);
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (doc.isObject()) {
+            profile = parseVisualizerProfile(doc.object());
+        }
+    }
+
+    if (!profile.isValid() || profile.steps().isEmpty()) {
         m_batchSkipped++;
     } else {
-        Profile profile = parseVisualizerProfile(doc.object());
+        QString filename = m_controller->titleToFilename(profile.title());
+        ProfileStorage* storage = m_controller->profileStorage();
 
-        if (profile.isValid()) {
-            QString filename = m_controller->titleToFilename(profile.title());
-            ProfileStorage* storage = m_controller->profileStorage();
+        bool exists = false;
+        if (storage && storage->isConfigured()) {
+            exists = storage->profileExists(filename);
+        }
+        if (!exists) {
+            QString localPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+            localPath += "/profiles/downloaded/" + filename + ".json";
+            exists = QFile::exists(localPath);
+        }
 
-            bool exists = false;
-            if (storage && storage->isConfigured()) {
-                exists = storage->profileExists(filename);
-            }
-            if (!exists) {
-                QString localPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-                localPath += "/profiles/downloaded/" + filename + ".json";
-                exists = QFile::exists(localPath);
-            }
-
-            if (exists && !m_batchOverwrite) {
-                qDebug() << "Skipping existing profile:" << profile.title();
-                m_batchSkipped++;
-            } else {
-                // Save the profile
-                bool saved = false;
-                if (storage && storage->isConfigured()) {
-                    saved = storage->writeProfile(filename, profile.toJsonString());
-                }
-                if (!saved) {
-                    QString localPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-                    localPath += "/profiles/downloaded";
-                    QDir().mkpath(localPath);
-                    saved = profile.saveToFile(localPath + "/" + filename + ".json");
-                }
-
-                if (saved) {
-                    qDebug() << "Imported profile:" << profile.title();
-                    m_batchImported++;
-                } else {
-                    m_batchSkipped++;
-                }
-            }
-        } else {
+        if (exists && !m_batchOverwrite) {
+            qDebug() << "Skipping existing profile:" << profile.title();
             m_batchSkipped++;
+        } else {
+            // Save the profile
+            bool saved = false;
+            if (storage && storage->isConfigured()) {
+                saved = storage->writeProfile(filename, profile.toJsonString());
+            }
+            if (!saved) {
+                QString localPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+                localPath += "/profiles/downloaded";
+                QDir().mkpath(localPath);
+                saved = profile.saveToFile(localPath + "/" + filename + ".json");
+            }
+
+            if (saved) {
+                qDebug() << "Imported profile:" << profile.title();
+                m_batchImported++;
+            } else {
+                m_batchSkipped++;
+            }
         }
     }
 
@@ -806,12 +886,22 @@ void VisualizerImporter::onProfileDetailsFetched(QNetworkReply* reply, int shotI
         QVariantMap shot = m_pendingShots[shotIndex].toMap();
 
         if (reply->error() == QNetworkReply::NoError) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
+            QByteArray rawData = reply->readAll();
+            QString dataStr = QString::fromUtf8(rawData).trimmed();
+            bool isTclFormat = dataStr.startsWith("profile_") || dataStr.startsWith("advanced_shot");
 
-            if (doc.isObject()) {
-                Profile profile = parseVisualizerProfile(doc.object());
+            Profile profile;
+            if (isTclFormat) {
+                profile = Profile::loadFromTclString(dataStr);
+            } else {
+                QByteArray data = sanitizeVisualizerJson(rawData);
+                QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (doc.isObject()) {
+                    profile = parseVisualizerProfile(doc.object());
+                }
+            }
 
+            if (profile.isValid()) {
                 // Check if profile has no frames (invalid)
                 if (profile.steps().isEmpty()) {
                     shot["invalid"] = true;

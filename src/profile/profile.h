@@ -128,6 +128,9 @@ public:
     // Import from de1app .tcl file
     static Profile loadFromTclFile(const QString& filePath);
 
+    // Import from de1app TCL format string (used by Visualizer API)
+    static Profile loadFromTclString(const QString& tclContent);
+
     // Import from DE1 app / Visualizer JSON format (different field names than native format)
     static Profile loadFromDE1AppJson(const QString& jsonContent);
 

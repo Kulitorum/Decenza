@@ -361,17 +361,21 @@ QString Profile::toJsonString() const {
 }
 
 Profile Profile::loadFromTclFile(const QString& filePath) {
-    // Parse de1app .tcl profile files
-    // Format: Tcl script with "array set" commands setting profile variables
-
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "Failed to open Tcl profile:" << filePath;
         return Profile();
     }
 
-    Profile profile;
     QString content = QTextStream(&file).readAll();
+    return loadFromTclString(content);
+}
+
+Profile Profile::loadFromTclString(const QString& content) {
+    // Parse de1app .tcl profile format
+    // Format: Tcl script with "array set" commands setting profile variables
+
+    Profile profile;
 
     // Helper to extract Tcl variable value
     // Handles: varName {braced value} OR varName "quoted" OR varName simple_word

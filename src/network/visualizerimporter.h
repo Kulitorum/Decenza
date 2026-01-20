@@ -138,6 +138,6 @@ private:
     QVariantList m_pendingShots;
     int m_pendingProfileFetches = 0;
 
-    static constexpr const char* VISUALIZER_PROFILE_API = "https://visualizer.coffee/api/shots/%1/profile.json";
+    static constexpr const char* VISUALIZER_PROFILE_API = "https://visualizer.coffee/api/shots/%1/profile?format=json";
     static constexpr const char* VISUALIZER_SHARED_API = "https://visualizer.coffee/api/shots/shared?code=%1";
 };
