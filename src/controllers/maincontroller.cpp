@@ -2146,8 +2146,15 @@ void MainController::onShotEnded() {
     bool showPostShot = m_settings->visualizerShowAfterShot() &&
                         (m_settings->visualizerExtendedMetadata() || hasAI);
 
+    // Auto-upload if enabled (do this first, before showing metadata page)
+    if (m_settings->visualizerAutoUpload() && m_visualizer) {
+        qDebug() << "  -> Auto-uploading to visualizer";
+        m_visualizer->uploadShot(m_shotDataModel, &m_currentProfile, duration, finalWeight, doseWeight, metadata);
+    }
+
+    // Show metadata page if enabled (user can edit and re-upload if desired)
     if (showPostShot) {
-        // Store pending shot data for later upload
+        // Store pending shot data for later upload (user can re-upload with updated metadata)
         m_hasPendingShot = true;
         m_pendingShotDuration = duration;
         m_pendingShotFinalWeight = finalWeight;
@@ -2155,11 +2162,6 @@ void MainController::onShotEnded() {
 
         qDebug() << "  -> Showing metadata page";
         emit shotEndedShowMetadata();
-    } else if (m_settings->visualizerAutoUpload() && m_visualizer) {
-        // Auto-upload without showing metadata page (reuse metadata built above)
-        qDebug() << "  -> Auto-uploading to visualizer";
-
-        m_visualizer->uploadShot(m_shotDataModel, &m_currentProfile, duration, finalWeight, doseWeight, metadata);
     }
 
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
@@ -2383,6 +2385,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                 flowGoal = 0;      // Pressure mode - hide flow goal
             }
         }
+
     }
 
     // Detect frame changes and add markers with frame names from profile

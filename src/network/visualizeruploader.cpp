@@ -232,56 +232,69 @@ void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
     root["timestamp"] = timestamp;
     root["date"] = QDateTime::fromSecsSinceEpoch(timestamp).toString(Qt::ISODate);
 
-    // Helper to convert QVariantList of {x,y} points to arrays
-    auto extractTimeSeries = [](const QVariantList& points) -> std::pair<QJsonArray, QJsonArray> {
-        QJsonArray times, values;
+    // Helper to convert QVariantList of {x,y} points to QVector<QPointF>
+    auto toPointVector = [](const QVariantList& points) -> QVector<QPointF> {
+        QVector<QPointF> result;
+        result.reserve(points.size());
         for (const auto& pt : points) {
             QVariantMap p = pt.toMap();
-            times.append(p["x"].toDouble());
-            values.append(p["y"].toDouble());
+            result.append(QPointF(p["x"].toDouble(), p["y"].toDouble()));
         }
-        return {times, values};
+        return result;
     };
 
-    // Elapsed time array (from pressure data)
-    QVariantList pressurePoints = shotData["pressure"].toList();
-    auto [elapsed, pressureValues] = extractTimeSeries(pressurePoints);
-    root["elapsed"] = elapsed;
+    // Helper to extract just the values from a point vector (for data aligned with elapsed)
+    auto extractValues = [](const QVector<QPointF>& points) -> QJsonArray {
+        QJsonArray values;
+        for (const auto& pt : points) {
+            values.append(pt.y());
+        }
+        return values;
+    };
 
-    // Pressure object
+    // Helper to extract elapsed times
+    auto extractTimes = [](const QVector<QPointF>& points) -> QJsonArray {
+        QJsonArray times;
+        for (const auto& pt : points) {
+            times.append(pt.x());
+        }
+        return times;
+    };
+
+    // Convert to point vectors for interpolation
+    QVector<QPointF> pressureData = toPointVector(shotData["pressure"].toList());
+    QVector<QPointF> flowData = toPointVector(shotData["flow"].toList());
+    QVector<QPointF> tempData = toPointVector(shotData["temperature"].toList());
+    QVector<QPointF> pressureGoalData = toPointVector(shotData["pressureGoal"].toList());
+    QVector<QPointF> flowGoalData = toPointVector(shotData["flowGoal"].toList());
+    QVector<QPointF> tempGoalData = toPointVector(shotData["temperatureGoal"].toList());
+    QVector<QPointF> weightData = toPointVector(shotData["weight"].toList());
+
+    // Elapsed time array (from pressure data - the master timeline)
+    root["elapsed"] = extractTimes(pressureData);
+
+    // Pressure object - interpolate goal to match elapsed timestamps
     QJsonObject pressure;
-    pressure["pressure"] = pressureValues;
-    QVariantList pressureGoalPoints = shotData["pressureGoal"].toList();
-    auto [_, pressureGoalValues] = extractTimeSeries(pressureGoalPoints);
-    pressure["goal"] = pressureGoalValues;
+    pressure["pressure"] = extractValues(pressureData);
+    pressure["goal"] = interpolateGoalData(pressureGoalData, pressureData);
     root["pressure"] = pressure;
 
-    // Flow object
+    // Flow object - interpolate goal to match elapsed timestamps
     QJsonObject flow;
-    QVariantList flowPoints = shotData["flow"].toList();
-    auto [__, flowValues] = extractTimeSeries(flowPoints);
-    flow["flow"] = flowValues;
-    QVariantList flowGoalPoints = shotData["flowGoal"].toList();
-    auto [___, flowGoalValues] = extractTimeSeries(flowGoalPoints);
-    flow["goal"] = flowGoalValues;
+    flow["flow"] = extractValues(flowData);
+    flow["goal"] = interpolateGoalData(flowGoalData, pressureData);
     root["flow"] = flow;
 
-    // Temperature object
+    // Temperature object - interpolate goal to match elapsed timestamps
     QJsonObject temperature;
-    QVariantList tempPoints = shotData["temperature"].toList();
-    auto [____, tempValues] = extractTimeSeries(tempPoints);
-    temperature["basket"] = tempValues;
-    QVariantList tempGoalPoints = shotData["temperatureGoal"].toList();
-    auto [_____, tempGoalValues] = extractTimeSeries(tempGoalPoints);
-    temperature["goal"] = tempGoalValues;
+    temperature["basket"] = extractValues(tempData);
+    temperature["goal"] = interpolateGoalData(tempGoalData, pressureData);
     root["temperature"] = temperature;
 
-    // Totals object (weight)
+    // Totals object (weight) - interpolate to match elapsed timestamps
     QJsonObject totals;
-    QVariantList weightPoints = shotData["weight"].toList();
-    if (!weightPoints.isEmpty()) {
-        auto [______, weightValues] = extractTimeSeries(weightPoints);
-        totals["weight"] = weightValues;
+    if (!weightData.isEmpty()) {
+        totals["weight"] = interpolateGoalData(weightData, pressureData);
     }
     root["totals"] = totals;
 
