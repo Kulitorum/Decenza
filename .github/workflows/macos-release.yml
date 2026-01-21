@@ -60,19 +60,19 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
 
-          # Find the built app
-          APP_PATH=$(find build/macos -name "Decenza DE1.app" -type d | head -1)
-          echo "Found app at: $APP_PATH"
+          # Find the built app (named Decenza_DE1.app)
+          APP_PATH="build/macos/Release/Decenza_DE1.app"
+          echo "Looking for app at: $APP_PATH"
 
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: Could not find Decenza DE1.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Could not find $APP_PATH"
             find build/macos -name "*.app" -type d
             exit 1
           fi
 
           # Create a temporary directory for DMG contents
           mkdir -p dmg_contents
-          cp -R "$APP_PATH" dmg_contents/
+          cp -R "$APP_PATH" "dmg_contents/Decenza DE1.app"
 
           # Create Applications symlink
           ln -s /Applications dmg_contents/Applications
