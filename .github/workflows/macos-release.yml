@@ -47,7 +47,8 @@ jobs:
           mkdir -p build/macos
           cd build/macos
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
       - name: Build Release
         run: |
