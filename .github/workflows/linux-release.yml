@@ -68,19 +68,19 @@ jobs:
       - name: Remove problematic Qt plugins
         run: |
           # Remove plugins with external dependencies not available in AppImage
-          rm -f $Qt6_DIR/plugins/imageformats/libqtiff.so
-          rm -f $Qt6_DIR/plugins/sqldrivers/libqsqlibase.so
-          rm -f $Qt6_DIR/plugins/sqldrivers/libqsqlpsql.so
-          rm -f $Qt6_DIR/plugins/sqldrivers/libqsqlmysql.so
-          rm -f $Qt6_DIR/plugins/sqldrivers/libqsqloci.so
-          rm -f $Qt6_DIR/plugins/sqldrivers/libqsqlodbc.so
-          rm -f $Qt6_DIR/plugins/sqldrivers/libqsqlmimer.so
+          rm -f $QT_ROOT_DIR/plugins/imageformats/libqtiff.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlibase.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlpsql.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlmysql.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqloci.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlodbc.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlmimer.so
 
       - name: Configure CMake
         run: |
           mkdir -p build
           cd build
-          $Qt6_DIR/bin/qt-cmake .. -G Ninja \
+          $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
@@ -107,7 +107,7 @@ jobs:
 
       - name: Create AppImage
         env:
-          QMAKE: ${{ env.Qt6_DIR }}/bin/qmake
+          QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
           QML_SOURCES_PATHS: ${{ github.workspace }}/qml
         run: |
           ./linuxdeploy-x86_64.AppImage \
