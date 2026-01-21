@@ -1,0 +1,141 @@
+name: Windows Build
+
+on:
+  # Manual trigger from GitHub UI or API
+  workflow_dispatch:
+    inputs:
+      upload_to_release:
+        description: 'Upload to latest GitHub release'
+        required: true
+        default: 'false'
+        type: boolean
+
+  # Or trigger on version tags
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for version tags
+
+      - name: Get version info
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep -oP 'VERSION \K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.1'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets'
+          cache: true
+          cache-key-prefix: 'qt-windows-v2'
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure CMake
+        run: |
+          mkdir build
+          cd build
+          cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
+      - name: Build Release
+        run: |
+          cd build
+          cmake --build . --config Release --parallel
+
+      - name: Download VC++ Redistributable
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path vcredist
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "vcredist\vc_redist.x64.exe"
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup -y
+
+      - name: Create Inno Setup config
+        shell: powershell
+        run: |
+          $VERSION = "${{ steps.version.outputs.version }}"
+          $WORKSPACE = $env:GITHUB_WORKSPACE
+          $QT_DIR = $env:QT_ROOT_DIR
+
+          # Create version.iss
+          @"
+          #define BuildNumber "0"
+          #define VersionNumber "$VERSION"
+          #define TargetName "Decenza_DE1"
+          #define TargetArch "x64"
+          #define TargetProduct "Decenza DE1"
+          #define TargetCompany "Decenza"
+          "@ | Out-File -FilePath "installer\version.iss" -Encoding ASCII
+
+          # Create setupvars.iss for CI
+          @"
+          ; CI-generated paths
+          #define SourceDir "$WORKSPACE"
+          #define AppBuildDir "$WORKSPACE\build\Release"
+          #define AppDeployDir "$WORKSPACE\installer\deploy"
+          #define QtDir "$QT_DIR"
+          #define VcRedistDir "$WORKSPACE\vcredist"
+          #define VcRedistFile "vc_redist.x64.exe"
+          "@ | Out-File -FilePath "installer\setupvars.iss" -Encoding ASCII
+
+          Write-Host "=== version.iss ==="
+          Get-Content installer\version.iss
+          Write-Host "=== setupvars.iss ==="
+          Get-Content installer\setupvars.iss
+
+      - name: Build Installer
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /O"installer\Output" installer\setup.iss
+
+      - name: List output
+        shell: bash
+        run: |
+          echo "=== Installer output ==="
+          ls -la installer/Output/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Decenza_DE1-Windows-Installer
+          path: installer/Output/*.exe
+          retention-days: 30
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.upload_to_release == 'true' || startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          INSTALLER="installer/Output/Decenza_DE1_v${VERSION}_winx64_installer.exe"
+
+          # Find the release (by tag or latest)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${VERSION}"
+          fi
+
+          echo "Uploading to release: $TAG"
+          gh release upload "$TAG" "$INSTALLER" --clobber || echo "Release $TAG not found, skipping upload"
