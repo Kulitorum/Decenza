@@ -58,13 +58,17 @@ jobs:
             -scheme Decenza_DE1 \
             -configuration Release \
             -destination "generic/platform=macOS" \
+            CONFIGURATION_BUILD_DIR="$PWD/Output" \
             CODE_SIGN_IDENTITY="-"
 
       - name: Create DMG
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          APP_PATH="build/macos/Release/Decenza DE1.app"
+          APP_PATH="build/macos/Output/Decenza DE1.app"
           DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
+
+          echo "Looking for app at: $APP_PATH"
+          ls -la build/macos/Output/ || echo "Output dir not found"
 
           # Create a temporary directory for DMG contents
           mkdir -p dmg_contents
