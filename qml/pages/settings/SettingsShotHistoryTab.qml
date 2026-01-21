@@ -21,15 +21,15 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(12)
+                anchors.margins: Theme.scaled(12)
+                spacing: Theme.scaled(6)
 
-                Tr {
-                    key: "settings.history.title"
-                    fallback: "Shot History"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.history.title", "Shot History") + " →"
+                    accessibleName: "Open Shot History"
+                    primary: true
+                    onClicked: pageStack.push(Qt.resolvedUrl("../ShotHistoryPage.qml"))
                 }
 
                 Tr {
@@ -37,52 +37,41 @@ Item {
                     key: "settings.history.storedlocally"
                     fallback: "All shots are stored locally on your device"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.scaled(11)
                     wrapMode: Text.WordWrap
                 }
 
-                // Stats
-                Rectangle {
+                // Stats - single line
+                RowLayout {
                     Layout.fillWidth: true
-                    height: Theme.scaled(70)
-                    color: Theme.backgroundColor
-                    radius: Theme.scaled(8)
+                    spacing: Theme.scaled(6)
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(12)
-
-                        ColumnLayout {
-                            spacing: Theme.scaled(2)
-
-                            Tr {
-                                key: "settings.history.totalshots"
-                                fallback: "Total Shots"
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(11)
-                            }
-
-                            Text {
-                                text: MainController.shotHistory ? MainController.shotHistory.totalShots : "0"
-                                color: Theme.primaryColor
-                                font.pixelSize: Theme.scaled(28)
-                                font.bold: true
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
+                    Tr {
+                        key: "settings.history.totalshots"
+                        fallback: "Total Shots:"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
                     }
+
+                    Text {
+                        text: MainController.shotHistory ? MainController.shotHistory.totalShots : "0"
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        font.bold: true
+                    }
+
+                    Item { Layout.fillWidth: true }
                 }
 
                 // Show on idle screen toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
+                    spacing: Theme.scaled(8)
 
                     Text {
                         text: "Show on Idle screen"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.scaled(11)
                         Layout.fillWidth: true
                     }
 
@@ -96,23 +85,23 @@ Item {
                 // Auto-Favorites toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
+                    spacing: Theme.scaled(8)
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
+                        spacing: 0
 
                         Text {
                             text: TranslationManager.translate("settings.history.autofavorites", "Auto-Favorites")
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.scaled(11)
                         }
 
                         Text {
                             text: TranslationManager.translate("settings.history.autofavoritesdesc",
                                   "Show button for recent bean+profile combinations")
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(10)
+                            font.pixelSize: Theme.scaled(9)
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                         }
@@ -136,19 +125,19 @@ Item {
                 Text {
                     text: "Import from DE1 App"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
+                    font.pixelSize: Theme.scaled(12)
                     font.bold: true
                 }
 
                 // Overwrite toggle
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
+                    spacing: Theme.scaled(8)
 
                     Text {
                         text: "Overwrite existing"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.scaled(11)
                         Layout.fillWidth: true
                     }
 
@@ -210,7 +199,7 @@ Item {
                 // Import buttons (visible when not importing)
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
+                    spacing: Theme.scaled(4)
                     visible: !MainController.shotImporter || !MainController.shotImporter.isImporting
 
                     // DE1 App detection info
@@ -220,7 +209,7 @@ Item {
                         property string detectedPath: MainController.shotImporter ? MainController.shotImporter.detectDE1AppHistoryPath() : ""
                         text: detectedPath ? ("Found: " + detectedPath) : "DE1 app not found on device"
                         color: detectedPath ? Theme.successColor : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.scaled(9)
                         wrapMode: Text.Wrap
                     }
 
@@ -238,7 +227,7 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(8)
+                        spacing: Theme.scaled(4)
 
                         AccessibleButton {
                             Layout.fillWidth: true
@@ -261,8 +250,6 @@ Item {
                         }
                     }
                 }
-
-                Item { Layout.fillHeight: true }
             }
         }
 

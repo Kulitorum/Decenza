@@ -575,11 +575,11 @@ int main(int argc, char *argv[])
         }
 
         // Wait for BLE writes to complete before exiting
-        // de1app waits 5-10 seconds; we use 1 second as compromise
+        // de1app waits 5-10 seconds; we use 2 seconds to ensure sleep command is sent
         if (needBleWait) {
-            qDebug() << "Waiting 1s for BLE writes to complete...";
+            qDebug() << "Waiting 2s for BLE writes to complete...";
             QEventLoop waitLoop;
-            QTimer::singleShot(1000, &waitLoop, &QEventLoop::quit);
+            QTimer::singleShot(2000, &waitLoop, &QEventLoop::quit);
             waitLoop.exec();
         }
 
