@@ -259,6 +259,13 @@ void MachineState::updatePhase() {
                 // This preserves stop-at-weight triggers and cumulative tracking
                 if (!m_shotTimer->isActive()) {
                     qDebug() << "=== TIMER RESTART: recovering from mid-espresso phase glitch ===";
+                    // If m_shotStartTime is invalid (0 or in the future), reset it
+                    qint64 now = QDateTime::currentMSecsSinceEpoch();
+                    if (m_shotStartTime <= 0 || m_shotStartTime > now) {
+                        qWarning() << "=== TIMER FIX: m_shotStartTime was invalid:" << m_shotStartTime << "- resetting to now ===";
+                        m_shotStartTime = now;
+                        m_shotTime = 0.0;
+                    }
                     m_shotTimer->start();
                 }
             }
