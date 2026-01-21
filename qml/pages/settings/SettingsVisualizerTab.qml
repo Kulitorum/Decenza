@@ -375,7 +375,7 @@ KeyboardAwareContainer {
 
                         Tr {
                             key: "settings.visualizer.clearNotesOnStartDesc"
-                            fallback: "Clear espresso notes when starting a new shot"
+                            fallback: "Clear shot notes when starting a new shot"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }

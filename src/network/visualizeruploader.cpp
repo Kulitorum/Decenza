@@ -718,7 +718,7 @@ QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profil
     // Basic metadata
     obj["title"] = profile->title();
     obj["author"] = profile->author();
-    obj["notes"] = profile->notes();
+    obj["notes"] = profile->profileNotes();
     obj["beverage_type"] = profile->beverageType();
 
     // Convert steps to Visualizer format

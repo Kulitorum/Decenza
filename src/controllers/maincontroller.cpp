@@ -553,6 +553,8 @@ bool MainController::deleteProfile(const QString& filename) {
 QVariantMap MainController::getCurrentProfile() const {
     QVariantMap profile;
     profile["title"] = m_currentProfile.title();
+    profile["author"] = m_currentProfile.author();
+    profile["profile_notes"] = m_currentProfile.profileNotes();
     profile["target_weight"] = m_currentProfile.targetWeight();
     profile["target_volume"] = m_currentProfile.targetVolume();
     profile["stop_at_type"] = m_currentProfile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
@@ -635,7 +637,11 @@ QVariantMap MainController::getProfileByFilename(const QString& filename) const 
     // Build result map (same format as getCurrentProfile)
     QVariantMap result;
     result["title"] = profile.title();
+    result["author"] = profile.author();
+    result["profile_notes"] = profile.profileNotes();
     result["target_weight"] = profile.targetWeight();
+    result["target_volume"] = profile.targetVolume();
+    result["stop_at_type"] = profile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
     result["espresso_temperature"] = profile.espressoTemperature();
     result["mode"] = profile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
 
@@ -814,17 +820,14 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
         return;
     }
 
-    // Load the profile
-    if (!shotRecord.profileJson.isEmpty()) {
+    // Load the profile - prefer installed profile, fall back to stored JSON
+    QString filename = findProfileByTitle(shotRecord.summary.profileName);
+    if (!filename.isEmpty()) {
+        loadProfile(filename);
+    } else if (!shotRecord.profileJson.isEmpty()) {
         loadProfileFromJson(shotRecord.profileJson);
     } else {
-        // Try to find installed profile by title
-        QString filename = findProfileByTitle(shotRecord.summary.profileName);
-        if (!filename.isEmpty()) {
-            loadProfile(filename);
-        } else {
-            qWarning() << "loadShotWithMetadata: No profile data available for shot";
-        }
+        qWarning() << "loadShotWithMetadata: No profile data available for shot";
     }
 
     // Copy metadata to DYE settings
@@ -1057,6 +1060,12 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
     // Update current profile from QML data
     if (profileData.contains("title")) {
         m_currentProfile.setTitle(profileData["title"].toString());
+    }
+    if (profileData.contains("author")) {
+        m_currentProfile.setAuthor(profileData["author"].toString());
+    }
+    if (profileData.contains("profile_notes")) {
+        m_currentProfile.setProfileNotes(profileData["profile_notes"].toString());
     }
     if (profileData.contains("target_weight")) {
         m_currentProfile.setTargetWeight(profileData["target_weight"].toDouble());
@@ -1550,7 +1559,7 @@ void MainController::createNewProfile(const QString& title) {
     m_currentProfile = Profile();
     m_currentProfile.setTitle(title);
     m_currentProfile.setAuthor("");
-    m_currentProfile.setNotes("");
+    m_currentProfile.setProfileNotes("");
     m_currentProfile.setBeverageType("espresso");
     m_currentProfile.setProfileType("settings_2c");
     m_currentProfile.setTargetWeight(36.0);
@@ -2061,9 +2070,9 @@ void MainController::onEspressoCycleStarted() {
         m_shotDebugLogger->logInfo(QString("Profile: %1").arg(m_currentProfile.title()));
     }
 
-    // Clear espresso notes if setting is enabled
+    // Clear shot notes if setting is enabled
     if (m_settings && m_settings->visualizerClearNotesOnStart()) {
-        m_settings->setDyeEspressoNotes("");
+        m_settings->setDyeShotNotes("");
     }
 
     qDebug() << "=== ESPRESSO CYCLE STARTED (graph cleared, scale tared) ===";
@@ -2128,7 +2137,7 @@ void MainController::onShotEnded() {
     metadata.drinkTds = m_settings->dyeDrinkTds();
     metadata.drinkEy = m_settings->dyeDrinkEy();
     metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
-    metadata.espressoNotes = m_settings->dyeEspressoNotes();
+    metadata.espressoNotes = m_settings->dyeShotNotes();
     metadata.barista = m_settings->dyeBarista();
 
     // Always save shot to local history
@@ -2227,7 +2236,7 @@ void MainController::uploadPendingShot() {
     metadata.barista = m_settings->dyeBarista();
 
     // Build notes: user notes + AI recommendation (if any)
-    QString notes = m_settings->dyeEspressoNotes();
+    QString notes = m_settings->dyeShotNotes();
     if (m_aiManager && !m_aiManager->lastRecommendation().isEmpty()) {
         QString aiRec = m_aiManager->lastRecommendation();
         QString provider = m_aiManager->selectedProvider();

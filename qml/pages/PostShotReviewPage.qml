@@ -114,7 +114,7 @@ Page {
         Settings.dyeDrinkTds = editDrinkTds
         Settings.dyeDrinkEy = editDrinkEy
         Settings.dyeEspressoEnjoyment = editEnjoyment
-        Settings.dyeEspressoNotes = editNotes
+        Settings.dyeShotNotes = editNotes
 
         // Reload the shot data to mark changes as saved (clears hasUnsavedChanges)
         loadShotForEditing()

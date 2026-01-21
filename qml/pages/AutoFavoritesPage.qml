@@ -125,14 +125,33 @@ Page {
                             visible: model.beanBrand || model.beanType
                         }
 
-                        // Profile name
-                        Text {
-                            text: model.profileName || ""
-                            font.family: Theme.labelFont.family
-                            font.pixelSize: Theme.labelFont.pixelSize
-                            color: Theme.primaryColor
+                        // Profile name with info button
+                        RowLayout {
                             Layout.fillWidth: true
-                            elide: Text.ElideRight
+                            spacing: Theme.scaled(6)
+
+                            Text {
+                                text: model.profileName || ""
+                                font.family: Theme.labelFont.family
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                color: Theme.primaryColor
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                            }
+
+                            ProfileInfoButton {
+                                visible: model.profileName && model.profileName.length > 0
+                                buttonSize: Theme.scaled(22)
+                                profileFilename: MainController.findProfileByTitle(model.profileName || "")
+                                profileName: model.profileName || ""
+
+                                onClicked: {
+                                    pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
+                                        profileFilename: MainController.findProfileByTitle(model.profileName || ""),
+                                        profileName: model.profileName || ""
+                                    })
+                                }
+                            }
                         }
 
                         // Grinder info (if included in grouping)
@@ -183,7 +202,7 @@ Page {
                         width: Theme.scaled(70)
                         height: Theme.scaled(50)
                         radius: Theme.scaled(25)
-                        color: Theme.successColor
+                        color: Theme.primaryColor
 
                         Text {
                             anchors.centerIn: parent
@@ -197,7 +216,8 @@ Page {
                             anchors.fill: parent
                             onClicked: {
                                 MainController.loadShotWithMetadata(model.shotId)
-                                Settings.selectedFavoriteProfile = -1
+                                // Don't reset selectedFavoriteProfile - loadShotWithMetadata
+                                // will set it correctly if the profile is a favorite
                                 pageStack.pop()
                             }
                         }

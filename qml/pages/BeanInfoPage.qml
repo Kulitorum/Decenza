@@ -974,7 +974,7 @@ Page {
                         editPresetDialog.close()
                     }
                     background: Rectangle {
-                        implicitWidth: deleteBeanBtn.implicitWidth
+                        implicitWidth: Theme.scaled(100)
                         implicitHeight: Theme.scaled(36)
                         radius: Theme.scaled(6)
                         color: deleteBeanBtn.down ? Qt.darker(Theme.errorColor, 1.1) : Theme.errorColor
@@ -986,6 +986,8 @@ Page {
                         color: "white"
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
+                        leftPadding: Theme.scaled(16)
+                        rightPadding: Theme.scaled(16)
                     }
                 }
 

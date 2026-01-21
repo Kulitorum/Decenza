@@ -630,6 +630,11 @@ ApplicationWindow {
             id: postShotReviewPage
             PostShotReviewPage {}
         }
+
+        Component {
+            id: profileInfoPage
+            ProfileInfoPage {}
+        }
     }
 
     // Update per-page scale when navigating between pages

@@ -251,6 +251,22 @@ Page {
                                 elide: Text.ElideRight
                             }
 
+                            // Profile info button
+                            ProfileInfoButton {
+                                Layout.preferredWidth: Theme.scaled(28)
+                                Layout.preferredHeight: Theme.scaled(28)
+                                Layout.alignment: Qt.AlignVCenter
+                                profileFilename: modelData.name
+                                profileName: modelData.title
+
+                                onClicked: {
+                                    pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
+                                        profileFilename: modelData.name,
+                                        profileName: modelData.title
+                                    })
+                                }
+                            }
+
                             // === "Decent Built-in" view: Select/Unselect toggle ===
                             StyledIconButton {
                                 id: selectToggleButton

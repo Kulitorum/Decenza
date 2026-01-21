@@ -137,14 +137,15 @@ Page {
         Rectangle {
             id: mainButtonsCard
             Layout.fillWidth: true
-            implicitHeight: mainButtonsRow.implicitHeight + Theme.scaled(20)
+            Layout.preferredHeight: buttonHeight + Theme.scaled(20)
             color: "transparent"
 
-            // Calculate button size to fit available width while maintaining aspect ratio
+            // Calculate button size to fit available width
             readonly property int buttonCount: 4 + (beanInfoButton.visible ? 1 : 0) + (historyButton.visible ? 1 : 0) + (autoFavoritesButton.visible ? 1 : 0)  // 4 main + shotInfo + history + autoFavorites
             readonly property real availableWidth: width - Theme.scaled(20) - (buttonCount - 1) * Theme.scaled(10)
             readonly property real buttonWidth: Math.min(Theme.scaled(150), availableWidth / buttonCount)
-            readonly property real buttonHeight: buttonWidth * 0.8  // Maintain 150:120 aspect ratio
+            // Fixed height to ensure content always fits
+            readonly property real buttonHeight: Theme.scaled(120)
 
             RowLayout {
                 id: mainButtonsRow
@@ -431,33 +432,51 @@ Page {
                     }
 
                     // Green pill showing non-favorite profile name (when loaded from history)
-                    Rectangle {
-                        id: nonFavoriteProfilePill
+                    Row {
                         anchors.horizontalCenter: parent.horizontalCenter
                         visible: Settings.selectedFavoriteProfile === -1
-                        width: nonFavoriteProfileText.implicitWidth + Theme.scaled(40)
-                        height: Theme.scaled(50)
-                        radius: Theme.scaled(10)
-                        color: Theme.successColor
+                        spacing: Theme.scaled(8)
 
-                        Text {
-                            id: nonFavoriteProfileText
-                            anchors.centerIn: parent
-                            text: MainController.currentProfileName || ""
-                            color: "white"
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
+                        Rectangle {
+                            id: nonFavoriteProfilePill
+                            width: nonFavoriteProfileText.implicitWidth + Theme.scaled(40)
+                            height: Theme.scaled(50)
+                            radius: Theme.scaled(10)
+                            color: Theme.successColor
+
+                            Text {
+                                id: nonFavoriteProfileText
+                                anchors.centerIn: parent
+                                text: MainController.currentProfileName || ""
+                                color: "white"
+                                font.pixelSize: Theme.scaled(16)
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    if (MachineState.isReady) {
+                                        console.log("[IdlePage] Starting espresso with non-favorite profile...")
+                                        DE1Device.startEspresso()
+                                    } else {
+                                        console.log("[IdlePage] NOT starting espresso - MachineState.isReady is false, phase:", MachineState.phase)
+                                    }
+                                }
+                            }
                         }
 
-                        MouseArea {
-                            anchors.fill: parent
+                        // Info button for non-favorite profile
+                        ProfileInfoButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            profileFilename: Settings.currentProfile
+                            profileName: MainController.currentProfileName
+
                             onClicked: {
-                                if (MachineState.isReady) {
-                                    console.log("[IdlePage] Starting espresso with non-favorite profile...")
-                                    DE1Device.startEspresso()
-                                } else {
-                                    console.log("[IdlePage] NOT starting espresso - MachineState.isReady is false, phase:", MachineState.phase)
-                                }
+                                pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
+                                    profileFilename: Settings.currentProfile,
+                                    profileName: MainController.currentProfileName
+                                })
                             }
                         }
                     }

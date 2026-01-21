@@ -234,7 +234,7 @@ QJsonDocument Profile::toJson() const {
     QJsonObject obj;
     obj["title"] = m_title;
     obj["author"] = m_author;
-    obj["notes"] = m_notes;
+    obj["profile_notes"] = m_profileNotes;
     obj["beverage_type"] = m_beverageType;
     obj["profile_type"] = m_profileType;
     obj["target_weight"] = m_targetWeight;
@@ -274,7 +274,11 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     profile.m_title = obj["title"].toString("Default");
     profile.m_author = obj["author"].toString();
-    profile.m_notes = obj["notes"].toString();
+    // Support both new "profile_notes" and legacy "notes" keys
+    profile.m_profileNotes = obj["profile_notes"].toString();
+    if (profile.m_profileNotes.isEmpty()) {
+        profile.m_profileNotes = obj["notes"].toString();
+    }
     profile.m_beverageType = obj["beverage_type"].toString("espresso");
     profile.m_profileType = obj["profile_type"].toString("settings_2c");
     profile.m_targetWeight = obj["target_weight"].toDouble(36.0);
@@ -401,7 +405,7 @@ Profile Profile::loadFromTclString(const QString& content) {
     // Extract metadata
     profile.m_title = extractValue("profile_title");
     profile.m_author = extractValue("author");
-    profile.m_notes = extractValue("profile_notes");
+    profile.m_profileNotes = extractValue("profile_notes");
     profile.m_profileType = extractValue("settings_profile_type");
     profile.m_beverageType = extractValue("beverage_type");
     if (profile.m_beverageType.isEmpty()) {
@@ -594,7 +598,11 @@ Profile Profile::loadFromDE1AppJson(const QString& jsonContent) {
     // Extract metadata
     profile.m_title = json["title"].toString("Imported Profile");
     profile.m_author = json["author"].toString();
-    profile.m_notes = json["notes"].toString();
+    // Support both "profile_notes" and "notes" keys
+    profile.m_profileNotes = json["profile_notes"].toString();
+    if (profile.m_profileNotes.isEmpty()) {
+        profile.m_profileNotes = json["notes"].toString();
+    }
     profile.m_beverageType = json["beverage_type"].toString("espresso");
 
     QString profileType = json["legacy_profile_type"].toString();

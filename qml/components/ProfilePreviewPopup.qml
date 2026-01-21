@@ -46,7 +46,7 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: 0
 
-        // Header with profile name and close button
+        // Header with profile name, info button, and close button
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(50)
@@ -55,12 +55,51 @@ Dialog {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.scaled(16)
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.right: closeButton.left
+                anchors.right: moreInfoButton.left
                 anchors.rightMargin: Theme.scaled(8)
                 text: root.profileName || (root.profileData ? root.profileData.title : "")
                 font: Theme.titleFont
                 color: Theme.textColor
                 elide: Text.ElideRight
+            }
+
+            // "More Info" button - navigates to ProfileInfoPage
+            Rectangle {
+                id: moreInfoButton
+                anchors.right: closeButton.left
+                anchors.rightMargin: Theme.scaled(4)
+                anchors.verticalCenter: parent.verticalCenter
+                width: moreInfoText.implicitWidth + Theme.scaled(16)
+                height: Theme.scaled(32)
+                radius: Theme.scaled(6)
+                color: moreInfoMouseArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) :
+                       moreInfoMouseArea.containsMouse ? Theme.primaryColor : Qt.lighter(Theme.primaryColor, 1.1)
+
+                Text {
+                    id: moreInfoText
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("profilepreview.moreInfo", "More Info")
+                    font.pixelSize: Theme.scaled(13)
+                    font.bold: true
+                    color: "white"
+                }
+
+                MouseArea {
+                    id: moreInfoMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        root.close()
+                        pageStack.push(Qt.resolvedUrl("../pages/ProfileInfoPage.qml"), {
+                            profileFilename: root.profileFilename,
+                            profileName: root.profileName
+                        })
+                    }
+                }
+
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("profilepreview.moreInfo", "More Info")
             }
 
             // Close button

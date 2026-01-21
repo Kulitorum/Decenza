@@ -41,8 +41,8 @@ public:
     QString author() const { return m_author; }
     void setAuthor(const QString& author) { m_author = author; }
 
-    QString notes() const { return m_notes; }
-    void setNotes(const QString& notes) { m_notes = notes; }
+    QString profileNotes() const { return m_profileNotes; }
+    void setProfileNotes(const QString& notes) { m_profileNotes = notes; }
 
     QString beverageType() const { return m_beverageType; }
     void setBeverageType(const QString& type) { m_beverageType = type; }
@@ -152,7 +152,7 @@ private:
     // Metadata
     QString m_title = "Default";
     QString m_author;
-    QString m_notes;
+    QString m_profileNotes;
     QString m_beverageType = "espresso";
     QString m_profileType = "settings_2c";  // Advanced by default
 

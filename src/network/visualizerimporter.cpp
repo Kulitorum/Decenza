@@ -719,7 +719,10 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
 
     profile.setTitle(json["title"].toString("Imported Profile"));
     profile.setAuthor(json["author"].toString());
-    profile.setNotes(json["notes"].toString());
+    // Support both "profile_notes" and "notes" keys
+    QString notes = json["profile_notes"].toString();
+    if (notes.isEmpty()) notes = json["notes"].toString();
+    profile.setProfileNotes(notes);
     profile.setBeverageType(json["beverage_type"].toString("espresso"));
 
     QString profileType = json["legacy_profile_type"].toString();

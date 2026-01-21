@@ -212,7 +212,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     dye["drinkTds"] = settings->dyeDrinkTds();
     dye["drinkEy"] = settings->dyeDrinkEy();
     dye["espressoEnjoyment"] = settings->dyeEspressoEnjoyment();
-    dye["espressoNotes"] = settings->dyeEspressoNotes();
+    dye["shotNotes"] = settings->dyeShotNotes();
     dye["barista"] = settings->dyeBarista();
     root["dye"] = dye;
 
@@ -489,7 +489,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (dye.contains("drinkTds")) settings->setDyeDrinkTds(dye["drinkTds"].toDouble());
         if (dye.contains("drinkEy")) settings->setDyeDrinkEy(dye["drinkEy"].toDouble());
         if (dye.contains("espressoEnjoyment")) settings->setDyeEspressoEnjoyment(dye["espressoEnjoyment"].toInt());
-        if (dye.contains("espressoNotes")) settings->setDyeEspressoNotes(dye["espressoNotes"].toString());
+        // Shot notes: try new key first, fall back to old key
+        if (dye.contains("shotNotes")) settings->setDyeShotNotes(dye["shotNotes"].toString());
+        else if (dye.contains("espressoNotes")) settings->setDyeShotNotes(dye["espressoNotes"].toString());
         if (dye.contains("barista")) settings->setDyeBarista(dye["barista"].toString());
     }
 

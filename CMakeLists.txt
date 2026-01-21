@@ -333,6 +333,7 @@ set(QML_FILES
     qml/pages/AutoFavoritesPage.qml
     qml/pages/ShotDetailPage.qml
     qml/pages/ShotComparisonPage.qml
+    qml/pages/ProfileInfoPage.qml
     qml/pages/settings/SettingsBluetoothTab.qml
     qml/pages/settings/SettingsPreferencesTab.qml
     qml/pages/settings/SettingsOptionsTab.qml
@@ -361,6 +362,8 @@ set(QML_FILES
     qml/components/StatusBar.qml
     qml/components/ProfileGraph.qml
     qml/components/ProfilePreviewPopup.qml
+    qml/components/ProfileInfoButton.qml
+    qml/components/ProfileDisplayButton.qml
     qml/components/BottomBar.qml
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml
