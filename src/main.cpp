@@ -35,6 +35,7 @@
 #include "machine/machinestate.h"
 #include "models/shotdatamodel.h"
 #include "controllers/maincontroller.h"
+#include "controllers/shottimingcontroller.h"
 #include "ai/aimanager.h"
 #include "ai/aiconversation.h"
 #include "screensaver/screensavervideomanager.h"
@@ -115,6 +116,39 @@ int main(int argc, char *argv[])
     flowScale.setSettings(&settings);
     ProfileStorage profileStorage;
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
+
+    // Create and wire ShotTimingController (centralized timing and weight handling)
+    qDebug() << "[REFACTOR] Creating ShotTimingController...";
+    ShotTimingController timingController(&de1Device);
+    timingController.setScale(&flowScale);  // Start with FlowScale, switch to physical if found
+    timingController.setSettings(&settings);
+    timingController.setMachineState(&machineState);
+    machineState.setTimingController(&timingController);
+    mainController.setTimingController(&timingController);
+    qDebug() << "[REFACTOR] ShotTimingController created and wired to MachineState and MainController";
+
+    // Connect timing controller outputs to shot data model
+    QObject::connect(&timingController, &ShotTimingController::weightSampleReady,
+                     &shotDataModel, qOverload<double, double>(&ShotDataModel::addWeightSample));
+    qDebug() << "[REFACTOR] Connected weightSampleReady -> ShotDataModel::addWeightSample";
+
+    // Connect stop-at-weight signal to DE1
+    QObject::connect(&timingController, &ShotTimingController::stopAtWeightReached,
+                     &de1Device, &DE1Device::stopOperation);
+    qDebug() << "[REFACTOR] Connected stopAtWeightReached -> DE1Device::stopOperation";
+
+    // Connect per-frame weight exit to DE1
+    QObject::connect(&timingController, &ShotTimingController::perFrameWeightReached,
+                     [&de1Device](int frameNumber) {
+                         qDebug() << "[REFACTOR] perFrameWeightReached SIGNAL RECEIVED! frameNumber=" << frameNumber << "- calling skipToNextFrame";
+                         de1Device.skipToNextFrame();
+                     });
+    qDebug() << "[REFACTOR] Connected perFrameWeightReached -> DE1Device::skipToNextFrame";
+
+    // Connect shot ended to timing controller
+    QObject::connect(&machineState, &MachineState::shotEnded,
+                     &timingController, &ShotTimingController::endShot);
+    qDebug() << "[REFACTOR] Connected MachineState::shotEnded -> ShotTimingController::endShot";
 
     // Create and wire AI Manager
     AIManager aiManager(&settings);
@@ -198,7 +232,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &flowScaleFallbackTimer](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &flowScaleFallbackTimer, &timingController](const QBluetoothDeviceInfo& device, const QString& type) {
         // Don't connect if we already have a connected scale
         if (physicalScale && physicalScale->isConnected()) {
             return;
@@ -214,12 +248,14 @@ int main(int argc, char *argv[])
                 qDebug() << "Scale type changed from" << physicalScale->type() << "to" << type << "- creating new scale";
                 // IMPORTANT: Clear all references before deleting the scale to prevent dangling pointers
                 machineState.setScale(&flowScale);  // Switch to FlowScale first
+                timingController.setScale(&flowScale);
                 bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference
                 physicalScale.reset();  // Now safe to delete old scale
             } else {
                 flowScaleFallbackTimer.stop();  // Stop timer - we found a scale
                 // Re-wire to use physical scale
                 machineState.setScale(physicalScale.get());
+                timingController.setScale(physicalScale.get());
                 engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
                 physicalScale->connectToDevice(device);
                 return;
@@ -241,8 +277,9 @@ int main(int argc, char *argv[])
         settings.setScaleType(type);
         settings.setScaleName(device.name());
 
-        // Switch MachineState to use physical scale instead of FlowScale
+        // Switch MachineState and TimingController to use physical scale instead of FlowScale
         machineState.setScale(physicalScale.get());
+        timingController.setScale(physicalScale.get());
 
         // Connect scale to BLEManager for auto-scan control
         bleManager.setScaleDevice(physicalScale.get());
@@ -257,10 +294,11 @@ int main(int argc, char *argv[])
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
-                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController]() {
+                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - use physical scale
                 machineState.setScale(physicalScale.get());
+                timingController.setScale(physicalScale.get());
                 engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
                 // Disconnect FlowScale from graph to prevent duplicate data
                 QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
@@ -269,6 +307,7 @@ int main(int argc, char *argv[])
             } else if (physicalScale) {
                 // Scale disconnected - fall back to FlowScale
                 machineState.setScale(&flowScale);
+                timingController.setScale(&flowScale);
                 engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
                 // Reconnect FlowScale to graph
                 QObject::connect(&flowScale, &ScaleDevice::weightChanged,
@@ -288,11 +327,12 @@ int main(int argc, char *argv[])
 
     // Handle disconnect request when starting a new scan
     QObject::connect(&bleManager, &BLEManager::disconnectScaleRequested,
-                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager]() {
+                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController]() {
         if (physicalScale) {
             qDebug() << "Disconnecting scale before scan";
             // Switch to FlowScale first
             machineState.setScale(&flowScale);
+            timingController.setScale(&flowScale);
             engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
             // Disconnect FlowScale from graph during scan
             QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,

@@ -908,6 +908,7 @@ void DE1Device::startClean() {
 }
 
 void DE1Device::stopOperation() {
+    qDebug() << "[REFACTOR] DE1Device::stopOperation() - requesting Idle state to stop current operation";
     requestState(DE1::State::Idle);
 }
 
@@ -916,7 +917,7 @@ void DE1Device::requestIdle() {
 }
 
 void DE1Device::skipToNextFrame() {
-    qDebug() << "DE1Device::skipToNextFrame - sending SkipToNext (0x0E) command";
+    qDebug() << "[REFACTOR] DE1Device::skipToNextFrame() - sending SkipToNext (0x0E) command to machine";
     requestState(DE1::State::SkipToNext);
 }
 

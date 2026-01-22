@@ -26,6 +26,7 @@ class MachineState;
 class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
+class ShotTimingController;
 struct ShotSample;
 
 // Profile source enumeration
@@ -110,6 +111,7 @@ public:
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
     void setAiManager(AIManager* aiManager) { m_aiManager = aiManager; }
+    void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
     Profile* currentProfilePtr() { return &m_currentProfile; }
     bool isCalibrationMode() const { return m_calibrationMode; }
@@ -251,6 +253,7 @@ private:
     VisualizerUploader* m_visualizer = nullptr;
     VisualizerImporter* m_visualizerImporter = nullptr;
     AIManager* m_aiManager = nullptr;
+    ShotTimingController* m_timingController = nullptr;
 
     Profile m_currentProfile;
     QStringList m_availableProfiles;

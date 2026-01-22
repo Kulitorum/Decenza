@@ -1,4 +1,5 @@
 #include "maincontroller.h"
+#include "shottimingcontroller.h"
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
 #include "../ble/de1device.h"
@@ -2046,6 +2047,12 @@ void MainController::restoreCurrentProfile() {
 }
 
 void MainController::onEspressoCycleStarted() {
+    qDebug() << "[REFACTOR] ========== MainController::onEspressoCycleStarted() ==========";
+    qDebug() << "[REFACTOR] Profile:" << m_currentProfile.title()
+             << "targetWeight:" << m_currentProfile.targetWeight();
+    qDebug() << "[REFACTOR] m_timingController:" << (m_timingController ? "valid" : "NULL");
+    qDebug() << "[REFACTOR] m_shotDataModel:" << (m_shotDataModel ? "valid" : "NULL");
+
     // Clear the graph when entering espresso preheating (new cycle from idle)
     // This preserves preheating data since we only clear at cycle start
     m_shotStartTime = 0;
@@ -2056,11 +2063,19 @@ void MainController::onEspressoCycleStarted() {
     m_tareDone = true;  // We tare immediately now, not at frame 0
     if (m_shotDataModel) {
         m_shotDataModel->clear();
+        qDebug() << "[REFACTOR] ShotDataModel cleared";
     }
-    // Tare scale immediately at cycle start (before stop-at-weight can trigger)
-    // The cup is already on the scale, so we need to zero it now
-    if (m_machineState) {
-        m_machineState->tareScale();
+
+    // Start timing controller and tare via it
+    if (m_timingController) {
+        qDebug() << "[REFACTOR] Setting up timing controller...";
+        m_timingController->setTargetWeight(m_currentProfile.targetWeight());
+        m_timingController->setCurrentProfile(&m_currentProfile);
+        m_timingController->startShot();
+        m_timingController->tare();
+        qDebug() << "[REFACTOR] Timing controller started and tare initiated";
+    } else {
+        qWarning() << "[REFACTOR] WARNING: No timing controller!";
     }
 
     // CRITICAL: Clear any pending BLE commands to prevent stale profile uploads
@@ -2068,6 +2083,7 @@ void MainController::onEspressoCycleStarted() {
     // before extraction starts - any leftover commands in the queue are stale.
     if (m_device) {
         m_device->clearCommandQueue();
+        qDebug() << "[REFACTOR] BLE command queue cleared";
     }
 
     // Start debug logging for this shot
@@ -2081,7 +2097,7 @@ void MainController::onEspressoCycleStarted() {
         m_settings->setDyeShotNotes("");
     }
 
-    qDebug() << "=== ESPRESSO CYCLE STARTED (graph cleared, scale tared) ===";
+    qDebug() << "[REFACTOR] ========== ESPRESSO CYCLE STARTED ==========";
 }
 
 void MainController::onShotEnded() {
@@ -2369,7 +2385,15 @@ void MainController::clearCrashLog() {
 }
 
 void MainController::onShotSampleReceived(const ShotSample& sample) {
-    if (!m_shotDataModel || !m_machineState) return;
+    if (!m_shotDataModel || !m_machineState) {
+        static int missingCount = 0;
+        if (++missingCount % 100 == 1) {
+            qDebug() << "[REFACTOR] onShotSampleReceived IGNORED: m_shotDataModel="
+                     << (m_shotDataModel ? "valid" : "NULL")
+                     << "m_machineState=" << (m_machineState ? "valid" : "NULL");
+        }
+        return;
+    }
 
     MachineState::Phase phase = m_machineState->phase();
 
@@ -2396,6 +2420,10 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     if (!isEspressoPhase) {
         // Don't reset m_shotStartTime here - it's reset in onEspressoCycleStarted()
         // Resetting here causes timing bugs if there's a brief phase glitch mid-shot
+        static int nonEspressoCount = 0;
+        if (++nonEspressoCount % 50 == 1) {
+            qDebug() << "[REFACTOR] onShotSampleReceived: not espresso phase, phase=" << static_cast<int>(phase);
+        }
         return;
     }
 
@@ -2403,7 +2431,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     if (m_shotStartTime == 0) {
         m_shotStartTime = sample.timer;
         m_lastSampleTime = sample.timer;
-        qDebug() << "=== ESPRESSO PREHEATING STARTED ===";
+        qDebug() << "[REFACTOR] FIRST SAMPLE - m_shotStartTime set to" << sample.timer;
     }
 
     double time = sample.timer - m_shotStartTime;
@@ -2420,6 +2448,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     if (isExtracting && !m_extractionStarted) {
         m_extractionStarted = true;
         m_shotDataModel->markExtractionStart(time);
+        qDebug() << "[REFACTOR] EXTRACTION STARTED at time" << time << "s";
     }
 
     // Determine active pump mode for current frame (to show only active goal curve)
@@ -2450,6 +2479,15 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         const auto& steps = m_currentProfile.steps();
         if (frameIndex >= 0 && frameIndex < steps.size()) {
             frameName = steps[frameIndex].name;
+            const auto& frame = steps[frameIndex];
+            qDebug() << "[REFACTOR] FRAME CHANGE:" << m_lastFrameNumber << "->" << frameIndex
+                     << "name:" << frameName
+                     << "exitWeight:" << frame.exitWeight
+                     << "exitIf:" << frame.exitIf
+                     << "at time" << time << "s";
+        } else {
+            qDebug() << "[REFACTOR] FRAME CHANGE:" << m_lastFrameNumber << "->" << frameIndex
+                     << "(out of bounds, profile has" << steps.size() << "frames)";
         }
 
         // Fall back to frame number if no name
@@ -2461,13 +2499,17 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         m_lastFrameNumber = sample.frameNumber;
         m_currentFrameName = frameName;  // Store for accessibility QML binding
 
-        qDebug() << "Frame change:" << frameIndex << "->" << frameName << "at" << time << "s";
-
         // Accessibility: notify of frame change for tick sound
         emit frameChanged(frameIndex, frameName);
     }
 
-    // Add sample data
+    // Forward to timing controller for unified timing
+    if (m_timingController) {
+        m_timingController->onShotSample(sample, pressureGoal, flowGoal, sample.setTempGoal,
+                                          sample.frameNumber, isFlowMode);
+    }
+
+    // Add sample data directly (timing controller also emits sampleReady but we keep this for backward compatibility)
     m_shotDataModel->addSample(time, sample.groupPressure,
                                sample.groupFlow, sample.headTemp,
                                pressureGoal, flowGoal, sample.setTempGoal,
@@ -2475,75 +2517,42 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
 
     // Detailed logging for development (reduce frequency)
     static int logCounter = 0;
-    if (++logCounter % 10 == 0) {
+    if (++logCounter % 20 == 0) {
         const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
         double currentWeight = cumulativeWeight.isEmpty() ? 0.0 : cumulativeWeight.last().y();
-        qDebug().nospace()
-            << "SHOT [" << QString::number(time, 'f', 1) << "s] "
-            << "F#" << sample.frameNumber << " "
-            << "P:" << QString::number(sample.groupPressure, 'f', 2) << " "
-            << "F:" << QString::number(sample.groupFlow, 'f', 2) << " "
-            << "T:" << QString::number(sample.headTemp, 'f', 1) << " "
-            << "W:" << QString::number(currentWeight, 'f', 1);
+        qDebug() << "[REFACTOR] SAMPLE: time=" << QString::number(time, 'f', 2)
+                 << "frame=" << sample.frameNumber
+                 << "P=" << QString::number(sample.groupPressure, 'f', 2)
+                 << "F=" << QString::number(sample.groupFlow, 'f', 2)
+                 << "W=" << QString::number(currentWeight, 'f', 1);
     }
 }
 
 void MainController::onScaleWeightChanged(double weight) {
-    if (!m_shotDataModel || !m_machineState) {
-        qDebug() << "Weight update dropped: no model or state";
+    if (!m_machineState) {
+        qDebug() << "[REFACTOR] onScaleWeightChanged IGNORED: no machineState, weight=" << weight;
         return;
     }
 
-    // Only record weight during espresso phases
-    MachineState::Phase phase = m_machineState->phase();
-    bool isEspressoPhase = (phase == MachineState::Phase::EspressoPreheating ||
-                           phase == MachineState::Phase::Preinfusion ||
-                           phase == MachineState::Phase::Pouring ||
-                           phase == MachineState::Phase::Ending);
-
-    if (!isEspressoPhase) {
-        // Log periodically to avoid spam (every 20th drop)
-        static int phaseDropCount = 0;
-        if (++phaseDropCount % 20 == 0) {
-            qDebug() << "Weight update dropped: wrong phase -"
-                     << m_machineState->phaseString()
-                     << "weight=" << weight << "total_drops=" << phaseDropCount;
-        }
-        return;
+    // Log periodically
+    static int scaleCount = 0;
+    if (++scaleCount % 20 == 1) {
+        qDebug() << "[REFACTOR] onScaleWeightChanged: weight=" << QString::number(weight, 'f', 2)
+                 << "flowRate=" << QString::number(m_machineState->scaleFlowRate(), 'f', 2)
+                 << "m_timingController=" << (m_timingController ? "valid" : "NULL");
     }
 
-    // Use DE1's timer (via m_lastShotTime) instead of wall-clock timer
-    // This prevents desync if MachineState timer is reset due to BLE glitches
-    double time = m_lastShotTime;
-
-    // Don't record if we haven't received any shot samples yet
-    if (time <= 0 && !m_extractionStarted) {
-        // This is normal during early preheating - don't spam the log
-        return;
-    }
-
-    // Get flow rate from scale (g/s) for graphing
-    double flowRate = m_machineState->scaleFlowRate();
-    m_shotDataModel->addWeightSample(time, weight, flowRate);
-
-    // Per-frame weight exit check for frame-based profiles
-    // Skip to next frame when the current frame's weight exit condition is met
-    // Only send skip command once per frame (m_frameWeightSkipSent tracks this)
-    // NOTE: Weight exit is INDEPENDENT of exitIf - the "weight" property in de1app profiles
-    // triggers app-side frame skip regardless of the machine-side exit_if flag
-    if (m_lastFrameNumber >= 0 && m_device && m_lastFrameNumber != m_frameWeightSkipSent) {
-        const auto& steps = m_currentProfile.steps();
-        if (m_lastFrameNumber < steps.size()) {
-            const ProfileFrame& frame = steps[m_lastFrameNumber];
-            if (frame.exitWeight > 0) {
-                if (weight >= frame.exitWeight) {
-                    qDebug() << "MainController: Per-frame weight exit reached:"
-                             << weight << "/" << frame.exitWeight
-                             << "on frame" << m_lastFrameNumber << "(" << frame.name << ")";
-                    m_frameWeightSkipSent = m_lastFrameNumber;
-                    m_device->skipToNextFrame();
-                }
-            }
+    // Forward to timing controller which handles:
+    // - Stop-at-weight checking
+    // - Weight graph data (via weightSampleReady signal)
+    // - Per-frame weight exit (via perFrameWeightReached signal)
+    if (m_timingController) {
+        double flowRate = m_machineState->scaleFlowRate();
+        m_timingController->onWeightSample(weight, flowRate);
+    } else {
+        static int missingCount = 0;
+        if (++missingCount % 50 == 1) {
+            qWarning() << "[REFACTOR] onScaleWeightChanged: NO TIMING CONTROLLER! weight=" << weight;
         }
     }
 }

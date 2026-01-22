@@ -157,6 +157,7 @@ set(SOURCES
     src/models/shotdatamodel.cpp
     src/controllers/maincontroller.cpp
     src/controllers/directcontroller.cpp
+    src/controllers/shottimingcontroller.cpp
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/pipegeometry.cpp
     src/screensaver/strangeattractorrenderer.cpp
@@ -238,6 +239,7 @@ set(HEADERS
     src/models/shotdatamodel.h
     src/controllers/maincontroller.h
     src/controllers/directcontroller.h
+    src/controllers/shottimingcontroller.h
     src/screensaver/screensavervideomanager.h
     src/screensaver/pipegeometry.h
     src/screensaver/strangeattractorrenderer.h

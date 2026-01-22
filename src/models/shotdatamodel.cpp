@@ -217,25 +217,39 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
 }
 
 void ShotDataModel::addWeightSample(double time, double weight, double flowRate) {
-    // Store cumulative weight for export (visualizer, shot history)
-    if (weight >= 0.1) {  // Ignore near-zero weights (scale noise)
-        m_cumulativeWeightPoints.append(QPointF(time, weight));
-    }
+    Q_UNUSED(flowRate);  // No longer used for graphing - we plot cumulative weight now
+    addWeightSample(time, weight);
+}
 
-    // Ignore very small flow rates (noise during preinfusion, etc.)
-    // This prevents the graph from starting with noisy data before actual flow begins
-    if (flowRate < 0.05) {
+void ShotDataModel::addWeightSample(double time, double weight) {
+    // Ignore near-zero weights (scale noise / pre-drip)
+    if (weight < 0.1) {
+        static int ignoredCount = 0;
+        if (++ignoredCount % 50 == 1) {
+            qDebug() << "[REFACTOR] ShotDataModel::addWeightSample IGNORED: weight=" << weight << "< 0.1";
+        }
         return;
     }
 
-    // Add initial zero point when flow rate curve starts (so line starts from zero at correct time)
-    if (m_weightPoints.isEmpty()) {
-        m_weightPoints.append(QPointF(time, 0.0));
+    // Log weight samples
+    static int sampleCount = 0;
+    if (++sampleCount % 10 == 1) {
+        qDebug() << "[REFACTOR] ShotDataModel::addWeightSample: time=" << QString::number(time, 'f', 2)
+                 << "weight=" << QString::number(weight, 'f', 2)
+                 << "totalPoints=" << m_weightPoints.size();
     }
 
-    // Plot flow rate directly (g/s) - no scaling needed
-    // Flow rate typically ranges 0-6 g/s which fits well on the 0-12 pressure axis
-    m_weightPoints.append(QPointF(time, flowRate));
+    // Store cumulative weight for export (visualizer, shot history)
+    m_cumulativeWeightPoints.append(QPointF(time, weight));
+
+    // Add initial zero point when weight curve starts (so line starts from zero at correct time)
+    if (m_weightPoints.isEmpty()) {
+        m_weightPoints.append(QPointF(time, 0.0));
+        qDebug() << "[REFACTOR] ShotDataModel: Added initial zero point at time=" << time;
+    }
+
+    // Plot cumulative weight (g) - shows weight progression during shot (0g -> 36g typical)
+    m_weightPoints.append(QPointF(time, weight));
     m_dirty = true;
 }
 

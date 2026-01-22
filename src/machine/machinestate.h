@@ -8,6 +8,7 @@ class DE1Device;
 class ScaleDevice;
 class Profile;
 class Settings;
+class ShotTimingController;
 
 class MachineState : public QObject {
     Q_OBJECT
@@ -66,6 +67,7 @@ public:
 
     void setScale(ScaleDevice* scale);
     void setSettings(Settings* settings);
+    void setTimingController(ShotTimingController* controller);
     void setTargetWeight(double weight);
     void setTargetVolume(double volume);
     void setStopAtType(StopAtType type);
@@ -112,6 +114,7 @@ private:
     DE1Device* m_device = nullptr;
     ScaleDevice* m_scale = nullptr;  // Either FlowScale (fallback) or physical BLE scale
     Settings* m_settings = nullptr;
+    ShotTimingController* m_timingController = nullptr;
 
     Phase m_phase = Phase::Disconnected;
     double m_shotTime = 0.0;
