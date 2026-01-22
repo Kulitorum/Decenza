@@ -276,15 +276,27 @@ void MachineState::updatePhase() {
             }
         }
 
-        // Defer signal emissions to allow pending BLE notifications to process first
+        // Reset timer state when entering espresso cycle (before signals)
+        // This ensures timer shows 0 during preheating and properly starts at preinfusion
+        // Without this, m_shotStartTime would contain the PREVIOUS shot's timestamp,
+        // causing the timer to show huge elapsed values when preinfusion starts
+        if (isInEspresso && !wasInEspresso) {
+            m_shotTime = 0.0;
+            m_shotStartTime = 0;  // Mark as invalid so preinfusion properly starts it
+            emit shotTimeChanged();  // Update UI to show 0 during preheating
+
+            // CRITICAL: Emit espressoCycleStarted IMMEDIATELY (not deferred) so MainController
+            // can reset its m_shotStartTime before any shot samples arrive via BLE.
+            // If deferred, shot samples could arrive first with wrong timestamps.
+            qDebug() << "  -> EMITTING espressoCycleStarted (immediate)";
+            emit espressoCycleStarted();
+        }
+
+        // Defer other signal emissions to allow pending BLE notifications to process first
         // This prevents QML binding updates from blocking the event loop
+        // Note: espressoCycleStarted is emitted immediately above to avoid race conditions
         QTimer::singleShot(0, this, [this, wasInEspresso, isInEspresso, wasFlowing]() {
             emit phaseChanged();
-
-            if (isInEspresso && !wasInEspresso) {
-                qDebug() << "  -> EMITTING espressoCycleStarted";
-                emit espressoCycleStarted();
-            }
 
             if (isFlowing() && !wasFlowing) {
                 emit shotStarted();
