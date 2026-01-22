@@ -418,6 +418,141 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
 }
 
 // ============================================================================
+// OpenRouter Provider
+// ============================================================================
+
+OpenRouterProvider::OpenRouterProvider(QNetworkAccessManager* networkManager,
+                                         const QString& apiKey,
+                                         const QString& model,
+                                         QObject* parent)
+    : AIProvider(networkManager, parent)
+    , m_apiKey(apiKey)
+    , m_model(model)
+{
+}
+
+void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("OpenRouter API key or model not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+
+    // OpenRouter uses OpenAI-compatible format
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    QJsonArray messages;
+    QJsonObject sysMsg;
+    sysMsg["role"] = QString("system");
+    sysMsg["content"] = systemPrompt;
+    messages.append(sysMsg);
+    QJsonObject userMsg;
+    userMsg["role"] = QString("user");
+    userMsg["content"] = userPrompt;
+    messages.append(userMsg);
+    requestBody["messages"] = messages;
+    requestBody["max_tokens"] = 1024;
+
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    // Attribution headers for OpenRouter leaderboard
+    req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
+    req.setRawHeader("X-Title", "Decenza DE1");
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
+void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
+{
+    reply->deleteLater();
+    setStatus(Status::Ready);
+
+    if (reply->error() != QNetworkReply::NoError) {
+        emit analysisFailed("OpenRouter request failed: " + reply->errorString());
+        return;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonObject root = doc.object();
+
+    if (root.contains("error")) {
+        QString errorMsg = root["error"].toObject()["message"].toString();
+        emit analysisFailed("OpenRouter error: " + errorMsg);
+        return;
+    }
+
+    QJsonArray choices = root["choices"].toArray();
+    if (choices.isEmpty()) {
+        emit analysisFailed("OpenRouter returned no response");
+        return;
+    }
+
+    QString content = choices[0].toObject()["message"].toObject()["content"].toString();
+    emit analysisComplete(content);
+}
+
+void OpenRouterProvider::testConnection()
+{
+    if (!isConfigured()) {
+        emit testResult(false, "API key or model not configured");
+        return;
+    }
+
+    // Send a minimal request to test the API key and model
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    QJsonArray messages;
+    QJsonObject userMsg;
+    userMsg["role"] = QString("user");
+    userMsg["content"] = QString("Hi");
+    messages.append(userMsg);
+    requestBody["messages"] = messages;
+    requestBody["max_tokens"] = 10;
+
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
+    req.setRawHeader("X-Title", "Decenza DE1");
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onTestReply(reply);
+    });
+}
+
+void OpenRouterProvider::onTestReply(QNetworkReply* reply)
+{
+    reply->deleteLater();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        emit testResult(false, "Connection failed: " + reply->errorString());
+        return;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    if (doc.object().contains("error")) {
+        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
+        emit testResult(false, "API error: " + errorMsg);
+        return;
+    }
+
+    emit testResult(true, "Connected to OpenRouter successfully");
+}
+
+// ============================================================================
 // Ollama Provider
 // ============================================================================
 

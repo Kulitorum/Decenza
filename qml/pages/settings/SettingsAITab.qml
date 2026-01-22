@@ -6,7 +6,7 @@ import "../../components"
 
 KeyboardAwareContainer {
     id: aiTab
-    textFields: [apiKeyField, ollamaEndpointField]
+    textFields: [apiKeyField, ollamaEndpointField, openrouterModelField]
 
     property string testResultMessage: ""
     property bool testResultSuccess: false
@@ -17,6 +17,7 @@ KeyboardAwareContainer {
             case "openai": return Settings.openaiApiKey.length > 0
             case "anthropic": return Settings.anthropicApiKey.length > 0
             case "gemini": return Settings.geminiApiKey.length > 0
+            case "openrouter": return Settings.openrouterApiKey.length > 0 && Settings.openrouterModel.length > 0
             case "ollama": return Settings.ollamaEndpoint.length > 0 && Settings.ollamaModel.length > 0
             default: return false
         }
@@ -56,6 +57,7 @@ KeyboardAwareContainer {
                                 { id: "openai", name: "OpenAI", desc: "GPT-4o" },
                                 { id: "anthropic", name: "Anthropic", desc: "Claude" },
                                 { id: "gemini", name: "Gemini", desc: "Flash" },
+                                { id: "openrouter", name: "OpenRouter", desc: "Multi" },
                                 { id: "ollama", name: "Ollama", desc: "Local" }
                             ]
 
@@ -159,6 +161,7 @@ KeyboardAwareContainer {
                                 case "openai": return Settings.openaiApiKey
                                 case "anthropic": return Settings.anthropicApiKey
                                 case "gemini": return Settings.geminiApiKey
+                                case "openrouter": return Settings.openrouterApiKey
                                 default: return ""
                             }
                         }
@@ -167,6 +170,7 @@ KeyboardAwareContainer {
                                 case "openai": Settings.openaiApiKey = text; break
                                 case "anthropic": Settings.anthropicApiKey = text; break
                                 case "gemini": Settings.geminiApiKey = text; break
+                                case "openrouter": Settings.openrouterApiKey = text; break
                             }
                         }
                     }
@@ -178,11 +182,44 @@ KeyboardAwareContainer {
                                 case "openai": return getKey + " platform.openai.com -> API Keys"
                                 case "anthropic": return getKey + " console.anthropic.com -> API Keys"
                                 case "gemini": return getKey + " aistudio.google.com -> Get API Key"
+                                case "openrouter": return getKey + " openrouter.ai -> Keys"
                                 default: return ""
                             }
                         }
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
+                    }
+                }
+
+                // OpenRouter model settings
+                ColumnLayout {
+                    visible: Settings.aiProvider === "openrouter"
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    Tr {
+                        key: "settings.ai.openrouterModel"
+                        fallback: "Model"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+
+                    StyledTextField {
+                        id: openrouterModelField
+                        Layout.fillWidth: true
+                        placeholderText: "anthropic/claude-sonnet-4"
+                        text: Settings.openrouterModel
+                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
+                        onTextChanged: Settings.openrouterModel = text
+                    }
+
+                    Text {
+                        text: TranslationManager.translate("settings.ai.openroutermodelhint", "Enter model ID from openrouter.ai/models (e.g., anthropic/claude-sonnet-4, openai/gpt-4o)")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
                     }
                 }
 
@@ -273,6 +310,7 @@ KeyboardAwareContainer {
                                 case "openai": return "~$0.01/" + TranslationManager.translate("settings.ai.pershot", "shot")
                                 case "anthropic": return "~$0.003/" + TranslationManager.translate("settings.ai.pershot", "shot")
                                 case "gemini": return "~$0.002/" + TranslationManager.translate("settings.ai.pershot", "shot")
+                                case "openrouter": return TranslationManager.translate("settings.ai.variesbymodel", "Varies by model")
                                 case "ollama": return TranslationManager.translate("settings.ai.free", "Free")
                                 default: return ""
                             }

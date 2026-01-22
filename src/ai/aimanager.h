@@ -135,6 +135,7 @@ private:
     std::unique_ptr<AIProvider> m_openaiProvider;
     std::unique_ptr<AIProvider> m_anthropicProvider;
     std::unique_ptr<AIProvider> m_geminiProvider;
+    std::unique_ptr<AIProvider> m_openrouterProvider;
     std::unique_ptr<AIProvider> m_ollamaProvider;
 
     // State

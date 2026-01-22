@@ -125,6 +125,36 @@ private:
     QString apiUrl() const;
 };
 
+// OpenRouter provider (multiple models via OpenAI-compatible API)
+class OpenRouterProvider : public AIProvider {
+    Q_OBJECT
+
+public:
+    explicit OpenRouterProvider(QNetworkAccessManager* networkManager,
+                                 const QString& apiKey,
+                                 const QString& model,
+                                 QObject* parent = nullptr);
+
+    QString name() const override { return "OpenRouter"; }
+    QString id() const override { return "openrouter"; }
+    bool isConfigured() const override { return !m_apiKey.isEmpty() && !m_model.isEmpty(); }
+
+    void setApiKey(const QString& key) { m_apiKey = key; }
+    void setModel(const QString& model) { m_model = model; }
+
+    void analyze(const QString& systemPrompt, const QString& userPrompt) override;
+    void testConnection() override;
+
+private slots:
+    void onAnalysisReply(QNetworkReply* reply);
+    void onTestReply(QNetworkReply* reply);
+
+private:
+    QString m_apiKey;
+    QString m_model;
+    static constexpr const char* API_URL = "https://openrouter.ai/api/v1/chat/completions";
+};
+
 // Ollama local LLM provider
 class OllamaProvider : public AIProvider {
     Q_OBJECT

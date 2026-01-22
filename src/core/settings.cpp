@@ -1613,6 +1613,30 @@ void Settings::setOllamaModel(const QString& model) {
     }
 }
 
+QString Settings::openrouterApiKey() const {
+    return m_settings.value("ai/openrouterKey", "").toString();
+}
+
+void Settings::setOpenrouterApiKey(const QString& key) {
+    if (openrouterApiKey() != key) {
+        m_settings.setValue("ai/openrouterKey", key);
+        emit openrouterApiKeyChanged();
+        emit valueChanged("ai/openrouterKey");
+    }
+}
+
+QString Settings::openrouterModel() const {
+    return m_settings.value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString();
+}
+
+void Settings::setOpenrouterModel(const QString& model) {
+    if (openrouterModel() != model) {
+        m_settings.setValue("ai/openrouterModel", model);
+        emit openrouterModelChanged();
+        emit valueChanged("ai/openrouterModel");
+    }
+}
+
 // Build info
 bool Settings::isDebugBuild() const {
 #ifdef QT_DEBUG

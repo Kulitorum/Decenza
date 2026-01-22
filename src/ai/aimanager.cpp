@@ -57,6 +57,15 @@ void AIManager::createProviders()
     connect(gemini, &AIProvider::testResult, this, &AIManager::onTestResult);
     m_geminiProvider.reset(gemini);
 
+    // Create OpenRouter provider
+    QString openrouterKey = m_settings->value("ai/openrouterKey").toString();
+    QString openrouterModel = m_settings->value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString();
+    auto* openrouter = new OpenRouterProvider(m_networkManager, openrouterKey, openrouterModel, this);
+    connect(openrouter, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
+    connect(openrouter, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
+    connect(openrouter, &AIProvider::testResult, this, &AIManager::onTestResult);
+    m_openrouterProvider.reset(openrouter);
+
     // Create Ollama provider
     QString ollamaEndpoint = m_settings->value("ai/ollamaEndpoint", "http://localhost:11434").toString();
     QString ollamaModel = m_settings->value("ai/ollamaModel").toString();
@@ -84,7 +93,7 @@ void AIManager::setSelectedProvider(const QString& provider)
 
 QStringList AIManager::availableProviders() const
 {
-    return {"openai", "anthropic", "gemini", "ollama"};
+    return {"openai", "anthropic", "gemini", "openrouter", "ollama"};
 }
 
 bool AIManager::isConfigured() const
@@ -100,6 +109,7 @@ AIProvider* AIManager::currentProvider() const
     if (providerId == "openai") return m_openaiProvider.get();
     if (providerId == "anthropic") return m_anthropicProvider.get();
     if (providerId == "gemini") return m_geminiProvider.get();
+    if (providerId == "openrouter") return m_openrouterProvider.get();
     if (providerId == "ollama") return m_ollamaProvider.get();
 
     return m_openaiProvider.get();  // Default

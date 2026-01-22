@@ -94,6 +94,8 @@ class Settings : public QObject {
     Q_PROPERTY(QString geminiApiKey READ geminiApiKey WRITE setGeminiApiKey NOTIFY geminiApiKeyChanged)
     Q_PROPERTY(QString ollamaEndpoint READ ollamaEndpoint WRITE setOllamaEndpoint NOTIFY ollamaEndpointChanged)
     Q_PROPERTY(QString ollamaModel READ ollamaModel WRITE setOllamaModel NOTIFY ollamaModelChanged)
+    Q_PROPERTY(QString openrouterApiKey READ openrouterApiKey WRITE setOpenrouterApiKey NOTIFY openrouterApiKeyChanged)
+    Q_PROPERTY(QString openrouterModel READ openrouterModel WRITE setOpenrouterModel NOTIFY openrouterModelChanged)
 
     // Build info
     Q_PROPERTY(bool isDebugBuild READ isDebugBuild CONSTANT)
@@ -376,6 +378,12 @@ public:
     QString ollamaModel() const;
     void setOllamaModel(const QString& model);
 
+    QString openrouterApiKey() const;
+    void setOpenrouterApiKey(const QString& key);
+
+    QString openrouterModel() const;
+    void setOpenrouterModel(const QString& model);
+
     // Build info
     bool isDebugBuild() const;
 
@@ -551,6 +559,8 @@ signals:
     void geminiApiKeyChanged();
     void ollamaEndpointChanged();
     void ollamaModelChanged();
+    void openrouterApiKeyChanged();
+    void openrouterModelChanged();
     void dyeBeanBrandChanged();
     void dyeBeanTypeChanged();
     void dyeRoastDateChanged();
