@@ -39,7 +39,7 @@ ChartView {
             temperatureSeries.append(temperatureData[i].x, temperatureData[i].y)
         }
         for (i = 0; i < weightData.length; i++) {
-            weightSeries.append(weightData[i].x, weightData[i].y / 5)  // Scale for display
+            weightSeries.append(weightData[i].x, weightData[i].y)
         }
 
         // Update time axis
@@ -75,7 +75,7 @@ ChartView {
         titleBrush: Theme.textSecondaryColor
     }
 
-    // Temperature axis (right Y)
+    // Temperature axis (right Y) - hidden to make room for weight
     ValueAxis {
         id: tempAxis
         min: 80
@@ -86,14 +86,28 @@ ChartView {
         gridLineColor: "transparent"
         titleText: "°C"
         titleBrush: Theme.temperatureColor
+        visible: false
     }
 
-    // Weight axis (hidden, same scale as pressure for overlay)
+    // Weight axis (right Y) - scaled to max weight in data + 10%
+    property double maxWeight: {
+        var max = 0
+        for (var i = 0; i < weightData.length; i++) {
+            if (weightData[i].y > max) max = weightData[i].y
+        }
+        return Math.max(10, max * 1.1)
+    }
+
     ValueAxis {
         id: weightAxis
         min: 0
-        max: 12
-        visible: false
+        max: maxWeight
+        tickCount: 5
+        labelFormat: "%.0f"
+        labelsColor: Theme.weightColor
+        gridLineColor: "transparent"
+        titleText: "g"
+        titleBrush: Theme.weightColor
     }
 
     // Pressure line
@@ -133,6 +147,6 @@ ChartView {
         color: Theme.weightColor
         width: Theme.graphLineWidth
         axisX: timeAxis
-        axisY: weightAxis
+        axisYRight: weightAxis
     }
 }

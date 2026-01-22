@@ -65,7 +65,7 @@ ChartView {
         titleBrush: Theme.textSecondaryColor
     }
 
-    // Temperature axis (right Y)
+    // Temperature axis (right Y) - hidden during shots to make room for weight
     ValueAxis {
         id: tempAxis
         min: 80
@@ -76,6 +76,20 @@ ChartView {
         gridLineColor: "transparent"
         titleText: "°C"
         titleBrush: Theme.temperatureColor
+        visible: false  // Hide temp axis - weight is more important during shots
+    }
+
+    // Weight axis (right Y) - scaled to target weight + 10%
+    ValueAxis {
+        id: weightAxis
+        min: 0
+        max: Math.max(10, (MainController.targetWeight || 36) * 1.1)
+        tickCount: 5
+        labelFormat: "%.0f"
+        labelsColor: Theme.weightColor
+        gridLineColor: "transparent"
+        titleText: "g"
+        titleBrush: Theme.weightColor
     }
 
     // === PHASE MARKER LINES ===
@@ -162,7 +176,7 @@ ChartView {
         color: Theme.weightColor
         width: Theme.scaled(3)
         axisX: timeAxis
-        axisY: pressureAxis
+        axisYRight: weightAxis
     }
 
     // Frame marker labels
