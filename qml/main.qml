@@ -1491,9 +1491,10 @@ ApplicationWindow {
 
             // Apply settings when entering operations (to handle GHC-initiated starts)
             if (phase === MachineStateType.Phase.Steaming && wasIdle) {
-                // Apply steam settings immediately when entering steam (from GHC button)
-                MainController.applySteamSettings()
-                console.log("Applied steam settings on phase change to Steaming")
+                // Start steam heating when entering steam (from GHC button)
+                // Uses startSteamHeating() to force heater on regardless of keepSteamHeaterOn
+                MainController.startSteamHeating()
+                console.log("Started steam heating on phase change to Steaming")
                 // Stop any pending auto-flush timer when starting new steam
                 steamAutoFlushTimer.stop()
             } else if (phase === MachineStateType.Phase.HotWater && wasIdle) {
@@ -1504,9 +1505,15 @@ ApplicationWindow {
                 console.log("Applied flush settings on phase change")
             }
 
-            // Check if steaming just ended - start auto-flush timer if enabled
+            // Check if steaming just ended
             let wasSteamingBefore = (root.previousPhase === MachineStateType.Phase.Steaming)
             if (wasSteamingBefore && (phase === MachineStateType.Phase.Idle || phase === MachineStateType.Phase.Ready)) {
+                // Turn off steam heater if keepSteamHeaterOn is false
+                if (!Settings.keepSteamHeaterOn) {
+                    console.log("Steaming ended, turning off steam heater (keepSteamHeaterOn=false)")
+                    MainController.turnOffSteamHeater()
+                }
+                // Start auto-flush timer if enabled
                 if (Settings.steamAutoFlushSeconds > 0) {
                     console.log("Steaming ended, starting auto-flush timer for", Settings.steamAutoFlushSeconds, "seconds")
                     steamAutoFlushTimer.restart()

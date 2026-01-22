@@ -16,13 +16,20 @@ Page {
         // Sync Settings with selected preset
         Settings.steamTimeout = getCurrentPitcherDuration()
         Settings.steamFlow = getCurrentPitcherFlow()
-        MainController.applySteamSettings()
+        // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
+        MainController.startSteamHeating()
     }
     StackView.onActivated: root.currentPageTitle = pageTitle
 
     property bool isSteaming: MachineState.phase === MachineStateType.Phase.Steaming || root.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
     property bool steamSoftStopped: false  // For two-stage stop on headless machines
+    property bool wasSteaming: false  // Track if we were steaming (to turn off heater after)
+
+    // Check if steam heater needs heating
+    readonly property real currentSteamTemp: DE1Device.steamTemperature
+    readonly property real targetSteamTemp: Settings.steamTemperature
+    readonly property bool isHeatingUp: !isSteaming && currentSteamTemp < (targetSteamTemp - 5)  // 5°C tolerance
 
     // Debug logging for steam phase issues
     Connections {
@@ -41,18 +48,24 @@ Page {
         }
     }
 
-    // Reset state when steaming starts
+    // Reset state when steaming starts/ends
     onIsSteamingChanged: {
         console.log("SteamPage: isSteaming changed to", isSteaming, "phase=", MachineState.phase, "steamSoftStopped=", steamSoftStopped)
-        if (!isSteaming) {
-            console.log("SteamPage: Settings view now visible (isSteaming=false)")
-        }
         if (isSteaming) {
+            wasSteaming = true
             steamSoftStopped = false
             // Reset to preset value (discard any +5s/-5s adjustments from previous session)
             Settings.steamTimeout = getCurrentPitcherDuration()
             Settings.steamFlow = getCurrentPitcherFlow()
-            MainController.applySteamSettings()
+            MainController.startSteamHeating()
+        } else {
+            console.log("SteamPage: Settings view now visible (isSteaming=false)")
+            // Turn off steam heater after steaming if keepSteamHeaterOn is false
+            if (wasSteaming && !Settings.keepSteamHeaterOn) {
+                console.log("SteamPage: Turning off steam heater (keepSteamHeaterOn=false)")
+                MainController.turnOffSteamHeater()
+            }
+            wasSteaming = false
         }
     }
 
@@ -135,7 +148,7 @@ Page {
                                 var flow = modelData.flow !== undefined ? modelData.flow : 150
                                 Settings.steamTimeout = modelData.duration
                                 Settings.steamFlow = flow
-                                MainController.applySteamSettings()
+                                MainController.startSteamHeating()
                             }
                         }
                     }
@@ -177,7 +190,7 @@ Page {
                             onClicked: {
                                 var newTime = Math.max(5, Settings.steamTimeout - 5)
                                 Settings.steamTimeout = newTime
-                                MainController.applySteamSettings()
+                                MainController.startSteamHeating()
                             }
                         }
                     }
@@ -213,7 +226,7 @@ Page {
                             onClicked: {
                                 var newTime = Math.min(120, Settings.steamTimeout + 5)
                                 Settings.steamTimeout = newTime
-                                MainController.applySteamSettings()
+                                MainController.startSteamHeating()
                             }
                         }
                     }
@@ -343,6 +356,71 @@ Page {
             Layout.fillHeight: true
             spacing: Theme.scaled(12)
 
+            // Steam heater heating indicator
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(60)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+                visible: isHeatingUp
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(15)
+
+                    // Heating icon (animated)
+                    Text {
+                        text: "\ue88a"  // heating icon (whatshot)
+                        font.family: "Material Icons"
+                        font.pixelSize: Theme.scaled(28)
+                        color: Theme.warningColor
+
+                        SequentialAnimation on opacity {
+                            running: isHeatingUp
+                            loops: Animation.Infinite
+                            NumberAnimation { from: 0.4; to: 1.0; duration: 600 }
+                            NumberAnimation { from: 1.0; to: 0.4; duration: 600 }
+                        }
+                    }
+
+                    Column {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        Tr {
+                            key: "steam.label.heatingUp"
+                            fallback: "Heating steam..."
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+
+                        // Progress bar
+                        Rectangle {
+                            width: parent.width
+                            height: Theme.scaled(6)
+                            radius: Theme.scaled(3)
+                            color: Theme.backgroundColor
+
+                            Rectangle {
+                                width: parent.width * Math.min(1, Math.max(0, currentSteamTemp / targetSteamTemp))
+                                height: parent.height
+                                radius: parent.radius
+                                color: Theme.warningColor
+                            }
+                        }
+                    }
+
+                    // Temperature display
+                    Text {
+                        text: currentSteamTemp.toFixed(0) + " / " + targetSteamTemp.toFixed(0) + "°C"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+                }
+            }
+
             // Pitcher Presets Section
             Rectangle {
                 Layout.fillWidth: true
@@ -440,7 +518,7 @@ Page {
                                                 flowSlider.value = flow
                                                 Settings.steamTimeout = modelData.duration
                                                 Settings.steamFlow = flow
-                                                MainController.applySteamSettings()
+                                                MainController.startSteamHeating()
                                             }
                                             pitcherPill.Drag.drop()
                                             pitcherPresetsRow.draggedIndex = -1
@@ -673,7 +751,12 @@ Page {
         visible: !isSteaming && !steamSoftStopped
         title: getCurrentPitcherName() || noPitcherText.text
         onBackClicked: {
-            MainController.applySteamSettings()
+            // Turn off heater if keepSteamHeaterOn is false, otherwise keep it warm
+            if (!Settings.keepSteamHeaterOn) {
+                MainController.turnOffSteamHeater()
+            } else {
+                MainController.applySteamSettings()
+            }
             root.goToIdle()
         }
 

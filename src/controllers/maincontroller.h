@@ -200,6 +200,12 @@ public slots:
     // Send steam temperature to machine without saving to settings (for enable/disable toggle)
     Q_INVOKABLE void sendSteamTemperature(double temp);
 
+    // Start heating steam heater (ignores keepSteamHeaterOn - for when user wants to steam)
+    Q_INVOKABLE void startSteamHeating();
+
+    // Turn off steam heater (sends 0°C)
+    Q_INVOKABLE void turnOffSteamHeater();
+
     void onEspressoCycleStarted();
     void onShotEnded();
     void onScaleWeightChanged(double weight);  // Called by scale weight updates

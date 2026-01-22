@@ -137,6 +137,10 @@ KeyboardAwareContainer {
                             accessibleName: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
                             onClicked: {
                                 Settings.keepSteamHeaterOn = checked
+                                // applySteamSettings() respects keepSteamHeaterOn setting:
+                                // - In Ready state: always sends steam temp (machine heating)
+                                // - In Idle with keepSteamHeaterOn=false: sends 0 to turn off heater
+                                // - In Idle with keepSteamHeaterOn=true: sends steam temp
                                 MainController.applySteamSettings()
                             }
                         }

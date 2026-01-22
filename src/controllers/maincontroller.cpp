@@ -1725,8 +1725,23 @@ bool MainController::profileExists(const QString& filename) const {
 void MainController::applySteamSettings() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    // Respect steamDisabled flag - send 0 if disabled, otherwise use saved temperature
-    double steamTemp = m_settings->steamDisabled() ? 0.0 : m_settings->steamTemperature();
+    // Determine steam temperature to send:
+    // - If steam is disabled: send 0
+    // - If machine is in Ready state: always send temp (machine heating, steam should be available)
+    // - If keepSteamHeaterOn is false: send 0 (user doesn't want heater on when idle)
+    // - Otherwise: send configured temperature
+    double steamTemp;
+    if (m_settings->steamDisabled()) {
+        steamTemp = 0.0;
+    } else if (m_machineState && m_machineState->phase() == MachineState::Phase::Ready) {
+        // In Ready state, always send steam temp so GHC-initiated steam works
+        steamTemp = m_settings->steamTemperature();
+    } else if (!m_settings->keepSteamHeaterOn()) {
+        // User doesn't want steam heater on when idle
+        steamTemp = 0.0;
+    } else {
+        steamTemp = m_settings->steamTemperature();
+    }
 
     // Use profile temperature (or override if set) for group temp
     double groupTemp = m_settings->hasTemperatureOverride()
@@ -1753,8 +1768,17 @@ void MainController::applySteamSettings() {
 void MainController::applyHotWaterSettings() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    // Respect steamDisabled flag
-    double steamTemp = m_settings->steamDisabled() ? 0.0 : m_settings->steamTemperature();
+    // Same steam temp logic as applySteamSettings()
+    double steamTemp;
+    if (m_settings->steamDisabled()) {
+        steamTemp = 0.0;
+    } else if (m_machineState && m_machineState->phase() == MachineState::Phase::Ready) {
+        steamTemp = m_settings->steamTemperature();
+    } else if (!m_settings->keepSteamHeaterOn()) {
+        steamTemp = 0.0;
+    } else {
+        steamTemp = m_settings->steamTemperature();
+    }
 
     // Use profile temperature (or override if set) for group temp
     double groupTemp = m_settings->hasTemperatureOverride()
@@ -1879,6 +1903,50 @@ void MainController::sendSteamTemperature(double temp) {
     );
 
     logToFile("Command queued successfully");
+}
+
+void MainController::startSteamHeating() {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    // Always send the configured steam temperature (ignores keepSteamHeaterOn)
+    // Used when user wants to steam - heater should turn on regardless of setting
+    double steamTemp = m_settings->steamDisabled() ? 0.0 : m_settings->steamTemperature();
+
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
+
+    m_device->setShotSettings(
+        steamTemp,
+        m_settings->steamTimeout(),
+        m_settings->waterTemperature(),
+        m_settings->waterVolume(),
+        groupTemp
+    );
+
+    // Also send steam flow via MMR
+    m_device->writeMMR(0x803828, m_settings->steamFlow());
+
+    qDebug() << "Started steam heating to" << steamTemp << "°C";
+}
+
+void MainController::turnOffSteamHeater() {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    double groupTemp = m_settings->hasTemperatureOverride()
+        ? m_settings->temperatureOverride()
+        : m_currentProfile.espressoTemperature();
+
+    // Send 0°C to turn off steam heater
+    m_device->setShotSettings(
+        0.0,
+        m_settings->steamTimeout(),
+        m_settings->waterTemperature(),
+        m_settings->waterVolume(),
+        groupTemp
+    );
+
+    qDebug() << "Turned off steam heater";
 }
 
 void MainController::setSteamFlowImmediate(int flow) {
