@@ -49,10 +49,13 @@ Note: `unset CMAKE_BUILD_PARALLEL_LEVEL` avoids conflicts with `/m`. `MSYS_NO_PA
 
 Use Qt's `qt-cmake` wrapper which handles cross-compilation correctly.
 
-**Qt paths on Mac:**
-- Qt CMake: `/Users/mic/Qt/Tools/CMake/CMake.app/Contents/bin/cmake`
-- iOS qt-cmake: `/Users/mic/Qt/6.10.1/ios/bin/qt-cmake`
-- macOS qt-cmake: `/Users/mic/Qt/6.10.1/macos/bin/qt-cmake`
+**Finding Qt paths:** Qt is installed at `~/Qt/`. Discover paths dynamically:
+```bash
+# Find qt-cmake for macOS
+find ~/Qt -name "qt-cmake" -path "*/macos/*"
+# Find Ninja (bundled with Qt)
+find ~/Qt/Tools -name "ninja"
+```
 
 **Configure iOS (generates Xcode project):**
 ```bash

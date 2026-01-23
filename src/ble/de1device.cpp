@@ -3,7 +3,7 @@
 #include "profile/profile.h"
 #include "../core/settings.h"
 
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
 #include "../simulator/de1simulator.h"
 #endif
 #include <QBluetoothAddress>
@@ -806,7 +806,7 @@ void DE1Device::processCommandQueue() {
 void DE1Device::requestState(DE1::State state) {
     qDebug() << "DE1Device::requestState called with state:" << static_cast<int>(state);
 
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     // In simulation mode, relay to simulator
     if (m_simulationMode && m_simulator) {
         switch (state) {
@@ -922,7 +922,7 @@ void DE1Device::skipToNextFrame() {
 }
 
 void DE1Device::goToSleep() {
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     // In simulation mode, relay to simulator
     if (m_simulationMode && m_simulator) {
         m_simulator->goToSleep();
