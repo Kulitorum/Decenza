@@ -146,105 +146,6 @@ KeyboardAwareContainer {
                 }
             }
 
-            // Steam Heater Settings
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: steamContent.implicitHeight + Theme.scaled(30)
-                color: Theme.surfaceColor
-                radius: Theme.cardRadius
-
-                ColumnLayout {
-                    id: steamContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(10)
-
-                    Tr {
-                        key: "settings.preferences.steamHeater"
-                        fallback: "Steam Heater"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
-                    }
-
-                    Tr {
-                        Layout.fillWidth: true
-                        key: "settings.preferences.steamHeaterDesc"
-                        fallback: "Keep the steam heater warm when machine is idle for faster steaming"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
-                        text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + temp.toFixed(0) + "°C"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-
-                        Tr {
-                            key: "settings.preferences.keepSteamHeaterOn"
-                            fallback: "Keep heater on when idle"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: text
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        StyledSwitch {
-                            id: steamHeaterSwitch
-                            checked: Settings.keepSteamHeaterOn
-                            accessibleName: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
-                            onClicked: {
-                                Settings.keepSteamHeaterOn = checked
-                                // applySteamSettings() respects keepSteamHeaterOn setting:
-                                // - In Ready state: always sends steam temp (machine heating)
-                                // - In Idle with keepSteamHeaterOn=false: sends 0 to turn off heater
-                                // - In Idle with keepSteamHeaterOn=true: sends steam temp
-                                MainController.applySteamSettings()
-                            }
-                        }
-                    }
-
-                    // Auto flush steam wand setting
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
-
-                        Text {
-                            text: "Auto flush wand after"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(36)
-                            from: 0
-                            to: 60
-                            stepSize: 1
-                            decimals: 0
-                            value: Settings.steamAutoFlushSeconds
-                            valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
-                            displayText: value === 0 ? "Off" : value + "s"
-                            accessibleName: qsTr("Auto flush duration")
-                            onValueModified: function(newValue) {
-                                Settings.steamAutoFlushSeconds = newValue
-                            }
-                        }
-                    }
-                }
-            }
-
             Item { Layout.fillHeight: true }
         }
 
@@ -571,7 +472,7 @@ KeyboardAwareContainer {
             // Auto-Wake Timer Card
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: autoWakeContent.implicitHeight + Theme.scaled(30)
+                implicitHeight: autoWakeContent.implicitHeight + Theme.scaled(24)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
@@ -580,8 +481,8 @@ KeyboardAwareContainer {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(12)
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(8)
 
                     // Track selected day (0-6, Mon-Sun)
                     property int selectedDay: 0
@@ -607,7 +508,7 @@ KeyboardAwareContainer {
 
                             Rectangle {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: Theme.scaled(36)
+                                Layout.preferredHeight: Theme.scaled(32)
                                 radius: Theme.scaled(6)
 
                                 property bool isSelected: autoWakeContent.selectedDay === index
@@ -666,7 +567,7 @@ KeyboardAwareContainer {
 
                         ValueInput {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(44)
+                            Layout.preferredHeight: Theme.scaled(38)
                             from: 0
                             to: 23
                             stepSize: 1
@@ -690,7 +591,7 @@ KeyboardAwareContainer {
 
                         ValueInput {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(44)
+                            Layout.preferredHeight: Theme.scaled(38)
                             from: 0
                             to: 59
                             stepSize: 1
@@ -704,14 +605,6 @@ KeyboardAwareContainer {
                                 Settings.setAutoWakeDayTime(autoWakeContent.selectedDay, autoWakeContent.selectedDayData.hour ?? 7, newValue)
                             }
                         }
-                    }
-
-                    // Separator
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.topMargin: Theme.scaled(4)
-                        height: 1
-                        color: Theme.borderColor
                     }
 
                     // Row 4: Stay awake toggle and duration
@@ -743,7 +636,7 @@ KeyboardAwareContainer {
 
                         ValueInput {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(44)
+                            Layout.preferredHeight: Theme.scaled(38)
                             from: 15
                             to: 480
                             stepSize: 15

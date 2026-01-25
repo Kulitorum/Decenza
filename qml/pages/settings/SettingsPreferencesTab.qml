@@ -448,6 +448,99 @@ Item {
                 }
             }
 
+            // Steam Heater Settings
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: steamContent.implicitHeight + Theme.scaled(30)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: steamContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(10)
+
+                    Tr {
+                        key: "settings.preferences.steamHeater"
+                        fallback: "Steam Heater"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    Tr {
+                        key: "settings.preferences.steamHeaterDesc"
+                        fallback: "Pre-heat for faster steaming"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+
+                    Text {
+                        property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
+                        text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + temp.toFixed(0) + "°C"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Tr {
+                            key: "settings.preferences.keepSteamHeaterOn"
+                            fallback: "Keep heater on when idle"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            id: steamHeaterSwitch
+                            checked: Settings.keepSteamHeaterOn
+                            accessibleName: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
+                            onClicked: {
+                                Settings.keepSteamHeaterOn = checked
+                                MainController.applySteamSettings()
+                            }
+                        }
+                    }
+
+                    // Auto flush steam wand setting
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        Text {
+                            text: "Auto flush wand after"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        ValueInput {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.scaled(36)
+                            from: 0
+                            to: 60
+                            stepSize: 1
+                            decimals: 0
+                            value: Settings.steamAutoFlushSeconds
+                            valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
+                            displayText: value === 0 ? "Off" : value + "s"
+                            accessibleName: qsTr("Auto flush duration")
+                            onValueModified: function(newValue) {
+                                Settings.steamAutoFlushSeconds = newValue
+                            }
+                        }
+                    }
+                }
+            }
+
             Item { Layout.fillHeight: true }
         }
 
