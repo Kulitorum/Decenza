@@ -123,12 +123,17 @@ Page {
         onClicked: activePresetFunction = ""
     }
 
+    // Brew dialog opened from shot plan line
+    BrewDialog {
+        id: idleBrewDialog
+    }
+
     // Main content area - centered, offset down to account for top status section
     ColumnLayout {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: Theme.scaled(50)  // Push down to avoid status overlap
+        anchors.verticalCenterOffset: Theme.scaled(50)
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         spacing: Theme.scaled(20)
@@ -582,6 +587,15 @@ Page {
                 }
             }
         }
+
+        // Next shot plan info line (clickable to open brew dialog)
+        ShotPlanText {
+            id: shotPlanText
+            Layout.alignment: Qt.AlignHCenter
+            Layout.maximumWidth: parent.width - 2 * Theme.standardMargin
+            visible: text !== "" && Settings.showShotPlan && !Settings.showShotPlanOnAllScreens
+            onClicked: idleBrewDialog.open()
+        }
     }
 
     // Top info section
@@ -598,7 +612,7 @@ Page {
             Layout.alignment: Qt.AlignHCenter
             spacing: Theme.scaled(50)
 
-            // Temperature (tap to announce, double-tap to set override)
+            // Temperature (tap to announce)
             Item {
                 id: temperatureStatus
                 Layout.alignment: Qt.AlignTop
@@ -649,34 +663,10 @@ Page {
                     }
                 }
 
-                // Double-tap handler for temperature override
-                Timer {
-                    id: doubleTapTimer
-                    interval: 300
-                    property bool waitingForSecondTap: false
-                }
-
+                // Tap to announce for accessibility
                 MouseArea {
                     anchors.fill: parent
                     onClicked: {
-                        if (doubleTapTimer.waitingForSecondTap) {
-                            // Double tap - open override popup
-                            doubleTapTimer.waitingForSecondTap = false
-                            doubleTapTimer.stop()
-                            temperatureOverridePopup.open()
-                        } else {
-                            // First tap - start waiting for second
-                            doubleTapTimer.waitingForSecondTap = true
-                            doubleTapTimer.start()
-                        }
-                    }
-                }
-
-                Connections {
-                    target: doubleTapTimer
-                    function onTriggered() {
-                        // Timer expired without second tap - announce for accessibility
-                        doubleTapTimer.waitingForSecondTap = false
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                             var announcement = "Group temperature: " + DE1Device.temperature.toFixed(1) + " degrees, target: " + temperatureStatus.effectiveTargetTemp.toFixed(0) + " degrees"
                             if (Settings.hasTemperatureOverride) {
@@ -927,192 +917,5 @@ Page {
         id: profilePreviewPopup
     }
 
-    // Temperature override popup
-    Dialog {
-        id: temperatureOverridePopup
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        width: Theme.scaled(350)
-        modal: true
-        padding: 0
-
-        property double tempValue: Settings.hasTemperatureOverride
-            ? Settings.temperatureOverride
-            : MainController.profileTargetTemperature
-
-        onAboutToShow: {
-            tempValue = Settings.hasTemperatureOverride
-                ? Settings.temperatureOverride
-                : MainController.profileTargetTemperature
-        }
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: "white"
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            // Header
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-                Layout.topMargin: Theme.scaled(10)
-
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(20)
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("Temperature Override")
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                }
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    color: Theme.borderColor
-                }
-            }
-
-            // Content
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                spacing: Theme.scaled(16)
-
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Set a one-shot temperature override for the next espresso. This will reset after the shot completes.")
-                    font: Theme.bodyFont
-                    color: Theme.textSecondaryColor
-                    wrapMode: Text.Wrap
-                }
-
-                // Temperature input
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    Text {
-                        text: qsTr("Temperature:")
-                        font: Theme.bodyFont
-                        color: Theme.textSecondaryColor
-                    }
-
-                    ValueInput {
-                        id: tempOverrideInput
-                        Layout.fillWidth: true
-                        value: temperatureOverridePopup.tempValue
-                        from: 70
-                        to: 100
-                        stepSize: 0.5
-                        decimals: 1
-                        suffix: "°C"
-                        valueColor: Theme.temperatureColor
-                        accentColor: Theme.temperatureColor
-                        accessibleName: qsTr("Temperature override")
-                        onValueModified: function(newValue) {
-                            temperatureOverridePopup.tempValue = newValue
-                        }
-                    }
-                }
-
-                // Profile default reference
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Profile default: %1°C").arg(MainController.profileTargetTemperature.toFixed(1))
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                }
-            }
-
-            // Buttons
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                spacing: Theme.scaled(10)
-
-                // Clear override button (only visible if override is active)
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    visible: Settings.hasTemperatureOverride
-                    text: qsTr("Clear")
-                    accessibleName: qsTr("Clear temperature override")
-                    onClicked: {
-                        Settings.clearTemperatureOverride()
-                        MainController.uploadCurrentProfile()
-                        temperatureOverridePopup.close()
-                    }
-                    background: Rectangle {
-                        implicitHeight: Theme.scaled(50)
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    text: qsTr("Cancel")
-                    accessibleName: qsTr("Cancel temperature override")
-                    onClicked: temperatureOverridePopup.close()
-                    background: Rectangle {
-                        implicitHeight: Theme.scaled(50)
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.textSecondaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    text: qsTr("Set")
-                    accessibleName: qsTr("Set temperature override")
-                    onClicked: {
-                        Settings.temperatureOverride = temperatureOverridePopup.tempValue
-                        MainController.uploadCurrentProfile()
-                        temperatureOverridePopup.close()
-                    }
-                    background: Rectangle {
-                        implicitHeight: Theme.scaled(50)
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
-        }
-    }
 
 }

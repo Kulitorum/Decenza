@@ -70,7 +70,7 @@ void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLi
     // Note: OpenGL causes rendering issues on:
     // - Windows debug builds
     // - iOS (uses Metal, not OpenGL - causes missing curves)
-#if !defined(Q_OS_WIN) || !defined(QT_DEBUG)
+#if !(defined(Q_OS_WIN) || defined(Q_OS_MACOS)) || !defined(QT_DEBUG)
 #if !defined(Q_OS_IOS)
     if (m_pressureSeries) m_pressureSeries->setUseOpenGL(true);
     if (m_flowSeries) m_flowSeries->setUseOpenGL(true);

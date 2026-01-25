@@ -97,7 +97,7 @@ public:
     bool brewByRatioActive() const { return m_brewByRatioActive; }
     double brewByRatioDose() const { return m_brewByRatioDose; }
     double brewByRatio() const { return m_brewByRatio; }
-    Q_INVOKABLE void activateBrewByRatio(double dose, double ratio);
+    Q_INVOKABLE void activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind);
     Q_INVOKABLE void clearBrewByRatio();
     QVariantList availableProfiles() const;
     QVariantList selectedProfiles() const;
@@ -272,6 +272,7 @@ private:
     int m_lastFrameNumber = -1;
     int m_frameWeightSkipSent = -1;  // Frame number for which we've sent a weight-based skip command
     bool m_tareDone = false;  // Track if we've tared for this shot
+    QString m_shotBrewOverridesJson;  // Captured at shot end, before overrides are cleared
 
     QString m_baseProfileName;
     bool m_profileModified = false;

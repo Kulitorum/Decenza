@@ -30,7 +30,19 @@ Rectangle {
             visible: MachineState.isFlowing
         }
 
-        Item { Layout.fillWidth: true }
+        // Shot plan summary (fills remaining space, clickable to open BrewDialog)
+        ShotPlanText {
+            id: statusBarShotPlan
+            Layout.fillWidth: true
+            visible: Settings.showShotPlan && Settings.showShotPlanOnAllScreens && text !== ""
+            onClicked: brewRatioDialog.open()
+        }
+
+        // Spacer (when shot plan is not shown in status bar)
+        Item {
+            Layout.fillWidth: true
+            visible: !statusBarShotPlan.visible
+        }
 
         // Temperature (tap to tare scale)
         Item {
@@ -340,8 +352,8 @@ Rectangle {
         }
     }
 
-    // Brew-by-ratio dialog
-    BrewRatioDialog {
+    // Brew settings dialog (temperature, dose, grind, ratio, yield)
+    BrewDialog {
         id: brewRatioDialog
     }
 }

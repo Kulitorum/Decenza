@@ -2,6 +2,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QFile>
 #include <QUrl>
 #include <QtMath>
@@ -1012,6 +1013,27 @@ void Settings::applyBeanPreset(int index) {
     setDyeRoastLevel(preset.value("roastLevel").toString());
     setDyeGrinderModel(preset.value("grinderModel").toString());
     setDyeGrinderSetting(preset.value("grinderSetting").toString());
+
+    // Clear all brew overrides - bean preset values take precedence
+    bool changed = false;
+    if (m_hasBrewGrindOverride) {
+        m_hasBrewGrindOverride = false;
+        m_brewGrindOverride.clear();
+        changed = true;
+    }
+    if (m_hasBrewDoseOverride) {
+        m_hasBrewDoseOverride = false;
+        m_brewDoseOverride = 0;
+        changed = true;
+    }
+    if (m_hasBrewYieldOverride) {
+        m_hasBrewYieldOverride = false;
+        m_brewYieldOverride = 0;
+        changed = true;
+    }
+    if (changed) {
+        emit brewOverridesChanged();
+    }
 }
 
 void Settings::saveBeanPresetFromCurrent(const QString& name) {
@@ -1938,6 +1960,131 @@ void Settings::clearTemperatureOverride() {
         m_hasTemperatureOverride = false;
         m_temperatureOverride = 0;
         emit temperatureOverrideChanged();
+    }
+}
+
+// Brew parameter overrides (session-only)
+double Settings::brewDoseOverride() const {
+    return m_brewDoseOverride;
+}
+
+void Settings::setBrewDoseOverride(double dose) {
+    m_brewDoseOverride = dose;
+    m_hasBrewDoseOverride = true;
+    emit brewOverridesChanged();
+}
+
+bool Settings::hasBrewDoseOverride() const {
+    return m_hasBrewDoseOverride;
+}
+
+double Settings::brewYieldOverride() const {
+    return m_brewYieldOverride;
+}
+
+void Settings::setBrewYieldOverride(double yield) {
+    if (yield <= 0) {
+        m_brewYieldOverride = 0;
+        m_hasBrewYieldOverride = false;
+    } else {
+        m_brewYieldOverride = yield;
+        m_hasBrewYieldOverride = true;
+    }
+    emit brewOverridesChanged();
+}
+
+bool Settings::hasBrewYieldOverride() const {
+    return m_hasBrewYieldOverride;
+}
+
+QString Settings::brewGrindOverride() const {
+    return m_brewGrindOverride;
+}
+
+void Settings::setBrewGrindOverride(const QString& grind) {
+    m_brewGrindOverride = grind;
+    m_hasBrewGrindOverride = !grind.isEmpty();
+    emit brewOverridesChanged();
+}
+
+bool Settings::hasBrewGrindOverride() const {
+    return m_hasBrewGrindOverride;
+}
+
+void Settings::clearAllBrewOverrides() {
+    bool changed = m_hasBrewDoseOverride || m_hasBrewYieldOverride || m_hasBrewGrindOverride;
+    m_hasBrewDoseOverride = false;
+    m_brewDoseOverride = 0;
+    m_hasBrewYieldOverride = false;
+    m_brewYieldOverride = 0;
+    m_hasBrewGrindOverride = false;
+    m_brewGrindOverride.clear();
+    if (changed) {
+        emit brewOverridesChanged();
+    }
+}
+
+QString Settings::brewOverridesToJson() const {
+    QJsonObject obj;
+    if (m_hasTemperatureOverride) {
+        obj["temperature"] = m_temperatureOverride;
+    }
+    if (m_hasBrewDoseOverride) {
+        obj["dose"] = m_brewDoseOverride;
+    }
+    if (m_hasBrewYieldOverride) {
+        obj["yield"] = m_brewYieldOverride;
+    }
+    if (m_hasBrewGrindOverride) {
+        obj["grind"] = m_brewGrindOverride;
+    }
+    if (obj.isEmpty()) {
+        return QString();
+    }
+    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
+void Settings::applyBrewOverridesFromJson(const QString& json) {
+    if (json.isEmpty()) return;
+
+    QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    if (!doc.isObject()) return;
+
+    QJsonObject obj = doc.object();
+    if (obj.contains("dose")) {
+        setBrewDoseOverride(obj["dose"].toDouble());
+    }
+    if (obj.contains("yield")) {
+        setBrewYieldOverride(obj["yield"].toDouble());
+    }
+    if (obj.contains("grind")) {
+        setBrewGrindOverride(obj["grind"].toString());
+    }
+    if (obj.contains("temperature")) {
+        setTemperatureOverride(obj["temperature"].toDouble());
+    }
+}
+
+// Shot plan display settings
+bool Settings::showShotPlan() const {
+    return m_settings.value("brew/showShotPlan", true).toBool();
+}
+
+void Settings::setShowShotPlan(bool show) {
+    if (showShotPlan() != show) {
+        m_settings.setValue("brew/showShotPlan", show);
+        emit showShotPlanChanged();
+    }
+}
+
+bool Settings::showShotPlanOnAllScreens() const {
+    return m_settings.value("brew/showShotPlanOnAllScreens", false).toBool();
+}
+
+void Settings::setShowShotPlanOnAllScreens(bool show) {
+    if (showShotPlanOnAllScreens() != show) {
+        m_settings.setValue("brew/showShotPlanOnAllScreens", show);
+        emit showShotPlanOnAllScreensChanged();
     }
 }
 

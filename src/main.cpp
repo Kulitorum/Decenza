@@ -44,7 +44,7 @@
 #include "network/webdebuglogger.h"
 
 // GHC Simulator for Windows debug builds
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
 #include "simulator/ghcsimulator.h"
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
     BLEManager bleManager;
 
     // Disable BLE early in simulator mode to prevent real device connections
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     bleManager.setDisabled(true);
 #endif
 
@@ -360,7 +360,7 @@ int main(int argc, char *argv[])
     // Don't connect here - only one scale should feed the graph at a time
 
     // Create GHC Simulator for Windows debug builds (before engine load so it can be exposed to QML)
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     GHCSimulator ghcSimulator;
 #endif
 
@@ -390,7 +390,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("IsDebugBuild", false);
 #endif
 
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     // Make GHCSimulator available to main window for window sync
     context->setContextProperty("GHCSimulator", &ghcSimulator);
 #endif
@@ -424,7 +424,7 @@ int main(int argc, char *argv[])
     engine.load(url);
 
     // GHC Simulator window for Windows debug builds
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     qDebug() << "Creating DE1 Simulator and GHC window...";
 
     // Enable simulation mode on DE1Device - this makes it appear "connected"

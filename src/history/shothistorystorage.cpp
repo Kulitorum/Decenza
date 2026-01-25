@@ -221,8 +221,16 @@ bool ShotHistoryStorage::runMigrations()
     query.exec("SELECT version FROM schema_version LIMIT 1");
     int currentVersion = query.next() ? query.value(0).toInt() : 1;
 
-    // Future migrations go here
-    // if (currentVersion < 2) { ... }
+    // Migration 2: Add brew_overrides_json column
+    if (currentVersion < 2) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 2 (brew_overrides_json)";
+        if (!query.exec("ALTER TABLE shots ADD COLUMN brew_overrides_json TEXT")) {
+            qWarning() << "ShotHistoryStorage: Migration 2 failed:" << query.lastError().text();
+            // Column may already exist, continue anyway
+        }
+        query.exec("UPDATE schema_version SET version = 2");
+        currentVersion = 2;
+    }
 
     m_schemaVersion = currentVersion;
     return true;
@@ -299,7 +307,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                                      double finalWeight,
                                      double doseWeight,
                                      const ShotMetadata& metadata,
-                                     const QString& debugLog)
+                                     const QString& debugLog,
+                                     const QString& brewOverridesJson)
 {
     if (!m_ready || !shotData) {
         qWarning() << "ShotHistoryStorage: Cannot save shot - not ready or no data";
@@ -330,14 +339,14 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             bean_brand, bean_type, roast_date, roast_level,
             grinder_model, grinder_setting,
             drink_tds, drink_ey, enjoyment, espresso_notes, barista,
-            debug_log
+            debug_log, brew_overrides_json
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_date, :roast_level,
             :grinder_model, :grinder_setting,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :barista,
-            :debug_log
+            :debug_log, :brew_overrides_json
         )
     )");
 
@@ -360,6 +369,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     query.bindValue(":espresso_notes", metadata.espressoNotes);
     query.bindValue(":barista", metadata.barista);
     query.bindValue(":debug_log", debugLog);
+    query.bindValue(":brew_overrides_json", brewOverridesJson);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -562,7 +572,7 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         sql = QString(R"(
             SELECT s.id, s.uuid, s.timestamp, s.profile_name, s.duration_seconds,
                    s.final_weight, s.dose_weight, s.bean_brand, s.bean_type,
-                   s.enjoyment, s.visualizer_id
+                   s.enjoyment, s.visualizer_id, s.grinder_setting
             FROM shots s
             JOIN shots_fts fts ON s.id = fts.rowid
             WHERE shots_fts MATCH ?
@@ -575,7 +585,7 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         sql = QString(R"(
             SELECT id, uuid, timestamp, profile_name, duration_seconds,
                    final_weight, dose_weight, bean_brand, bean_type,
-                   enjoyment, visualizer_id
+                   enjoyment, visualizer_id, grinder_setting
             FROM shots
             %1
             ORDER BY timestamp DESC
@@ -609,6 +619,7 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         shot["beanType"] = query.value(8).toString();
         shot["enjoyment"] = query.value(9).toInt();
         shot["hasVisualizerUpload"] = !query.value(10).isNull();
+        shot["grinderSetting"] = query.value(11).toString();
 
         // Format date for display
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
@@ -654,6 +665,7 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["visualizerId"] = record.visualizerId;
     result["visualizerUrl"] = record.visualizerUrl;
     result["debugLog"] = record.debugLog;
+    result["brewOverridesJson"] = record.brewOverridesJson;
     result["profileJson"] = record.profileJson;
 
     // Convert time-series to variant lists
@@ -707,7 +719,7 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
                bean_brand, bean_type, roast_date, roast_level,
                grinder_model, grinder_setting,
                drink_tds, drink_ey, enjoyment, espresso_notes, barista,
-               visualizer_id, visualizer_url, debug_log
+               visualizer_id, visualizer_url, debug_log, brew_overrides_json
         FROM shots WHERE id = ?
     )");
     query.bindValue(0, shotId);
@@ -739,6 +751,7 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
     record.visualizerId = query.value(19).toString();
     record.visualizerUrl = query.value(20).toString();
     record.debugLog = query.value(21).toString();
+    record.brewOverridesJson = query.value(22).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Load sample data
@@ -1360,8 +1373,8 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
                 bean_brand, bean_type, roast_date, roast_level,
                 grinder_model, grinder_setting, drink_tds, drink_ey,
                 enjoyment, espresso_notes, barista,
-                visualizer_id, visualizer_url, debug_log)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                visualizer_id, visualizer_url, debug_log, brew_overrides_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         )");
 
         insert.addBindValue(uuid);
@@ -1385,6 +1398,7 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
         insert.addBindValue(srcShots.value("visualizer_id"));
         insert.addBindValue(srcShots.value("visualizer_url"));
         insert.addBindValue(srcShots.value("debug_log"));
+        insert.addBindValue(srcShots.value("brew_overrides_json"));
 
         if (!insert.exec()) {
             qWarning() << "ShotHistoryStorage: Failed to import shot:" << insert.lastError().text();
@@ -1487,14 +1501,14 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             bean_brand, bean_type, roast_date, roast_level,
             grinder_model, grinder_setting,
             drink_tds, drink_ey, enjoyment, espresso_notes, barista,
-            debug_log
+            debug_log, brew_overrides_json
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_date, :roast_level,
             :grinder_model, :grinder_setting,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :barista,
-            :debug_log
+            :debug_log, :brew_overrides_json
         )
     )");
 
@@ -1517,6 +1531,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":espresso_notes", record.espressoNotes);
     query.bindValue(":barista", record.barista);
     query.bindValue(":debug_log", QString());  // No debug log for imported shots
+    query.bindValue(":brew_overrides_json", record.brewOverridesJson);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();

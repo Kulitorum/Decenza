@@ -13,7 +13,7 @@
 class Profile;
 class Settings;
 
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
 class DE1Simulator;
 #endif
 
@@ -88,7 +88,7 @@ public:
     // For simulator integration - allows external code to set state and emit signals
     void setSimulatedState(DE1::State state, DE1::SubState subState);
     void emitSimulatedShotSample(const ShotSample& sample);
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     void setSimulator(DE1Simulator* simulator) { m_simulator = simulator; }
 #endif
 
@@ -206,7 +206,7 @@ private:
     QString m_lastWriteUuid;     // For error logging: which characteristic was being written
     QByteArray m_lastWriteData;  // For error logging: what data was being written
     bool m_simulationMode = false;
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     DE1Simulator* m_simulator = nullptr;  // For simulation mode
 #endif
     Settings* m_settings = nullptr;       // For water level calibration persistence

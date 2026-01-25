@@ -270,7 +270,18 @@ void MainController::setTargetWeight(double weight) {
     }
 }
 
-void MainController::activateBrewByRatio(double dose, double ratio) {
+
+void MainController::activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind) {
+    if (m_settings) {
+        m_settings->setBrewDoseOverride(dose);
+        m_settings->setBrewYieldOverride(yield);
+        m_settings->setBrewGrindOverride(grind);
+        if (qAbs(temperature - m_currentProfile.espressoTemperature()) > 0.1) {
+            m_settings->setTemperatureOverride(temperature);
+        }
+    }
+
+    double ratio = dose > 0 ? yield / dose : 2.0;
     m_brewByRatioActive = true;
     m_brewByRatioDose = dose;
     m_brewByRatio = ratio;
@@ -281,8 +292,13 @@ void MainController::activateBrewByRatio(double dose, double ratio) {
         m_machineState->setTargetWeight(calculatedTarget);
     }
 
-    qDebug() << "Brew-by-ratio activated: dose=" << dose << "g, ratio=1:" << ratio
+    qDebug() << "Brew overrides activated: dose=" << dose << "g, ratio=1:" << ratio
              << "-> target=" << calculatedTarget << "g";
+
+    // Re-upload profile with temperature override applied to machine frames
+    if (m_settings && m_settings->hasTemperatureOverride()) {
+        uploadCurrentProfile();
+    }
 
     emit brewByRatioChanged();
     emit targetWeightChanged();
@@ -735,8 +751,13 @@ void MainController::loadProfile(const QString& profileName) {
         m_settings->setSelectedFavoriteProfile(favoriteIndex);
     }
 
-    // Clear brew-by-ratio when loading a new profile (old dose/ratio not applicable)
+    // Clear brew-by-ratio, yield and temperature overrides when loading a new profile
+    // Dose and grind are tied to the bean, not the profile, so they persist
     m_brewByRatioActive = false;
+    if (m_settings) {
+        m_settings->setBrewYieldOverride(0);
+        m_settings->clearTemperatureOverride();
+    }
 
     if (m_machineState) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
@@ -850,10 +871,16 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
             shotRecord.summary.beanBrand, shotRecord.summary.beanType);
         m_settings->setSelectedBeanPreset(beanPresetIndex);
 
+        // Apply brew overrides from history (after loadProfile cleared them)
+        if (!shotRecord.brewOverridesJson.isEmpty()) {
+            m_settings->applyBrewOverridesFromJson(shotRecord.brewOverridesJson);
+        }
+
         qDebug() << "Loaded shot metadata - brand:" << shotRecord.summary.beanBrand
                  << "type:" << shotRecord.summary.beanType
                  << "grinder:" << shotRecord.grinderModel << shotRecord.grinderSetting
-                 << "beanPresetIndex:" << beanPresetIndex;
+                 << "beanPresetIndex:" << beanPresetIndex
+                 << "brewOverrides:" << shotRecord.brewOverridesJson;
     }
 }
 
@@ -1032,17 +1059,19 @@ void MainController::uploadCurrentProfile() {
     if (m_device && m_device->isConnected()) {
         double groupTemp;
 
-        // Apply temperature override if set
+        // Apply temperature override as delta offset (preserves per-frame differences)
         if (m_settings && m_settings->hasTemperatureOverride()) {
             Profile modifiedProfile = m_currentProfile;
             double overrideTemp = m_settings->temperatureOverride();
+            double delta = overrideTemp - m_currentProfile.espressoTemperature();
             QList<ProfileFrame> steps = modifiedProfile.steps();
             for (int i = 0; i < steps.size(); ++i) {
-                steps[i].temperature = overrideTemp;
+                steps[i].temperature += delta;
             }
             modifiedProfile.setSteps(steps);
             modifiedProfile.setEspressoTemperature(overrideTemp);
-            qDebug() << "Uploading profile with temperature override:" << overrideTemp << "°C";
+            qDebug() << "Uploading profile with temperature override:" << overrideTemp
+                     << "°C (delta:" << delta << "°C)";
             m_device->uploadProfile(modifiedProfile);
             groupTemp = overrideTemp;
         } else {
@@ -1076,6 +1105,9 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
     }
     if (profileData.contains("profile_notes")) {
         m_currentProfile.setProfileNotes(profileData["profile_notes"].toString());
+    }
+    if (profileData.contains("espresso_temperature")) {
+        m_currentProfile.setEspressoTemperature(profileData["espresso_temperature"].toDouble());
     }
     if (profileData.contains("target_weight")) {
         m_currentProfile.setTargetWeight(profileData["target_weight"].toDouble());
@@ -2177,6 +2209,9 @@ void MainController::onShotEnded() {
     // Always clear brew-by-ratio mode when shot ends
     clearBrewByRatio();
 
+    // Capture brew overrides JSON before clearing (used later when saving shot)
+    m_shotBrewOverridesJson = m_settings ? m_settings->brewOverridesToJson() : QString();
+
     // Clear temperature override after shot
     if (m_settings) {
         m_settings->clearTemperatureOverride();
@@ -2193,7 +2228,9 @@ void MainController::onShotEnded() {
 
     double duration = m_shotDataModel->rawTime();  // Use rawTime, not maxTime (which is for graph axis)
 
-    double doseWeight = m_settings->dyeBeanWeight();  // Use DYE bean weight as dose
+    double doseWeight = m_settings->hasBrewDoseOverride()
+        ? m_settings->brewDoseOverride()
+        : m_settings->dyeBeanWeight();
 
     // Get final weight from shot data (cumulative weight, not flow rate)
     // In volume mode, estimate weight from ml: ml - 5 - dose*0.5
@@ -2242,7 +2279,7 @@ void MainController::onShotEnded() {
         qint64 shotId = m_shotHistory->saveShot(
             m_shotDataModel, &m_currentProfile,
             duration, finalWeight, doseWeight,
-            metadata, debugLog);
+            metadata, debugLog, m_shotBrewOverridesJson);
         qDebug() << "[metadata] Shot saved to history with ID:" << shotId;
 
         // Store shot ID for post-shot review page (so it can edit the saved shot)

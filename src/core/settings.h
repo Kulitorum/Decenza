@@ -142,6 +142,18 @@ class Settings : public QObject {
     Q_PROPERTY(double temperatureOverride READ temperatureOverride WRITE setTemperatureOverride NOTIFY temperatureOverrideChanged)
     Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY temperatureOverrideChanged)
 
+    // Brew parameter overrides (session-only, for next shot)
+    Q_PROPERTY(double brewDoseOverride READ brewDoseOverride WRITE setBrewDoseOverride NOTIFY brewOverridesChanged)
+    Q_PROPERTY(bool hasBrewDoseOverride READ hasBrewDoseOverride NOTIFY brewOverridesChanged)
+    Q_PROPERTY(double brewYieldOverride READ brewYieldOverride WRITE setBrewYieldOverride NOTIFY brewOverridesChanged)
+    Q_PROPERTY(bool hasBrewYieldOverride READ hasBrewYieldOverride NOTIFY brewOverridesChanged)
+    Q_PROPERTY(QString brewGrindOverride READ brewGrindOverride WRITE setBrewGrindOverride NOTIFY brewOverridesChanged)
+    Q_PROPERTY(bool hasBrewGrindOverride READ hasBrewGrindOverride NOTIFY brewOverridesChanged)
+
+    // Shot plan display settings
+    Q_PROPERTY(bool showShotPlan READ showShotPlan WRITE setShowShotPlan NOTIFY showShotPlanChanged)
+    Q_PROPERTY(bool showShotPlanOnAllScreens READ showShotPlanOnAllScreens WRITE setShowShotPlanOnAllScreens NOTIFY showShotPlanOnAllScreensChanged)
+
     // Auto-wake schedule
     Q_PROPERTY(bool autoWakeEnabled READ autoWakeEnabled WRITE setAutoWakeEnabled NOTIFY autoWakeEnabledChanged)
     Q_PROPERTY(QVariantList autoWakeSchedule READ autoWakeSchedule WRITE setAutoWakeSchedule NOTIFY autoWakeScheduleChanged)
@@ -471,6 +483,26 @@ public:
     bool hasTemperatureOverride() const;
     Q_INVOKABLE void clearTemperatureOverride();
 
+    // Brew parameter overrides (session-only)
+    double brewDoseOverride() const;
+    void setBrewDoseOverride(double dose);
+    bool hasBrewDoseOverride() const;
+    double brewYieldOverride() const;
+    void setBrewYieldOverride(double yield);
+    bool hasBrewYieldOverride() const;
+    QString brewGrindOverride() const;
+    void setBrewGrindOverride(const QString& grind);
+    bool hasBrewGrindOverride() const;
+    void applyBrewOverridesFromJson(const QString& json);
+    Q_INVOKABLE void clearAllBrewOverrides();
+    Q_INVOKABLE QString brewOverridesToJson() const;
+
+    // Shot plan display
+    bool showShotPlan() const;
+    void setShowShotPlan(bool show);
+    bool showShotPlanOnAllScreens() const;
+    void setShowShotPlanOnAllScreens(bool show);
+
     // Auto-wake schedule
     bool autoWakeEnabled() const;
     void setAutoWakeEnabled(bool enabled);
@@ -586,6 +618,9 @@ signals:
     void waterLevelDisplayUnitChanged();
     void developerTranslationUploadChanged();
     void temperatureOverrideChanged();
+    void brewOverridesChanged();
+    void showShotPlanChanged();
+    void showShotPlanOnAllScreensChanged();
     void autoWakeEnabledChanged();
     void autoWakeScheduleChanged();
     void autoWakeStayAwakeEnabledChanged();
@@ -607,4 +642,12 @@ private:
     bool m_steamDisabled = false;  // Session-only, not persisted (for descaling)
     double m_temperatureOverride = 0;  // Session-only, for next shot
     bool m_hasTemperatureOverride = false;  // Session-only
+
+    // Brew parameter overrides (session-only)
+    double m_brewDoseOverride = 0;
+    bool m_hasBrewDoseOverride = false;
+    double m_brewYieldOverride = 0;
+    bool m_hasBrewYieldOverride = false;
+    QString m_brewGrindOverride;
+    bool m_hasBrewGrindOverride = false;
 };

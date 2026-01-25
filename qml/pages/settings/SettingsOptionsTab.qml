@@ -77,6 +77,75 @@ KeyboardAwareContainer {
                 }
             }
 
+            // Shot Plan Display
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: shotPlanContent.implicitHeight + Theme.scaled(30)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: shotPlanContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(15)
+                    spacing: Theme.scaled(8)
+
+                    Text {
+                        text: qsTr("Shot Plan")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Show brew parameters before the shot")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Show shot plan")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: Settings.showShotPlan
+                            accessibleName: qsTr("Show shot plan")
+                            onToggled: Settings.showShotPlan = checked
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: Settings.showShotPlan
+
+                        Text {
+                            text: qsTr("Show on all screens")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: Settings.showShotPlanOnAllScreens
+                            accessibleName: qsTr("Show shot plan on all screens")
+                            onToggled: Settings.showShotPlanOnAllScreens = checked
+                        }
+                    }
+                }
+            }
+
             // Steam Heater Settings
             Rectangle {
                 Layout.fillWidth: true

@@ -182,8 +182,8 @@ set(SOURCES
     src/core/datamigrationclient.cpp
 )
 
-# Simulator files - Windows Debug only
-if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Simulator files - Windows Debug or macOS
+if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     list(APPEND SOURCES
         src/simulator/ghcsimulator.cpp
         src/simulator/de1simulator.cpp
@@ -263,8 +263,8 @@ set(HEADERS
     src/core/datamigrationclient.h
 )
 
-# Simulator headers - Windows Debug only
-if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Simulator headers - Windows Debug or macOS
+if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     list(APPEND HEADERS
         src/simulator/ghcsimulator.h
         src/simulator/de1simulator.h
@@ -374,7 +374,7 @@ set(QML_FILES
     qml/pages/settings/AddLanguagePage.qml
     qml/pages/settings/StringBrowserPage.qml
     qml/components/ActionButton.qml
-    qml/components/BrewRatioDialog.qml
+	qml/components/BrewDialog.qml
     qml/components/CircularGauge.qml
     qml/components/ConnectionIndicator.qml
     qml/components/PresetPillRow.qml
@@ -382,6 +382,7 @@ set(QML_FILES
     qml/components/ValueInput.qml
     qml/components/ShotGraph.qml
     qml/components/StatusBar.qml
+    qml/components/ShotPlanText.qml
     qml/components/ProfileGraph.qml
     qml/components/ProfilePreviewPopup.qml
     qml/components/ProfileInfoButton.qml
@@ -417,8 +418,8 @@ set(QML_FILES
     qml/components/BluetoothStuckDialog.qml
 )
 
-# Simulator QML - Windows Debug only
-if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Simulator QML - Windows Debug or macOS
+if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     list(APPEND QML_FILES
         qml/simulator/GHCSimulatorWindow.qml
     )

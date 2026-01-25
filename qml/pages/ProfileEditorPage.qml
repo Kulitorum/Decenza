@@ -330,6 +330,10 @@ Page {
         modal: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
+        onOpened: {
+            profileNameField.text = profile ? profile.title : ""
+        }
+
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.scaled(12)
@@ -345,6 +349,46 @@ Page {
                 text: qsTr("Profile Settings")
                 font: Theme.titleFont
                 color: Theme.textColor
+            }
+
+            // Profile name
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
+
+                Text {
+                    text: qsTr("Name")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.preferredWidth: Theme.scaled(80)
+                }
+
+                TextField {
+                    id: profileNameField
+                    Layout.fillWidth: true
+                    text: profile ? profile.title : ""
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    placeholderText: qsTr("Profile name")
+                    placeholderTextColor: Theme.textSecondaryColor
+                    leftPadding: Theme.scaled(12)
+                    rightPadding: Theme.scaled(12)
+                    topPadding: Theme.scaled(10)
+                    bottomPadding: Theme.scaled(10)
+                    background: Rectangle {
+                        color: Theme.backgroundColor
+                        radius: Theme.scaled(4)
+                        border.color: profileNameField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
+                        border.width: 1
+                    }
+                    onEditingFinished: {
+                        if (profile && text.length > 0 && text !== profile.title) {
+                            profile.title = text
+                            updatePageTitle()
+                            uploadProfile()
+                        }
+                    }
+                }
             }
 
             // Stop at weight/volume toggle
@@ -488,10 +532,10 @@ Page {
                     accessibleName: qsTr("Global temperature")
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
+                            var delta = newValue - profile.steps[0].temperature
                             for (var i = 0; i < profile.steps.length; i++) {
-                                profile.steps[i].temperature = newValue
+                                profile.steps[i].temperature += delta
                             }
-                            // Also update the profile-level espresso_temperature
                             profile.espresso_temperature = newValue
                             uploadProfile()
                         }

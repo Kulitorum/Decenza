@@ -1,3 +1,22 @@
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
+
 # Decenza DE1
 
 Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE connectivity.
@@ -49,10 +68,13 @@ Note: `unset CMAKE_BUILD_PARALLEL_LEVEL` avoids conflicts with `/m`. `MSYS_NO_PA
 
 Use Qt's `qt-cmake` wrapper which handles cross-compilation correctly.
 
-**Qt paths on Mac:**
-- Qt CMake: `/Users/mic/Qt/Tools/CMake/CMake.app/Contents/bin/cmake`
-- iOS qt-cmake: `/Users/mic/Qt/6.10.1/ios/bin/qt-cmake`
-- macOS qt-cmake: `/Users/mic/Qt/6.10.1/macos/bin/qt-cmake`
+**Finding Qt paths:** Qt is installed at `~/Qt/`. Discover paths dynamically:
+```bash
+# Find qt-cmake for macOS
+find ~/Qt -name "qt-cmake" -path "*/macos/*"
+# Find Ninja (bundled with Qt)
+find ~/Qt/Tools -name "ninja"
+```
 
 **Configure iOS (generates Xcode project):**
 ```bash

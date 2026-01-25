@@ -65,6 +65,9 @@ struct ShotRecord {
     // Debug log
     QString debugLog;
 
+    // Brew overrides (JSON string)
+    QString brewOverridesJson;
+
     // Profile snapshot
     QString profileJson;
 };
@@ -107,7 +110,8 @@ public:
                     double finalWeight,
                     double doseWeight,
                     const ShotMetadata& metadata,
-                    const QString& debugLog);
+                    const QString& debugLog,
+                    const QString& brewOverridesJson = QString());
 
     // Update visualizer info after upload
     Q_INVOKABLE bool updateVisualizerInfo(qint64 shotId,
