@@ -414,6 +414,7 @@ set(QML_FILES
     qml/components/UnsavedChangesDialog.qml
     qml/components/SwipeableArea.qml
     qml/components/CrashReportDialog.qml
+    qml/components/BluetoothStuckDialog.qml
 )
 
 # Simulator QML - Windows Debug only

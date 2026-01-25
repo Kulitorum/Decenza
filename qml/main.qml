@@ -803,6 +803,19 @@ ApplicationWindow {
             if (root.justWokeFromSleep) return
             scaleDisconnectedDialog.open()
         }
+        function onBluetoothStuck() {
+            // Don't show during screensaver
+            if (screensaverActive) return
+            bluetoothStuckDialog.open()
+        }
+    }
+
+    // Bluetooth stuck dialog
+    BluetoothStuckDialog {
+        id: bluetoothStuckDialog
+        onOpenSettingsClicked: {
+            BLEManager.openBluetoothSettings()
+        }
     }
 
     // FlowScale fallback dialog (no scale found at startup)

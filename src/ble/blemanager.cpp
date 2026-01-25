@@ -368,6 +368,7 @@ void BLEManager::onScaleConnectedChanged() {
             m_scaleConnectionFailed = false;
             emit scaleConnectionFailedChanged();
         }
+        m_consecutiveBleFailures = 0;  // Reset stuck counter on successful connection
         qDebug() << "BLEManager: Scale connected, stopping reconnect timer";
     } else {
         // Scale disconnected - notify UI immediately
@@ -393,6 +394,15 @@ void BLEManager::onScaleConnectionTimeout() {
         qWarning() << "Scale connection timeout - scale not responding";
         m_scaleConnectionFailed = true;
         emit scaleConnectionFailedChanged();
+
+        // Track consecutive failures to detect stuck Bluetooth
+        m_consecutiveBleFailures++;
+        qDebug() << "BLEManager: Consecutive BLE failures:" << m_consecutiveBleFailures;
+        if (m_consecutiveBleFailures >= STUCK_THRESHOLD) {
+            qWarning() << "BLEManager: Bluetooth appears stuck after" << m_consecutiveBleFailures << "failures";
+            emit bluetoothStuck();
+            m_consecutiveBleFailures = 0;  // Reset to allow future detection
+        }
     }
 }
 
@@ -543,6 +553,26 @@ void BLEManager::openLocationSettings()
     }
 #else
     qDebug() << "openLocationSettings is only available on Android";
+#endif
+}
+
+void BLEManager::openBluetoothSettings()
+{
+#ifdef Q_OS_ANDROID
+    QJniObject action = QJniObject::fromString("android.settings.BLUETOOTH_SETTINGS");
+    QJniObject intent("android/content/Intent", "(Ljava/lang/String;)V", action.object<jstring>());
+    intent.callMethod<QJniObject>("addFlags", "(I)Landroid/content/Intent;", 0x10000000);  // FLAG_ACTIVITY_NEW_TASK
+
+    QJniObject activity = QNativeInterface::QAndroidApplication::context();
+    if (activity.isValid() && intent.isValid()) {
+        activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
+    }
+#elif defined(Q_OS_IOS)
+    // iOS: Open Settings app (can't deep-link to Bluetooth directly)
+    // Using the general settings URL scheme
+    qDebug() << "On iOS, please open Settings > Bluetooth manually";
+#else
+    qDebug() << "openBluetoothSettings is only available on mobile platforms";
 #endif
 }
 

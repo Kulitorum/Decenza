@@ -63,6 +63,7 @@ public:
     void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void clearSavedScale();
     Q_INVOKABLE void openLocationSettings();
+    Q_INVOKABLE void openBluetoothSettings();
 
     // Scale debug logging
     Q_INVOKABLE void clearScaleLog();
@@ -92,6 +93,7 @@ signals:
     void scanStarted();  // Emitted when BLE scan actually begins
     void disabledChanged();
     void disconnectScaleRequested();  // Emitted when starting scan, scale should disconnect
+    void bluetoothStuck();  // Emitted when BLE appears stuck (multiple connection failures)
 
 private slots:
     void onDeviceDiscovered(const QBluetoothDeviceInfo& device);
@@ -134,4 +136,8 @@ private:
     QStringList m_scaleLogMessages;
     QString m_scaleLogFilePath;
     void writeScaleLogToFile();
+
+    // Bluetooth stuck detection
+    int m_consecutiveBleFailures = 0;
+    static constexpr int STUCK_THRESHOLD = 5;
 };
