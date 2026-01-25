@@ -143,12 +143,8 @@ class Settings : public QObject {
     Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY temperatureOverrideChanged)
 
     // Brew parameter overrides (session-only, for next shot)
-    Q_PROPERTY(double brewDoseOverride READ brewDoseOverride WRITE setBrewDoseOverride NOTIFY brewOverridesChanged)
-    Q_PROPERTY(bool hasBrewDoseOverride READ hasBrewDoseOverride NOTIFY brewOverridesChanged)
     Q_PROPERTY(double brewYieldOverride READ brewYieldOverride WRITE setBrewYieldOverride NOTIFY brewOverridesChanged)
     Q_PROPERTY(bool hasBrewYieldOverride READ hasBrewYieldOverride NOTIFY brewOverridesChanged)
-    Q_PROPERTY(QString brewGrindOverride READ brewGrindOverride WRITE setBrewGrindOverride NOTIFY brewOverridesChanged)
-    Q_PROPERTY(bool hasBrewGrindOverride READ hasBrewGrindOverride NOTIFY brewOverridesChanged)
 
     // Shot plan display settings
     Q_PROPERTY(bool showShotPlan READ showShotPlan WRITE setShowShotPlan NOTIFY showShotPlanChanged)
@@ -484,15 +480,9 @@ public:
     Q_INVOKABLE void clearTemperatureOverride();
 
     // Brew parameter overrides (session-only)
-    double brewDoseOverride() const;
-    void setBrewDoseOverride(double dose);
-    bool hasBrewDoseOverride() const;
     double brewYieldOverride() const;
     void setBrewYieldOverride(double yield);
     bool hasBrewYieldOverride() const;
-    QString brewGrindOverride() const;
-    void setBrewGrindOverride(const QString& grind);
-    bool hasBrewGrindOverride() const;
     void applyBrewOverridesFromJson(const QString& json);
     Q_INVOKABLE void clearAllBrewOverrides();
     Q_INVOKABLE QString brewOverridesToJson() const;
@@ -644,10 +634,6 @@ private:
     bool m_hasTemperatureOverride = false;  // Session-only
 
     // Brew parameter overrides (session-only)
-    double m_brewDoseOverride = 0;
-    bool m_hasBrewDoseOverride = false;
     double m_brewYieldOverride = 0;
     bool m_hasBrewYieldOverride = false;
-    QString m_brewGrindOverride;
-    bool m_hasBrewGrindOverride = false;
 };

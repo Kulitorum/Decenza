@@ -21,10 +21,8 @@ Text {
             return [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
         return ""
     }
-    property string grindSize: Settings.visualizerExtendedMetadata
-        ? (Settings.hasBrewGrindOverride ? Settings.brewGrindOverride : Settings.dyeGrinderSetting)
-        : ""
-    property double dose: Settings.hasBrewDoseOverride ? Settings.brewDoseOverride : Settings.dyeBeanWeight
+    property string grindSize: Settings.visualizerExtendedMetadata ? Settings.dyeGrinderSetting : ""
+    property double dose: Settings.dyeBeanWeight
     property double targetWeight: Settings.hasBrewYieldOverride ? Settings.brewYieldOverride : MainController.targetWeight
 
     text: {

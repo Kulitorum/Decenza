@@ -274,6 +274,7 @@ void MainController::setTargetWeight(double weight) {
 void MainController::activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind) {
     if (m_settings) {
         m_settings->setBrewDoseOverride(dose);
+        // Store dose and grind in DYE fields (source of truth)
         m_settings->setBrewYieldOverride(yield);
         m_settings->setBrewGrindOverride(grind);
         if (qAbs(temperature - m_currentProfile.espressoTemperature()) > 0.1) {

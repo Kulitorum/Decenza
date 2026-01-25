@@ -50,10 +50,9 @@ Dialog {
         profileTargetWeight = MainController.targetWeight
         temperatureValue = Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemperature
 
-        // Use active overrides if set, otherwise fall back to DYE/defaults
-        doseValue = Settings.hasBrewDoseOverride ? Settings.brewDoseOverride
-                  : (Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0)
-        grindSetting = Settings.hasBrewGrindOverride ? Settings.brewGrindOverride : Settings.dyeGrinderSetting
+        // Use DYE fields for dose and grind (source of truth)
+        doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
+        grindSetting = Settings.dyeGrinderSetting
         showScaleWarning = false
 
         // Yield: use override if set, otherwise use profile target weight
@@ -497,9 +496,7 @@ Dialog {
                 accessibleName: qsTr("Confirm brew settings")
                 onClicked: {
                     Settings.lastUsedRatio = root.ratio
-                    // Set grind setting and make it a guest bean (golden color)
                     Settings.dyeGrinderSetting = root.grindSetting
-                    Settings.selectedBeanPreset = -1  // Guest bean mode
                     // Use the new activateBrewWithOverrides method
                     MainController.activateBrewWithOverrides(
                         root.doseValue,
