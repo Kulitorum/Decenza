@@ -7,6 +7,10 @@ import "../../components"
 Item {
     id: updateTab
 
+    // Easter egg: tap version card 7 times to enable translation upload
+    property int versionTapCount: 0
+    property var lastTapTime: 0
+
     RowLayout {
         anchors.fill: parent
         spacing: Theme.scaled(15)
@@ -69,6 +73,32 @@ Item {
                             color: DE1Device.simulationMode ? Theme.primaryColor : Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             font.bold: DE1Device.simulationMode
+                        }
+                    }
+
+                    // Easter egg: tap 7 times to enable translation upload
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            var now = Date.now()
+                            // Reset counter if more than 2 seconds since last tap
+                            if (now - updateTab.lastTapTime > 2000) {
+                                updateTab.versionTapCount = 0
+                            }
+                            updateTab.lastTapTime = now
+                            updateTab.versionTapCount++
+
+                            if (updateTab.versionTapCount >= 7) {
+                                updateTab.versionTapCount = 0
+                                Settings.developerTranslationUpload = !Settings.developerTranslationUpload
+                                if (Settings.developerTranslationUpload) {
+                                    translationUploadToast.show("Translation upload enabled! Go to Settings → Language to upload.")
+                                } else {
+                                    translationUploadToast.show("Translation upload disabled.")
+                                }
+                            } else if (updateTab.versionTapCount >= 4) {
+                                translationUploadToast.show((7 - updateTab.versionTapCount) + " more taps...")
+                            }
                         }
                     }
                 }
@@ -414,6 +444,43 @@ Item {
                     }
                 }
             }
+        }
+    }
+
+    // Toast for Easter egg feedback
+    Rectangle {
+        id: translationUploadToast
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(20)
+        width: toastText.width + Theme.scaled(24)
+        height: toastText.height + Theme.scaled(16)
+        color: Theme.surfaceColor
+        radius: Theme.scaled(8)
+        opacity: 0
+        visible: opacity > 0
+        z: 1000
+
+        border.width: 1
+        border.color: Theme.borderColor
+
+        Text {
+            id: toastText
+            anchors.centerIn: parent
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+        }
+
+        function show(message) {
+            toastText.text = message
+            toastAnimation.restart()
+        }
+
+        SequentialAnimation {
+            id: toastAnimation
+            NumberAnimation { target: translationUploadToast; property: "opacity"; to: 1; duration: 150 }
+            PauseAnimation { duration: 2000 }
+            NumberAnimation { target: translationUploadToast; property: "opacity"; to: 0; duration: 300 }
         }
     }
 }
