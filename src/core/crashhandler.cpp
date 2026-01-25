@@ -288,7 +288,28 @@ QString CrashHandler::crashLogPath()
 
 bool CrashHandler::hasCrashLog()
 {
-    return QFile::exists(crashLogPath());
+    QString path = crashLogPath();
+    if (!QFile::exists(path)) {
+        return false;
+    }
+
+    // Check if this is a crash-on-exit (not actionable, don't bother user)
+    // These happen during C++ runtime cleanup after main() returns normally
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QString content = QString::fromUtf8(file.readAll());
+        file.close();
+
+        // If the last debug message shows main() returned successfully,
+        // this is a cleanup crash we can't fix - delete and ignore it
+        if (content.contains("main() returned")) {
+            qDebug() << "CrashHandler: Ignoring crash-on-exit (main() returned normally)";
+            QFile::remove(path);
+            return false;
+        }
+    }
+
+    return true;
 }
 
 QString CrashHandler::readAndClearCrashLog()
