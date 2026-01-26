@@ -627,6 +627,9 @@ signals:
     void valueChanged(const QString& key);
 
 private:
+    // Helper method to get bean presets as QJsonArray for internal manipulation
+    QJsonArray getBeanPresetsArray() const;
+
     QSettings m_settings;
     bool m_steamDisabled = false;  // Session-only, not persisted (for descaling)
     double m_temperatureOverride = 0;  // Session-only, for next shot

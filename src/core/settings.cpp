@@ -883,11 +883,16 @@ QVariantMap Settings::getFlushPreset(int index) const {
     return QVariantMap();
 }
 
-// Bean presets
-QVariantList Settings::beanPresets() const {
+// Helper method to get bean presets as QJsonArray
+QJsonArray Settings::getBeanPresetsArray() const {
     QByteArray data = m_settings.value("bean/presets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    return doc.array();
+}
+
+// Bean presets
+QVariantList Settings::beanPresets() const {
+    QJsonArray arr = getBeanPresetsArray();
 
     QVariantList result;
     for (const QJsonValue& v : arr) {
@@ -910,9 +915,7 @@ void Settings::setSelectedBeanPreset(int index) {
 void Settings::addBeanPreset(const QString& name, const QString& brand, const QString& type,
                              const QString& roastDate, const QString& roastLevel,
                              const QString& grinderModel, const QString& grinderSetting) {
-    QByteArray data = m_settings.value("bean/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = getBeanPresetsArray();
 
     QJsonObject preset;
     preset["name"] = name;
@@ -932,9 +935,7 @@ void Settings::updateBeanPreset(int index, const QString& name, const QString& b
                                 const QString& type, const QString& roastDate,
                                 const QString& roastLevel, const QString& grinderModel,
                                 const QString& grinderSetting) {
-    QByteArray data = m_settings.value("bean/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = getBeanPresetsArray();
 
     if (index >= 0 && index < arr.size()) {
         QJsonObject preset;
@@ -953,9 +954,7 @@ void Settings::updateBeanPreset(int index, const QString& name, const QString& b
 }
 
 void Settings::removeBeanPreset(int index) {
-    QByteArray data = m_settings.value("bean/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = getBeanPresetsArray();
 
     if (index >= 0 && index < arr.size()) {
         arr.removeAt(index);
@@ -976,9 +975,7 @@ void Settings::removeBeanPreset(int index) {
 }
 
 void Settings::moveBeanPreset(int from, int to) {
-    QByteArray data = m_settings.value("bean/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = getBeanPresetsArray();
 
     if (from >= 0 && from < arr.size() && to >= 0 && to < arr.size() && from != to) {
         QJsonValue item = arr[from];
@@ -1001,9 +998,7 @@ void Settings::moveBeanPreset(int from, int to) {
 }
 
 QVariantMap Settings::getBeanPreset(int index) const {
-    QByteArray data = m_settings.value("bean/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = getBeanPresetsArray();
 
     if (index >= 0 && index < arr.size()) {
         return arr[index].toObject().toVariantMap();
@@ -1059,10 +1054,12 @@ void Settings::saveBeanPresetFromCurrent(const QString& name) {
 }
 
 int Settings::findBeanPresetByContent(const QString& brand, const QString& type) const {
-    QJsonArray arr = m_settings.value("bean/presets").toJsonArray();
+    QJsonArray arr = getBeanPresetsArray();
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
-        if (obj["brand"].toString() == brand && obj["type"].toString() == type) {
+        QString presetBrand = obj["brand"].toString();
+        QString presetType = obj["type"].toString();
+        if (presetBrand == brand && presetType == type) {
             return i;
         }
     }
@@ -1070,9 +1067,7 @@ int Settings::findBeanPresetByContent(const QString& brand, const QString& type)
 }
 
 int Settings::findBeanPresetByName(const QString& name) const {
-    QByteArray data = m_settings.value("bean/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = getBeanPresetsArray();
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         if (obj["name"].toString() == name) {
