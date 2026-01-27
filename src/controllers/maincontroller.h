@@ -82,6 +82,7 @@ class MainController : public QObject {
     Q_PROPERTY(bool isCurrentProfileRecipe READ isCurrentProfileRecipe NOTIFY currentProfileChanged)
     Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
+    Q_PROPERTY(bool sawSettling READ isSawSettling NOTIFY sawSettlingChanged)
 
 public:
     explicit MainController(Settings* settings, DE1Device* device,
@@ -115,6 +116,7 @@ public:
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
     Profile* currentProfilePtr() { return &m_currentProfile; }
     bool isCalibrationMode() const { return m_calibrationMode; }
+    bool isSawSettling() const;
     QString currentFrameName() const { return m_currentFrameName; }
     bool isCurrentProfileRecipe() const { return m_currentProfile.isRecipeMode(); }
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
@@ -226,6 +228,7 @@ signals:
     void brewByRatioChanged();
     void profilesChanged();
     void calibrationModeChanged();
+    void sawSettlingChanged();
 
     // Accessibility: emitted when extraction frame changes
     void frameChanged(int frameIndex, const QString& frameName);

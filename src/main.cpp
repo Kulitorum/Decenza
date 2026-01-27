@@ -118,37 +118,53 @@ int main(int argc, char *argv[])
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
 
     // Create and wire ShotTimingController (centralized timing and weight handling)
-    qDebug() << "[REFACTOR] Creating ShotTimingController...";
     ShotTimingController timingController(&de1Device);
     timingController.setScale(&flowScale);  // Start with FlowScale, switch to physical if found
     timingController.setSettings(&settings);
     timingController.setMachineState(&machineState);
     machineState.setTimingController(&timingController);
     mainController.setTimingController(&timingController);
-    qDebug() << "[REFACTOR] ShotTimingController created and wired to MachineState and MainController";
 
     // Connect timing controller outputs to shot data model
     QObject::connect(&timingController, &ShotTimingController::weightSampleReady,
                      &shotDataModel, qOverload<double, double>(&ShotDataModel::addWeightSample));
-    qDebug() << "[REFACTOR] Connected weightSampleReady -> ShotDataModel::addWeightSample";
 
     // Connect stop-at-weight signal to DE1
     QObject::connect(&timingController, &ShotTimingController::stopAtWeightReached,
                      &de1Device, &DE1Device::stopOperation);
-    qDebug() << "[REFACTOR] Connected stopAtWeightReached -> DE1Device::stopOperation";
+
+    // Forward SAW signal to MachineState so QML shows "Target weight reached"
+    QObject::connect(&timingController, &ShotTimingController::stopAtWeightReached,
+                     &machineState, &MachineState::targetWeightReached);
 
     // Connect per-frame weight exit to DE1
     QObject::connect(&timingController, &ShotTimingController::perFrameWeightReached,
                      [&de1Device](int frameNumber) {
-                         qDebug() << "[REFACTOR] perFrameWeightReached SIGNAL RECEIVED! frameNumber=" << frameNumber << "- calling skipToNextFrame";
                          de1Device.skipToNextFrame();
+                         Q_UNUSED(frameNumber);
                      });
-    qDebug() << "[REFACTOR] Connected perFrameWeightReached -> DE1Device::skipToNextFrame";
+
+    // Connect SAW learning signal to settings persistence
+    QObject::connect(&timingController, &ShotTimingController::sawLearningComplete,
+                     [&settings](double drip, double flowAtStop, double overshoot) {
+                         QString scaleType = settings.scaleType();
+                         settings.addSawLearningPoint(drip, flowAtStop, scaleType);
+                         qDebug() << "[SAW] Learning point saved: drip=" << drip
+                                  << "flow=" << flowAtStop << "overshoot=" << overshoot
+                                  << "scale=" << scaleType;
+                     });
+
+    // Forward sawSettling state to MainController for QML binding
+    QObject::connect(&timingController, &ShotTimingController::sawSettlingChanged,
+                     &mainController, &MainController::sawSettlingChanged);
 
     // Connect shot ended to timing controller
     QObject::connect(&machineState, &MachineState::shotEnded,
                      &timingController, &ShotTimingController::endShot);
-    qDebug() << "[REFACTOR] Connected MachineState::shotEnded -> ShotTimingController::endShot";
+
+    // Connect shot processing to MainController (waits for SAW settling if needed)
+    QObject::connect(&timingController, &ShotTimingController::shotProcessingReady,
+                     &mainController, &MainController::onShotEnded);
 
     // Create and wire AI Manager
     AIManager aiManager(&settings);

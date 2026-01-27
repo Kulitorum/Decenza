@@ -2273,6 +2273,139 @@ void Settings::setMqttClientId(const QString& clientId) {
     }
 }
 
+// SAW (Stop-at-Weight) learning
+
+// Returns average lag for display in QML settings (calculated from stored drip/flow)
+double Settings::sawLearnedLag() const {
+    QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
+    if (data.isEmpty()) {
+        return 1.5;  // Default
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    QString currentScale = scaleType();
+    double sumLag = 0;
+    int count = 0;
+
+    for (int i = arr.size() - 1; i >= 0 && count < 5; --i) {
+        QJsonObject obj = arr[i].toObject();
+        if (obj["scale"].toString() == currentScale) {
+            if (obj.contains("drip") && obj.contains("flow")) {
+                double drip = obj["drip"].toDouble();
+                double flow = obj["flow"].toDouble();
+                if (flow > 0.5) {
+                    sumLag += drip / flow;
+                    count++;
+                }
+            } else if (obj.contains("lag")) {
+                // Old format
+                sumLag += obj["lag"].toDouble();
+                count++;
+            }
+        }
+    }
+
+    return count > 0 ? sumLag / count : 1.5;
+}
+
+double Settings::getExpectedDrip(double currentFlowRate) const {
+    QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
+    if (data.isEmpty()) {
+        // Default: assume 1.5s lag worth of drip
+        return currentFlowRate * 1.5;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    // Filter to current scale type and collect recent entries
+    QString currentScale = scaleType();
+    struct Entry { double drip; double flow; };
+    QVector<Entry> entries;
+
+    for (int i = arr.size() - 1; i >= 0 && entries.size() < 10; --i) {
+        QJsonObject obj = arr[i].toObject();
+        if (obj["scale"].toString() == currentScale) {
+            // Support both old format (lag) and new format (drip, flow)
+            if (obj.contains("drip")) {
+                entries.append({obj["drip"].toDouble(), obj["flow"].toDouble()});
+            } else if (obj.contains("lag")) {
+                // Convert old lag format: drip = lag * flow (approximate)
+                double lag = obj["lag"].toDouble();
+                double flow = 4.0;  // Assume average flow for old entries
+                entries.append({lag * flow, flow});
+            }
+        }
+    }
+
+    if (entries.isEmpty()) {
+        return currentFlowRate * 1.5;  // Default for this scale type
+    }
+
+    // Weighted average: weight by recency AND flow similarity
+    // Recency: most recent = weight 10, oldest = weight 1
+    // Flow similarity: closer flow = higher weight (gaussian-ish)
+    double weightedDripSum = 0;
+    double totalWeight = 0;
+
+    for (int i = 0; i < entries.size(); ++i) {
+        const Entry& e = entries[i];
+
+        // Recency weight: newer entries have more weight
+        double recencyWeight = 10.0 - i;  // 10, 9, 8, 7, ...
+
+        // Flow similarity weight: gaussian with sigma=2 ml/s
+        double flowDiff = qAbs(e.flow - currentFlowRate);
+        double flowWeight = qExp(-(flowDiff * flowDiff) / 8.0);  // sigma^2 * 2 = 8
+
+        double weight = recencyWeight * flowWeight;
+        weightedDripSum += e.drip * weight;
+        totalWeight += weight;
+    }
+
+    if (totalWeight < 0.01) {
+        // All entries have very different flow rates - fall back to default
+        return currentFlowRate * 1.5;
+    }
+
+    double expectedDrip = weightedDripSum / totalWeight;
+
+    // Clamp to reasonable range (0.5 to 15 grams)
+    if (expectedDrip < 0.5) expectedDrip = 0.5;
+    if (expectedDrip > 15.0) expectedDrip = 15.0;
+
+    return expectedDrip;
+}
+
+void Settings::addSawLearningPoint(double drip, double flowRate, const QString& scaleType) {
+    QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.isArray() ? doc.array() : QJsonArray();
+
+    // Create new entry with drip and flow (not pre-calculated lag)
+    QJsonObject entry;
+    entry["drip"] = drip;      // grams that came after stop command
+    entry["flow"] = flowRate;  // flow rate when stop was triggered
+    entry["scale"] = scaleType;
+    entry["ts"] = QDateTime::currentSecsSinceEpoch();
+    arr.append(entry);
+
+    // Trim to max 20 entries
+    while (arr.size() > 20) {
+        arr.removeFirst();
+    }
+
+    m_settings.setValue("saw/learningHistory", QJsonDocument(arr).toJson());
+    emit sawLearnedLagChanged();
+}
+
+void Settings::resetSawLearning() {
+    m_settings.remove("saw/learningHistory");
+    emit sawLearnedLagChanged();
+}
+
 // Generic settings access
 QVariant Settings::value(const QString& key, const QVariant& defaultValue) const {
     return m_settings.value(key, defaultValue);

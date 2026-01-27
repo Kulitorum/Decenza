@@ -664,6 +664,66 @@ KeyboardAwareContainer {
                 }
             }
 
+            // Stop-at-Weight Calibration Card
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: sawContent.implicitHeight + Theme.scaled(24)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: sawContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(4)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Stop-at-Weight Calibration")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            text: Settings.sawLearnedLag.toFixed(2) + "s"
+                            color: Theme.primaryColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: (Settings.scaleType || qsTr("none")) + " · " + qsTr("auto-learns timing")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            text: qsTr("Reset")
+                            color: Theme.primaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.scaled(4)
+                                onClicked: Settings.resetSawLearning()
+                            }
+                        }
+                    }
+                }
+            }
+
             // Spacer
             Item { Layout.fillHeight: true }
         }

@@ -9,11 +9,14 @@ ShotTimingController::ShotTimingController(DE1Device* device, QObject* parent)
     : QObject(parent)
     , m_device(device)
 {
-    qDebug() << "[REFACTOR] ShotTimingController created, device =" << (device ? "valid" : "NULL");
-
     // Display timer - updates UI at 20Hz for smooth timer display
     m_displayTimer.setInterval(50);
     connect(&m_displayTimer, &QTimer::timeout, this, &ShotTimingController::updateDisplayTimer);
+
+    // SAW learning settling timer - waits for weight to stabilize after shot ends
+    m_settlingTimer.setSingleShot(true);
+    m_settlingTimer.setInterval(7000);  // 7 seconds for drips to stop
+    connect(&m_settlingTimer, &QTimer::timeout, this, &ShotTimingController::onSettlingComplete);
 }
 
 double ShotTimingController::shotTime() const
@@ -22,8 +25,8 @@ double ShotTimingController::shotTime() const
     if (!m_extractionStarted) {
         return 0.0;
     }
-    if (m_shotActive && m_displayTimeBase > 0) {
-        // Calculate time from wall clock for smooth UI updates between BLE samples
+    // Calculate time from wall clock during shot OR during settling (for drip phase)
+    if ((m_shotActive || m_settlingTimer.isActive()) && m_displayTimeBase > 0) {
         qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase;
         return elapsed / 1000.0;
     }
@@ -32,56 +35,36 @@ double ShotTimingController::shotTime() const
 
 void ShotTimingController::setScale(ScaleDevice* scale)
 {
-    qDebug() << "[REFACTOR] ShotTimingController::setScale() scale =" << (scale ? scale->type() : "NULL");
     m_scale = scale;
 }
 
 void ShotTimingController::setSettings(Settings* settings)
 {
-    qDebug() << "[REFACTOR] ShotTimingController::setSettings()";
     m_settings = settings;
 }
 
 void ShotTimingController::setMachineState(MachineState* machineState)
 {
-    qDebug() << "[REFACTOR] ShotTimingController::setMachineState()";
     m_machineState = machineState;
 }
 
 void ShotTimingController::setTargetWeight(double weight)
 {
-    qDebug() << "[REFACTOR] ShotTimingController::setTargetWeight(" << weight << "g)"
-             << "- this will be used for stop-at-weight during espresso";
     m_targetWeight = weight;
 }
 
 void ShotTimingController::setCurrentProfile(const Profile* profile)
 {
-    qDebug() << "[REFACTOR] ShotTimingController::setCurrentProfile()"
-             << "profile =" << (profile ? profile->title() : "NULL");
     m_currentProfile = profile;
-
-    // Log frame exit weights for debugging
-    if (profile) {
-        const auto& steps = profile->steps();
-        qDebug() << "[REFACTOR] Profile has" << steps.size() << "frames:";
-        for (int i = 0; i < steps.size(); ++i) {
-            const auto& frame = steps[i];
-            qDebug() << "[REFACTOR]   Frame" << i << ":" << frame.name
-                     << "exitWeight:" << frame.exitWeight
-                     << "exitIf:" << frame.exitIf
-                     << "exitType:" << frame.exitType;
-        }
-    }
 }
 
 void ShotTimingController::startShot()
 {
-    qDebug() << "[REFACTOR] ========== ShotTimingController::startShot() ==========";
-    qDebug() << "[REFACTOR] m_device =" << (m_device ? "valid" : "NULL");
-    qDebug() << "[REFACTOR] m_scale =" << (m_scale ? m_scale->type() : "NULL");
-    qDebug() << "[REFACTOR] m_currentProfile =" << (m_currentProfile ? m_currentProfile->title() : "NULL");
-    qDebug() << "[REFACTOR] m_targetWeight =" << m_targetWeight;
+    // Cancel settling timer if running (user started new shot before settling completed)
+    if (m_settlingTimer.isActive()) {
+        qDebug() << "[SAW] Cancelling settling timer - new shot started";
+        m_settlingTimer.stop();
+    }
 
     // Reset all timing state
     m_currentTime = 0;
@@ -95,14 +78,20 @@ void ShotTimingController::startShot()
     m_currentFrameNumber = -1;
     m_extractionStarted = false;
 
+    // Reset SAW learning state
+    m_sawTriggeredThisShot = false;
+    m_flowRateAtStop = 0.0;
+    m_weightAtStop = 0.0;
+    m_targetWeightAtStop = 0.0;
+    m_lastStableWeight = 0.0;
+    m_lastWeightChangeTime = 0;
+
     // Reset tare state (will be set to Complete when tare() is called)
     m_tareState = TareState::Idle;
 
     // Start display timer for smooth UI updates
     m_displayTimeBase = QDateTime::currentMSecsSinceEpoch();
     m_displayTimer.start();
-
-    qDebug() << "[REFACTOR] Shot started - all state reset, display timer started";
 
     emit shotTimeChanged();
     emit tareCompleteChanged();
@@ -111,11 +100,21 @@ void ShotTimingController::startShot()
 
 void ShotTimingController::endShot()
 {
-    qDebug() << "[REFACTOR] ========== ShotTimingController::endShot() ==========";
-    qDebug() << "[REFACTOR] Final time:" << m_currentTime << "s, weight:" << m_weight << "g";
-
     m_shotActive = false;
-    m_displayTimer.stop();
+
+    // Start settling timer if SAW triggered this shot (for learning)
+    // Keep display timer running during settling so graph continues to update
+    if (m_sawTriggeredThisShot) {
+        startSettlingTimer();
+        // Don't stop display timer - keep time incrementing for graph
+        // shotProcessingReady will be emitted after settling completes
+        qDebug() << "[SAW] SAW triggered - waiting for weight to settle before processing shot";
+    } else {
+        m_displayTimer.stop();
+        // No SAW - shot can be processed immediately
+        qDebug() << "[SAW] No SAW - emitting shotProcessingReady immediately";
+        emit shotProcessingReady();
+    }
 
     emit shotTimeChanged();
 }
@@ -125,10 +124,6 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
                                          int frameNumber, bool isFlowMode)
 {
     if (!m_shotActive) {
-        static int inactiveCount = 0;
-        if (++inactiveCount % 100 == 1) {
-            qDebug() << "[REFACTOR] onShotSample IGNORED - shot not active";
-        }
         return;
     }
 
@@ -136,39 +131,22 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     if (frameNumber != m_currentFrameNumber) {
         if (m_currentProfile && frameNumber >= 0 && frameNumber < m_currentProfile->steps().size()) {
             const auto& frame = m_currentProfile->steps()[frameNumber];
-            qDebug() << "[REFACTOR] FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
-                     << "frame name:" << frame.name
-                     << "exitWeight:" << frame.exitWeight
-                     << "pressure:" << frame.pressure
-                     << "flow:" << frame.flow;
-        } else {
-            qDebug() << "[REFACTOR] FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber;
+            qDebug() << "FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
+                     << "name:" << frame.name << "exitWeight:" << frame.exitWeight;
         }
         m_currentFrameNumber = frameNumber;
 
         // Extraction starts when frame 0 is reached (preheating shows higher frame numbers like 2-3)
-        // Reset timer to 0 at extraction start
         if (frameNumber == 0 && !m_extractionStarted) {
             m_extractionStarted = true;
-            m_displayTimeBase = QDateTime::currentMSecsSinceEpoch();  // Reset wall clock base
-            qDebug() << "[REFACTOR] EXTRACTION STARTED - frame 0 reached, timer reset to 0, weight tracking enabled";
+            m_displayTimeBase = QDateTime::currentMSecsSinceEpoch();
+            qDebug() << "EXTRACTION STARTED at frame 0";
         }
     }
 
     // Calculate time from wall clock (simple and reliable)
     double time = (QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0;
     m_currentTime = time;
-
-    // Log sample data periodically
-    static int sampleCount = 0;
-    if (++sampleCount % 20 == 1) {
-        qDebug() << "[REFACTOR] SAMPLE: time=" << QString::number(time, 'f', 2)
-                 << "frame=" << frameNumber
-                 << "P=" << QString::number(sample.groupPressure, 'f', 2)
-                 << "F=" << QString::number(sample.groupFlow, 'f', 2)
-                 << "T=" << QString::number(sample.headTemp, 'f', 1)
-                 << "weight=" << QString::number(m_weight, 'f', 1);
-    }
 
     emit shotTimeChanged();
 
@@ -185,32 +163,40 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
 
 void ShotTimingController::onWeightSample(double weight, double flowRate)
 {
-    // Log EVERY weight sample received
-    static int allWeightCount = 0;
-    if (++allWeightCount % 5 == 1) {
-        qDebug() << "[REFACTOR] onWeightSample RECEIVED: weight=" << QString::number(weight, 'f', 2)
-                 << "shotActive=" << m_shotActive
-                 << "extractionStarted=" << m_extractionStarted
-                 << "frame=" << m_currentFrameNumber
-                 << "currentTime=" << QString::number(m_currentTime, 'f', 2);
-    }
+    // Keep updating weight while settling timer is running (for SAW learning)
+    if (m_settlingTimer.isActive()) {
+        m_weight = weight;
+        emit weightChanged();
 
-    if (!m_shotActive) {
-        static int inactiveCount = 0;
-        if (++inactiveCount % 20 == 1) {
-            qDebug() << "[REFACTOR] WEIGHT DROPPED: shot not active, weight=" << weight;
+        // Also emit to graph so drip is visible (use live calculated time)
+        double time = shotTime();
+        emit weightSampleReady(time, weight);
+
+        // Check for weight stabilization (time-based since scale only sends on change)
+        double delta = qAbs(weight - m_lastStableWeight);
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        qint64 stableMs = now - m_lastWeightChangeTime;
+
+        qDebug() << "[SAW] Settling:" << QString::number(weight, 'f', 1) << "g"
+                 << "delta:" << QString::number(delta, 'f', 2)
+                 << "stable:" << stableMs << "ms";
+
+        if (delta >= 0.1) {
+            // Significant weight change - reset stability timer
+            m_lastStableWeight = weight;
+            m_lastWeightChangeTime = now;
+        } else if (stableMs >= 1000) {
+            // Weight stable for 1 second
+            qDebug() << "[SAW] Weight stabilized at" << weight << "g (stable for" << stableMs << "ms)";
+            m_settlingTimer.stop();
+            onSettlingComplete();
         }
+
+        // Don't process stop conditions - just track weight
         return;
     }
 
-    // Ignore weight samples until extraction starts (frame 0 reached)
-    // During preheating DE1 reports high frame numbers (e.g., 2), not -1
-    // This gives the scale time to process the tare command
-    if (!m_extractionStarted) {
-        static int preheatCount = 0;
-        if (++preheatCount % 10 == 1) {
-            qDebug() << "[REFACTOR] WEIGHT IGNORED: extraction not started (frame=" << m_currentFrameNumber << "), weight=" << weight;
-        }
+    if (!m_shotActive || !m_extractionStarted) {
         return;
     }
 
@@ -229,14 +215,9 @@ void ShotTimingController::onWeightSample(double weight, double flowRate)
 
 void ShotTimingController::tare()
 {
-    qDebug() << "[REFACTOR] ShotTimingController::tare() called";
-    qDebug() << "[REFACTOR] m_scale =" << (m_scale ? m_scale->type() : "NULL")
-             << "connected =" << (m_scale ? m_scale->isConnected() : false);
-
     if (m_scale && m_scale->isConnected()) {
         m_scale->tare();
         m_scale->resetFlowCalculation();  // Avoid flow rate spikes after tare
-        qDebug() << "[REFACTOR] TARE SENT (fire-and-forget)";
     }
 
     // Fire-and-forget: assume tare worked, set weight to 0 immediately
@@ -245,7 +226,6 @@ void ShotTimingController::tare()
     m_tareState = TareState::Complete;
     emit tareCompleteChanged();
     emit weightChanged();
-    qDebug() << "[REFACTOR] Tare assumed complete - weight reset to 0, waiting for frame 0";
 }
 
 void ShotTimingController::onTareTimeout()
@@ -258,18 +238,33 @@ void ShotTimingController::updateDisplayTimer()
 {
     // Just emit the signal - shotTime() calculates from wall clock
     emit shotTimeChanged();
+
+    // Also check settling stability here (in case scale stops sending samples)
+    if (m_settlingTimer.isActive() && m_lastWeightChangeTime > 0) {
+        qint64 stableMs = QDateTime::currentMSecsSinceEpoch() - m_lastWeightChangeTime;
+        if (stableMs >= 1000) {
+            qDebug() << "[SAW] Weight stabilized at" << m_weight << "g (stable for" << stableMs << "ms, detected by timer)";
+            m_settlingTimer.stop();
+            onSettlingComplete();
+        }
+    }
 }
 
 void ShotTimingController::checkStopAtWeight()
 {
     if (m_stopAtWeightTriggered) return;
+    if (m_tareState != TareState::Complete) return;
 
-    if (m_tareState != TareState::Complete) {
-        static int logCount = 0;
-        if (++logCount % 50 == 1) {
-            qDebug() << "[REFACTOR] STOP-AT-WEIGHT SKIPPED: tare not complete, state =" << static_cast<int>(m_tareState);
+    // Sanity check: if we're very early in extraction and weight is unreasonably high,
+    // assume tare hasn't completed yet (race condition when preheating is skipped).
+    // Real coffee can't drip 50g in 3 seconds.
+    if (m_extractionStarted && m_displayTimeBase > 0) {
+        double extractionTime = (QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0;
+        if (extractionTime < 3.0 && m_weight > 50.0) {
+            qDebug() << "[SAW] Sanity check: weight" << m_weight << "g at" << extractionTime
+                     << "s - likely untared cup, skipping SAW check";
+            return;
         }
-        return;
     }
 
     // Determine target based on current state
@@ -282,93 +277,120 @@ void ShotTimingController::checkStopAtWeight()
         target = m_targetWeight;  // Espresso target
     }
 
-    if (target <= 0) {
-        static int noTargetCount = 0;
-        if (++noTargetCount % 50 == 1) {
-            qDebug() << "[REFACTOR] STOP-AT-WEIGHT: target is 0! m_targetWeight=" << m_targetWeight
-                     << "state=" << static_cast<int>(state);
-        }
-        return;
-    }
+    if (target <= 0) return;
 
     double stopThreshold;
     if (state == DE1::State::HotWater) {
         // Hot water: use fixed 5g offset (predictable, avoids scale-dependent issues)
         stopThreshold = target - 5.0;
     } else {
-        // Espresso: use flow-rate-based lag compensation (more precise)
+        // Espresso: predict drip based on current flow and learning history
         double flowRate = m_flowRate;
-        if (flowRate > 10.0) flowRate = 10.0;  // Cap at reasonable max
-        if (flowRate < 0) flowRate = 0;
-        double lagSeconds = 1.5;
-        double lagCompensation = flowRate * lagSeconds;
-        stopThreshold = target - lagCompensation;
+        if (flowRate > 12.0) flowRate = 12.0;  // Cap at reasonable max
+        if (flowRate < 0.5) flowRate = 0.5;    // Minimum to avoid division issues
+        double expectedDrip = m_settings ? m_settings->getExpectedDrip(flowRate) : (flowRate * 1.5);
+        stopThreshold = target - expectedDrip;
+
+        // Debug: log the expected drip (once per shot when it changes significantly)
+        static double lastLoggedDrip = -1;
+        if (qAbs(expectedDrip - lastLoggedDrip) > 0.5) {
+            qDebug() << "[SAW] Expected drip:" << expectedDrip << "g at flow" << flowRate << "ml/s";
+            lastLoggedDrip = expectedDrip;
+        }
     }
 
     if (m_weight >= stopThreshold) {
         m_stopAtWeightTriggered = true;
-        qDebug() << "[REFACTOR] STOP-AT-WEIGHT TRIGGERED: weight =" << m_weight
-                 << "target =" << target << "threshold =" << stopThreshold;
-        emit stopAtWeightReached();
-    } else {
-        static int progressCount = 0;
-        if (++progressCount % 100 == 1) {
-            qDebug() << "[REFACTOR] STOP-AT-WEIGHT: progress" << m_weight << "/" << target
-                     << "(threshold:" << stopThreshold << ")";
+
+        // Capture state for SAW learning (espresso only)
+        if (state != DE1::State::HotWater) {
+            m_sawTriggeredThisShot = true;
+            m_flowRateAtStop = m_flowRate;
+            m_weightAtStop = m_weight;
+            m_targetWeightAtStop = target;
+            double expectedDrip = m_settings ? m_settings->getExpectedDrip(m_flowRate) : 0;
+            qDebug() << "[SAW] Stop triggered: weight=" << m_weightAtStop
+                     << "threshold=" << stopThreshold
+                     << "expectedDrip=" << expectedDrip
+                     << "flow=" << m_flowRateAtStop
+                     << "target=" << m_targetWeightAtStop;
         }
+
+        emit stopAtWeightReached();
     }
 }
 
 void ShotTimingController::checkPerFrameWeight(int frameNumber)
 {
-    if (!m_currentProfile) {
-        static int noProfileCount = 0;
-        if (++noProfileCount % 100 == 1) {
-            qDebug() << "[REFACTOR] FRAME-WEIGHT: No profile set!";
+    if (!m_currentProfile || !m_device) return;
+    if (frameNumber < 0 || frameNumber == m_frameWeightSkipSent) return;
+    if (m_tareState != TareState::Complete) return;
+
+    // Same sanity check as SAW - skip if weight is unreasonably high early in extraction
+    if (m_extractionStarted && m_displayTimeBase > 0) {
+        double extractionTime = (QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0;
+        if (extractionTime < 3.0 && m_weight > 50.0) {
+            return;  // Likely untared cup
         }
-        return;
-    }
-    if (!m_device) {
-        static int noDeviceCount = 0;
-        if (++noDeviceCount % 100 == 1) {
-            qDebug() << "[REFACTOR] FRAME-WEIGHT: No device set!";
-        }
-        return;
-    }
-    if (frameNumber < 0) {
-        return;
-    }
-    if (frameNumber == m_frameWeightSkipSent) {
-        return;
-    }
-    if (m_tareState != TareState::Complete) {
-        static int tareCount = 0;
-        if (++tareCount % 50 == 1) {
-            qDebug() << "[REFACTOR] FRAME-WEIGHT: Tare not complete, state =" << static_cast<int>(m_tareState);
-        }
-        return;
     }
 
     const auto& steps = m_currentProfile->steps();
-    if (frameNumber >= steps.size()) {
-        qDebug() << "[REFACTOR] FRAME-WEIGHT: Frame" << frameNumber << "out of bounds (size:" << steps.size() << ")";
-        return;
-    }
+    if (frameNumber >= steps.size()) return;
 
     const ProfileFrame& frame = steps[frameNumber];
 
-    // Log frame weight check periodically
-    static int checkCount = 0;
-    if (++checkCount % 20 == 1) {
-        qDebug() << "[REFACTOR] FRAME-WEIGHT CHECK: frame=" << frameNumber << "(" << frame.name << ")"
-                 << "exitWeight=" << frame.exitWeight << "current=" << m_weight;
-    }
-
     if (frame.exitWeight > 0 && m_weight >= frame.exitWeight) {
-        qDebug() << "[REFACTOR] *** FRAME-WEIGHT EXIT TRIGGERED ***"
-                 << "weight" << m_weight << ">=" << frame.exitWeight
+        qDebug() << "FRAME-WEIGHT EXIT: weight" << m_weight << ">=" << frame.exitWeight
                  << "on frame" << frameNumber << "(" << frame.name << ")";
         m_frameWeightSkipSent = frameNumber;
         emit perFrameWeightReached(frameNumber);
     }
+}
+
+void ShotTimingController::startSettlingTimer()
+{
+    qDebug() << "[SAW] Starting settling (max 15s, or stable for 1s) - current weight:" << m_weight;
+    m_lastStableWeight = m_weight;
+    m_lastWeightChangeTime = QDateTime::currentMSecsSinceEpoch();
+    m_settlingTimer.setInterval(15000);  // 15 second max timeout
+    m_settlingTimer.start();
+    emit sawSettlingChanged();
+}
+
+void ShotTimingController::onSettlingComplete()
+{
+    // Settling is done - stop display timer and notify UI
+    m_displayTimer.stop();
+    emit sawSettlingChanged();
+    emit shotProcessingReady();
+
+    // Check scale is still connected
+    if (!m_scale || !m_scale->isConnected()) {
+        qDebug() << "[SAW] Scale disconnected, skipping learning";
+        return;
+    }
+
+    // Validate flow rate at stop (low flow makes division unstable)
+    if (m_flowRateAtStop < 0.5) {
+        qDebug() << "[SAW] Flow at stop too low (" << m_flowRateAtStop << "), skipping learning";
+        return;
+    }
+
+    // Calculate how much weight came after we sent the stop command
+    double drip = m_weight - m_weightAtStop;
+    if (drip < 0) drip = 0;  // Weight can't decrease
+
+    double overshoot = m_weight - m_targetWeightAtStop;
+
+    // Validate drip is in reasonable range (0 to 15 grams)
+    if (drip > 15.0) {
+        qDebug() << "[SAW] Drip out of range (" << drip << "g), skipping learning";
+        return;
+    }
+
+    qDebug() << "[SAW] Learning: final=" << m_weight << "g target=" << m_targetWeightAtStop
+             << "drip=" << drip << "g flow=" << m_flowRateAtStop << "ml/s overshoot=" << overshoot << "g";
+
+    // Emit signal for main.cpp to handle persistence (drip and flow, not lag)
+    emit sawLearningComplete(drip, m_flowRateAtStop, overshoot);
 }

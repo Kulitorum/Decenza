@@ -72,18 +72,13 @@ QString MachineState::phaseString() const {
 }
 
 void MachineState::setScale(ScaleDevice* scale) {
-    // Use static_cast<void*> to avoid QDebug dereferencing the pointer (which could crash if dangling)
-    qDebug() << "MachineState::setScale called with" << static_cast<void*>(scale) << "current m_scale:" << static_cast<void*>(m_scale);
-
     if (m_scale && m_scale != scale) {
-        qDebug() << "Disconnecting old scale:" << static_cast<void*>(m_scale);
         disconnect(m_scale, nullptr, this, nullptr);
     }
 
     m_scale = scale;
 
     if (m_scale) {
-        qDebug() << "Connecting new scale:" << static_cast<void*>(m_scale);
         connect(m_scale, &ScaleDevice::weightChanged,
                 this, &MachineState::onScaleWeightChanged);
         // Relay weight changes to QML via scaleWeightChanged signal
@@ -101,7 +96,6 @@ void MachineState::setSettings(Settings* settings) {
 }
 
 void MachineState::setTimingController(ShotTimingController* controller) {
-    qDebug() << "[REFACTOR] MachineState::setTimingController() controller=" << (controller ? "valid" : "NULL");
     m_timingController = controller;
     if (m_timingController) {
         // Forward timing controller signals
@@ -110,7 +104,6 @@ void MachineState::setTimingController(ShotTimingController* controller) {
         // Handle tare complete - need to update m_tareCompleted flag AND emit signal
         connect(m_timingController, &ShotTimingController::tareCompleteChanged,
                 this, &MachineState::onTimingControllerTareComplete);
-        qDebug() << "[REFACTOR] Connected timing controller signals";
     }
 }
 
@@ -330,8 +323,6 @@ void MachineState::updatePhase() {
             // CRITICAL: Emit espressoCycleStarted IMMEDIATELY (not deferred) so MainController
             // can reset its m_shotStartTime before any shot samples arrive via BLE.
             // If deferred, shot samples could arrive first with wrong timestamps.
-            qDebug() << "[REFACTOR] MachineState: EMITTING espressoCycleStarted (entering espresso cycle)";
-            qDebug() << "[REFACTOR] Phase transition:" << static_cast<int>(oldPhase) << "->" << static_cast<int>(m_phase);
             emit espressoCycleStarted();
         }
 
@@ -342,10 +333,8 @@ void MachineState::updatePhase() {
             emit phaseChanged();
 
             if (isFlowing() && !wasFlowing) {
-                qDebug() << "[REFACTOR] MachineState: EMITTING shotStarted (flow started)";
                 emit shotStarted();
             } else if (!isFlowing() && wasFlowing) {
-                qDebug() << "[REFACTOR] MachineState: EMITTING shotEnded (flow stopped)";
                 emit shotEnded();
             }
         });
@@ -364,20 +353,10 @@ void MachineState::updatePhase() {
 }
 
 void MachineState::onScaleWeightChanged(double weight) {
-    // Debug: confirm MachineState is receiving scale updates
-    static int receiveCount = 0;
-    if (++receiveCount % 50 == 1) {
-        qDebug() << "[REFACTOR] MachineState::onScaleWeightChanged: weight=" << QString::number(weight, 'f', 2)
-                 << "phase=" << phaseString()
-                 << "tareCompleted=" << m_tareCompleted
-                 << "waitingForTare=" << m_waitingForTare;
-    }
-
     // Check if tare completed (scale reported near-zero after tare command)
     if (m_waitingForTare && qAbs(weight) < 1.0) {
         m_waitingForTare = false;
         m_tareCompleted = true;
-        qDebug() << "[REFACTOR] MachineState TARE COMPLETE: weight=" << weight;
         emit tareCompleted();
     }
 
@@ -412,36 +391,17 @@ void MachineState::onScaleWeightChanged(double weight) {
 }
 
 void MachineState::checkStopAtWeightHotWater(double weight) {
-    static int hwLogCount = 0;
-    if (++hwLogCount % 20 == 1) {
-        qDebug() << "[HOTWATER] checkStopAtWeightHotWater: weight=" << weight
-                 << "stopTriggered=" << m_stopAtWeightTriggered
-                 << "tareCompleted=" << m_tareCompleted
-                 << "waterVolume=" << (m_settings ? m_settings->waterVolume() : -1);
-    }
-
     if (m_stopAtWeightTriggered) return;
-    if (!m_tareCompleted) {
-        static int logCount = 0;
-        if (++logCount % 50 == 1) {
-            qWarning() << "[HOTWATER] SKIPPED: tare not done, weight=" << weight
-                       << "waitingForTare=" << m_waitingForTare;
-        }
-        return;
-    }
+    if (!m_tareCompleted) return;
 
     double target = m_settings ? m_settings->waterVolume() : 0;  // ml ≈ g for water
-    if (target <= 0) {
-        qWarning() << "[HOTWATER] target is 0! waterVolume=" << (m_settings ? m_settings->waterVolume() : -1);
-        return;
-    }
+    if (target <= 0) return;
 
     // Hot water: use fixed 5g offset (predictable, avoids scale-dependent issues)
     double stopThreshold = target - 5.0;
 
     if (weight >= stopThreshold) {
         m_stopAtWeightTriggered = true;
-        qDebug() << "[HOTWATER] STOP TRIGGERED: weight=" << weight << "target=" << target;
         emit targetWeightReached();
 
         if (m_device) {
@@ -568,19 +528,13 @@ double MachineState::scaleFlowRate() const {
 }
 
 void MachineState::tareScale() {
-    qDebug() << "[REFACTOR] MachineState::tareScale() called"
-             << "m_timingController=" << (m_timingController ? "valid" : "NULL")
-             << "m_scale=" << (m_scale ? "valid" : "NULL");
-
     // Delegate to timing controller if available (new centralized timing)
     if (m_timingController) {
-        qDebug() << "[REFACTOR] Delegating tare to ShotTimingController";
         m_timingController->tare();
         return;
     }
 
     // Fallback to legacy implementation
-    qDebug() << "[REFACTOR] Using legacy tare implementation (no timing controller)";
     if (m_scale && m_scale->isConnected()) {
         // Immediately disable stop-at-weight until tare completes
         // This prevents early stop if m_tareCompleted was true from a previous operation
@@ -590,25 +544,20 @@ void MachineState::tareScale() {
         m_scale->tare();
         m_scale->resetFlowCalculation();  // Avoid flow rate spikes after tare
 
-        qDebug() << "[REFACTOR] LEGACY TARE SENT: waiting for scale to report ~0g";
-
         // Fallback timeout in case scale never reports near-zero
         // (e.g., scale disconnects, or tare fails)
         QTimer::singleShot(3000, this, [this]() {
             if (m_waitingForTare) {
-                qWarning() << "[REFACTOR] LEGACY TARE TIMEOUT: scale didn't report ~0g within 3s";
+                qWarning() << "Tare timeout: scale didn't report ~0g within 3s";
                 m_waitingForTare = false;
                 m_tareCompleted = true;
                 emit tareCompleted();
             }
         });
-    } else {
-        qDebug() << "[REFACTOR] No scale connected for legacy tare";
     }
 }
 
 void MachineState::onTimingControllerTareComplete() {
-    qDebug() << "[REFACTOR] MachineState::onTimingControllerTareComplete() - setting m_tareCompleted=true";
     m_tareCompleted = true;
     m_waitingForTare = false;
     emit tareCompleted();

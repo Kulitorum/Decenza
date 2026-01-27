@@ -33,6 +33,7 @@ class ShotTimingController : public QObject {
     Q_PROPERTY(double shotTime READ shotTime NOTIFY shotTimeChanged)
     Q_PROPERTY(bool tareComplete READ isTareComplete NOTIFY tareCompleteChanged)
     Q_PROPERTY(double currentWeight READ currentWeight NOTIFY weightChanged)
+    Q_PROPERTY(bool sawSettling READ isSawSettling NOTIFY sawSettlingChanged)
 
 public:
     enum class TareState { Idle, Pending, Complete };
@@ -45,6 +46,7 @@ public:
     bool isTareComplete() const { return m_tareState == TareState::Complete; }
     double currentWeight() const { return m_weight; }
     TareState tareState() const { return m_tareState; }
+    bool isSawSettling() const { return m_settlingTimer.isActive(); }
 
     // Configuration
     void setScale(ScaleDevice* scale);
@@ -69,6 +71,7 @@ signals:
     void shotTimeChanged();
     void tareCompleteChanged();
     void weightChanged();
+    void sawSettlingChanged();
 
     // Unified sample output (all data with consistent timestamp)
     void sampleReady(double time, double pressure, double flow, double temp,
@@ -80,11 +83,20 @@ signals:
     void stopAtWeightReached();
     void perFrameWeightReached(int frameNumber);
 
+    // SAW learning - emits drip (grams after stop) and flow rate for learning
+    void sawLearningComplete(double drip, double flowAtStop, double overshoot);
+
+    // Emitted when shot is ready to be saved/processed
+    // (immediately if no SAW, or after settling if SAW triggered)
+    void shotProcessingReady();
+
 private slots:
     void onTareTimeout();
     void updateDisplayTimer();
+    void onSettlingComplete();
 
 private:
+    void startSettlingTimer();
     void checkStopAtWeight();
     void checkPerFrameWeight(int frameNumber);
 
@@ -106,6 +118,15 @@ private:
     int m_frameWeightSkipSent = -1;  // Frame for which we've sent weight-based skip
     int m_currentFrameNumber = -1;   // Current frame number from shot samples
     bool m_extractionStarted = false; // True after frame 0 seen (preheating complete)
+
+    // SAW learning state
+    bool m_sawTriggeredThisShot = false;
+    double m_flowRateAtStop = 0.0;
+    double m_weightAtStop = 0.0;      // Weight when SAW triggered
+    double m_targetWeightAtStop = 0.0;
+    QTimer m_settlingTimer;
+    double m_lastStableWeight = 0.0;  // For detecting weight stabilization
+    qint64 m_lastWeightChangeTime = 0; // Timestamp of last significant weight change (ms)
 
     // Tare state machine
     TareState m_tareState = TareState::Idle;

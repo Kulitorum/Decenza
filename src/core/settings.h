@@ -156,6 +156,9 @@ class Settings : public QObject {
     Q_PROPERTY(bool autoWakeStayAwakeEnabled READ autoWakeStayAwakeEnabled WRITE setAutoWakeStayAwakeEnabled NOTIFY autoWakeStayAwakeEnabledChanged)
     Q_PROPERTY(int autoWakeStayAwakeMinutes READ autoWakeStayAwakeMinutes WRITE setAutoWakeStayAwakeMinutes NOTIFY autoWakeStayAwakeMinutesChanged)
 
+    // SAW (Stop-at-Weight) learning
+    Q_PROPERTY(double sawLearnedLag READ sawLearnedLag NOTIFY sawLearnedLagChanged)
+
     // MQTT settings (Home Automation)
     Q_PROPERTY(bool mqttEnabled READ mqttEnabled WRITE setMqttEnabled NOTIFY mqttEnabledChanged)
     Q_PROPERTY(QString mqttBrokerHost READ mqttBrokerHost WRITE setMqttBrokerHost NOTIFY mqttBrokerHostChanged)
@@ -526,6 +529,12 @@ public:
     QString mqttClientId() const;
     void setMqttClientId(const QString& clientId);
 
+    // SAW (Stop-at-Weight) learning
+    double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
+    double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history
+    void addSawLearningPoint(double drip, double flowRate, const QString& scaleType);
+    Q_INVOKABLE void resetSawLearning();
+
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;
     Q_INVOKABLE void setValue(const QString& key, const QVariant& value);
@@ -624,6 +633,7 @@ signals:
     void mqttRetainMessagesChanged();
     void mqttHomeAssistantDiscoveryChanged();
     void mqttClientIdChanged();
+    void sawLearnedLagChanged();
     void valueChanged(const QString& key);
 
 private:

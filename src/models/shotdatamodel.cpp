@@ -224,19 +224,7 @@ void ShotDataModel::addWeightSample(double time, double weight, double flowRate)
 void ShotDataModel::addWeightSample(double time, double weight) {
     // Ignore near-zero weights (scale noise / pre-drip)
     if (weight < 0.1) {
-        static int ignoredCount = 0;
-        if (++ignoredCount % 50 == 1) {
-            qDebug() << "[REFACTOR] ShotDataModel::addWeightSample IGNORED: weight=" << weight << "< 0.1";
-        }
         return;
-    }
-
-    // Log weight samples
-    static int sampleCount = 0;
-    if (++sampleCount % 10 == 1) {
-        qDebug() << "[REFACTOR] ShotDataModel::addWeightSample: time=" << QString::number(time, 'f', 2)
-                 << "weight=" << QString::number(weight, 'f', 2)
-                 << "totalPoints=" << m_weightPoints.size();
     }
 
     // Store cumulative weight for export (visualizer, shot history)
@@ -245,7 +233,6 @@ void ShotDataModel::addWeightSample(double time, double weight) {
     // Add initial zero point when weight curve starts (so line starts from zero at correct time)
     if (m_weightPoints.isEmpty()) {
         m_weightPoints.append(QPointF(time, 0.0));
-        qDebug() << "[REFACTOR] ShotDataModel: Added initial zero point at time=" << time;
     }
 
     // Plot cumulative weight (g) - shows weight progression during shot (0g -> 36g typical)
