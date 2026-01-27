@@ -35,10 +35,9 @@ Rectangle {
 
             activeFocusOnTab: true
 
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("bottombar.button.back", "Back")
-            Accessible.description: TranslationManager.translate("bottombar.button.back.description", "Go back to previous screen")
-            Accessible.focusable: true
+            // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+            // to avoid duplicate focus elements
+            Accessible.ignored: true
 
             // Focus indicator
             Rectangle {
@@ -56,6 +55,8 @@ Rectangle {
                 source: "qrc:/icons/back.svg"
                 sourceSize.width: Theme.scaled(28)
                 sourceSize.height: Theme.scaled(28)
+                // Decorative - accessibility handled by AccessibleTapHandler
+                Accessible.ignored: true
             }
 
             Keys.onReturnPressed: root.backClicked()

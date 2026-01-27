@@ -21,6 +21,9 @@ class ShotDataModel : public QObject {
     Q_PROPERTY(QVariantList phaseMarkers READ phaseMarkersVariant NOTIFY phaseMarkersChanged)
     Q_PROPERTY(double maxTime READ maxTime NOTIFY maxTimeChanged)
     Q_PROPERTY(double rawTime READ rawTime NOTIFY rawTimeChanged)
+    Q_PROPERTY(double stopTime READ stopTime NOTIFY stopTimeChanged)
+    Q_PROPERTY(double weightAtStop READ weightAtStop NOTIFY weightAtStopChanged)
+    Q_PROPERTY(double finalWeight READ finalWeight NOTIFY finalWeightChanged)
 
 public:
     explicit ShotDataModel(QObject* parent = nullptr);
@@ -28,6 +31,9 @@ public:
 
     double maxTime() const { return m_maxTime; }
     double rawTime() const { return m_rawTime; }
+    double stopTime() const { return m_stopTime; }
+    double weightAtStop() const { return m_weightAtStop; }
+    double finalWeight() const;
     QVariantList phaseMarkersVariant() const;
 
     // Register chart series - C++ takes ownership of updating them
@@ -67,6 +73,9 @@ signals:
     void maxTimeChanged();
     void rawTimeChanged();
     void phaseMarkersChanged();
+    void stopTimeChanged();
+    void weightAtStopChanged();
+    void finalWeightChanged();
 
 private slots:
     void flushToChart();  // Called by timer - batched update to chart
@@ -110,6 +119,8 @@ private:
     QList<PhaseMarker> m_phaseMarkers;
     QList<QPair<double, QString>> m_pendingMarkers;  // Pending vertical lines
     double m_pendingStopTime = -1;  // Stop marker time (-1 = none)
+    double m_stopTime = -1;          // Recorded stop time for accessibility
+    double m_weightAtStop = 0.0;     // Weight when stop was triggered
 
     static constexpr int FLUSH_INTERVAL_MS = 33;  // Backup timer; main updates are immediate on sample arrival
     static constexpr int INITIAL_CAPACITY = 600;  // Pre-allocate for 2min at 5Hz

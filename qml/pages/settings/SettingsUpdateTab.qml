@@ -77,9 +77,10 @@ Item {
                     }
 
                     // Easter egg: tap 7 times to enable translation upload
-                    MouseArea {
+                    AccessibleMouseArea {
                         anchors.fill: parent
-                        onClicked: {
+                        accessibleName: "Version " + AppVersion + ", Build " + AppVersionCode
+                        onAccessibleClicked: {
                             var now = Date.now()
                             // Reset counter if more than 2 seconds since last tap
                             if (now - updateTab.lastTapTime > 2000) {
@@ -91,13 +92,18 @@ Item {
                             if (updateTab.versionTapCount >= 7) {
                                 updateTab.versionTapCount = 0
                                 Settings.developerTranslationUpload = !Settings.developerTranslationUpload
+                                var message
                                 if (Settings.developerTranslationUpload) {
-                                    translationUploadToast.show("Translation upload enabled! Go to Settings → Language to upload.")
+                                    message = "Translation upload enabled! Go to Settings, Language to upload."
                                 } else {
-                                    translationUploadToast.show("Translation upload disabled.")
+                                    message = "Translation upload disabled."
                                 }
+                                translationUploadToast.show(message)
+                                AccessibilityManager.announce(message)
                             } else if (updateTab.versionTapCount >= 4) {
-                                translationUploadToast.show((7 - updateTab.versionTapCount) + " more taps...")
+                                var remaining = (7 - updateTab.versionTapCount) + " more taps"
+                                translationUploadToast.show(remaining + "...")
+                                AccessibilityManager.announce(remaining)
                             }
                         }
                     }

@@ -1,6 +1,7 @@
 import QtQuick
 import QtCharts
 import DecenzaDE1
+import "."  // For AccessibleMouseArea
 
 ChartView {
     id: chart
@@ -195,6 +196,7 @@ ChartView {
         model: ShotDataModel.phaseMarkers
 
         delegate: Item {
+            id: markerDelegate
             required property int index
             required property var modelData
             property double markerTime: modelData.time
@@ -209,6 +211,7 @@ ChartView {
             visible: markerTime <= timeAxis.max && markerTime >= 0
 
             Text {
+                id: markerText
                 text: markerLabel
                 font.pixelSize: Theme.scaled(18)
                 font.bold: isStart || isEnd
@@ -217,6 +220,8 @@ ChartView {
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(4)
                 y: Theme.scaled(8) + width
+                // Decorative - accessibility handled by tap area below
+                Accessible.ignored: true
 
                 Rectangle {
                     z: -1
@@ -224,6 +229,30 @@ ChartView {
                     anchors.margins: Theme.scaled(-2)
                     color: Qt.darker(Theme.surfaceColor, 1.5)
                     radius: Theme.scaled(2)
+                }
+            }
+
+            // Accessible tap area for End marker - announces weight at stop vs final weight
+            AccessibleMouseArea {
+                visible: isEnd
+                x: markerText.x - Theme.scaled(10)
+                y: markerText.y - markerText.width - Theme.scaled(10)
+                width: markerText.height + Theme.scaled(20)
+                height: markerText.width + Theme.scaled(20)
+
+                accessibleName: {
+                    var stopWeight = ShotDataModel.weightAtStop.toFixed(1)
+                    var finalWeight = ShotDataModel.finalWeight.toFixed(1)
+                    var diff = (ShotDataModel.finalWeight - ShotDataModel.weightAtStop).toFixed(1)
+                    return "End marker. Weight at stop: " + stopWeight + " grams. " +
+                           "Final settled weight: " + finalWeight + " grams. " +
+                           "Drip amount: " + diff + " grams."
+                }
+
+                onAccessibleClicked: {
+                    if (typeof AccessibilityManager !== "undefined") {
+                        AccessibilityManager.announce(accessibleName)
+                    }
                 }
             }
         }

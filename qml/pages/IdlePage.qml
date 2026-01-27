@@ -782,10 +782,9 @@ Page {
 
                 property bool enabled: DE1Device.guiEnabled
 
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("idle.accessible.sleep", "Sleep")
-                Accessible.description: TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
-                Accessible.focusable: true
+                // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+                // to avoid duplicate focus elements (icon + label announced separately)
+                Accessible.ignored: true
 
                 KeyNavigation.up: espressoButton
                 KeyNavigation.right: settingsButton
@@ -835,6 +834,8 @@ Page {
                         sourceSize.width: Theme.scaled(28)
                         sourceSize.height: Theme.scaled(28)
                         Layout.alignment: Qt.AlignVCenter
+                        // Decorative - accessibility handled by AccessibleTapHandler
+                        Accessible.ignored: true
                     }
                     Tr {
                         key: "idle.button.sleep"
@@ -842,6 +843,8 @@ Page {
                         font: Theme.bodyFont
                         color: "white"
                         verticalAlignment: Text.AlignVCenter
+                        // Decorative - accessibility handled by AccessibleTapHandler
+                        Accessible.ignored: true
                     }
                 }
 
@@ -871,10 +874,9 @@ Page {
                 Layout.preferredHeight: Theme.bottomBarHeight
                 activeFocusOnTab: true
 
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("idle.accessible.settings", "Settings")
-                Accessible.description: TranslationManager.translate("idle.accessible.settings.description", "Open application settings")
-                Accessible.focusable: true
+                // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+                // to avoid duplicate focus elements
+                Accessible.ignored: true
 
                 KeyNavigation.up: flushButton
                 KeyNavigation.left: sleepButton
@@ -888,6 +890,8 @@ Page {
                     source: "qrc:/icons/settings.svg"
                     sourceSize.width: Theme.scaled(32)
                     sourceSize.height: Theme.scaled(32)
+                    // Decorative - accessibility handled by AccessibleTapHandler
+                    Accessible.ignored: true
                 }
 
                 // Focus indicator

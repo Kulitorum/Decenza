@@ -36,6 +36,8 @@ Button {
         }
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
+        // Decorative - accessibility handled by AccessibleTapHandler
+        Accessible.ignored: true
     }
 
     background: Rectangle {
@@ -64,10 +66,9 @@ Button {
         }
     }
 
-    Accessible.role: Accessible.Button
-    Accessible.name: accessibleName
-    Accessible.description: accessibleDescription
-    Accessible.focusable: true
+    // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+    // to avoid duplicate focus elements
+    Accessible.ignored: true
 
     // Focus indicator
     FocusIndicator {
@@ -79,7 +80,7 @@ Button {
     // Using TapHandler for better touch responsiveness
     AccessibleTapHandler {
         anchors.fill: parent
-        accessibleName: root.accessibleName
+        accessibleName: root.accessibleDescription ? (root.accessibleName + ". " + root.accessibleDescription) : root.accessibleName
         accessibleItem: root.accessibleItem
 
         onAccessibleClicked: {

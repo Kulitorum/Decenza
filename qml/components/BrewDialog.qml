@@ -441,13 +441,18 @@ Dialog {
                 text: qsTr("Clear")
                 accessibleName: qsTr("Clear all overrides")
                 onClicked: {
-                    // Reset to profile defaults
+                    // Reset to current profile and bean preset values (not cached values from dialog open)
+                    root.profileTemperature = MainController.profileTargetTemperature
                     root.temperatureValue = root.profileTemperature
-                    root.doseValue = 18.0
+                    root.profileTargetWeight = MainController.targetWeight
+
+                    // Use bean preset dose if available, otherwise default 18g
+                    root.doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
                     root.grindSetting = Settings.dyeGrinderSetting  // Bean's grind setting
-                    // Calculate ratio from profile target weight / default dose
+
+                    // Calculate ratio from profile target weight / dose
                     var profileTarget = MainController.targetWeight
-                    root.ratio = (profileTarget > 0) ? profileTarget / 18.0 : Settings.lastUsedRatio
+                    root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.lastUsedRatio
                     root.targetManuallySet = false
                     root.targetValue = root.doseValue * root.ratio
                 }

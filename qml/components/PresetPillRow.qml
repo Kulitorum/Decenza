@@ -202,10 +202,9 @@ FocusScope {
                         border.color: isSelected ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: (modelData.preset.name || "") + (isSelected ? ", " + TranslationManager.translate("presets.selected", "selected") : "")
-                        Accessible.description: TranslationManager.translate("presets.doubleTapToSelect", "Double-tap to select.")
-                        Accessible.focusable: true
+                        // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+                        // to avoid duplicate focus elements
+                        Accessible.ignored: true
 
                         Behavior on color { ColorAnimation { duration: 150 } }
 
@@ -227,6 +226,8 @@ FocusScope {
                             color: pill.isSelected ? "white" : Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
+                            // Decorative - accessibility handled by AccessibleTapHandler
+                            Accessible.ignored: true
                         }
 
                         // Using TapHandler for better touch responsiveness (avoids Flickable conflicts)

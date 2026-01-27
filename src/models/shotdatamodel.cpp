@@ -131,6 +131,8 @@ void ShotDataModel::clear() {
     if (m_extractionMarkerSeries) m_extractionMarkerSeries->clear();
     if (m_stopMarkerSeries) m_stopMarkerSeries->clear();
     m_pendingStopTime = -1;
+    m_stopTime = -1;
+    m_weightAtStop = 0.0;
 
     // Clear all goal segment series
     for (const auto& series : m_pressureGoalSeriesList) {
@@ -244,6 +246,7 @@ void ShotDataModel::addWeightSample(double time, double weight) {
     m_weightPoints.append(QPointF(time, weight));
     m_dirty = true;
     flushToChart();  // Immediate update for snappy feel
+    emit finalWeightChanged();  // For accessibility announcement
 }
 
 void ShotDataModel::markExtractionStart(double time) {
@@ -261,6 +264,16 @@ void ShotDataModel::markExtractionStart(double time) {
 
 void ShotDataModel::markStopAt(double time) {
     m_pendingStopTime = time;
+    m_stopTime = time;
+
+    // Find the weight at or just before the stop time
+    m_weightAtStop = 0.0;
+    for (int i = m_weightPoints.size() - 1; i >= 0; --i) {
+        if (m_weightPoints[i].x() <= time) {
+            m_weightAtStop = m_weightPoints[i].y();
+            break;
+        }
+    }
 
     PhaseMarker marker;
     marker.time = time;
@@ -270,6 +283,8 @@ void ShotDataModel::markStopAt(double time) {
 
     m_dirty = true;
     emit phaseMarkersChanged();
+    emit stopTimeChanged();
+    emit weightAtStopChanged();
 }
 
 void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameNumber, bool isFlowMode) {
@@ -350,6 +365,11 @@ void ShotDataModel::flushToChart() {
     }
 
     m_dirty = false;
+}
+
+double ShotDataModel::finalWeight() const {
+    if (m_weightPoints.isEmpty()) return 0.0;
+    return m_weightPoints.last().y();
 }
 
 QVariantList ShotDataModel::phaseMarkersVariant() const {

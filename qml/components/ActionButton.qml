@@ -37,11 +37,9 @@ Button {
     focusPolicy: Qt.StrongFocus
     activeFocusOnTab: true
 
-    // Accessibility
-    Accessible.role: Accessible.Button
-    Accessible.name: control.text
-    Accessible.description: control._computedAccessibleDescription
-    Accessible.focusable: true
+    // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+    // to avoid duplicate focus elements (icon + label announced separately)
+    Accessible.ignored: true
 
     implicitWidth: Theme.scaled(150)
     implicitHeight: Theme.scaled(120)
@@ -65,6 +63,8 @@ Button {
                 sourceSize.height: control.iconSize * 2
                 fillMode: Image.PreserveAspectFit
                 opacity: control.enabled ? 1.0 : 0.5
+                // Decorative - accessibility handled by AccessibleTapHandler
+                Accessible.ignored: true
             }
         }
 
@@ -73,6 +73,8 @@ Button {
             text: control.text
             color: control.enabled ? Theme.textColor : Theme.textSecondaryColor
             font: Theme.bodyFont
+            // Decorative - accessibility handled by AccessibleTapHandler
+            Accessible.ignored: true
         }
     }
 
@@ -106,7 +108,7 @@ Button {
         anchors.fill: parent
         enabled: control.enabled
 
-        accessibleName: control.text
+        accessibleName: control.text + ". " + control._computedAccessibleDescription
         accessibleItem: control
         supportLongPress: true
         supportDoubleClick: true
