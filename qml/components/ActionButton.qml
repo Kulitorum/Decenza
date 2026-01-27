@@ -16,7 +16,7 @@ Button {
 
     // Accessibility description translation (optional override)
     property string accessibleDescriptionKey: "actionbutton.description.default"
-    property string accessibleDescriptionFallback: "Double-tap to activate. Long-press for options."
+    property string accessibleDescriptionFallback: "Tap to select preset. Long-press for more options."
 
     // Auto-compute text from translation if translationKey is set (reactive to translation changes)
     text: translationKey !== "" ? _computedText : ""
@@ -127,7 +127,14 @@ Button {
         }
         onAccessibleLongPressed: {
             console.log("[ActionButton] accessibleLongPressed received for:", control.text)
-            control.pressAndHold()
+            // In accessibility mode, long-press triggers the secondary action (same as double-tap in normal mode)
+            // This gives blind users access to the "go to page" action since quick double-tap is disabled
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            if (accessibilityMode) {
+                control.doubleClicked()
+            } else {
+                control.pressAndHold()
+            }
         }
     }
 

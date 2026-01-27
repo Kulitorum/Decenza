@@ -10,11 +10,11 @@ Dialog {
     width: Theme.scaled(420)
     modal: true
     padding: 0
-    title: qsTr("Brew Settings")
 
     // Accessibility: announce dialog when opened
+    // Note: Don't set 'title' property - it creates a built-in header frame
     Accessible.role: Accessible.Dialog
-    Accessible.name: title
+    Accessible.name: qsTr("Brew Settings")
 
     // Temperature override
     property double temperatureValue: MainController.profileTargetTemperature
@@ -29,7 +29,8 @@ Dialog {
     property double profileTargetWeight: MainController.targetWeight
     property bool targetManuallySet: false
 
-    // Grind setting
+    // Grinder and grind setting
+    property string grinderModel: ""
     property string grindSetting: ""
 
     // Low dose warning - shown when dose is low OR when scale read failed
@@ -68,6 +69,7 @@ Dialog {
 
         // Use DYE fields for dose and grind (source of truth)
         doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
+        grinderModel = Settings.dyeGrinderModel
         grindSetting = Settings.dyeGrinderSetting
         showScaleWarning = false
 
@@ -455,10 +457,10 @@ Dialog {
 
             }
 
-            // Grind setting input (only shown when Beans feature is enabled)
+            // Grinder and setting input (only shown when Beans feature is enabled)
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Theme.scaled(8)
+                spacing: Theme.scaled(4)
                 visible: Settings.visualizerExtendedMetadata
 
                 Text {
@@ -467,13 +469,33 @@ Dialog {
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
                     Layout.preferredWidth: Theme.scaled(55)
-                    Accessible.ignored: true  // Label for sighted users; input has accessibleName
+                    Accessible.ignored: true  // Label for sighted users; inputs have accessibleName
+                }
+
+                StyledComboBox {
+                    id: grinderInput
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: Theme.scaled(100)
+                    model: MainController.shotHistory ? MainController.shotHistory.getDistinctGrinders() : []
+                    currentIndex: model.indexOf(root.grinderModel)
+                    onCurrentTextChanged: if (currentIndex >= 0) root.grinderModel = currentText
+                    Accessible.name: qsTr("Grinder model")
+                }
+
+                Text {
+                    text: "@"
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.alignment: Qt.AlignVCenter
+                    Accessible.ignored: true
                 }
 
                 StyledTextField {
                     id: grindInput
                     Layout.fillWidth: true
+                    Layout.preferredWidth: Theme.scaled(80)
                     text: root.grindSetting
+                    placeholder: qsTr("Setting")
                     onTextChanged: root.grindSetting = text
                     Accessible.name: qsTr("Grind setting")
                 }
@@ -501,6 +523,7 @@ Dialog {
 
                     // Use bean preset dose if available, otherwise default 18g
                     root.doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
+                    root.grinderModel = Settings.dyeGrinderModel   // Bean's grinder
                     root.grindSetting = Settings.dyeGrinderSetting  // Bean's grind setting
 
                     // Calculate ratio from profile target weight / dose
@@ -554,6 +577,7 @@ Dialog {
                 accessibleName: qsTr("Confirm brew settings")
                 onClicked: {
                     Settings.lastUsedRatio = root.ratio
+                    Settings.dyeGrinderModel = root.grinderModel
                     Settings.dyeGrinderSetting = root.grindSetting
                     // Use the new activateBrewWithOverrides method
                     MainController.activateBrewWithOverrides(

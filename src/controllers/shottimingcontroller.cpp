@@ -361,6 +361,9 @@ void ShotTimingController::startSettlingTimer()
 
 void ShotTimingController::onSettlingComplete()
 {
+    // Reset flag FIRST to prevent re-triggering if another operation ends (e.g., steaming)
+    m_sawTriggeredThisShot = false;
+
     // Settling is done - stop display timer and notify UI
     m_displayTimer.stop();
     emit sawSettlingChanged();

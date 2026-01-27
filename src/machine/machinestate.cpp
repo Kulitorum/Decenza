@@ -277,7 +277,18 @@ void MachineState::updatePhase() {
                     });
                 }
             } else {
-                // Mid-espresso glitch recovery: restart timer without resetting state
+                // Mid-espresso: either starting extraction (from preheating) or glitch recovery
+                bool startingExtraction = (oldPhase == Phase::EspressoPreheating);
+
+                if (startingExtraction) {
+                    // Extraction starting - start scale timer (Felicita, etc.)
+                    if (m_scale) {
+                        m_scale->startTimer();
+                        qDebug() << "=== SCALE TIMER: Started (espresso extraction began) ===";
+                    }
+                }
+
+                // Glitch recovery: restart timer without resetting state
                 // This preserves stop-at-weight triggers and cumulative tracking
                 if (!m_shotTimer->isActive()) {
                     qDebug() << "=== TIMER RESTART: recovering from mid-espresso phase glitch ===";

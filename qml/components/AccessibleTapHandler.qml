@@ -114,13 +114,11 @@ MouseArea {
         if (accessibilityMode) {
             // Accessibility mode: First tap announces, second tap (same item) activates
             // This allows blind users to explore UI without accidentally triggering actions
-            if (isDoubleTap && supportDoubleClick) {
-                // Quick double-tap = special action (edit, etc.)
-                singleTapTimer.stop()
-                console.log("[AccessibleTapHandler] A11y: Double tap, emitting accessibleDoubleClicked")
-                accessibleDoubleClicked()
-            } else if (AccessibilityManager.lastAnnouncedItem === accessibleItem) {
-                // Second tap on same item = activate
+            // NOTE: Quick double-tap detection is DISABLED in accessibility mode because
+            // TalkBack's "double-tap to activate" gesture can be misdetected as a quick double-tap.
+            // Screen reader users should use long-press for secondary actions instead.
+            if (AccessibilityManager.lastAnnouncedItem === accessibleItem) {
+                // Second tap on same item = activate (primary action)
                 console.log("[AccessibleTapHandler] A11y: Second tap on same item, activating")
                 accessibleClicked()
             } else {

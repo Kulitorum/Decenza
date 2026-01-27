@@ -468,6 +468,12 @@ void AIManager::onSettingsChanged()
         gemini->setApiKey(m_settings->value("ai/geminiKey").toString());
     }
 
+    auto* openrouter = dynamic_cast<OpenRouterProvider*>(m_openrouterProvider.get());
+    if (openrouter) {
+        openrouter->setApiKey(m_settings->value("ai/openrouterKey").toString());
+        openrouter->setModel(m_settings->value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString());
+    }
+
     auto* ollama = dynamic_cast<OllamaProvider*>(m_ollamaProvider.get());
     if (ollama) {
         ollama->setEndpoint(m_settings->value("ai/ollamaEndpoint", "http://localhost:11434").toString());

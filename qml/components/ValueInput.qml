@@ -177,6 +177,12 @@ Item {
                         startX = mouse.x
                         startY = mouse.y
                         isDragging = false
+
+                        // Announce parameter name when bubble appears (accessibility)
+                        if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                            var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
+                            AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
+                        }
                     }
 
                     onPositionChanged: function(mouse) {
@@ -362,7 +368,9 @@ Item {
         onOpened: {
             popupValueContainer.forceActiveFocus()
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                AccessibilityManager.announce(TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + root.value.toFixed(root.decimals) + " " + root.suffix.trim(), true)
+                var announcement = root.accessibleName ? root.accessibleName + ". " : ""
+                announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + root.value.toFixed(root.decimals) + " " + root.suffix.trim()
+                AccessibilityManager.announce(announcement, true)
             }
         }
 
@@ -471,6 +479,12 @@ Item {
                                 startX = mouse.x
                                 startY = mouse.y
                                 isDragging = false
+
+                                // Announce parameter name when bubble appears (accessibility)
+                                if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                                    var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
+                                    AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
+                                }
                             }
 
                             onPositionChanged: function(mouse) {

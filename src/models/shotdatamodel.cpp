@@ -234,6 +234,29 @@ void ShotDataModel::addWeightSample(double time, double weight) {
         return;
     }
 
+    // Spike filtering: reject readings that jump unrealistically from the last value
+    // Max reasonable flow is ~5g/s, so anything faster is likely a scale glitch
+    if (!m_weightPoints.isEmpty()) {
+        double lastWeight = m_weightPoints.last().y();
+        double lastTime = m_weightPoints.last().x();
+        double deltaWeight = qAbs(weight - lastWeight);
+        double deltaTime = time - lastTime;
+
+        // Max allowed change rate: 10g/s (very generous to avoid false positives)
+        // Minimum deltaTime of 0.05s to avoid division issues
+        if (deltaTime > 0.05) {
+            double changeRate = deltaWeight / deltaTime;
+            if (changeRate > 10.0) {
+                qWarning() << "ShotDataModel: Rejecting spike - weight:" << weight
+                           << "lastWeight:" << lastWeight
+                           << "deltaWeight:" << deltaWeight
+                           << "deltaTime:" << deltaTime
+                           << "rate:" << changeRate << "g/s";
+                return;
+            }
+        }
+    }
+
     // Store cumulative weight for export (visualizer, shot history)
     m_cumulativeWeightPoints.append(QPointF(time, weight));
 
