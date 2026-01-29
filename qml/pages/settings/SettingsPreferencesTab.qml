@@ -155,15 +155,15 @@ Item {
             // Battery / Charging settings
             Rectangle {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                implicitHeight: batteryContent.implicitHeight + Theme.scaled(20)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
                     id: batteryContent
                     anchors.fill: parent
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(8)
+                    anchors.margins: Theme.scaled(10)
+                    spacing: Theme.scaled(4)
 
                     Tr {
                         key: "settings.preferences.batteryCharging"
@@ -172,8 +172,6 @@ Item {
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
                     }
-
-                    Item { Layout.fillHeight: true }
 
                     // Battery status
                     RowLayout {
@@ -234,8 +232,6 @@ Item {
                         }
                     }
 
-                    Item { Layout.fillHeight: true }
-
                     // Smart charging mode selector
                     Tr {
                         key: "settings.preferences.smartChargingMode"
@@ -246,7 +242,7 @@ Item {
 
                     Row {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(50)
+                        Layout.preferredHeight: Theme.scaled(42)
                         spacing: Theme.scaled(8)
 
                         Repeater {
@@ -300,8 +296,6 @@ Item {
                         }
                     }
 
-                    Item { Layout.fillHeight: true }
-
                     // Explanation text
                     Text {
                         text: BatteryManager.chargingMode === 0 ?
@@ -314,8 +308,6 @@ Item {
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
-
-                    Item { Layout.fillHeight: true }
 
                     // Manual charger toggle
                     RowLayout {
@@ -340,6 +332,7 @@ Item {
 
                 }
             }
+
         }
 
         // Right column: Flow Sensor Calibration
