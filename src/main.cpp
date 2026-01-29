@@ -572,6 +572,15 @@ int main(int argc, char *argv[])
             qDebug() << "App suspended - sleeping scale (DE1 stays awake)";
             wasSuspended = true;
 
+#ifdef Q_OS_ANDROID
+            // Disable accessibility bridge before surface is destroyed.
+            // Prevents deadlock between QtAndroidAccessibility::runInObjectContext()
+            // and QAndroidPlatformOpenGLWindow::eglSurface() that causes SIGABRT
+            // when the render thread tries to swap buffers after Android destroys
+            // the EGL surface while the accessibility thread holds the lock.
+            QAccessible::setActive(false);
+#endif
+
             if (physicalScale && physicalScale->isConnected()) {
                 physicalScale->sleep();
                 // Give BLE write time to complete before app suspends
@@ -591,6 +600,11 @@ int main(int argc, char *argv[])
             // App resumed from suspended state - wake scale
             qDebug() << "App resumed - waking scale";
             wasSuspended = false;
+
+#ifdef Q_OS_ANDROID
+            // Re-enable accessibility bridge now that the EGL surface is valid again
+            QAccessible::setActive(true);
+#endif
 
             // Sync settings from disk to ensure we have latest values
             // (prevents theme colors from falling back to defaults on wake)
