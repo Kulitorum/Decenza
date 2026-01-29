@@ -1938,6 +1938,17 @@ void Settings::setAutoCheckUpdates(bool enabled) {
     }
 }
 
+bool Settings::betaUpdatesEnabled() const {
+    return m_settings.value("updates/betaEnabled", false).toBool();
+}
+
+void Settings::setBetaUpdatesEnabled(bool enabled) {
+    if (betaUpdatesEnabled() != enabled) {
+        m_settings.setValue("updates/betaEnabled", enabled);
+        emit betaUpdatesEnabledChanged();
+    }
+}
+
 QString Settings::waterLevelDisplayUnit() const {
     return m_settings.value("display/waterLevelUnit", "percent").toString();
 }
@@ -2436,6 +2447,10 @@ QString Settings::defaultLayoutJson() const {
         QJsonObject({{"type", "sleep"}, {"id", "sleep1"}}),
     });
     zones["bottomRight"] = QJsonArray({
+        QJsonObject({{"type", "history"}, {"id", "history1"}}),
+        QJsonObject({{"type", "spacer"}, {"id", "spacer2"}}),
+        QJsonObject({{"type", "beans"}, {"id", "beans1"}}),
+        QJsonObject({{"type", "autofavorites"}, {"id", "autofavorites1"}}),
         QJsonObject({{"type", "settings"}, {"id", "settings1"}}),
     });
 
@@ -2623,7 +2638,8 @@ bool Settings::hasItemType(const QString& type) const {
 int Settings::getZoneYOffset(const QString& zoneName) const {
     QJsonObject layout = getLayoutObject();
     QJsonObject offsets = layout["offsets"].toObject();
-    return offsets[zoneName].toInt(0);
+    int defaultOffset = (zoneName == "centerStatus") ? -65 : 0;
+    return offsets[zoneName].toInt(defaultOffset);
 }
 
 void Settings::setZoneYOffset(const QString& zoneName, int offset) {

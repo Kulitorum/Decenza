@@ -1144,8 +1144,8 @@ ApplicationWindow {
                             MainController.updateChecker.downloadAndInstall()
                         }
                         updateDialog.close()
-                        // Navigate to settings update tab (index 9) to show progress
-                        goToSettings(9)
+                        // Navigate to settings Update tab (index 13)
+                        goToSettings(13)
                     }
                 }
             }

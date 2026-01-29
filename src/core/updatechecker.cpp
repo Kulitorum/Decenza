@@ -15,7 +15,7 @@
 #include <QCoreApplication>
 #endif
 
-const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases/latest";
+const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
 
 UpdateChecker::UpdateChecker(Settings* settings, QObject* parent)
@@ -36,6 +36,11 @@ UpdateChecker::UpdateChecker(Settings* settings, QObject* parent)
         QTimer::singleShot(30000, this, &UpdateChecker::onPeriodicCheck);
     }
 #endif
+
+    connect(m_settings, &Settings::betaUpdatesEnabledChanged, this, [this]() {
+        // Re-check when beta preference changes
+        checkForUpdates();
+    });
 
     connect(m_settings, &Settings::autoCheckUpdatesChanged, this, [this]() {
 #if !defined(Q_OS_IOS)
@@ -121,16 +126,38 @@ void UpdateChecker::onReleaseInfoReceived()
 void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 {
     QJsonDocument doc = QJsonDocument::fromJson(data);
-    if (!doc.isObject()) {
+    if (!doc.isArray()) {
         m_errorMessage = "Invalid response from GitHub";
         emit errorMessageChanged();
         return;
     }
 
-    QJsonObject release = doc.object();
+    // Find the best release: if beta enabled, take the first (newest) release;
+    // otherwise skip prereleases and take the first stable release.
+    bool includeBeta = m_settings->betaUpdatesEnabled();
+    QJsonArray releases = doc.array();
+    QJsonObject release;
+    bool found = false;
+
+    for (const QJsonValue& val : releases) {
+        QJsonObject rel = val.toObject();
+        if (rel["draft"].toBool()) continue;
+        if (!includeBeta && rel["prerelease"].toBool()) continue;
+        release = rel;
+        found = true;
+        break;
+    }
+
+    if (!found) {
+        m_errorMessage = "No releases found";
+        emit errorMessageChanged();
+        return;
+    }
+
     QString tagName = release["tag_name"].toString();
-    QString releaseName = release["name"].toString();
     QString body = release["body"].toString();
+    bool wasBeta = m_latestIsBeta;
+    m_latestIsBeta = release["prerelease"].toBool();
 
     m_releaseTag = tagName;
     m_latestVersion = tagName.startsWith("v") ? tagName.mid(1) : tagName;
@@ -149,6 +176,9 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     emit latestVersionChanged();
     emit latestVersionCodeChanged();
     emit releaseNotesChanged();
+    if (m_latestIsBeta != wasBeta) {
+        emit latestIsBetaChanged();
+    }
 
     // Find platform-appropriate asset
     QJsonArray assets = release["assets"].toArray();
@@ -187,6 +217,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 
     qDebug() << "UpdateChecker: Current version:" << currentVersion()
              << "Latest version:" << m_latestVersion
+             << "Beta:" << m_latestIsBeta
              << "Update available:" << m_updateAvailable;
 
     if (m_updateAvailable != wasAvailable) {

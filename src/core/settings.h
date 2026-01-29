@@ -131,6 +131,7 @@ class Settings : public QObject {
 
     // Auto-update settings
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
+    Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
 
     // Water level display setting
     Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit WRITE setWaterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged)
@@ -471,6 +472,8 @@ public:
     // Auto-update settings
     bool autoCheckUpdates() const;
     void setAutoCheckUpdates(bool enabled);
+    bool betaUpdatesEnabled() const;
+    void setBetaUpdatesEnabled(bool enabled);
 
     // Water level display
     QString waterLevelDisplayUnit() const;
@@ -629,6 +632,7 @@ signals:
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();
     void autoCheckUpdatesChanged();
+    void betaUpdatesEnabledChanged();
     void waterLevelDisplayUnitChanged();
     void developerTranslationUploadChanged();
     void temperatureOverrideChanged();

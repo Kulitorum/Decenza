@@ -143,6 +143,38 @@ Item {
                     }
                 }
 
+                // Beta updates toggle
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    ColumnLayout {
+                        spacing: Theme.scaled(1)
+
+                        Tr {
+                            key: "settings.update.betaupdates"
+                            fallback: "Include beta versions"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(13)
+                        }
+
+                        Tr {
+                            key: "settings.update.betadesc"
+                            fallback: "Get early access to new features"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    StyledSwitch {
+                        checked: Settings.betaUpdatesEnabled
+                        accessibleName: TranslationManager.translate("settings.update.betaupdates", "Include beta versions")
+                        onToggled: Settings.betaUpdatesEnabled = checked
+                    }
+                }
+
                 Item { Layout.fillHeight: true }
             }
         }
@@ -197,8 +229,9 @@ Item {
                             Text {
                                 text: {
                                     if (MainController.updateChecker.updateAvailable) {
+                                        var betaTag = MainController.updateChecker.latestIsBeta ? " (Beta)" : ""
                                         var msg = TranslationManager.translate("settings.update.updateavailable", "Update available:") +
-                                               " v" + MainController.updateChecker.latestVersion +
+                                               " v" + MainController.updateChecker.latestVersion + betaTag +
                                                " (Build " + MainController.updateChecker.latestVersionCode + ")"
                                         // Add platform-specific note for iOS
                                         if (Qt.platform.os === "ios") {

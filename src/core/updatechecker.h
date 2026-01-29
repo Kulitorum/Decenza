@@ -25,6 +25,7 @@ class UpdateChecker : public QObject {
     Q_PROPERTY(bool canCheckForUpdates READ canCheckForUpdates CONSTANT)
     Q_PROPERTY(QString platformName READ platformName CONSTANT)
     Q_PROPERTY(QString releasePageUrl READ releasePageUrl NOTIFY latestVersionChanged)
+    Q_PROPERTY(bool latestIsBeta READ latestIsBeta NOTIFY latestIsBetaChanged)
 
 public:
     explicit UpdateChecker(Settings* settings, QObject* parent = nullptr);
@@ -44,6 +45,7 @@ public:
     bool canCheckForUpdates() const;
     QString platformName() const;
     QString releasePageUrl() const;
+    bool latestIsBeta() const { return m_latestIsBeta; }
 
     Q_INVOKABLE void checkForUpdates();
     Q_INVOKABLE void openReleasePage();
@@ -61,6 +63,7 @@ signals:
     void errorMessageChanged();
     void updatePromptRequested();  // Emitted when auto-check finds update
     void installationStarted();
+    void latestIsBetaChanged();
 
 private slots:
     void onReleaseInfoReceived();
@@ -91,6 +94,7 @@ private:
     QString m_errorMessage;
     QString m_releaseTag;
     int m_latestBuildNumber = 0;
+    bool m_latestIsBeta = false;
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;
