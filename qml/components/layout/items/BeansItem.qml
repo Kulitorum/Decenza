@@ -70,8 +70,10 @@ Item {
             anchors.fill: parent
             enabled: DE1Device.guiEnabled
             supportLongPress: true
+            supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.beaninfo", "Beans")
             onAccessibleClicked: root.togglePresets()
+            onAccessibleDoubleClicked: root.goToBeanInfo()
             onAccessibleLongPressed: root.goToBeanInfo()
         }
     }

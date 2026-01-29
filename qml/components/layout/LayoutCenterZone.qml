@@ -7,8 +7,27 @@ Item {
     required property string zoneName
     required property var items
 
-    // Calculate button sizing like current IdlePage
-    readonly property int buttonCount: items ? items.length : 0
+    // Items that size to their content instead of using fixed button width
+    function isAutoSized(type) {
+        return type === "spacer" || type === "shotPlan"
+    }
+
+    // Calculate button sizing (auto-sized items don't count)
+    readonly property int buttonCount: {
+        if (!items) return 0
+        var count = 0
+        for (var i = 0; i < items.length; i++) {
+            if (!isAutoSized(items[i].type)) count++
+        }
+        return count
+    }
+    readonly property bool hasSpacer: {
+        if (!items) return false
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type === "spacer") return true
+        }
+        return false
+    }
     readonly property real availableWidth: width - Theme.scaled(20) -
         (buttonCount > 1 ? (buttonCount - 1) * Theme.scaled(10) : 0)
     readonly property real buttonWidth: buttonCount > 0
@@ -23,17 +42,26 @@ Item {
 
     RowLayout {
         id: contentRow
-        anchors.centerIn: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.scaled(10)
+
+        // Auto-centering spacer (hides when user has their own spacers)
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
 
         Repeater {
             model: root.items
             onCountChanged: console.log("[IdlePage] LayoutCenterZone", root.zoneName, "Repeater count:", count)
             delegate: LayoutItemDelegate {
                 zoneName: root.zoneName
-                Layout.preferredWidth: root.buttonWidth
-                Layout.preferredHeight: root.buttonHeight
+                Layout.preferredWidth: root.isAutoSized(modelData.type) ? -1 : root.buttonWidth
+                Layout.preferredHeight: modelData.type === "spacer" ? -1 : root.buttonHeight
+                Layout.fillWidth: modelData.type === "spacer"
             }
         }
+
+        // Auto-centering spacer (hides when user has their own spacers)
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
     }
 }

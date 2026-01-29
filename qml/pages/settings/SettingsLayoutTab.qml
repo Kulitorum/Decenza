@@ -19,6 +19,12 @@ Item {
         return Settings.getZoneItems(zoneName)
     }
 
+    // Helper to get zone Y offset (also depends on layoutConfiguration)
+    function getZoneYOffset(zoneName) {
+        var _dep = Settings.layoutConfiguration
+        return Settings.getZoneYOffset(zoneName)
+    }
+
     // Handle item tap: select or deselect
     function onItemTapped(itemId, zoneName) {
         if (selectedItemId === itemId) {
@@ -156,6 +162,8 @@ Item {
                 zoneLabel: TranslationManager.translate("settings.layout.zone.centerstatus", "Center - Top")
                 items: layoutTab.getZoneItems("centerStatus")
                 selectedItemId: layoutTab.selectedItemId
+                showPositionControls: true
+                yOffset: layoutTab.getZoneYOffset("centerStatus")
 
                 onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerStatus") }
                 onZoneTapped: layoutTab.onZoneTapped("centerStatus")
@@ -163,6 +171,8 @@ Item {
                 onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerStatus") }
                 onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
                 onAddItemRequested: function(type) { Settings.addItem(type, "centerStatus") }
+                onMoveUp: Settings.setZoneYOffset("centerStatus", yOffset - 5)
+                onMoveDown: Settings.setZoneYOffset("centerStatus", yOffset + 5)
             }
 
             // Center Top zone
@@ -172,6 +182,8 @@ Item {
                 zoneLabel: TranslationManager.translate("settings.layout.zone.centertop", "Center - Action Buttons")
                 items: layoutTab.getZoneItems("centerTop")
                 selectedItemId: layoutTab.selectedItemId
+                showPositionControls: true
+                yOffset: layoutTab.getZoneYOffset("centerTop")
 
                 onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerTop") }
                 onZoneTapped: layoutTab.onZoneTapped("centerTop")
@@ -179,6 +191,8 @@ Item {
                 onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerTop") }
                 onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
                 onAddItemRequested: function(type) { Settings.addItem(type, "centerTop") }
+                onMoveUp: Settings.setZoneYOffset("centerTop", yOffset - 5)
+                onMoveDown: Settings.setZoneYOffset("centerTop", yOffset + 5)
             }
 
             // Center Middle zone
@@ -188,6 +202,8 @@ Item {
                 zoneLabel: TranslationManager.translate("settings.layout.zone.centermiddle", "Center - Info")
                 items: layoutTab.getZoneItems("centerMiddle")
                 selectedItemId: layoutTab.selectedItemId
+                showPositionControls: true
+                yOffset: layoutTab.getZoneYOffset("centerMiddle")
 
                 onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerMiddle") }
                 onZoneTapped: layoutTab.onZoneTapped("centerMiddle")
@@ -195,6 +211,8 @@ Item {
                 onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerMiddle") }
                 onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
                 onAddItemRequested: function(type) { Settings.addItem(type, "centerMiddle") }
+                onMoveUp: Settings.setZoneYOffset("centerMiddle", yOffset - 5)
+                onMoveDown: Settings.setZoneYOffset("centerMiddle", yOffset + 5)
             }
 
             // Bottom bar zones

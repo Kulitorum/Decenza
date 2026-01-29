@@ -29,6 +29,7 @@ Loader {
             case "connectionStatus": src = "items/ConnectionStatusItem.qml"; break
             case "scaleWeight":      src = "items/ScaleWeightItem.qml"; break
             case "shotPlan":         src = "items/ShotPlanItem.qml"; break
+            case "spacer":           src = "items/SpacerItem.qml"; break
             default:                 src = ""; break
         }
         console.log("[IdlePage] type:", itemType, "zone:", zoneName, "compact:", isCompact, "source:", src)

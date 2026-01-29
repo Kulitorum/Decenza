@@ -70,8 +70,10 @@ Item {
             anchors.fill: parent
             enabled: DE1Device.guiEnabled
             supportLongPress: true
+            supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.flush", "Flush")
             onAccessibleClicked: root.togglePresets()
+            onAccessibleDoubleClicked: root.goToFlush()
             onAccessibleLongPressed: root.goToFlush()
         }
     }

@@ -70,8 +70,10 @@ Item {
             anchors.fill: parent
             enabled: DE1Device.guiEnabled
             supportLongPress: true
+            supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.steam", "Steam")
             onAccessibleClicked: root.togglePresets()
+            onAccessibleDoubleClicked: root.goToSteam()
             onAccessibleLongPressed: root.goToSteam()
         }
     }

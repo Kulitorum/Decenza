@@ -2620,6 +2620,20 @@ bool Settings::hasItemType(const QString& type) const {
     return false;
 }
 
+int Settings::getZoneYOffset(const QString& zoneName) const {
+    QJsonObject layout = getLayoutObject();
+    QJsonObject offsets = layout["offsets"].toObject();
+    return offsets[zoneName].toInt(0);
+}
+
+void Settings::setZoneYOffset(const QString& zoneName, int offset) {
+    QJsonObject layout = getLayoutObject();
+    QJsonObject offsets = layout["offsets"].toObject();
+    offsets[zoneName] = offset;
+    layout["offsets"] = offsets;
+    saveLayoutObject(layout);
+}
+
 // Generic settings access
 QVariant Settings::value(const QString& key, const QVariant& defaultValue) const {
     return m_settings.value(key, defaultValue);

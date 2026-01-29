@@ -16,7 +16,9 @@ Item {
 
     RowLayout {
         id: itemsRow
-        anchors.fill: parent
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.max(implicitWidth, parent.width)
         spacing: Theme.spacingMedium
 
         Repeater {
@@ -24,6 +26,7 @@ Item {
             onCountChanged: console.log("[IdlePage] LayoutBarZone", root.zoneName, "Repeater count:", count)
             delegate: LayoutItemDelegate {
                 zoneName: root.zoneName
+                Layout.fillWidth: modelData.type === "spacer"
             }
         }
     }

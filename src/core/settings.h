@@ -548,6 +548,8 @@ public:
     Q_INVOKABLE void reorderItem(const QString& zoneName, int fromIndex, int toIndex);
     Q_INVOKABLE void resetLayoutToDefault();
     Q_INVOKABLE bool hasItemType(const QString& type) const;
+    Q_INVOKABLE int getZoneYOffset(const QString& zoneName) const;
+    Q_INVOKABLE void setZoneYOffset(const QString& zoneName, int offset);
 
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;

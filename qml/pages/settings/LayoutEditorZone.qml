@@ -12,6 +12,8 @@ Rectangle {
     property string zoneLabel: ""
     property var items: []
     property string selectedItemId: ""
+    property bool showPositionControls: false
+    property int yOffset: 0
 
     signal itemTapped(string itemId)
     signal zoneTapped()
@@ -19,6 +21,8 @@ Rectangle {
     signal moveLeft(string itemId)
     signal moveRight(string itemId)
     signal addItemRequested(string type)
+    signal moveUp()
+    signal moveDown()
 
     Layout.fillWidth: true
     implicitHeight: zoneContent.implicitHeight + Theme.scaled(20)
@@ -33,11 +37,74 @@ Rectangle {
         anchors.margins: Theme.scaled(10)
         spacing: Theme.spacingSmall
 
-        // Zone label
-        Text {
-            text: root.zoneLabel
-            color: Theme.textSecondaryColor
-            font: Theme.labelFont
+        // Zone label with optional position controls
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.scaled(8)
+
+            Text {
+                text: root.zoneLabel
+                color: Theme.textSecondaryColor
+                font: Theme.labelFont
+            }
+
+            Item { Layout.fillWidth: true }
+
+            // Position offset display
+            Text {
+                visible: root.showPositionControls && root.yOffset !== 0
+                text: (root.yOffset > 0 ? "+" : "") + root.yOffset
+                color: Theme.textSecondaryColor
+                font: Theme.captionFont
+            }
+
+            // UP arrow
+            Rectangle {
+                visible: root.showPositionControls
+                width: Theme.scaled(32)
+                height: Theme.scaled(32)
+                radius: Theme.scaled(6)
+                color: upMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "\u25B2"
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.scaled(16)
+                }
+
+                MouseArea {
+                    id: upMa
+                    anchors.fill: parent
+                    onClicked: root.moveUp()
+                }
+            }
+
+            // DOWN arrow
+            Rectangle {
+                visible: root.showPositionControls
+                width: Theme.scaled(32)
+                height: Theme.scaled(32)
+                radius: Theme.scaled(6)
+                color: downMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "\u25BC"
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.scaled(16)
+                }
+
+                MouseArea {
+                    id: downMa
+                    anchors.fill: parent
+                    onClicked: root.moveDown()
+                }
+            }
         }
 
         // Items in zone
@@ -211,7 +278,8 @@ Rectangle {
                             { type: "waterLevel", label: "Water Level" },
                             { type: "connectionStatus", label: "Connection" },
                             { type: "scaleWeight", label: "Scale Weight" },
-                            { type: "shotPlan", label: "Shot Plan" }
+                            { type: "shotPlan", label: "Shot Plan" },
+                            { type: "spacer", label: "Spacer" }
                         ]
 
                         delegate: Rectangle {
@@ -259,7 +327,7 @@ Rectangle {
             "autofavorites": "Favorites", "sleep": "Sleep", "settings": "Settings",
             "temperature": "Temp", "waterLevel": "Water",
             "connectionStatus": "Connection", "scaleWeight": "Scale",
-            "shotPlan": "Shot Plan"
+            "shotPlan": "Shot Plan", "spacer": "Spacer"
         }
         return names[type] || type
     }

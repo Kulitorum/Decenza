@@ -71,8 +71,10 @@ Item {
             anchors.fill: parent
             enabled: DE1Device.guiEnabled
             supportLongPress: true
+            supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.espresso", "Espresso")
             onAccessibleClicked: root.togglePresets()
+            onAccessibleDoubleClicked: root.goToProfileSelector()
             onAccessibleLongPressed: root.goToProfileSelector()
         }
     }

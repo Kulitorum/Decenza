@@ -78,6 +78,11 @@ Page {
     property var bottomLeftItems: layoutConfig.zones ? (layoutConfig.zones.bottomLeft || []) : []
     property var bottomRightItems: layoutConfig.zones ? (layoutConfig.zones.bottomRight || []) : []
 
+    // Center zone Y-offsets (user-configurable positioning)
+    property int centerStatusYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerStatus || 0) : 0
+    property int centerTopYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerTop || 0) : 0
+    property int centerMiddleYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerMiddle || 0) : 0
+
     Component.onCompleted: {
         root.currentPageTitle = "Idle"
         console.log("[IdlePage] topLeftItems:", JSON.stringify(topLeftItems), "count:", topLeftItems.length)
@@ -202,6 +207,7 @@ Page {
         // Status readouts (temp, water level, connection)
         LayoutBarZone {
             Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: idlePage.centerStatusYOffset
             zoneName: "centerStatus"
             items: idlePage.centerStatusItems
             visible: idlePage.centerStatusItems.length > 0
@@ -211,6 +217,7 @@ Page {
         LayoutCenterZone {
             id: centerTopZone
             Layout.fillWidth: true
+            Layout.topMargin: idlePage.centerTopYOffset
             zoneName: "centerTop"
             items: idlePage.centerTopItems
         }
@@ -470,6 +477,7 @@ Page {
         LayoutCenterZone {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: idlePage.centerMiddleYOffset
             zoneName: "centerMiddle"
             items: idlePage.centerMiddleItems
         }
