@@ -119,8 +119,7 @@ Rectangle {
                     width: chipRow.implicitWidth + Theme.scaled(16)
                     height: Theme.scaled(36)
                     radius: Theme.scaled(8)
-                    color: modelData.id === root.selectedItemId
-                        ? Theme.primaryColor : Theme.backgroundColor
+                    color: modelData.id === root.selectedItemId ? Theme.primaryColor : Theme.backgroundColor
                     border.color: Theme.borderColor
                     border.width: 1
 
@@ -147,7 +146,8 @@ Rectangle {
                         Text {
                             text: getItemDisplayName(modelData.type)
                             color: modelData.id === root.selectedItemId
-                                ? "white" : Theme.textColor
+                                ? "white"
+                                : (modelData.type === "spacer" ? "orange" : Theme.textColor)
                             font: Theme.bodyFont
                         }
 
@@ -293,7 +293,7 @@ Rectangle {
                                 anchors.leftMargin: Theme.scaled(12)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.label
-                                color: Theme.textColor
+                                color: modelData.type === "spacer" ? "orange" : Theme.textColor
                                 font: Theme.bodyFont
                             }
 

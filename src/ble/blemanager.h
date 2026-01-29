@@ -93,7 +93,7 @@ signals:
     void scanStarted();  // Emitted when BLE scan actually begins
     void disabledChanged();
     void disconnectScaleRequested();  // Emitted when starting scan, scale should disconnect
-    void bluetoothStuck();  // Emitted when BLE appears stuck (multiple connection failures)
+
 
 private slots:
     void onDeviceDiscovered(const QBluetoothDeviceInfo& device);

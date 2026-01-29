@@ -261,7 +261,7 @@ void Settings::setSteamDisabled(bool disabled) {
 }
 
 bool Settings::keepSteamHeaterOn() const {
-    return m_settings.value("steam/keepHeaterOn", false).toBool();
+    return m_settings.value("steam/keepHeaterOn", true).toBool();
 }
 
 void Settings::setKeepSteamHeaterOn(bool keep) {

@@ -262,6 +262,48 @@ ApplicationWindow {
         onTriggered: root.justWokeFromSleep = false
     }
 
+    // Popup queue: popups that arrived during screensaver, shown after wake
+    property var pendingPopups: []
+
+    function queuePopup(popupId, params) {
+        // Deduplicate by popupId
+        for (var i = 0; i < pendingPopups.length; i++) {
+            if (pendingPopups[i].id === popupId) return
+        }
+        pendingPopups = pendingPopups.concat([{id: popupId, params: params || {}}])
+    }
+
+    function showNextPendingPopup() {
+        if (pendingPopups.length === 0) return
+        var queue = pendingPopups.slice()
+        var next = queue.shift()
+        pendingPopups = queue
+        switch (next.id) {
+            case "flowScale": flowScaleDialog.open(); break
+            case "scaleDisconnected": scaleDisconnectedDialog.open(); break
+
+            case "update": updateDialog.open(); break
+            case "bleError":
+                bleErrorDialog.errorMessage = next.params.errorMessage || ""
+                bleErrorDialog.isLocationError = next.params.isLocationError || false
+                bleErrorDialog.open()
+                break
+            case "refill":
+                // Only show if machine is still in Refill phase
+                if (MachineState.phase === MachineStateType.Phase.Refill)
+                    refillDialog.open()
+                else
+                    showNextPendingPopup()  // Skip stale refill, show next
+                break
+        }
+    }
+
+    Timer {
+        id: pendingPopupTimer
+        interval: 500  // Brief delay after wake to let UI settle
+        onTriggered: root.showNextPendingPopup()
+    }
+
     // Periodic timer to keep steam heater on when idle
     // The DE1 may have an internal timeout that reduces steam heater power after some idle time.
     // This timer resends the steam settings every 60 seconds to maintain target temperature.
@@ -761,6 +803,7 @@ ApplicationWindow {
         dim: true
         anchors.centerIn: parent
         padding: 24
+        onClosed: root.showNextPendingPopup()
 
         property string errorMessage: ""
         property bool isLocationError: false
@@ -826,39 +869,27 @@ ApplicationWindow {
     Connections {
         target: BLEManager
         function onErrorOccurred(error) {
-            if (error.indexOf("Location") !== -1) {
-                bleErrorDialog.isLocationError = true
-                bleErrorDialog.errorMessage = "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
-            } else {
-                bleErrorDialog.isLocationError = false
-                bleErrorDialog.errorMessage = error
+            var isLocation = error.indexOf("Location") !== -1
+            var msg = isLocation
+                ? "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
+                : error
+            if (screensaverActive) {
+                queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation})
+                return
             }
+            bleErrorDialog.isLocationError = isLocation
+            bleErrorDialog.errorMessage = msg
             bleErrorDialog.open()
         }
         function onFlowScaleFallback() {
-            // Don't show during screensaver or when waking from it
-            if (screensaverActive) return
+            if (screensaverActive) { queuePopup("flowScale"); return }
             if (root.justWokeFromSleep) return
             flowScaleDialog.open()
         }
         function onScaleDisconnected() {
-            // Don't show during screensaver or when waking from it
-            if (screensaverActive) return
+            if (screensaverActive) { queuePopup("scaleDisconnected"); return }
             if (root.justWokeFromSleep) return
             scaleDisconnectedDialog.open()
-        }
-        function onBluetoothStuck() {
-            // Don't show during screensaver
-            if (screensaverActive) return
-            bluetoothStuckDialog.open()
-        }
-    }
-
-    // Bluetooth stuck dialog
-    BluetoothStuckDialog {
-        id: bluetoothStuckDialog
-        onOpenSettingsClicked: {
-            BLEManager.openBluetoothSettings()
         }
     }
 
@@ -869,6 +900,7 @@ ApplicationWindow {
         dim: true
         anchors.centerIn: parent
         padding: 24
+        onClosed: root.showNextPendingPopup()
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -923,6 +955,7 @@ ApplicationWindow {
         dim: true
         anchors.centerIn: parent
         padding: 24
+        onClosed: root.showNextPendingPopup()
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -978,6 +1011,7 @@ ApplicationWindow {
         anchors.centerIn: parent
         closePolicy: Popup.NoAutoClose
         padding: 24
+        onClosed: root.showNextPendingPopup()
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1030,6 +1064,7 @@ ApplicationWindow {
         target: MachineState
         function onPhaseChanged() {
             if (MachineState.phase === MachineStateType.Phase.Refill) {
+                if (screensaverActive) { queuePopup("refill"); return }
                 refillDialog.open()
             } else if (refillDialog.opened) {
                 refillDialog.close()
@@ -1044,6 +1079,7 @@ ApplicationWindow {
         dim: true
         anchors.centerIn: parent
         padding: 24
+        onClosed: root.showNextPendingPopup()
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1122,10 +1158,8 @@ ApplicationWindow {
         enabled: MainController.updateChecker !== null
 
         function onUpdatePromptRequested() {
-            // Don't show during screensaver
-            if (!screensaverActive) {
-                updateDialog.open()
-            }
+            if (screensaverActive) { queuePopup("update"); return }
+            updateDialog.open()
         }
     }
 
@@ -1797,8 +1831,13 @@ ApplicationWindow {
         // Initialize sleep countdown (stayAwake is set separately by onAutoWakeTriggered if needed)
         root.sleepCountdownNormal = root.autoSleepMinutes
         root.sleepCountdownStayAwake = 0  // Already satisfied unless auto-wake sets it
-        console.log("Waking from screensaver: normal countdown=" + root.sleepCountdownNormal)
+        console.log("Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
+                    " pendingPopups=" + pendingPopups.length)
         pageStack.replace(idlePage)
+        // Show any popups that arrived during screensaver (after brief delay for UI to settle)
+        if (pendingPopups.length > 0) {
+            pendingPopupTimer.start()
+        }
     }
 
     Component {

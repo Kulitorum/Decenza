@@ -43,10 +43,6 @@ Loader {
         // Bind loaded item to fill the Loader so it gets the correct size
         // from the parent Layout (implicit size flows up, actual size flows down)
         item.anchors.fill = root
-        // Explicit implicit size tracking — ensures the Loader (and parent Layout)
-        // re-evaluates when the loaded item's content changes (e.g. temperature updates)
-        root.implicitWidth = Qt.binding(function() { return item.implicitWidth })
-        root.implicitHeight = Qt.binding(function() { return item.implicitHeight })
         console.log("[IdlePage] after setup - loader size:", root.width, "x", root.height, "item size:", item.width, "x", item.height)
     }
 

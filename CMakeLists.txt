@@ -431,7 +431,7 @@ set(QML_FILES
     qml/components/UnsavedChangesDialog.qml
     qml/components/SwipeableArea.qml
     qml/components/CrashReportDialog.qml
-    qml/components/BluetoothStuckDialog.qml
+
     qml/components/layout/LayoutItemDelegate.qml
     qml/components/layout/LayoutBarZone.qml
     qml/components/layout/LayoutCenterZone.qml
