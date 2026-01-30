@@ -112,6 +112,10 @@ private:
     QString generateRestorePage() const;
     void handleBackupRestore(QTcpSocket* socket, const QString& tempFilePath, const QString& headers);
 
+    // Layout editor web UI
+    QString generateLayoutPage() const;
+    void handleLayoutApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
+
     // Settings web UI
     QString generateSettingsPage() const;
     void handleGetSettings(QTcpSocket* socket);

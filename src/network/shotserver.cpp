@@ -830,6 +830,15 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
         handleBackupRestore(socket, tempPath, headers);
     }
+    // Layout editor
+    else if (path == "/layout") {
+        sendHtml(socket, generateLayoutPage());
+    }
+    else if (path == "/api/layout" || path.startsWith("/api/layout/") || path.startsWith("/api/layout?")) {
+        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
+        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
+        handleLayoutApi(socket, method, path, body);
+    }
     else {
         sendResponse(socket, 404, "text/plain", "Not Found");
     }
@@ -5494,6 +5503,876 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
 
     sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     cleanupTempFile();
+}
+
+// ============================================================================
+// Layout Editor Web UI
+// ============================================================================
+
+void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body)
+{
+    if (!m_settings) {
+        sendResponse(socket, 500, "application/json", R"({"error":"Settings not available"})");
+        return;
+    }
+
+    // GET /api/layout — return current layout configuration
+    if (method == "GET" && (path == "/api/layout" || path == "/api/layout/")) {
+        QString json = m_settings->layoutConfiguration();
+        sendJson(socket, json.toUtf8());
+        return;
+    }
+
+    // GET /api/layout/item?id=X — return item properties
+    if (method == "GET" && path.startsWith("/api/layout/item")) {
+        QString itemId;
+        int qIdx = path.indexOf("?id=");
+        if (qIdx >= 0) {
+            itemId = QUrl::fromPercentEncoding(path.mid(qIdx + 4).toUtf8());
+        }
+        if (itemId.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing id parameter"})");
+            return;
+        }
+        QVariantMap props = m_settings->getItemProperties(itemId);
+        sendJson(socket, QJsonDocument(QJsonObject::fromVariantMap(props)).toJson(QJsonDocument::Compact));
+        return;
+    }
+
+    // All remaining endpoints are POST
+    if (method != "POST") {
+        sendResponse(socket, 405, "application/json", R"({"error":"Method not allowed"})");
+        return;
+    }
+
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(body, &err);
+    QJsonObject obj = doc.object();
+
+    if (path == "/api/layout/add") {
+        QString type = obj["type"].toString();
+        QString zone = obj["zone"].toString();
+        int index = obj.contains("index") ? obj["index"].toInt() : -1;
+        if (type.isEmpty() || zone.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing type or zone"})");
+            return;
+        }
+        m_settings->addItem(type, zone, index);
+        sendJson(socket, R"({"success":true})");
+    }
+    else if (path == "/api/layout/remove") {
+        QString itemId = obj["itemId"].toString();
+        QString zone = obj["zone"].toString();
+        if (itemId.isEmpty() || zone.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing itemId or zone"})");
+            return;
+        }
+        m_settings->removeItem(itemId, zone);
+        sendJson(socket, R"({"success":true})");
+    }
+    else if (path == "/api/layout/move") {
+        QString itemId = obj["itemId"].toString();
+        QString fromZone = obj["fromZone"].toString();
+        QString toZone = obj["toZone"].toString();
+        int toIndex = obj.contains("toIndex") ? obj["toIndex"].toInt() : -1;
+        if (itemId.isEmpty() || fromZone.isEmpty() || toZone.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing itemId, fromZone, or toZone"})");
+            return;
+        }
+        m_settings->moveItem(itemId, fromZone, toZone, toIndex);
+        sendJson(socket, R"({"success":true})");
+    }
+    else if (path == "/api/layout/reorder") {
+        QString zone = obj["zone"].toString();
+        int fromIndex = obj["fromIndex"].toInt();
+        int toIndex = obj["toIndex"].toInt();
+        if (zone.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing zone"})");
+            return;
+        }
+        m_settings->reorderItem(zone, fromIndex, toIndex);
+        sendJson(socket, R"({"success":true})");
+    }
+    else if (path == "/api/layout/reset") {
+        m_settings->resetLayoutToDefault();
+        sendJson(socket, R"({"success":true})");
+    }
+    else if (path == "/api/layout/item") {
+        QString itemId = obj["itemId"].toString();
+        QString key = obj["key"].toString();
+        if (itemId.isEmpty() || key.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing itemId or key"})");
+            return;
+        }
+        QVariant value = obj["value"].toVariant();
+        m_settings->setItemProperty(itemId, key, value);
+        sendJson(socket, R"({"success":true})");
+    }
+    else if (path == "/api/layout/zone-offset") {
+        QString zone = obj["zone"].toString();
+        int offset = obj["offset"].toInt();
+        if (zone.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing zone"})");
+            return;
+        }
+        m_settings->setZoneYOffset(zone, offset);
+        sendJson(socket, R"({"success":true})");
+    }
+    else {
+        sendResponse(socket, 404, "application/json", R"({"error":"Unknown layout endpoint"})");
+    }
+}
+
+QString ShotServer::generateLayoutPage() const
+{
+    QString html;
+
+    // Part 1: Head and base CSS
+    html += R"HTML(<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Layout Editor - Decenza DE1</title>
+    <style>
+)HTML";
+    html += WEB_CSS_VARIABLES;
+    html += WEB_CSS_HEADER;
+    html += WEB_CSS_MENU;
+
+    // Part 2: Page-specific CSS
+    html += R"HTML(
+        .main-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+        .zones-panel { min-width: 0; }
+        .editor-panel { }
+        .zone-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .zone-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+        .zone-title {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .zone-row { display: flex; gap: 0.5rem; }
+        .zone-offset-controls { display: flex; gap: 0.25rem; align-items: center; }
+        .offset-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--accent);
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .offset-btn:hover { background: var(--surface-hover); }
+        .offset-val {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            min-width: 2rem;
+            text-align: center;
+        }
+        .chips-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            min-height: 40px;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.375rem 0.75rem;
+            border-radius: 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.875rem;
+            user-select: none;
+            transition: all 0.15s;
+        }
+        .chip:hover { border-color: var(--accent); }
+        .chip.selected {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+        }
+        .chip.special { color: orange; }
+        .chip.selected.special { color: #000; }
+        .chip-arrow {
+            cursor: pointer;
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+        .chip-arrow:hover { opacity: 1; }
+        .chip-remove {
+            cursor: pointer;
+            color: #f85149;
+            font-weight: bold;
+            font-size: 1rem;
+            margin-left: 0.25rem;
+        }
+        .add-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: none;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            font-size: 1.25rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .add-btn:hover { background: rgba(201,162,39,0.1); }
+        .add-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 0.25rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 50;
+            min-width: 160px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .add-dropdown.open { display: block; }
+        .add-dropdown-item {
+            display: block;
+            padding: 0.5rem 0.75rem;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        .add-dropdown-item:hover { background: var(--surface-hover); }
+        .add-dropdown-item.special { color: orange; }
+        .reset-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .reset-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+        /* Text editor panel */
+        .editor-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+        .editor-card h3 {
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            color: var(--accent);
+        }
+        .editor-hidden { display: none; }
+        .html-input {
+            width: 100%;
+            min-height: 80px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: monospace;
+            font-size: 0.8rem;
+            padding: 0.5rem;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .html-input:focus { border-color: var(--accent); outline: none; }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            margin: 0.75rem 0;
+        }
+        .tool-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .tool-btn:hover { border-color: var(--accent); }
+        .tool-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+        .tool-sep { width: 1px; height: 24px; background: var(--border); align-self: center; margin: 0 0.25rem; }
+        .color-dot {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            display: inline-block;
+        }
+        .color-dot:hover { border-color: white; }
+        .color-grid { display: flex; flex-wrap: wrap; gap: 4px; margin: 0.5rem 0; }
+        .section-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin: 0.5rem 0 0.25rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .var-list, .action-list {
+            max-height: 180px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+        }
+        .var-item, .action-item {
+            padding: 0.375rem 0.5rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+        }
+        .var-item:last-child, .action-item:last-child { border-bottom: none; }
+        .var-item:hover, .action-item:hover { background: var(--surface-hover); }
+        .action-item { color: var(--text); }
+        .action-item.selected { background: var(--accent); color: #000; }
+        .preview-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin: 0.75rem 0;
+            min-height: 40px;
+            color: var(--text);
+        }
+        .preview-box.has-action { border-color: var(--accent); border-width: 2px; }
+        .editor-buttons {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            border: 1px solid var(--border);
+        }
+        .btn-cancel { background: var(--bg); color: var(--text); }
+        .btn-cancel:hover { border-color: var(--accent); }
+        .btn-save { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+        .btn-save:hover { background: var(--accent-dim); }
+        .two-col { display: flex; gap: 0.75rem; }
+        .two-col > div { flex: 1; }
+        .editor-inner { display: flex; gap: 1.25rem; }
+        .editor-left { flex: 3; min-width: 300px; }
+        .editor-right { flex: 1; min-width: 220px; max-width: 340px; }
+        @media (max-width: 700px) {
+            .editor-inner { flex-direction: column; }
+            .editor-right { flex: none; }
+        }
+    </style>
+</head>
+<body>
+)HTML";
+
+    // Part 3: Header
+    html += R"HTML(
+    <header class="header">
+        <div class="header-content">
+            <div style="display:flex;align-items:center;gap:1rem">
+                <a href="/" class="back-btn">&larr;</a>
+                <h1>Layout Editor</h1>
+            </div>
+            <div class="header-right">
+                <button class="reset-btn" onclick="resetLayout()">Reset to Default</button>
+)HTML";
+    html += generateMenuHtml();
+    html += R"HTML(
+            </div>
+        </div>
+    </header>
+)HTML";
+
+    // Part 4: Main content
+    html += R"HTML(
+    <div class="main-layout">
+        <div class="zones-panel" id="zonesPanel"></div>
+        <div class="editor-panel editor-hidden" id="editorPanel">
+            <div class="editor-card">
+                <h3>Edit Text Widget</h3>
+                <div class="editor-inner">
+                    <div class="editor-left">
+                        <textarea class="html-input" id="htmlInput" placeholder="Enter text or HTML..." style="min-height:120px"></textarea>
+
+                        <div class="toolbar" id="formatToolbar">
+                            <button class="tool-btn" onclick="insertTag('&lt;b&gt;','&lt;/b&gt;')" title="Bold"><b>B</b></button>
+                            <button class="tool-btn" onclick="insertTag('&lt;i&gt;','&lt;/i&gt;')" title="Italic"><i>I</i></button>
+                            <div class="tool-sep"></div>
+                            <button class="tool-btn" onclick="insertFontSize(12)" title="Small">S</button>
+                            <button class="tool-btn" onclick="insertFontSize(18)" title="Medium">M</button>
+                            <button class="tool-btn" onclick="insertFontSize(28)" title="Large">L</button>
+                            <button class="tool-btn" onclick="insertFontSize(48)" title="Extra Large">XL</button>
+                            <div class="tool-sep"></div>
+                            <button class="tool-btn" id="alignLeft" onclick="setAlign('left')" title="Left">&#9664;</button>
+                            <button class="tool-btn active" id="alignCenter" onclick="setAlign('center')" title="Center">&#9679;</button>
+                            <button class="tool-btn" id="alignRight" onclick="setAlign('right')" title="Right">&#9654;</button>
+                        </div>
+
+                        <div class="section-label">Color</div>
+                        <div class="color-grid">
+                            <span class="color-dot" style="background:#ffffff" onclick="insertColor('#ffffff')"></span>
+                            <span class="color-dot" style="background:#a0a8b8" onclick="insertColor('#a0a8b8')"></span>
+                            <span class="color-dot" style="background:#4e85f4" onclick="insertColor('#4e85f4')"></span>
+                            <span class="color-dot" style="background:#e94560" onclick="insertColor('#e94560')"></span>
+                            <span class="color-dot" style="background:#00cc6d" onclick="insertColor('#00cc6d')"></span>
+                            <span class="color-dot" style="background:#ffaa00" onclick="insertColor('#ffaa00')"></span>
+                            <span class="color-dot" style="background:#a2693d" onclick="insertColor('#a2693d')"></span>
+                            <span class="color-dot" style="background:#c0c5e3" onclick="insertColor('#c0c5e3')"></span>
+                            <span class="color-dot" style="background:#e73249" onclick="insertColor('#e73249')"></span>
+                            <span class="color-dot" style="background:#18c37e" onclick="insertColor('#18c37e')"></span>
+                            <span class="color-dot" style="background:#ff4444" onclick="insertColor('#ff4444')"></span>
+                            <span class="color-dot" style="background:#9C27B0" onclick="insertColor('#9C27B0')"></span>
+                        </div>
+
+                        <div class="section-label">Preview</div>
+                        <div class="preview-box" id="previewBox"></div>
+
+                        <div class="editor-buttons" style="margin-top:0.75rem">
+                            <button class="btn btn-cancel" onclick="closeEditor()">Cancel</button>
+                            <button class="btn btn-save" onclick="saveText()">Save</button>
+                        </div>
+                    </div>
+                    <div class="editor-right">
+                        <div class="section-label">Variables (click to insert)</div>
+                        <div class="var-list">
+                            <div class="var-item" onclick="insertVar('%TEMP%')">Temp (&deg;C)</div>
+                            <div class="var-item" onclick="insertVar('%STEAM_TEMP%')">Steam (&deg;C)</div>
+                            <div class="var-item" onclick="insertVar('%PRESSURE%')">Pressure (bar)</div>
+                            <div class="var-item" onclick="insertVar('%FLOW%')">Flow (ml/s)</div>
+                            <div class="var-item" onclick="insertVar('%WATER%')">Water (%)</div>
+                            <div class="var-item" onclick="insertVar('%WATER_ML%')">Water (ml)</div>
+                            <div class="var-item" onclick="insertVar('%WEIGHT%')">Weight (g)</div>
+                            <div class="var-item" onclick="insertVar('%SHOT_TIME%')">Shot Time (s)</div>
+                            <div class="var-item" onclick="insertVar('%TARGET_WEIGHT%')">Target Wt (g)</div>
+                            <div class="var-item" onclick="insertVar('%VOLUME%')">Volume (ml)</div>
+                            <div class="var-item" onclick="insertVar('%PROFILE%')">Profile Name</div>
+                            <div class="var-item" onclick="insertVar('%STATE%')">Machine State</div>
+                            <div class="var-item" onclick="insertVar('%TARGET_TEMP%')">Target Temp</div>
+                            <div class="var-item" onclick="insertVar('%SCALE%')">Scale Name</div>
+                            <div class="var-item" onclick="insertVar('%TIME%')">Time (HH:MM)</div>
+                            <div class="var-item" onclick="insertVar('%DATE%')">Date</div>
+                            <div class="var-item" onclick="insertVar('%RATIO%')">Brew Ratio</div>
+                            <div class="var-item" onclick="insertVar('%DOSE%')">Dose (g)</div>
+                            <div class="var-item" onclick="insertVar('%CONNECTED%')">Online/Offline</div>
+                            <div class="var-item" onclick="insertVar('%CONNECTED_COLOR%')">Status Color</div>
+                            <div class="var-item" onclick="insertVar('%DEVICES%')">Devices</div>
+                        </div>
+                        <div class="section-label" style="margin-top:0.75rem">Action (on tap)</div>
+                        <div class="action-list" id="actionList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+)HTML";
+
+    // Part 5: JavaScript
+    html += R"HTML(
+    <script>
+)HTML";
+    html += WEB_JS_MENU;
+    html += R"HTML(
+
+    var layoutData = null;
+    var selectedChip = null; // {id, zone}
+    var editingItem = null;  // {id, zone}
+    var currentAlign = "center";
+    var currentAction = "";
+
+    var ZONES = [
+        {key: "topLeft", label: "Top Bar (Left)", hasOffset: false},
+        {key: "topRight", label: "Top Bar (Right)", hasOffset: false},
+        {key: "centerStatus", label: "Center - Top", hasOffset: true},
+        {key: "centerTop", label: "Center - Action Buttons", hasOffset: true},
+        {key: "centerMiddle", label: "Center - Info", hasOffset: true},
+        {key: "bottomLeft", label: "Bottom Bar (Left)", hasOffset: false},
+        {key: "bottomRight", label: "Bottom Bar (Right)", hasOffset: false}
+    ];
+
+    var WIDGET_TYPES = [
+        {type:"espresso",label:"Espresso"},{type:"steam",label:"Steam"},
+        {type:"hotwater",label:"Hot Water"},{type:"flush",label:"Flush"},
+        {type:"beans",label:"Beans"},{type:"history",label:"History"},
+        {type:"autofavorites",label:"Favorites"},{type:"sleep",label:"Sleep"},
+        {type:"settings",label:"Settings"},{type:"temperature",label:"Temperature"},
+        {type:"waterLevel",label:"Water Level"},{type:"connectionStatus",label:"Connection"},
+        {type:"scaleWeight",label:"Scale Weight"},{type:"shotPlan",label:"Shot Plan"},
+        {type:"spacer",label:"Spacer",special:true},{type:"text",label:"Text",special:true}
+    ];
+
+    var DISPLAY_NAMES = {
+        espresso:"Espresso",steam:"Steam",hotwater:"Hot Water",flush:"Flush",
+        beans:"Beans",history:"History",autofavorites:"Favorites",sleep:"Sleep",
+        settings:"Settings",temperature:"Temp",waterLevel:"Water",
+        connectionStatus:"Connection",scaleWeight:"Scale",shotPlan:"Shot Plan",
+        spacer:"Spacer",text:"Text"
+    };
+
+    var ACTIONS = [
+        {id:"",label:"None"},
+        {id:"navigate:settings",label:"Go to Settings"},
+        {id:"navigate:history",label:"Go to History"},
+        {id:"navigate:profiles",label:"Go to Profiles"},
+        {id:"navigate:profileEditor",label:"Go to Profile Editor"},
+        {id:"navigate:recipes",label:"Go to Recipes"},
+        {id:"navigate:descaling",label:"Go to Descaling"},
+        {id:"navigate:ai",label:"Go to AI Settings"},
+        {id:"navigate:visualizer",label:"Go to Visualizer"},
+        {id:"command:sleep",label:"Sleep"},
+        {id:"command:startEspresso",label:"Start Espresso"},
+        {id:"command:startSteam",label:"Start Steam"},
+        {id:"command:startHotWater",label:"Start Hot Water"},
+        {id:"command:startFlush",label:"Start Flush"},
+        {id:"command:idle",label:"Stop (Idle)"},
+        {id:"command:tare",label:"Tare Scale"}
+    ];
+
+    function loadLayout() {
+        fetch("/api/layout").then(function(r){return r.json()}).then(function(data) {
+            layoutData = data;
+            renderZones();
+        });
+    }
+
+    function renderZones() {
+        var panel = document.getElementById("zonesPanel");
+        var html = "";
+        for (var z = 0; z < ZONES.length; z++) {
+            var zone = ZONES[z];
+            var items = (layoutData && layoutData.zones && layoutData.zones[zone.key]) || [];
+
+            // Pair top and bottom zones side by side
+            var isPairStart = (z === 0 || z === 5);
+            var isPairEnd = (z === 1 || z === 6);
+            if (isPairStart) html += '<div class="zone-row">';
+
+            html += '<div class="zone-card" style="' + (isPairStart || isPairEnd ? 'flex:1' : '') + '">';
+            html += '<div class="zone-header"><span class="zone-title">' + zone.label + '</span>';
+
+            if (zone.hasOffset) {
+                var offset = 0;
+                if (layoutData && layoutData.offsets && layoutData.offsets[zone.key] !== undefined)
+                    offset = layoutData.offsets[zone.key];
+                html += '<div class="zone-offset-controls">';
+                html += '<button class="offset-btn" onclick="changeOffset(\'' + zone.key + '\',-5)">&#9650;</button>';
+                html += '<span class="offset-val">' + (offset !== 0 ? (offset > 0 ? "+" : "") + offset : "0") + '</span>';
+                html += '<button class="offset-btn" onclick="changeOffset(\'' + zone.key + '\',5)">&#9660;</button>';
+                html += '</div>';
+            }
+            html += '</div>';
+
+            html += '<div class="chips-area">';
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                var isSpecial = item.type === "spacer" || item.type === "text";
+                var isSel = selectedChip && selectedChip.id === item.id;
+                var cls = "chip" + (isSel ? " selected" : "") + (isSpecial ? " special" : "");
+                html += '<span class="' + cls + '" onclick="chipClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">';
+
+                if (isSel && i > 0) {
+                    html += '<span class="chip-arrow" onclick="event.stopPropagation();reorder(\'' + zone.key + '\',' + i + ',' + (i-1) + ')">&#9664;</span>';
+                }
+                html += DISPLAY_NAMES[item.type] || item.type;
+                if (isSel && i < items.length - 1) {
+                    html += '<span class="chip-arrow" onclick="event.stopPropagation();reorder(\'' + zone.key + '\',' + i + ',' + (i+1) + ')">&#9654;</span>';
+                }
+                if (isSel) {
+                    html += '<span class="chip-remove" onclick="event.stopPropagation();removeItem(\'' + item.id + '\',\'' + zone.key + '\')">&times;</span>';
+                }
+                html += '</span>';
+            }
+
+            // Add button with dropdown
+            html += '<div style="position:relative;display:inline-block">';
+            html += '<button class="add-btn" onclick="event.stopPropagation();toggleAddMenu(this)">+</button>';
+            html += '<div class="add-dropdown">';
+            for (var w = 0; w < WIDGET_TYPES.length; w++) {
+                var wt = WIDGET_TYPES[w];
+                html += '<div class="add-dropdown-item' + (wt.special ? ' special' : '') + '" ';
+                html += 'onclick="event.stopPropagation();addItem(\'' + wt.type + '\',\'' + zone.key + '\');this.parentElement.classList.remove(\'open\')">';
+                html += wt.label + '</div>';
+            }
+            html += '</div></div>';
+
+            html += '</div></div>';
+
+            if (isPairEnd) html += '</div>';
+        }
+        panel.innerHTML = html;
+    }
+
+    function chipClick(itemId, zone, type) {
+        if (selectedChip && selectedChip.id === itemId) {
+            // Deselect
+            selectedChip = null;
+        } else if (selectedChip && selectedChip.zone !== zone) {
+            // Move to different zone
+            apiPost("/api/layout/move", {itemId: selectedChip.id, fromZone: selectedChip.zone, toZone: zone, toIndex: -1}, function() {
+                selectedChip = null;
+                loadLayout();
+            });
+            return;
+        } else {
+            selectedChip = {id: itemId, zone: zone};
+            if (type === "text") {
+                openEditor(itemId, zone);
+            }
+        }
+        renderZones();
+    }
+
+    function toggleAddMenu(btn) {
+        var dropdown = btn.nextElementSibling;
+        // Close all other dropdowns
+        document.querySelectorAll(".add-dropdown.open").forEach(function(d) {
+            if (d !== dropdown) d.classList.remove("open");
+        });
+        dropdown.classList.toggle("open");
+    }
+
+    // Close dropdowns when clicking outside
+    document.addEventListener("click", function(e) {
+        if (!e.target.closest(".add-btn") && !e.target.closest(".add-dropdown")) {
+            document.querySelectorAll(".add-dropdown.open").forEach(function(d) { d.classList.remove("open"); });
+        }
+    });
+
+    function addItem(type, zone) {
+        apiPost("/api/layout/add", {type: type, zone: zone}, function() {
+            loadLayout();
+        });
+    }
+
+    function removeItem(itemId, zone) {
+        apiPost("/api/layout/remove", {itemId: itemId, zone: zone}, function() {
+            if (selectedChip && selectedChip.id === itemId) selectedChip = null;
+            if (editingItem && editingItem.id === itemId) closeEditor();
+            loadLayout();
+        });
+    }
+
+    function reorder(zone, fromIdx, toIdx) {
+        apiPost("/api/layout/reorder", {zone: zone, fromIndex: fromIdx, toIndex: toIdx}, function() {
+            loadLayout();
+        });
+    }
+
+    function changeOffset(zone, delta) {
+        var current = 0;
+        if (layoutData && layoutData.offsets && layoutData.offsets[zone] !== undefined)
+            current = layoutData.offsets[zone];
+        apiPost("/api/layout/zone-offset", {zone: zone, offset: current + delta}, function() {
+            loadLayout();
+        });
+    }
+
+    function resetLayout() {
+        if (!confirm("Reset layout to default?")) return;
+        apiPost("/api/layout/reset", {}, function() {
+            selectedChip = null;
+            closeEditor();
+            loadLayout();
+        });
+    }
+
+    // ---- Text Editor ----
+
+    function openEditor(itemId, zone) {
+        editingItem = {id: itemId, zone: zone};
+        fetch("/api/layout/item?id=" + encodeURIComponent(itemId))
+            .then(function(r){return r.json()})
+            .then(function(props) {
+                document.getElementById("htmlInput").value = props.content || "Text";
+                currentAlign = props.align || "center";
+                currentAction = props.action || "";
+                updateAlignButtons();
+                renderActions();
+                updatePreview();
+                document.getElementById("editorPanel").classList.remove("editor-hidden");
+            });
+    }
+
+    function closeEditor() {
+        editingItem = null;
+        document.getElementById("editorPanel").classList.add("editor-hidden");
+    }
+
+    function saveText() {
+        if (!editingItem) return;
+        var content = document.getElementById("htmlInput").value || "Text";
+        var id = editingItem.id;
+        var done = 0;
+        var total = 3;
+        function check() { done++; if (done >= total) loadLayout(); }
+        apiPost("/api/layout/item", {itemId: id, key: "content", value: content}, check);
+        apiPost("/api/layout/item", {itemId: id, key: "align", value: currentAlign}, check);
+        apiPost("/api/layout/item", {itemId: id, key: "action", value: currentAction}, check);
+    }
+
+    function insertTag(open, close) {
+        var el = document.getElementById("htmlInput");
+        var start = el.selectionStart, end = el.selectionEnd;
+        // Decode HTML entities for actual insertion
+        var tmp = document.createElement("span");
+        tmp.innerHTML = open; var openT = tmp.textContent;
+        tmp.innerHTML = close; var closeT = tmp.textContent;
+        var txt = el.value;
+        if (start !== end) {
+            var sel = txt.substring(start, end);
+            el.value = txt.substring(0, start) + openT + sel + closeT + txt.substring(end);
+            el.selectionStart = el.selectionEnd = end + openT.length + closeT.length;
+        } else {
+            el.value = txt.substring(0, start) + openT + closeT + txt.substring(start);
+            el.selectionStart = el.selectionEnd = start + openT.length;
+        }
+        el.focus();
+        updatePreview();
+    }
+
+    function insertFontSize(size) {
+        insertTag('<span style="font-size:' + size + 'px">', '</span>');
+    }
+
+    function insertColor(color) {
+        insertTag('<span style="color:' + color + '">', '</span>');
+    }
+
+    function insertVar(token) {
+        var el = document.getElementById("htmlInput");
+        var pos = el.selectionStart;
+        var txt = el.value;
+        el.value = txt.substring(0, pos) + token + txt.substring(pos);
+        el.selectionStart = el.selectionEnd = pos + token.length;
+        el.focus();
+        updatePreview();
+    }
+
+    function setAlign(a) {
+        currentAlign = a;
+        updateAlignButtons();
+        updatePreview();
+    }
+
+    function updateAlignButtons() {
+        ["Left","Center","Right"].forEach(function(d) {
+            var btn = document.getElementById("align" + d);
+            btn.classList.toggle("active", currentAlign === d.toLowerCase());
+        });
+    }
+
+    function renderActions() {
+        var html = "";
+        for (var i = 0; i < ACTIONS.length; i++) {
+            var a = ACTIONS[i];
+            var cls = "action-item" + (currentAction === a.id ? " selected" : "");
+            html += '<div class="' + cls + '" onclick="selectAction(\'' + a.id + '\')">' + a.label + '</div>';
+        }
+        document.getElementById("actionList").innerHTML = html;
+    }
+
+    function selectAction(id) {
+        currentAction = id;
+        renderActions();
+        updatePreview();
+    }
+
+    function updatePreview() {
+        var text = document.getElementById("htmlInput").value || "";
+        text = substitutePreview(text);
+        var box = document.getElementById("previewBox");
+        box.innerHTML = text;
+        box.style.textAlign = currentAlign;
+        box.className = "preview-box" + (currentAction ? " has-action" : "");
+    }
+
+    function substitutePreview(t) {
+        var now = new Date();
+        var hh = String(now.getHours()).padStart(2,"0");
+        var mm = String(now.getMinutes()).padStart(2,"0");
+        return t
+            .replace(/%TEMP%/g,"92.3").replace(/%STEAM_TEMP%/g,"155.0")
+            .replace(/%PRESSURE%/g,"9.0").replace(/%FLOW%/g,"2.1")
+            .replace(/%WATER%/g,"78").replace(/%WATER_ML%/g,"850")
+            .replace(/%STATE%/g,"Idle").replace(/%WEIGHT%/g,"36.2")
+            .replace(/%SHOT_TIME%/g,"28.5").replace(/%VOLUME%/g,"42")
+            .replace(/%TARGET_WEIGHT%/g,"36.0").replace(/%PROFILE%/g,"Adaptive v2")
+            .replace(/%TARGET_TEMP%/g,"93.0").replace(/%RATIO%/g,"2.0")
+            .replace(/%DOSE%/g,"18.0").replace(/%SCALE%/g,"Lunar")
+            .replace(/%CONNECTED%/g,"Online").replace(/%CONNECTED_COLOR%/g,"#18c37e")
+            .replace(/%DEVICES%/g,"Machine + Scale")
+            .replace(/%TIME%/g,hh+":"+mm)
+            .replace(/%DATE%/g,now.toISOString().split("T")[0]);
+    }
+
+    // Listen for input changes to update preview
+    document.getElementById("htmlInput").addEventListener("input", updatePreview);
+
+    function apiPost(url, data, cb) {
+        fetch(url, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(data)
+        }).then(function(r){return r.json()}).then(function(result) {
+            if (cb) cb(result);
+        });
+    }
+
+    // Initial load
+    loadLayout();
+
+    </script>
+</body>
+</html>
+)HTML";
+
+    return html;
 }
 
 // ============================================================================
