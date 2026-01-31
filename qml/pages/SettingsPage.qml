@@ -286,56 +286,12 @@ Page {
             }
         }
 
-        // Tab 8: Layout - redirects to web interface
-        Item {
-            id: layoutRedirect
-
-            ColumnLayout {
-                x: (parent.width - width) / 2
-                y: (parent.height - height) / 2
-                spacing: Theme.spacingMedium
-
-                Text {
-                    text: "\u2139"
-                    font.pixelSize: Theme.scaled(48)
-                    color: Theme.primaryColor
-                    Layout.alignment: Qt.AlignHCenter
-                }
-
-                Text {
-                    text: "Layout Editor has moved to the web interface"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                    Layout.alignment: Qt.AlignHCenter
-                }
-
-                Text {
-                    text: MainController.shotServer && MainController.shotServer.running
-                        ? "Open in your browser:"
-                        : "Enable Remote Access in the Shot History tab, then open:"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(14)
-                    Layout.alignment: Qt.AlignHCenter
-                }
-
-                Text {
-                    text: MainController.shotServer && MainController.shotServer.running
-                        ? MainController.shotServer.url + "/layout"
-                        : "http://<device-ip>:" + Settings.shotServerPort + "/layout"
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(14)
-                    font.family: "monospace"
-                    Layout.alignment: Qt.AlignHCenter
-                }
-
-                Text {
-                    text: "Changes made in the browser appear live on the idle screen."
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    Layout.alignment: Qt.AlignHCenter
-                }
-            }
+        // Tab 8: Layout - preloads async in background
+        Loader {
+            id: layoutLoader
+            active: true
+            asynchronous: true
+            source: "settings/SettingsLayoutTab.qml"
         }
 
         // Tab 9: Language - preloads async in background
