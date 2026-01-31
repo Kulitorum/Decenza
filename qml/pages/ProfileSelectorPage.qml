@@ -136,8 +136,12 @@ Page {
                     }
 
                     AccessibleButton {
-                        text: TranslationManager.translate("profileselector.button.import_tablet", "From Tablet")
-                        accessibleName: qsTr("Import profiles from Decent tablet")
+                        text: Qt.platform.os === "ios" ?
+                              TranslationManager.translate("profileselector.button.import_file", "Import File") :
+                              TranslationManager.translate("profileselector.button.import_tablet", "From Tablet")
+                        accessibleName: Qt.platform.os === "ios" ?
+                              qsTr("Import a profile file from Files app") :
+                              qsTr("Import profiles from Decent tablet")
                         primary: true
                         Layout.preferredHeight: Theme.scaled(44)
                         onClicked: root.goToProfileImport()

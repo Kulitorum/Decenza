@@ -11,6 +11,10 @@
 #include <QRegularExpression>
 #include <QDebug>
 
+#ifdef Q_OS_IOS
+#import <Foundation/Foundation.h>
+#endif
+
 ProfileImporter::ProfileImporter(MainController* controller, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_controller(controller)
@@ -430,6 +434,47 @@ void ProfileImporter::importProfile(const QString& sourcePath)
         emit isImportingChanged();
         emit importFailed("Failed to save profile: " + profile.title());
     }
+}
+
+void ProfileImporter::importProfileFromUrl(const QUrl& fileUrl)
+{
+    QString localPath;
+
+#ifdef Q_OS_IOS
+    // On iOS, FileDialog returns security-scoped URLs from UIDocumentPicker.
+    // We must access the security-scoped resource, copy the file to temp, then release.
+    NSURL* nsUrl = fileUrl.toNSURL();
+    bool accessGranted = [nsUrl startAccessingSecurityScopedResource];
+
+    localPath = fileUrl.toLocalFile();
+    if (localPath.isEmpty()) {
+        localPath = fileUrl.toString(QUrl::PreferLocalFile);
+    }
+
+    // Copy to temp so we can release the security scope before importProfile reads it
+    QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                       + "/" + QFileInfo(localPath).fileName();
+    QFile::remove(tempPath);
+    bool copied = QFile::copy(localPath, tempPath);
+
+    if (accessGranted) {
+        [nsUrl stopAccessingSecurityScopedResource];
+    }
+
+    if (!copied) {
+        setStatus("Failed to access file");
+        emit importFailed("Could not read the selected file");
+        return;
+    }
+    localPath = tempPath;
+#else
+    localPath = fileUrl.toLocalFile();
+    if (localPath.isEmpty()) {
+        localPath = fileUrl.toString(QUrl::PreferLocalFile);
+    }
+#endif
+
+    importProfile(localPath);
 }
 
 void ProfileImporter::forceImportProfile(const QString& sourcePath)

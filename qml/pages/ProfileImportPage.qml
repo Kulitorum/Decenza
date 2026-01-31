@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import DecenzaDE1
 import "../components"
@@ -9,12 +10,18 @@ Page {
     objectName: "profileImportPage"
     background: Rectangle { color: Theme.backgroundColor }
 
+    readonly property bool isIOS: Qt.platform.os === "ios"
+    readonly property string pageTitle: isIOS ?
+        TranslationManager.translate("profileimport.title_ios", "Import Profile") :
+        TranslationManager.translate("profileimport.title", "Import from Tablet")
+
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("profileimport.title", "Import from Tablet")
-        // Auto-scan when page opens
-        MainController.profileImporter.scanProfiles()
+        root.currentPageTitle = pageTitle
+        if (!isIOS) {
+            MainController.profileImporter.scanProfiles()
+        }
     }
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("profileimport.title", "Import from Tablet")
+    StackView.onActivated: root.currentPageTitle = pageTitle
 
     ColumnLayout {
         anchors.fill: parent
@@ -23,12 +30,58 @@ Page {
         anchors.bottomMargin: Theme.pageTopMargin
         spacing: Theme.scaled(15)
 
-        // Header section
+        // iOS: File picker UI
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            visible: profileImportPage.isIOS
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: Theme.scaled(20)
+                width: parent.width * 0.7
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("profileimport.ios.description",
+                        "Import .json or .tcl profile files from\niCloud Drive, Files app, or other sources")
+                    color: Theme.textSecondaryColor
+                    font: Theme.bodyFont
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
+                }
+
+                AccessibleButton {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: Theme.scaled(250)
+                    Layout.preferredHeight: Theme.scaled(60)
+                    text: TranslationManager.translate("profileimport.ios.choose_file", "Choose Profile File")
+                    accessibleName: qsTr("Open file picker to select a profile file")
+                    primary: true
+                    enabled: !MainController.profileImporter.isImporting
+                    onClicked: profileFileDialog.open()
+                }
+
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: MainController.profileImporter.statusMessage
+                    color: Theme.textSecondaryColor
+                    font: Theme.captionFont
+                    visible: MainController.profileImporter.statusMessage !== ""
+                }
+            }
+        }
+
+        // Header section (non-iOS only)
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(80)
             color: Theme.surfaceColor
             radius: Theme.cardRadius
+            visible: !profileImportPage.isIOS
 
             RowLayout {
                 anchors.fill: parent
@@ -88,11 +141,11 @@ Page {
             }
         }
 
-        // Progress bar (during scanning/importing)
+        // Progress bar (during scanning/importing, non-iOS only)
         ProgressBar {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(4)
-            visible: MainController.profileImporter.isScanning || MainController.profileImporter.isImporting
+            visible: !profileImportPage.isIOS && (MainController.profileImporter.isScanning || MainController.profileImporter.isImporting)
             from: 0
             to: MainController.profileImporter.totalProfiles
             value: MainController.profileImporter.processedProfiles
@@ -109,12 +162,13 @@ Page {
             }
         }
 
-        // Profile list
+        // Profile list (non-iOS only)
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
+            visible: !profileImportPage.isIOS
 
             ListView {
                 id: profileList
@@ -263,6 +317,16 @@ Page {
         }
     }
 
+    // File picker dialog (used on iOS, available on all platforms)
+    FileDialog {
+        id: profileFileDialog
+        title: TranslationManager.translate("profileimport.ios.dialog_title", "Select Profile File")
+        nameFilters: ["Profile files (*.json *.tcl)", "JSON profiles (*.json)", "TCL profiles (*.tcl)", "All files (*)"]
+        onAccepted: {
+            MainController.profileImporter.importProfileFromUrl(selectedFile)
+        }
+    }
+
     // Duplicate dialog
     Dialog {
         id: duplicateDialog
@@ -393,13 +457,15 @@ Page {
         function onDuplicateFound(profileTitle, existingPath) {
             duplicateDialog.profileTitle = profileTitle
             duplicateDialog.showNameInput = false
-            newNameInput.text = profileTitle + " (tablet)"
+            newNameInput.text = profileTitle + (profileImportPage.isIOS ? " (imported)" : " (tablet)")
             duplicateDialog.open()
         }
 
         function onImportSuccess(profileTitle) {
-            // Refresh the profile status in the list
-            MainController.profileImporter.scanProfiles()
+            if (!profileImportPage.isIOS) {
+                // Refresh the profile status in the list
+                MainController.profileImporter.scanProfiles()
+            }
         }
 
         function onBatchImportComplete(imported, skipped, failed) {
@@ -409,7 +475,7 @@ Page {
 
     // Bottom bar
     BottomBar {
-        title: TranslationManager.translate("profileimport.title", "Import from Tablet")
+        title: profileImportPage.pageTitle
         onBackClicked: root.goBack()
     }
 }

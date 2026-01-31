@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include "profile.h"
@@ -53,6 +54,7 @@ public:
 
     // Import a single profile
     Q_INVOKABLE void importProfile(const QString& sourcePath);
+    Q_INVOKABLE void importProfileFromUrl(const QUrl& fileUrl);
     Q_INVOKABLE void importProfileWithName(const QString& sourcePath, const QString& newName);
     Q_INVOKABLE void forceImportProfile(const QString& sourcePath);  // Overwrite without asking
 
