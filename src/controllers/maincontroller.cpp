@@ -854,33 +854,15 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
         return false;
     }
 
-    // Try to find if this profile matches an existing saved profile by title
-    QString matchedFilename = findProfileByTitle(m_currentProfile.title());
-
-    if (!matchedFilename.isEmpty()) {
-        // Profile exists as a saved file - use that filename as base
-        m_baseProfileName = matchedFilename;
-        m_profileModified = false;
-
-        if (m_settings) {
-            // Match found - check if it's in favorites
-            int favoriteIndex = m_settings->findFavoriteIndexByFilename(matchedFilename);
-            qDebug() << "loadProfileFromJson: matched title" << m_currentProfile.title()
-                     << "to filename" << matchedFilename << "favoriteIndex=" << favoriteIndex;
-            m_settings->setSelectedFavoriteProfile(favoriteIndex);
-        }
-    } else {
-        // No match - this is a guest profile
-        m_baseProfileName = m_currentProfile.title();
-        m_profileModified = false;
-
-        if (m_settings) {
-            qDebug() << "loadProfileFromJson: no filename match for title" << m_currentProfile.title();
-            m_settings->setSelectedFavoriteProfile(-1);
-        }
-    }
+    // Use title as base name since this profile isn't from a file
+    m_baseProfileName = m_currentProfile.title();
+    m_profileModified = false;
 
     if (m_settings) {
+        // Set selectedFavoriteProfile to -1 to show non-favorite pill
+        // Profiles loaded from JSON (e.g., shot history) are typically not in favorites
+        m_settings->setSelectedFavoriteProfile(-1);
+
         // Initialize yield and temperature from the new profile
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
