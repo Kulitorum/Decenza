@@ -1151,7 +1151,7 @@ void MainController::uploadCurrentProfile() {
         // Update shot settings with the profile's target temperature
         // This controls what temperature the machine heats to in Ready state
         if (m_settings) {
-            double steamTemp = m_settings->steamDisabled() ? 0.0 : m_settings->steamTemperature();
+            double steamTemp = (m_settings->steamDisabled() || !m_settings->keepSteamHeaterOn()) ? 0.0 : m_settings->steamTemperature();
             m_device->setShotSettings(
                 steamTemp,
                 m_settings->steamTimeout(),

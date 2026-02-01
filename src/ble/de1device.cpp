@@ -1168,7 +1168,7 @@ void DE1Device::sendInitialSettings() {
 
     // Send shot settings
     // Default values similar to de1app defaults
-    double steamTemp = 160.0;      // Steam temperature
+    double steamTemp = 0.0;        // Default to off; applyAllSettings() sends user settings 1s later
     int steamDuration = 120;       // Steam timeout in seconds
     double hotWaterTemp = 80.0;    // Hot water temperature
     int hotWaterVolume = 200;      // Hot water volume in ml
