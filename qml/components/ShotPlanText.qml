@@ -23,7 +23,7 @@ Text {
     }
     property string grindSize: Settings.visualizerExtendedMetadata ? Settings.dyeGrinderSetting : ""
     property double dose: Settings.dyeBeanWeight
-    property double targetWeight: Settings.hasBrewYieldOverride ? Settings.brewYieldOverride : MainController.targetWeight
+    property double targetWeight: MainController.targetWeight
 
     text: {
         var parts = []

@@ -159,8 +159,8 @@ Rectangle {
             // Accessibility: Handle TalkBack double-tap directly (triggers tare)
             Accessible.onPressAction: {
                 console.log("StatusBar: Accessible.onPressAction triggered (TalkBack double-tap)")
-                if (MainController.brewByRatioActive) {
-                    MainController.clearBrewByRatio()
+                if (Settings.hasBrewYieldOverride) {
+                    MainController.clearBrewOverrides()
                 }
                 MachineState.tareScale()
             }
@@ -181,7 +181,7 @@ Rectangle {
                     height: Theme.scaled(8)
                     radius: Theme.scaled(4)
                     color: scaleMouseArea.pressed ? Theme.accentColor
-                         : MainController.brewByRatioActive ? Theme.primaryColor
+                         : Settings.hasBrewYieldOverride ? Theme.primaryColor
                          : parent.isFlowScale ? Theme.textSecondaryColor
                          : Theme.weightColor
                 }
@@ -190,13 +190,13 @@ Rectangle {
                     text: {
                         var weight = MachineState.scaleWeight.toFixed(1)
                         var suffix = parent.isFlowScale ? "g~" : "g"
-                        if (MainController.brewByRatioActive) {
+                        if (Settings.hasBrewYieldOverride) {
                             return weight + suffix + " 1:" + MainController.brewByRatio.toFixed(1)
                         }
                         return weight + suffix
                     }
                     color: scaleMouseArea.pressed ? Theme.accentColor
-                         : MainController.brewByRatioActive ? Theme.primaryColor
+                         : Settings.hasBrewYieldOverride ? Theme.primaryColor
                          : parent.isFlowScale ? Theme.textSecondaryColor
                          : Theme.weightColor
                     font: Theme.bodyFont
@@ -244,8 +244,8 @@ Rectangle {
                     // Don't allow ratio dialog during shot
                     if (MachineState.isFlowing) {
                         console.log("StatusBar: Tare during shot")
-                        if (MainController.brewByRatioActive) {
-                            MainController.clearBrewByRatio()
+                        if (Settings.hasBrewYieldOverride) {
+                            MainController.clearBrewOverrides()
                         }
                         MachineState.tareScale()
                         return
@@ -296,9 +296,9 @@ Rectangle {
                     if (scaleMouseArea.tapCount === 1) {
                         console.log("StatusBar: Single tap confirmed, taring scale")
                         // Cancel ratio mode if active
-                        if (MainController.brewByRatioActive) {
+                        if (Settings.hasBrewYieldOverride) {
                             console.log("StatusBar: Cancelling brew-by-ratio mode")
-                            MainController.clearBrewByRatio()
+                            MainController.clearBrewOverrides()
                         }
                         MachineState.tareScale()
                     }

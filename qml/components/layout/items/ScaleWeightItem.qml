@@ -40,12 +40,12 @@ Item {
                 text: {
                     var weight = MachineState.scaleWeight.toFixed(1)
                     var suffix = root.isFlowScale ? "g~" : "g"
-                    if (MainController.brewByRatioActive) {
+                    if (Settings.hasBrewYieldOverride) {
                         return weight + suffix + " 1:" + MainController.brewByRatio.toFixed(1)
                     }
                     return weight + suffix
                 }
-                color: MainController.brewByRatioActive ? Theme.primaryColor
+                color: Settings.hasBrewYieldOverride ? Theme.primaryColor
                      : root.isFlowScale ? Theme.textSecondaryColor
                      : Theme.weightColor
                 font: Theme.bodyFont
@@ -80,12 +80,12 @@ Item {
                 text: {
                     var weight = MachineState.scaleWeight.toFixed(1)
                     var suffix = root.isFlowScale ? "g~" : "g"
-                    if (MainController.brewByRatioActive) {
+                    if (Settings.hasBrewYieldOverride) {
                         return weight + suffix + " 1:" + MainController.brewByRatio.toFixed(1)
                     }
                     return weight + suffix
                 }
-                color: MainController.brewByRatioActive ? Theme.primaryColor
+                color: Settings.hasBrewYieldOverride ? Theme.primaryColor
                      : root.isFlowScale ? Theme.textSecondaryColor
                      : Theme.weightColor
                 font: Theme.valueFont

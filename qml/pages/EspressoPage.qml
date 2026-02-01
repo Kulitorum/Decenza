@@ -496,7 +496,7 @@ Page {
                         Layout.alignment: Qt.AlignBaseline
                     }
                     Text {
-                        text: MainController.brewByRatioActive && !weightVolumeColumn.isVolumeMode
+                        text: Settings.hasBrewYieldOverride && !weightVolumeColumn.isVolumeMode
                             ? "1:" + MainController.brewByRatio.toFixed(1) + " (" + MainController.targetWeight.toFixed(0) + "g)"
                             : "/ " + weightVolumeColumn.targetValue.toFixed(0) + " " + weightVolumeColumn.unit
                         color: Theme.textSecondaryColor
