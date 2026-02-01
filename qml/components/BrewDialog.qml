@@ -26,7 +26,7 @@ Dialog {
 
     // Target (yield) value and tracking
     property double targetValue: doseValue * ratio
-    property double profileTargetWeight: MainController.targetWeight
+    property double profileTargetWeight: MainController.profileTargetWeight
     property bool targetManuallySet: false
 
     // Grinder and grind setting
@@ -64,7 +64,7 @@ Dialog {
 
         // Update profile temperature, use override if active
         profileTemperature = MainController.profileTargetTemperature
-        profileTargetWeight = MainController.targetWeight
+        profileTargetWeight = MainController.profileTargetWeight
         temperatureValue = Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemperature
 
         // Use DYE fields for dose and grind (source of truth)
@@ -73,20 +73,10 @@ Dialog {
         grindSetting = Settings.dyeGrinderSetting
         showScaleWarning = false
 
-        // Yield: use override if set, otherwise use profile target weight
-        if (Settings.hasBrewYieldOverride) {
-            targetValue = Settings.brewYieldOverride
-            ratio = doseValue > 0 ? targetValue / doseValue : Settings.lastUsedRatio
-            targetManuallySet = true
-        } else if (profileTargetWeight > 0) {
-            targetValue = profileTargetWeight
-            ratio = doseValue > 0 ? targetValue / doseValue : Settings.lastUsedRatio
-            targetManuallySet = false
-        } else {
-            ratio = Settings.lastUsedRatio
-            targetManuallySet = false
-            targetValue = doseValue * ratio
-        }
+        // Yield: use override if active, otherwise use profile default
+        targetValue = Settings.hasBrewYieldOverride ? Settings.brewYieldOverride : profileTargetWeight
+        ratio = doseValue > 0 ? targetValue / doseValue : Settings.lastUsedRatio
+        targetManuallySet = Settings.hasBrewYieldOverride
     }
 
     background: Rectangle {
@@ -478,6 +468,19 @@ Dialog {
                     }
                 }
 
+                // Visual indicator showing profile default
+                Text {
+                    visible: Math.abs(root.targetValue - root.profileTargetWeight) > 0.1
+                    text: qsTr("Profile: %1g").arg(root.profileTargetWeight.toFixed(0))
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.scaled(11)
+                    font.italic: true
+                    color: Theme.textSecondaryColor
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.leftMargin: Theme.scaled(55) + Theme.scaled(8)
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: qsTr("Profile default yield: %1 grams").arg(root.profileTargetWeight.toFixed(0))
+                }
             }
 
             // Grinder and setting input (only shown when Beans feature is enabled)
@@ -542,7 +545,7 @@ Dialog {
                     // Reset to current profile and bean preset values (not cached values from dialog open)
                     root.profileTemperature = MainController.profileTargetTemperature
                     root.temperatureValue = root.profileTemperature
-                    root.profileTargetWeight = MainController.targetWeight
+                    root.profileTargetWeight = MainController.profileTargetWeight
 
                     // Use bean preset dose if available, otherwise default 18g
                     root.doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
@@ -550,7 +553,7 @@ Dialog {
                     root.grindSetting = Settings.dyeGrinderSetting  // Bean's grind setting
 
                     // Calculate ratio from profile target weight / dose
-                    var profileTarget = MainController.targetWeight
+                    var profileTarget = MainController.profileTargetWeight
                     root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.lastUsedRatio
                     root.targetManuallySet = false
                     root.targetValue = root.doseValue * root.ratio

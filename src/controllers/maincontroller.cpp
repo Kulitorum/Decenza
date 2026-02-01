@@ -293,7 +293,9 @@ double MainController::targetWeight() const {
 }
 
 bool MainController::brewByRatioActive() const {
-    return m_settings && m_settings->hasBrewYieldOverride();
+    if (!m_settings || !m_settings->hasBrewYieldOverride())
+        return false;
+    return qAbs(m_settings->brewYieldOverride() - m_currentProfile.targetWeight()) > 0.1;
 }
 
 double MainController::brewByRatioDose() const {
@@ -323,9 +325,7 @@ void MainController::activateBrewWithOverrides(double dose, double yield, double
         m_settings->setDyeGrinderSetting(grind);
         m_settings->setBrewYieldOverride(yield);
 
-        if (qAbs(temperature - m_currentProfile.espressoTemperature()) > 0.1) {
-            m_settings->setTemperatureOverride(temperature);
-        }
+        m_settings->setTemperatureOverride(temperature);
     }
 
     double ratio = dose > 0 ? yield / dose : 2.0;
@@ -334,18 +334,17 @@ void MainController::activateBrewWithOverrides(double dose, double yield, double
 
     // MachineState sync happens via brewOverridesChanged signal connection
 
-    // Re-upload profile with temperature override applied to machine frames
-    if (m_settings && m_settings->hasTemperatureOverride()) {
-        uploadCurrentProfile();
-    }
+    // Re-upload profile with temperature applied to machine frames
+    uploadCurrentProfile();
 }
 
 void MainController::clearBrewOverrides() {
     if (m_settings) {
-        m_settings->clearAllBrewOverrides();
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
     // MachineState sync happens via brewOverridesChanged signal connection
-    qDebug() << "Brew overrides cleared, restored target=" << m_currentProfile.targetWeight() << "g";
+    qDebug() << "Brew overrides reset to profile defaults, target=" << m_currentProfile.targetWeight() << "g";
 }
 
 QVariantList MainController::availableProfiles() const {
@@ -796,11 +795,11 @@ void MainController::loadProfile(const QString& profileName) {
         m_settings->setSelectedFavoriteProfile(favoriteIndex);
     }
 
-    // Clear yield and temperature overrides when loading a new profile
-    // Dose and grind are tied to the bean, not the profile, so they persist
+    // Initialize yield and temperature from the new profile
+    // These are "shot plan" settings that always reflect the current plan
     if (m_settings) {
-        m_settings->setBrewYieldOverride(0);
-        m_settings->clearTemperatureOverride();
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
 
         // Apply recommended dose from profile if set
         // Deferred to next event loop to avoid QML signal cascade during profile load
@@ -855,14 +854,36 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
         return false;
     }
 
-    // Use title as base name since this profile isn't from a file
-    m_baseProfileName = m_currentProfile.title();
-    m_profileModified = false;
+    // Try to find if this profile matches an existing saved profile by title
+    QString matchedFilename = findProfileByTitle(m_currentProfile.title());
+
+    if (!matchedFilename.isEmpty()) {
+        // Profile exists as a saved file - use that filename as base
+        m_baseProfileName = matchedFilename;
+        m_profileModified = false;
+
+        if (m_settings) {
+            // Match found - check if it's in favorites
+            int favoriteIndex = m_settings->findFavoriteIndexByFilename(matchedFilename);
+            qDebug() << "loadProfileFromJson: matched title" << m_currentProfile.title()
+                     << "to filename" << matchedFilename << "favoriteIndex=" << favoriteIndex;
+            m_settings->setSelectedFavoriteProfile(favoriteIndex);
+        }
+    } else {
+        // No match - this is a guest profile
+        m_baseProfileName = m_currentProfile.title();
+        m_profileModified = false;
+
+        if (m_settings) {
+            qDebug() << "loadProfileFromJson: no filename match for title" << m_currentProfile.title();
+            m_settings->setSelectedFavoriteProfile(-1);
+        }
+    }
 
     if (m_settings) {
-        // Set selectedFavoriteProfile to -1 to show non-favorite pill
-        // Profiles loaded from JSON (e.g., shot history) are typically not in favorites
-        m_settings->setSelectedFavoriteProfile(-1);
+        // Initialize yield and temperature from the new profile
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
 
     if (m_machineState) {
@@ -935,25 +956,31 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
                  << "type:" << shotRecord.summary.beanType << "-> found index:" << beanPresetIndex;
         m_settings->setSelectedBeanPreset(beanPresetIndex);
 
-        // Apply brew overrides from history (after loadProfile cleared them)
-        if (shotRecord.hasTemperatureOverride) {
+        // Apply brew overrides from history on top of profile defaults (set by loadProfile)
+        // Values > 0 indicate overrides were used (0 means no override or old shot)
+        bool hasOverrides = false;
+        if (shotRecord.temperatureOverride > 0) {
             m_settings->setTemperatureOverride(shotRecord.temperatureOverride);
-        } else {
-            m_settings->clearTemperatureOverride();
+            hasOverrides = true;
         }
 
-        if (shotRecord.hasYieldOverride) {
+        if (shotRecord.yieldOverride > 0) {
             m_settings->setBrewYieldOverride(shotRecord.yieldOverride);
-        } else if (m_settings->hasBrewYieldOverride()) {
-            m_settings->clearAllBrewOverrides();
+            hasOverrides = true;
         }
 
         qDebug() << "Loaded shot metadata - brand:" << shotRecord.summary.beanBrand
                  << "type:" << shotRecord.summary.beanType
                  << "grinder:" << shotRecord.grinderModel << shotRecord.grinderSetting
                  << "beanPresetIndex:" << beanPresetIndex
-                 << "brewOverrides - temp:" << (shotRecord.hasTemperatureOverride ? QString::number(shotRecord.temperatureOverride) : "none")
-                 << "yield:" << (shotRecord.hasYieldOverride ? QString::number(shotRecord.yieldOverride) : "none");
+                 << "brewOverrides - temp:" << (shotRecord.temperatureOverride > 0 ? QString::number(shotRecord.temperatureOverride) : "none")
+                 << "yield:" << (shotRecord.yieldOverride > 0 ? QString::number(shotRecord.yieldOverride) : "none");
+
+        // Re-upload profile with history overrides applied
+        // loadProfile() already uploaded with profile defaults; now we have the actual overrides
+        if (hasOverrides) {
+            uploadCurrentProfile();
+        }
     }
 }
 
@@ -1180,12 +1207,22 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
         m_currentProfile.setProfileNotes(profileData["profile_notes"].toString());
     }
     if (profileData.contains("espresso_temperature")) {
-        m_currentProfile.setEspressoTemperature(profileData["espresso_temperature"].toDouble());
+        double newTemp = profileData["espresso_temperature"].toDouble();
+        m_currentProfile.setEspressoTemperature(newTemp);
+        // Sync temperature override so uploadCurrentProfile doesn't apply wrong delta
+        if (m_settings) {
+            m_settings->setTemperatureOverride(newTemp);
+        }
     }
     if (profileData.contains("target_weight")) {
-        m_currentProfile.setTargetWeight(profileData["target_weight"].toDouble());
+        double newWeight = profileData["target_weight"].toDouble();
+        m_currentProfile.setTargetWeight(newWeight);
         if (m_machineState) {
-            m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+            m_machineState->setTargetWeight(newWeight);
+        }
+        // Sync yield override so it reflects the new profile target
+        if (m_settings) {
+            m_settings->setBrewYieldOverride(newWeight);
         }
     }
     if (profileData.contains("target_volume")) {
@@ -1372,6 +1409,8 @@ void MainController::createNewRecipe(const QString& title) {
 
     if (m_settings) {
         m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
 
     emit currentProfileChanged();
@@ -1396,6 +1435,12 @@ void MainController::convertCurrentProfileToRecipe() {
     m_currentProfile.setSteps(frames);
 
     m_profileModified = true;
+
+    // Sync overrides to match the converted profile
+    if (m_settings) {
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
 
     emit currentProfileChanged();
     emit profileModifiedChanged();
@@ -1708,6 +1753,8 @@ void MainController::createNewProfile(const QString& title) {
 
     if (m_settings) {
         m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
 
     emit currentProfileChanged();
@@ -2292,19 +2339,24 @@ void MainController::onEspressoCycleStarted() {
 
 void MainController::onShotEnded() {
     // Capture brew overrides before clearing temperature (used later when saving shot)
+    // These ALWAYS have values - either user override or profile default
     double shotTemperatureOverride = 0.0;
-    bool shotHasTemperatureOverride = false;
     double shotYieldOverride = 0.0;
-    bool shotHasYieldOverride = false;
 
     if (m_settings) {
-        shotTemperatureOverride = m_settings->temperatureOverride();
-        shotHasTemperatureOverride = m_settings->hasTemperatureOverride();
-        shotYieldOverride = m_settings->brewYieldOverride();
-        shotHasYieldOverride = m_settings->hasBrewYieldOverride();
+        // Temperature: user override OR profile's espresso temperature
+        if (m_settings->hasTemperatureOverride()) {
+            shotTemperatureOverride = m_settings->temperatureOverride();
+        } else {
+            shotTemperatureOverride = m_currentProfile.espressoTemperature();
+        }
 
-        // Clear temperature override after shot
-        m_settings->clearTemperatureOverride();
+        // Yield: user override OR profile's target weight
+        if (m_settings->hasBrewYieldOverride()) {
+            shotYieldOverride = m_settings->brewYieldOverride();
+        } else {
+            shotYieldOverride = m_currentProfile.targetWeight();
+        }
     }
 
     // Only process espresso shots that actually extracted
@@ -2368,8 +2420,7 @@ void MainController::onShotEnded() {
             m_shotDataModel, &m_currentProfile,
             duration, finalWeight, doseWeight,
             metadata, debugLog,
-            shotTemperatureOverride, shotHasTemperatureOverride,
-            shotYieldOverride, shotHasYieldOverride);
+            shotTemperatureOverride, shotYieldOverride);
         qDebug() << "[metadata] Shot saved to history with ID:" << shotId;
 
         // Store shot ID for post-shot review page (so it can edit the saved shot)
@@ -2782,6 +2833,8 @@ void MainController::loadDefaultProfile() {
 
     if (m_settings) {
         m_settings->setSelectedFavoriteProfile(-1);  // Default profile, not in favorites
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
 }
 

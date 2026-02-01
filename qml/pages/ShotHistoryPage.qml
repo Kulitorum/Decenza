@@ -445,7 +445,14 @@ Page {
                             }
 
                             Text {
-                                text: model.profileName || ""
+                                text: {
+                                    var name = model.profileName || ""
+                                    var tempOvr = model.temperatureOverride
+                                    if (tempOvr !== undefined && tempOvr !== null && tempOvr > 0) {
+                                        return name + " (" + Math.round(tempOvr) + "\u00B0C)"
+                                    }
+                                    return name
+                                }
                                 font: Theme.labelFont
                                 color: Theme.primaryColor
                                 Layout.fillWidth: true
@@ -454,18 +461,36 @@ Page {
                         }
 
                         Text {
-                            text: (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
+                            text: {
+                                var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
+                                var grind = model.grinderSetting || ""
+                                if (bean && grind) return bean + " (" + grind + ")"
+                                if (bean) return bean
+                                if (grind) return "Grind: " + grind
+                                return ""
+                            }
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
                             Layout.fillWidth: true
                             elide: Text.ElideRight
+                            visible: text !== ""
                         }
 
                         RowLayout {
                             spacing: Theme.spacingLarge
 
                             Text {
-                                text: (model.doseWeight || 0).toFixed(1) + "g \u2192 " + (model.finalWeight || 0).toFixed(1) + "g"
+                                text: {
+                                    var dose = (model.doseWeight || 0).toFixed(1)
+                                    var actual = (model.finalWeight || 0).toFixed(1)
+                                    var yieldText = actual + "g"
+                                    var yieldOvr = model.yieldOverride
+                                    if (yieldOvr !== undefined && yieldOvr !== null && yieldOvr > 0
+                                        && Math.abs(yieldOvr - model.finalWeight) > 0.5) {
+                                        yieldText = actual + "g (" + Math.round(yieldOvr) + "g)"
+                                    }
+                                    return dose + "g \u2192 " + yieldText
+                                }
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
                             }
@@ -474,13 +499,6 @@ Page {
                                 text: (model.duration || 0).toFixed(1) + "s"
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
-                            }
-
-                            Text {
-                                text: model.grinderSetting || ""
-                                font: Theme.labelFont
-                                color: Theme.textSecondaryColor
-                                visible: (model.grinderSetting || "") !== ""
                             }
 
                             Text {
@@ -523,9 +541,8 @@ Page {
                             anchors.fill: parent
                             onClicked: {
                                 // Load profile + metadata from history shot
+                                // loadShotWithMetadata handles favorite index automatically
                                 MainController.loadShotWithMetadata(model.id)
-                                // This profile is loaded from history, not a favorite
-                                Settings.selectedFavoriteProfile = -1
                                 pageStack.pop()
                             }
                         }
