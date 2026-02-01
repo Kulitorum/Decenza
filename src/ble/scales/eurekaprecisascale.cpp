@@ -151,7 +151,9 @@ void EurekaPrecisaScale::onCharacteristicChanged(const QBluetoothUuid& character
 
 void EurekaPrecisaScale::sendCommand(const QByteArray& cmd) {
     if (!m_transport || !m_characteristicsReady) return;
-    m_transport->writeCharacteristic(Scale::Generic::SERVICE, Scale::Generic::CMD, cmd);
+    // Eureka Precisa's FFF2 characteristic only supports Write Without Response
+    m_transport->writeCharacteristic(Scale::Generic::SERVICE, Scale::Generic::CMD, cmd,
+                                     ScaleBleTransport::WriteType::WithoutResponse);
 }
 
 void EurekaPrecisaScale::tare() {
