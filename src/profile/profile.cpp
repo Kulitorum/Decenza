@@ -245,6 +245,8 @@ QJsonDocument Profile::toJson() const {
     obj["maximum_flow"] = m_maximumFlow;
     obj["minimum_pressure"] = m_minimumPressure;
     obj["preinfuse_frame_count"] = m_preinfuseFrameCount;
+    obj["has_recommended_dose"] = m_hasRecommendedDose;
+    obj["recommended_dose"] = m_recommendedDose;
     obj["mode"] = (m_mode == Mode::DirectControl) ? "direct" : "frame_based";
 
     QJsonArray tempsArray;
@@ -290,6 +292,8 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_maximumFlow = obj["maximum_flow"].toDouble(6.0);
     profile.m_minimumPressure = obj["minimum_pressure"].toDouble(0.0);
     profile.m_preinfuseFrameCount = obj["preinfuse_frame_count"].toInt(0);
+    profile.m_hasRecommendedDose = obj["has_recommended_dose"].toBool(false);
+    profile.m_recommendedDose = obj["recommended_dose"].toDouble(18.0);
 
     QString modeStr = obj["mode"].toString("frame_based");
     profile.m_mode = (modeStr == "direct") ? Mode::DirectControl : Mode::FrameBased;
@@ -341,6 +345,16 @@ Profile Profile::loadFromFile(const QString& filePath) {
 
     QByteArray data = file.readAll();
     QJsonDocument doc = QJsonDocument::fromJson(data);
+
+    // Detect de1app v2 JSON format by checking for v2-specific fields.
+    // The de1app v2 format uses "version", "legacy_profile_type", and/or "type"
+    // (with values "advanced"/"pressure"/"flow") which our native format doesn't have.
+    // It also encodes numbers as strings (Tcl huddle behavior) and uses nested
+    // "exit"/"limiter" objects instead of our flat field names.
+    QJsonObject obj = doc.object();
+    if (obj.contains("version") || obj.contains("legacy_profile_type")) {
+        return loadFromDE1AppJson(QString::fromUtf8(data));
+    }
 
     return fromJson(doc);
 }

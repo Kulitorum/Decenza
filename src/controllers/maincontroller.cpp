@@ -602,6 +602,8 @@ QVariantMap MainController::getCurrentProfile() const {
     profile["stop_at_type"] = m_currentProfile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
     profile["espresso_temperature"] = m_currentProfile.espressoTemperature();
     profile["mode"] = m_currentProfile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
+    profile["has_recommended_dose"] = m_currentProfile.hasRecommendedDose();
+    profile["recommended_dose"] = m_currentProfile.recommendedDose();
 
     QVariantList steps;
     for (const auto& frame : m_currentProfile.steps()) {
@@ -686,6 +688,8 @@ QVariantMap MainController::getProfileByFilename(const QString& filename) const 
     result["stop_at_type"] = profile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
     result["espresso_temperature"] = profile.espressoTemperature();
     result["mode"] = profile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
+    result["has_recommended_dose"] = profile.hasRecommendedDose();
+    result["recommended_dose"] = profile.recommendedDose();
 
     QVariantList steps;
     for (const auto& frame : profile.steps()) {
@@ -797,6 +801,17 @@ void MainController::loadProfile(const QString& profileName) {
     if (m_settings) {
         m_settings->setBrewYieldOverride(0);
         m_settings->clearTemperatureOverride();
+
+        // Apply recommended dose from profile if set
+        // Deferred to next event loop to avoid QML signal cascade during profile load
+        if (m_currentProfile.hasRecommendedDose() && m_currentProfile.recommendedDose() > 0) {
+            double dose = m_currentProfile.recommendedDose();
+            QTimer::singleShot(0, this, [this, dose]() {
+                if (m_settings) {
+                    m_settings->setDyeBeanWeight(dose);
+                }
+            });
+        }
     }
 
     if (m_machineState) {
@@ -1182,6 +1197,13 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
         if (m_machineState) {
             m_machineState->setStopAtType(type == Profile::StopAtType::Volume ? MachineState::StopAtType::Volume : MachineState::StopAtType::Weight);
         }
+    }
+
+    if (profileData.contains("has_recommended_dose")) {
+        m_currentProfile.setHasRecommendedDose(profileData["has_recommended_dose"].toBool());
+    }
+    if (profileData.contains("recommended_dose")) {
+        m_currentProfile.setRecommendedDose(profileData["recommended_dose"].toDouble());
     }
 
     // Update steps/frames - build new list atomically to avoid any reference issues

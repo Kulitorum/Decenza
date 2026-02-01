@@ -72,6 +72,13 @@ public:
     QList<double> temperaturePresets() const { return m_temperaturePresets; }
     void setTemperaturePresets(const QList<double>& presets) { m_temperaturePresets = presets; }
 
+    // === Recommended Dose ===
+    bool hasRecommendedDose() const { return m_hasRecommendedDose; }
+    void setHasRecommendedDose(bool enabled) { m_hasRecommendedDose = enabled; }
+
+    double recommendedDose() const { return m_recommendedDose; }
+    void setRecommendedDose(double dose) { m_recommendedDose = dose; }
+
     // === Flow/Pressure Limits ===
     double maximumPressure() const { return m_maximumPressure; }
     void setMaximumPressure(double pressure) { m_maximumPressure = pressure; }
@@ -164,6 +171,10 @@ private:
     // Temperature
     double m_espressoTemperature = 93.0;
     QList<double> m_temperaturePresets = {88.0, 90.0, 93.0, 96.0};
+
+    // Recommended dose
+    bool m_hasRecommendedDose = false;
+    double m_recommendedDose = 18.0;
 
     // Limits
     double m_maximumPressure = 12.0;

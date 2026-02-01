@@ -543,6 +543,64 @@ Page {
                 }
             }
 
+            // Recommended dose toggle + value
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
+
+                Text {
+                    text: qsTr("Dose")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.preferredWidth: Theme.scaled(80)
+                }
+
+                Switch {
+                    id: recommendedDoseSwitch
+                    checked: profile ? !!profile.has_recommended_dose : false
+                    onToggled: {
+                        if (profile) {
+                            profile.has_recommended_dose = checked
+                            uploadProfile()
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
+                visible: recommendedDoseSwitch.checked
+
+                Text {
+                    text: ""
+                    Layout.preferredWidth: Theme.scaled(80)
+                }
+
+                ValueInput {
+                    id: recommendedDoseInput
+                    Layout.fillWidth: true
+                    from: 5
+                    to: 100
+                    value: {
+                        stepVersion
+                        if (!profile) return 18
+                        return profile.recommended_dose || 18
+                    }
+                    stepSize: 0.1
+                    suffix: " g"
+                    valueColor: Theme.weightColor
+                    accentColor: Theme.weightColor
+                    accessibleName: qsTr("Recommended dose")
+                    onValueModified: function(newValue) {
+                        if (profile) {
+                            profile.recommended_dose = newValue
+                            uploadProfile()
+                        }
+                    }
+                }
+            }
+
             // Close button
             AccessibleButton {
                 Layout.alignment: Qt.AlignRight

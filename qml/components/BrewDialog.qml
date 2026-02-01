@@ -371,6 +371,20 @@ Dialog {
                 }
             }
 
+            // Profile recommended dose indicator
+            Text {
+                visible: MainController.profileHasRecommendedDose && Math.abs(root.doseValue - MainController.profileRecommendedDose) > 0.05
+                text: qsTr("Profile: %1g").arg(MainController.profileRecommendedDose.toFixed(1))
+                font.family: Theme.bodyFont.family
+                font.pixelSize: Theme.scaled(11)
+                font.italic: true
+                color: Theme.textSecondaryColor
+                Layout.alignment: Qt.AlignHCenter
+                Layout.leftMargin: Theme.scaled(55) + Theme.scaled(8)
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("Profile recommended dose: %1 grams").arg(MainController.profileRecommendedDose.toFixed(1))
+            }
+
             // Ratio input
             RowLayout {
                 Layout.fillWidth: true

@@ -82,6 +82,8 @@ class MainController : public QObject {
     Q_PROPERTY(bool isCurrentProfileRecipe READ isCurrentProfileRecipe NOTIFY currentProfileChanged)
     Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
+    Q_PROPERTY(bool profileHasRecommendedDose READ profileHasRecommendedDose NOTIFY currentProfileChanged)
+    Q_PROPERTY(double profileRecommendedDose READ profileRecommendedDose NOTIFY currentProfileChanged)
     Q_PROPERTY(bool sawSettling READ isSawSettling NOTIFY sawSettlingChanged)
 
 public:
@@ -131,6 +133,8 @@ public:
     DataMigrationClient* dataMigration() const { return m_dataMigration; }
     qint64 lastSavedShotId() const { return m_lastSavedShotId; }
     double profileTargetTemperature() const { return m_currentProfile.espressoTemperature(); }
+    bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }
+    double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }
 
     const Profile& currentProfile() const { return m_currentProfile; }
     Profile currentProfileObject() const { return m_currentProfile; }
