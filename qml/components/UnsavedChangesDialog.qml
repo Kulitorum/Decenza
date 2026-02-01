@@ -18,6 +18,12 @@ Dialog {
     signal saveAsClicked()
     signal saveClicked()
 
+    onOpened: {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            AccessibilityManager.announce(qsTr("Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType))
+        }
+    }
+
     background: Rectangle {
         color: Theme.surfaceColor
         radius: Theme.cardRadius

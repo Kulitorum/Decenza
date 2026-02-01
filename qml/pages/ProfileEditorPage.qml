@@ -233,6 +233,11 @@ Page {
                             StyledIconButton {
                                 text: "\u2190"
                                 accessibleName: qsTr("Move frame left")
+                                accessibleDescription: {
+                                    if (selectedStepIndex < 0) return qsTr("Select a frame first")
+                                    if (selectedStepIndex === 0) return qsTr("Frame is already first")
+                                    return ""
+                                }
                                 enabled: selectedStepIndex > 0
                                 onClicked: moveStep(selectedStepIndex, selectedStepIndex - 1)
                             }
@@ -240,6 +245,11 @@ Page {
                             StyledIconButton {
                                 text: "\u2192"
                                 accessibleName: qsTr("Move frame right")
+                                accessibleDescription: {
+                                    if (selectedStepIndex < 0) return qsTr("Select a frame first")
+                                    if (profile && selectedStepIndex >= profile.steps.length - 1) return qsTr("Frame is already last")
+                                    return ""
+                                }
                                 enabled: selectedStepIndex >= 0 && selectedStepIndex < (profile ? profile.steps.length - 1 : 0)
                                 onClicked: moveStep(selectedStepIndex, selectedStepIndex + 1)
                             }
@@ -1827,6 +1837,13 @@ Page {
         selectedStepIndex = toIndex
         profileGraph.selectedFrameIndex = toIndex
         uploadProfile()
+
+        // Announce the move for screen readers
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            var name = step.name || qsTr("unnamed")
+            var direction = toIndex < fromIndex ? qsTr("left") : qsTr("right")
+            AccessibilityManager.announce(qsTr("Moved %1 %2 to position %3 of %4").arg(name).arg(direction).arg(toIndex + 1).arg(profile.steps.length))
+        }
     }
 
     function loadCurrentProfile() {

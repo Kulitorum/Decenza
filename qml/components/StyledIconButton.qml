@@ -15,6 +15,12 @@ RoundButton {
     // Required for accessibility
     required property string accessibleName
 
+    // Optional description for additional context (e.g. why button is disabled)
+    property string accessibleDescription: ""
+
+    // For AccessibleTapHandler to reference
+    property Item accessibleItem: root
+
     implicitWidth: Theme.scaled(40)
     implicitHeight: Theme.scaled(40)
     flat: true
@@ -42,6 +48,7 @@ RoundButton {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             opacity: root.enabled ? 1.0 : 0.5
+            Accessible.ignored: true
         }
 
         // Image icon - shown when icon.source is set
@@ -55,6 +62,7 @@ RoundButton {
             height: root.icon.height
             fillMode: Image.PreserveAspectFit
             opacity: root.enabled ? 1.0 : 0.5
+            Accessible.ignored: true
         }
     }
 
@@ -72,13 +80,33 @@ RoundButton {
         }
     }
 
-    Accessible.role: Accessible.Button
-    Accessible.name: root.accessibleName
-    Accessible.focusable: true
+    // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+    Accessible.ignored: true
 
     // Focus indicator
     FocusIndicator {
         targetItem: root
         visible: root.activeFocus
+    }
+
+    // Tap-to-announce, tap-again-to-activate for accessibility mode
+    AccessibleTapHandler {
+        anchors.fill: parent
+        accessibleName: root.accessibleDescription ? (root.accessibleName + ". " + root.accessibleDescription) : root.accessibleName
+        accessibleItem: root.accessibleItem
+
+        onAccessibleClicked: {
+            if (root.enabled) {
+                root.clicked()
+            }
+        }
+    }
+
+    // Announce button name when focused via keyboard
+    onActiveFocusChanged: {
+        if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            AccessibilityManager.lastAnnouncedItem = root
+            AccessibilityManager.announce(root.accessibleName)
+        }
     }
 }
