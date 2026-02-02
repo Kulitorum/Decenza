@@ -87,13 +87,20 @@ Page {
             width: parent.width
             spacing: Theme.spacingMedium
 
-            // Header
+            // Header: Profile (Temp) · Bean (Grind)
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(2)
 
                 Text {
-                    text: shotData.profileName || "Shot Detail"
+                    text: {
+                        var name = shotData.profileName || "Shot Detail"
+                        var t = shotData.temperatureOverride
+                        if (t !== undefined && t !== null && t > 0) {
+                            return name + " (" + Math.round(t) + "\u00B0C)"
+                        }
+                        return name
+                    }
                     font: Theme.titleFont
                     color: Theme.textColor
                 }
@@ -197,7 +204,7 @@ Page {
                     }
                 }
 
-                // Output
+                // Output (with optional target)
                 ColumnLayout {
                     spacing: Theme.scaled(2)
                     Tr {
@@ -206,10 +213,27 @@ Page {
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                     }
-                    Text {
-                        text: (shotData.finalWeight || 0).toFixed(1) + "g"
-                        font: Theme.subtitleFont
-                        color: Theme.dyeOutputColor
+                    Row {
+                        spacing: Theme.scaled(4)
+                        Text {
+                            text: (shotData.finalWeight || 0).toFixed(1) + "g"
+                            font: Theme.subtitleFont
+                            color: Theme.dyeOutputColor
+                        }
+                        Text {
+                            visible: {
+                                var y = shotData.yieldOverride
+                                return y !== undefined && y !== null && y > 0
+                                    && Math.abs(y - shotData.finalWeight) > 0.5
+                            }
+                            text: {
+                                var y = shotData.yieldOverride
+                                return (y !== undefined && y !== null && y > 0) ? "(" + Math.round(y) + "g)" : ""
+                            }
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            anchors.baseline: parent.children[0].baseline
+                        }
                     }
                 }
 
@@ -261,9 +285,12 @@ Page {
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingSmall
 
-                    Tr {
-                        key: "shotdetail.beaninfo"
-                        fallback: "Beans"
+                    Text {
+                        text: {
+                            var title = TranslationManager.translate("shotdetail.beaninfo", "Beans")
+                            var grind = shotData.grinderSetting || ""
+                            return grind ? title + " (" + grind + ")" : title
+                        }
                         font: Theme.subtitleFont
                         color: Theme.textColor
                     }

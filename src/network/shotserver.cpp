@@ -1019,6 +1019,9 @@ QString ShotServer::generateShotListPage() const
         double doseWeight = shot["doseWeight"].toDouble();
         double finalWeight = shot["finalWeight"].toDouble();
         double duration = shot["duration"].toDouble();
+        QString grinderSetting = shot["grinderSetting"].toString();
+        double tempOverride = shot["temperatureOverride"].toDouble();  // Always has value
+        double yieldOverride = shot["yieldOverride"].toDouble();  // Always has value
 
         // Escape for JavaScript string (single quotes) and HTML attribute
         auto escapeForJs = [](const QString& s) -> QString {
@@ -1038,13 +1041,43 @@ QString ShotServer::generateShotListPage() const
         QString brandHtml = beanBrand.toHtmlEscaped();
         QString coffeeHtml = beanType.toHtmlEscaped();
 
+        // Build profile header: "Profile (Temp°C)"
+        QString profileDisplay = profileHtml;
+        if (tempOverride > 0) {
+            profileDisplay += QString(" <span class=\"shot-temp\">(%1&deg;C)</span>")
+                .arg(tempOverride, 0, 'f', 0);
+        }
+
+        // Build yield display: "Actual (Target) out" or just "Actual out"
+        QString yieldDisplay;
+        if (yieldOverride > 0 && qAbs(yieldOverride - finalWeight) > 0.5) {
+            yieldDisplay = QString("<span class=\"metric-value\">%1g</span><span class=\"metric-target\">(%2g)</span>")
+                .arg(finalWeight, 0, 'f', 1)
+                .arg(yieldOverride, 0, 'f', 0);
+        } else {
+            yieldDisplay = QString("<span class=\"metric-value\">%1g</span>")
+                .arg(finalWeight, 0, 'f', 1);
+        }
+
+        // Build bean display: "Brand Type (Grind)"
+        QString beanDisplay;
+        if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
+            beanDisplay = QString("<span class=\"clickable\" onclick=\"event.preventDefault(); event.stopPropagation(); addFilter('brand', '%1')\">%2</span>"
+                                  "<span class=\"clickable\" onclick=\"event.preventDefault(); event.stopPropagation(); addFilter('coffee', '%3')\">%4</span>")
+                .arg(brandJs, brandHtml, coffeeJs, coffeeHtml);
+            if (!grinderSetting.isEmpty()) {
+                beanDisplay += QString(" <span class=\"shot-grind\">(%1)</span>")
+                    .arg(grinderSetting.toHtmlEscaped());
+            }
+        }
+
         rows += QString(R"HTML(
             <div class="shot-card" onclick="toggleSelect(%1, this)" data-id="%1"
                  data-profile="%2" data-brand="%3" data-coffee="%4" data-rating="%5"
                  data-ratio="%6" data-duration="%7" data-date="%8" data-dose="%9" data-yield="%10">
                 <a href="/shot/%1" onclick="event.stopPropagation()" style="text-decoration:none;color:inherit;display:block;">
                     <div class="shot-header">
-                        <span class="shot-profile clickable" onclick="event.preventDefault(); event.stopPropagation(); addFilter('profile', '%11')">%2</span>
+                        <span class="shot-profile clickable" onclick="event.preventDefault(); event.stopPropagation(); addFilter('profile', '%11')">%12</span>
                         <div class="shot-header-right">
                             <span class="shot-date">%8</span>
                             <input type="checkbox" class="shot-checkbox" data-id="%1" onclick="event.stopPropagation(); toggleSelect(%1, this.closest('.shot-card'))">
@@ -1058,7 +1091,7 @@ QString ShotServer::generateShotListPage() const
                             </div>
                             <div class="shot-arrow">&#8594;</div>
                             <div class="shot-metric">
-                                <span class="metric-value">%10g</span>
+                                %13
                                 <span class="metric-label">out</span>
                             </div>
                         </div>
@@ -1072,17 +1105,14 @@ QString ShotServer::generateShotListPage() const
                         </div>
                     </div>
                     <div class="shot-footer">
-                        <span class="shot-beans">
-                            <span class="clickable" onclick="event.preventDefault(); event.stopPropagation(); addFilter('brand', '%12')">%3</span>
-                            <span class="clickable" onclick="event.preventDefault(); event.stopPropagation(); addFilter('coffee', '%13')">%4</span>
-                        </span>
+                        <span class="shot-beans">%14</span>
                         <span class="shot-rating clickable" onclick="event.preventDefault(); event.stopPropagation(); addFilter('rating', '%5')">rating: %5</span>
                     </div>
                 </a>
             </div>
         )HTML")
         .arg(shot["id"].toLongLong())       // %1
-        .arg(profileHtml)                   // %2
+        .arg(profileHtml)                   // %2 (data attr, undecorated)
         .arg(brandHtml)                     // %3
         .arg(coffeeHtml)                    // %4
         .arg(rating)                        // %5
@@ -1092,8 +1122,9 @@ QString ShotServer::generateShotListPage() const
         .arg(doseWeight, 0, 'f', 1)         // %9
         .arg(finalWeight, 0, 'f', 1)        // %10
         .arg(profileJs)                     // %11
-        .arg(brandJs)                       // %12
-        .arg(coffeeJs);                     // %13
+        .arg(profileDisplay)                // %12 (profile with temp)
+        .arg(yieldDisplay)                  // %13 (yield with target)
+        .arg(beanDisplay);                  // %14 (beans with grind)
     }
 
     // Build HTML in chunks to avoid MSVC string literal size limit
@@ -1201,6 +1232,9 @@ QString ShotServer::generateShotListPage() const
         .shot-footer { display: flex; justify-content: space-between; align-items: center; }
         .shot-beans { font-size: 0.8125rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%%; }
         .shot-rating { color: var(--accent); font-size: 0.875rem; }
+        .shot-temp { color: var(--text-secondary); font-weight: normal; }
+        .shot-grind { color: var(--text-secondary); font-weight: normal; }
+        .metric-target { font-size: 0.75rem; color: var(--text-secondary); margin-left: 2px; }
         .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); }
         .empty-state h2 { margin-bottom: 0.5rem; color: var(--text); }
 )HTML";
@@ -1783,6 +1817,17 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         stars += (i < rating) ? "&#9733;" : "&#9734;";
     }
 
+    // Temperature and yield overrides (always have values)
+    double tempOverride = shot["temperatureOverride"].toDouble();
+    double yieldOverride = shot["yieldOverride"].toDouble();
+    double finalWeight = shot["finalWeight"].toDouble();
+
+    // Build yield display with optional target
+    QString yieldDisplay = QString("%1g").arg(finalWeight, 0, 'f', 1);
+    if (yieldOverride > 0 && qAbs(yieldOverride - finalWeight) > 0.5) {
+        yieldDisplay += QString(" <span class=\"target\">(%1g)</span>").arg(yieldOverride, 0, 'f', 0);
+    }
+
     // Convert time-series data to JSON arrays for Chart.js
     auto pointsToJson = [](const QVariantList& points) -> QString {
         QStringList items;
@@ -1920,6 +1965,11 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             font-size: 1.5rem;
             font-weight: 700;
             color: var(--accent);
+        }
+        .metric-card .value .target {
+            font-size: 0.875rem;
+            font-weight: 400;
+            color: var(--text-secondary);
         }
         .metric-card .label {
             font-size: 0.6875rem;
@@ -2079,7 +2129,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                 <div class="label">Dose</div>
             </div>
             <div class="metric-card">
-                <div class="value">%4g</div>
+                <div class="value">%4</div>
                 <div class="label">Yield</div>
             </div>
             <div class="metric-card">
@@ -2121,7 +2171,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
 
         <div class="info-grid">
             <div class="info-card">
-                <h3>Beans</h3>
+                <h3>Beans (%13)</h3>
                 <div class="info-row">
                     <span class="label">Brand</span>
                     <span class="value">%8</span>
@@ -2506,10 +2556,12 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
 </body>
 </html>
 )HTML")
-    .arg(shot["profileName"].toString().toHtmlEscaped())
+    .arg(tempOverride > 0
+         ? shot["profileName"].toString().toHtmlEscaped() + QString(" (%1&deg;C)").arg(tempOverride, 0, 'f', 0)
+         : shot["profileName"].toString().toHtmlEscaped())
     .arg(shot["dateTime"].toString())
     .arg(shot["doseWeight"].toDouble(), 0, 'f', 1)
-    .arg(shot["finalWeight"].toDouble(), 0, 'f', 1)
+    .arg(yieldDisplay)
     .arg(ratio, 0, 'f', 1)
     .arg(shot["duration"].toDouble(), 0, 'f', 1)
     .arg(stars)
@@ -2584,19 +2636,35 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         double ratio = shot["doseWeight"].toDouble() > 0 ?
             shot["finalWeight"].toDouble() / shot["doseWeight"].toDouble() : 0;
 
+        // Build yield text with optional target
+        double cmpFinalWeight = shot["finalWeight"].toDouble();
+        double cmpYieldOverride = shot["yieldOverride"].toDouble();
+        QString cmpYieldText = QString("%1g").arg(cmpFinalWeight, 0, 'f', 1);
+        if (cmpYieldOverride > 0 && qAbs(cmpYieldOverride - cmpFinalWeight) > 0.5) {
+            cmpYieldText += QString("(%1g)").arg(cmpYieldOverride, 0, 'f', 0);
+        }
+
+        // Build profile label with temp: "Profile (Temp°C) (date)"
+        double cmpTemp = shot["temperatureOverride"].toDouble();
+        QString profileWithTemp = name;
+        if (cmpTemp > 0) {
+            profileWithTemp += QString(" (%1&deg;C)").arg(cmpTemp, 0, 'f', 0);
+        }
+        QString legendLabel = QString("%1 (%2)").arg(profileWithTemp, date);
+
         legendItems += QString(R"HTML(
             <div class="legend-item">
                 <span class="legend-color" style="background:%1"></span>
                 <div class="legend-info">
                     <div class="legend-name">%2</div>
-                    <div class="legend-details">%3 | %4g in | %5g out | 1:%6 | %7s</div>
+                    <div class="legend-details">%3 | %4g in | %5 out | 1:%6 | %7s</div>
                 </div>
             </div>
         )HTML").arg(color)
-               .arg(label.toHtmlEscaped())
+               .arg(legendLabel.toHtmlEscaped())
                .arg(date)
                .arg(shot["doseWeight"].toDouble(), 0, 'f', 1)
-               .arg(shot["finalWeight"].toDouble(), 0, 'f', 1)
+               .arg(cmpYieldText)
                .arg(ratio, 0, 'f', 1)
                .arg(shot["duration"].toDouble(), 0, 'f', 1);
 

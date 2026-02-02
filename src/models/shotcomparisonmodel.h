@@ -101,6 +101,8 @@ private:
         qint64 timestamp = 0;
         QString notes;
         QString barista;
+        double temperatureOverride = 0;
+        double yieldOverride = 0;
 
         QVector<QPointF> pressure;
         QVector<QPointF> flow;

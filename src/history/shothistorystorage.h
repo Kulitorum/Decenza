@@ -69,11 +69,9 @@ struct ShotRecord {
     // Debug log
     QString debugLog;
 
-    // Brew overrides (dedicated fields)
+    // Brew overrides (always have values - user override or profile default)
     double temperatureOverride = 0.0;
-    bool hasTemperatureOverride = false;
     double yieldOverride = 0.0;
-    bool hasYieldOverride = false;
 
     // Profile snapshot
     QString profileJson;
@@ -118,10 +116,8 @@ public:
                     double doseWeight,
                     const ShotMetadata& metadata,
                     const QString& debugLog,
-                    double temperatureOverride = 0.0,
-                    bool hasTemperatureOverride = false,
-                    double yieldOverride = 0.0,
-                    bool hasYieldOverride = false);
+                    double temperatureOverride,
+                    double yieldOverride);
 
     // Update visualizer info after upload
     Q_INVOKABLE bool updateVisualizerInfo(qint64 shotId,

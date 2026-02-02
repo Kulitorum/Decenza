@@ -1032,13 +1032,6 @@ void Settings::applyBeanPreset(int index) {
     setDyeRoastLevel(preset.value("roastLevel").toString());
     setDyeGrinderModel(preset.value("grinderModel").toString());
     setDyeGrinderSetting(preset.value("grinderSetting").toString());
-
-    // Clear yield override - bean preset values take precedence for dose/grind
-    if (m_hasBrewYieldOverride) {
-        m_hasBrewYieldOverride = false;
-        m_brewYieldOverride = 0;
-        emit brewOverridesChanged();
-    }
 }
 
 void Settings::saveBeanPresetFromCurrent(const QString& name) {

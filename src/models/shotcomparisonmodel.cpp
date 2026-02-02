@@ -162,6 +162,8 @@ void ShotComparisonModel::loadDisplayWindow()
         shot.timestamp = record.summary.timestamp;
         shot.notes = record.espressoNotes;
         shot.barista = record.barista;
+        shot.temperatureOverride = record.temperatureOverride;
+        shot.yieldOverride = record.yieldOverride;
 
         shot.pressure = record.pressure;
         shot.flow = record.flow;
@@ -292,6 +294,8 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["timestamp"] = shot.timestamp;
     result["notes"] = shot.notes;
     result["barista"] = shot.barista;
+    result["temperatureOverride"] = shot.temperatureOverride;
+    result["yieldOverride"] = shot.yieldOverride;
 
     // Format date
     QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.timestamp);

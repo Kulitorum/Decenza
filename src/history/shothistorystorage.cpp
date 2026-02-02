@@ -337,9 +337,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                                      const ShotMetadata& metadata,
                                      const QString& debugLog,
                                      double temperatureOverride,
-                                     bool hasTemperatureOverride,
-                                     double yieldOverride,
-                                     bool hasYieldOverride)
+                                     double yieldOverride)
 {
     if (!m_ready || !shotData) {
         qWarning() << "ShotHistoryStorage: Cannot save shot - not ready or no data";
@@ -403,18 +401,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     query.bindValue(":barista", metadata.barista);
     query.bindValue(":debug_log", debugLog);
 
-    // Bind override values (NULL if not set)
-    if (hasTemperatureOverride) {
-        query.bindValue(":temperature_override", temperatureOverride);
-    } else {
-        query.bindValue(":temperature_override", QVariant(QMetaType::fromType<double>()));
-    }
-
-    if (hasYieldOverride) {
-        query.bindValue(":yield_override", yieldOverride);
-    } else {
-        query.bindValue(":yield_override", QVariant(QMetaType::fromType<double>()));
-    }
+    // Bind override values (always have values - user override or profile default)
+    query.bindValue(":temperature_override", temperatureOverride);
+    query.bindValue(":yield_override", yieldOverride);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -618,7 +607,8 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         sql = QString(R"(
             SELECT s.id, s.uuid, s.timestamp, s.profile_name, s.duration_seconds,
                    s.final_weight, s.dose_weight, s.bean_brand, s.bean_type,
-                   s.enjoyment, s.visualizer_id, s.grinder_setting
+                   s.enjoyment, s.visualizer_id, s.grinder_setting,
+                   s.temperature_override, s.yield_override
             FROM shots s
             JOIN shots_fts fts ON s.id = fts.rowid
             WHERE shots_fts MATCH ?
@@ -631,7 +621,8 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         sql = QString(R"(
             SELECT id, uuid, timestamp, profile_name, duration_seconds,
                    final_weight, dose_weight, bean_brand, bean_type,
-                   enjoyment, visualizer_id, grinder_setting
+                   enjoyment, visualizer_id, grinder_setting,
+                   temperature_override, yield_override
             FROM shots
             %1
             ORDER BY timestamp DESC
@@ -666,6 +657,8 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         shot["enjoyment"] = query.value(9).toInt();
         shot["hasVisualizerUpload"] = !query.value(10).isNull();
         shot["grinderSetting"] = query.value(11).toString();
+        shot["temperatureOverride"] = query.value(12).isNull() ? QVariant() : query.value(12).toDouble();
+        shot["yieldOverride"] = query.value(13).isNull() ? QVariant() : query.value(13).toDouble();
 
         // Format date for display
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
@@ -712,13 +705,9 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["visualizerUrl"] = record.visualizerUrl;
     result["debugLog"] = record.debugLog;
 
-    // Export overrides as individual fields
-    if (record.hasTemperatureOverride) {
-        result["temperatureOverride"] = record.temperatureOverride;
-    }
-    if (record.hasYieldOverride) {
-        result["yieldOverride"] = record.yieldOverride;
-    }
+    // Export overrides (always have values - user override or profile default)
+    result["temperatureOverride"] = record.temperatureOverride;
+    result["yieldOverride"] = record.yieldOverride;
 
     result["profileJson"] = record.profileJson;
 
@@ -811,15 +800,9 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
     record.visualizerUrl = query.value(20).toString();
     record.debugLog = query.value(21).toString();
 
-    // Load overrides (check for NULL)
-    record.hasTemperatureOverride = !query.value(22).isNull();
-    if (record.hasTemperatureOverride) {
-        record.temperatureOverride = query.value(22).toDouble();
-    }
-    record.hasYieldOverride = !query.value(23).isNull();
-    if (record.hasYieldOverride) {
-        record.yieldOverride = query.value(23).toDouble();
-    }
+    // Load overrides (always have values, default to 0 if database has NULL for old records)
+    record.temperatureOverride = query.value(22).toDouble();  // toDouble() returns 0.0 for NULL
+    record.yieldOverride = query.value(23).toDouble();  // toDouble() returns 0.0 for NULL
 
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
@@ -1614,18 +1597,9 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":barista", record.barista);
     query.bindValue(":debug_log", QString());  // No debug log for imported shots
 
-    // Bind overrides (NULL if not set)
-    if (record.hasTemperatureOverride) {
-        query.bindValue(":temperature_override", record.temperatureOverride);
-    } else {
-        query.bindValue(":temperature_override", QVariant(QMetaType::fromType<double>()));
-    }
-
-    if (record.hasYieldOverride) {
-        query.bindValue(":yield_override", record.yieldOverride);
-    } else {
-        query.bindValue(":yield_override", QVariant(QMetaType::fromType<double>()));
-    }
+    // Bind overrides (always have values - user override or profile default)
+    query.bindValue(":temperature_override", record.temperatureOverride);
+    query.bindValue(":yield_override", record.yieldOverride);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();

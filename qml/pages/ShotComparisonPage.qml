@@ -341,9 +341,17 @@ Page {
                                 }
                             }
 
-                            // Profile
+                            // Profile (Temp)
                             Text {
-                                text: comparisonModel.getShotInfo(index).profileName || "-"
+                                text: {
+                                    var info = comparisonModel.getShotInfo(index)
+                                    var name = info.profileName || "-"
+                                    var t = info.temperatureOverride
+                                    if (t !== undefined && t !== null && t > 0) {
+                                        return name + " (" + Math.round(t) + "\u00B0C)"
+                                    }
+                                    return name
+                                }
                                 font: Theme.labelFont
                                 color: Theme.textColor
                                 elide: Text.ElideRight
@@ -378,7 +386,19 @@ Page {
                                 Text { text: (comparisonModel.getShotInfo(index).doseWeight || 0).toFixed(1) + "g"; font: Theme.labelFont; color: Theme.textColor }
 
                                 Tr { key: "comparison.output"; fallback: "Output"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text { text: (comparisonModel.getShotInfo(index).finalWeight || 0).toFixed(1) + "g"; font: Theme.labelFont; color: Theme.textColor }
+                                Text {
+                                    text: {
+                                        var info = comparisonModel.getShotInfo(index)
+                                        var actual = (info.finalWeight || 0).toFixed(1) + "g"
+                                        var y = info.yieldOverride
+                                        if (y !== undefined && y !== null && y > 0
+                                            && Math.abs(y - info.finalWeight) > 0.5) {
+                                            return actual + " (" + Math.round(y) + "g)"
+                                        }
+                                        return actual
+                                    }
+                                    font: Theme.labelFont; color: Theme.textColor
+                                }
 
                                 Tr { key: "comparison.ratio"; fallback: "Ratio"; font: Theme.captionFont; color: Theme.textSecondaryColor }
                                 Text { text: comparisonModel.getShotInfo(index).ratio || "-"; font: Theme.labelFont; color: Theme.textColor }
@@ -390,22 +410,12 @@ Page {
                                 Text {
                                     text: {
                                         var info = comparisonModel.getShotInfo(index)
-                                        return (info.beanBrand || "") + (info.beanType ? " " + info.beanType : "") || "-"
-                                    }
-                                    font: Theme.labelFont
-                                    color: Theme.textColor
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-
-                                Tr { key: "comparison.grinder"; fallback: "Grinder"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text {
-                                    text: {
-                                        var info = comparisonModel.getShotInfo(index)
-                                        var parts = []
-                                        if (info.grinderModel) parts.push(info.grinderModel)
-                                        if (info.grinderSetting) parts.push("@ " + info.grinderSetting)
-                                        return parts.length > 0 ? parts.join(" ") : "-"
+                                        var bean = (info.beanBrand || "") + (info.beanType ? " " + info.beanType : "")
+                                        var grind = info.grinderSetting || ""
+                                        if (bean && grind) return bean + " (" + grind + ")"
+                                        if (bean) return bean
+                                        if (grind) return "(" + grind + ")"
+                                        return "-"
                                     }
                                     font: Theme.labelFont
                                     color: Theme.textColor
