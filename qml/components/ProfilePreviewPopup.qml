@@ -153,7 +153,7 @@ Dialog {
             Text {
                 anchors.centerIn: parent
                 visible: !root.profileData || !root.profileData.steps || root.profileData.steps.length === 0
-                text: qsTr("No profile data")
+                text: TranslationManager.translate("profilePreview.noProfileData", "No profile data")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
             }

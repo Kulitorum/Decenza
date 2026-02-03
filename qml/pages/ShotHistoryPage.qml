@@ -253,13 +253,13 @@ Page {
 
             AccessibleButton {
                 text: TranslationManager.translate("shothistory.clear", "Clear")
-                accessibleName: qsTr("Clear shot selection")
+                accessibleName: TranslationManager.translate("shotHistory.clearSelection", "Clear shot selection")
                 onClicked: clearSelection()
             }
 
             AccessibleButton {
                 text: TranslationManager.translate("shothistory.compare", "Compare")
-                accessibleName: qsTr("Compare selected shots side by side")
+                accessibleName: TranslationManager.translate("shotHistory.compareShots", "Compare selected shots side by side")
                 primary: true
                 enabled: selectedShots.length >= 2
                 onClicked: openComparison()

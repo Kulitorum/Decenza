@@ -767,24 +767,24 @@ ApplicationWindow {
         // Map objectNames to human-readable page names
         // Use "screen" or "settings" suffix to distinguish from button names
         var pageNames = {
-            "idlePage": qsTr("Home screen"),
-            "espressoPage": qsTr("Espresso screen"),
-            "steamPage": qsTr("Steam settings"),
-            "hotWaterPage": qsTr("Hot water settings"),
-            "flushPage": qsTr("Flush settings"),
-            "settingsPage": qsTr("Settings"),
-            "profileSelectorPage": qsTr("Profile selector"),
-            "profileEditorPage": qsTr("Profile editor"),
-            "recipeEditorPage": qsTr("Recipe editor"),
-            "shotHistoryPage": qsTr("Shot history"),
-            "descalingPage": qsTr("Descaling screen"),
-            "visualizerBrowserPage": qsTr("Visualizer browser"),
-            "profileImportPage": qsTr("Import profiles"),
-            "postShotReviewPage": qsTr("Shot review"),
-            "beanInfoPage": qsTr("Bean info"),
-            "dialingAssistantPage": qsTr("AI assistant"),
-            "shotDetailPage": qsTr("Shot detail"),
-            "shotComparisonPage": qsTr("Shot comparison")
+            "idlePage": TranslationManager.translate("main.pageHomeScreen", "Home screen"),
+            "espressoPage": TranslationManager.translate("main.pageEspressoScreen", "Espresso screen"),
+            "steamPage": TranslationManager.translate("main.pageSteamSettings", "Steam settings"),
+            "hotWaterPage": TranslationManager.translate("main.pageHotWaterSettings", "Hot water settings"),
+            "flushPage": TranslationManager.translate("main.pageFlushSettings", "Flush settings"),
+            "settingsPage": TranslationManager.translate("main.pageSettings", "Settings"),
+            "profileSelectorPage": TranslationManager.translate("main.pageProfileSelector", "Profile selector"),
+            "profileEditorPage": TranslationManager.translate("main.pageProfileEditor", "Profile editor"),
+            "recipeEditorPage": TranslationManager.translate("main.pageRecipeEditor", "Recipe editor"),
+            "shotHistoryPage": TranslationManager.translate("main.pageShotHistory", "Shot history"),
+            "descalingPage": TranslationManager.translate("main.pageDescalingScreen", "Descaling screen"),
+            "visualizerBrowserPage": TranslationManager.translate("main.pageVisualizerBrowser", "Visualizer browser"),
+            "profileImportPage": TranslationManager.translate("main.pageImportProfiles", "Import profiles"),
+            "postShotReviewPage": TranslationManager.translate("main.pageShotReview", "Shot review"),
+            "beanInfoPage": TranslationManager.translate("main.pageBeanInfo", "Bean info"),
+            "dialingAssistantPage": TranslationManager.translate("main.pageAiAssistant", "AI assistant"),
+            "shotDetailPage": TranslationManager.translate("main.pageShotDetail", "Shot detail"),
+            "shotComparisonPage": TranslationManager.translate("main.pageShotComparison", "Shot comparison")
         }
         var displayName = pageNames[pageName] || pageName
         AccessibilityManager.announce(displayName)
@@ -1145,7 +1145,7 @@ ApplicationWindow {
 
                 AccessibleButton {
                     text: TranslationManager.translate("update.later", "Later")
-                    accessibleName: qsTr("Dismiss update and remind me later")
+                    accessibleName: TranslationManager.translate("main.dismissUpdate", "Dismiss update and remind me later")
                     onClicked: {
                         if (MainController.updateChecker) {
                             MainController.updateChecker.dismissUpdate()
@@ -1157,7 +1157,7 @@ ApplicationWindow {
                 AccessibleButton {
                     text: TranslationManager.translate("update.updatenow", "Update Now")
                     primary: true
-                    accessibleName: qsTr("Download and install the update now")
+                    accessibleName: TranslationManager.translate("main.downloadAndInstallUpdate", "Download and install the update now")
                     onClicked: {
                         if (MainController.updateChecker) {
                             MainController.updateChecker.downloadAndInstall()
@@ -2220,7 +2220,7 @@ ApplicationWindow {
                 suffix: "x"
                 valueColor: Theme.primaryColor
                 useBaseScale: true  // Use scaledBase() for consistent size
-                accessibleName: qsTr("Page scale")
+                accessibleName: TranslationManager.translate("main.pageScale", "Page scale")
 
                 onValueModified: function(newValue) {
                     Theme.pageScaleMultiplier = newValue

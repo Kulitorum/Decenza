@@ -188,7 +188,7 @@ Page {
             anchors.rightMargin: Theme.scaled(15)
 
             Text {
-                text: qsTr("D-Flow Editor")
+                text: TranslationManager.translate("recipeEditor.dFlowEditorTitle", "D-Flow Editor")
                 font.family: Theme.titleFont.family
                 font.pixelSize: Theme.titleFont.pixelSize
                 font.bold: true
@@ -196,16 +196,16 @@ Page {
             }
 
             Text {
-                text: qsTr("Simplified profile editing with Fill → Infuse → Pour phases")
+                text: TranslationManager.translate("recipeEditor.simplifiedDescription", "Simplified profile editing with Fill → Infuse → Pour phases")
                 font: Theme.captionFont
                 color: Qt.rgba(1, 1, 1, 0.8)
                 Layout.fillWidth: true
             }
 
             AccessibleButton {
-                text: qsTr("Switch to Advanced Editor")
+                text: TranslationManager.translate("recipeEditor.switchToAdvanced", "Switch to Advanced Editor")
                 subtle: true
-                accessibleName: qsTr("Switch to advanced frame-based profile editor")
+                accessibleName: TranslationManager.translate("recipeEditor.switchToAdvancedAccessible", "Switch to advanced frame-based profile editor")
                 onClicked: switchToAdvancedDialog.open()
             }
         }
@@ -239,7 +239,7 @@ Page {
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.scaled(20)
                     anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("Switch to Advanced Editor")
+                    text: TranslationManager.translate("recipeEditor.switchToAdvancedDialogTitle", "Switch to Advanced Editor")
                     font: Theme.titleFont
                     color: Theme.textColor
                 }
@@ -261,7 +261,7 @@ Page {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("This will convert the profile to Advanced mode with full frame-by-frame control.")
+                    text: TranslationManager.translate("recipeEditor.convertDescription", "This will convert the profile to Advanced mode with full frame-by-frame control.")
                     font: Theme.bodyFont
                     color: Theme.textColor
                     wrapMode: Text.WordWrap
@@ -269,7 +269,7 @@ Page {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("You will gain access to advanced settings like custom exit conditions, per-frame limiters, popup messages, and arbitrary frame structures.")
+                    text: TranslationManager.translate("recipeEditor.convertDetails", "You will gain access to advanced settings like custom exit conditions, per-frame limiters, popup messages, and arbitrary frame structures.")
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                     wrapMode: Text.WordWrap
@@ -277,7 +277,7 @@ Page {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Note: Once converted, this profile can no longer be edited in the D-Flow editor.")
+                    text: TranslationManager.translate("recipeEditor.convertWarning", "Note: Once converted, this profile can no longer be edited in the D-Flow editor.")
                     font: Theme.captionFont
                     color: Theme.warningColor
                     wrapMode: Text.WordWrap
@@ -295,8 +295,8 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(50)
-                    text: qsTr("Cancel")
-                    accessibleName: qsTr("Cancel and stay in D-Flow Editor")
+                    text: TranslationManager.translate("recipeEditor.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("recipeEditor.cancelAccessible", "Cancel and stay in D-Flow Editor")
                     onClicked: switchToAdvancedDialog.close()
                     background: Rectangle {
                         radius: Theme.buttonRadius
@@ -316,8 +316,8 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(50)
-                    text: qsTr("Convert")
-                    accessibleName: qsTr("Convert to Advanced format")
+                    text: TranslationManager.translate("recipeEditor.convert", "Convert")
+                    accessibleName: TranslationManager.translate("recipeEditor.convertAccessible", "Convert to Advanced format")
                     onClicked: {
                         switchToAdvancedDialog.close()
                         MainController.convertCurrentProfileToAdvanced()
@@ -394,33 +394,33 @@ Page {
                         spacing: Theme.scaled(8)
 
                         Text {
-                            text: qsTr("Presets:")
+                            text: TranslationManager.translate("recipeEditor.presetsLabel", "Presets:")
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                         }
 
                         PresetButton {
-                            text: qsTr("Classic")
+                            text: TranslationManager.translate("recipeEditor.presetClassic", "Classic")
                             onClicked: applyPreset("classic")
                         }
 
                         PresetButton {
-                            text: qsTr("Londinium")
+                            text: TranslationManager.translate("recipeEditor.presetLondinium", "Londinium")
                             onClicked: applyPreset("londinium")
                         }
 
                         PresetButton {
-                            text: qsTr("Turbo")
+                            text: TranslationManager.translate("recipeEditor.presetTurbo", "Turbo")
                             onClicked: applyPreset("turbo")
                         }
 
                         PresetButton {
-                            text: qsTr("Blooming")
+                            text: TranslationManager.translate("recipeEditor.presetBlooming", "Blooming")
                             onClicked: applyPreset("blooming")
                         }
 
                         PresetButton {
-                            text: qsTr("D-Flow")
+                            text: TranslationManager.translate("recipeEditor.presetDFlow", "D-Flow")
                             onClicked: applyPreset("dflowDefault")
                         }
 
@@ -478,7 +478,7 @@ Page {
                             Layout.fillWidth: true
 
                             RecipeRow {
-                                label: qsTr("Dose")
+                                label: TranslationManager.translate("recipeEditor.dose", "Dose")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.dose || 18
@@ -486,7 +486,7 @@ Page {
                                     suffix: "g"
                                     valueColor: Theme.weightColor
                                     accentColor: Theme.weightColor
-                                    accessibleName: qsTr("Dose weight")
+                                    accessibleName: TranslationManager.translate("recipeEditor.doseWeight", "Dose weight")
                                     onValueModified: function(newValue) {
                                         updateRecipe("dose", newValue)
                                     }
@@ -494,7 +494,7 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Stop at")
+                                label: TranslationManager.translate("recipeEditor.stopAt", "Stop at")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.targetWeight || 36
@@ -502,7 +502,7 @@ Page {
                                     suffix: "g"
                                     valueColor: Theme.weightColor
                                     accentColor: Theme.weightColor
-                                    accessibleName: qsTr("Target weight")
+                                    accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight")
                                     onValueModified: function(newValue) {
                                         updateRecipe("targetWeight", newValue)
                                     }
@@ -512,7 +512,7 @@ Page {
                             // Display ratio
                             Text {
                                 Layout.fillWidth: true
-                                text: qsTr("Ratio: 1:") + ((recipe.targetWeight || 36) / (recipe.dose || 18)).toFixed(1)
+                                text: TranslationManager.translate("recipeEditor.ratio", "Ratio: 1:") + ((recipe.targetWeight || 36) / (recipe.dose || 18)).toFixed(1)
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 horizontalAlignment: Text.AlignRight
@@ -522,11 +522,11 @@ Page {
                         // === Fill Phase ===
                         RecipeSection {
                             id: fillSection
-                            title: qsTr("Fill")
+                            title: TranslationManager.translate("recipeEditor.fillTitle", "Fill")
                             Layout.fillWidth: true
 
                             RecipeRow {
-                                label: qsTr("Temp")
+                                label: TranslationManager.translate("recipeEditor.fillTemp", "Temp")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.fillTemperature || 88
@@ -534,7 +534,7 @@ Page {
                                     suffix: "\u00B0C"
                                     valueColor: Theme.temperatureColor
                                     accentColor: Theme.temperatureGoalColor
-                                    accessibleName: qsTr("Fill temperature")
+                                    accessibleName: TranslationManager.translate("recipeEditor.fillTemperature", "Fill temperature")
                                     onValueModified: function(newValue) {
                                         updateRecipe("fillTemperature", newValue)
                                     }
@@ -542,7 +542,7 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Pressure")
+                                label: TranslationManager.translate("recipeEditor.fillPressureLabel", "Pressure")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.fillPressure || 3.0
@@ -550,7 +550,7 @@ Page {
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
                                     accentColor: Theme.pressureGoalColor
-                                    accessibleName: qsTr("Fill pressure")
+                                    accessibleName: TranslationManager.translate("recipeEditor.fillPressure", "Fill pressure")
                                     onValueModified: function(newValue) {
                                         updateRecipe("fillPressure", newValue)
                                     }
@@ -558,7 +558,7 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Flow")
+                                label: TranslationManager.translate("recipeEditor.fillFlowLabel", "Flow")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.fillFlow || 8.0
@@ -566,7 +566,7 @@ Page {
                                     suffix: " mL/s"
                                     valueColor: Theme.flowColor
                                     accentColor: Theme.flowGoalColor
-                                    accessibleName: qsTr("Fill flow")
+                                    accessibleName: TranslationManager.translate("recipeEditor.fillFlow", "Fill flow")
                                     onValueModified: function(newValue) {
                                         updateRecipe("fillFlow", newValue)
                                     }
@@ -574,7 +574,7 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Exit at")
+                                label: TranslationManager.translate("recipeEditor.fillExitAt", "Exit at")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.fillExitPressure || 3.0
@@ -582,7 +582,7 @@ Page {
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
                                     accentColor: Theme.pressureGoalColor
-                                    accessibleName: qsTr("Fill exit pressure")
+                                    accessibleName: TranslationManager.translate("recipeEditor.fillExitPressure", "Fill exit pressure")
                                     onValueModified: function(newValue) {
                                         updateRecipe("fillExitPressure", newValue)
                                     }
@@ -590,14 +590,14 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Timeout")
+                                label: TranslationManager.translate("recipeEditor.fillTimeoutLabel", "Timeout")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.fillTimeout || 25
                                     from: 5; to: 60; stepSize: 1
                                     suffix: "s"
                                     decimals: 0
-                                    accessibleName: qsTr("Fill timeout")
+                                    accessibleName: TranslationManager.translate("recipeEditor.fillTimeout", "Fill timeout")
                                     onValueModified: function(newValue) {
                                         updateRecipe("fillTimeout", newValue)
                                     }
@@ -608,21 +608,21 @@ Page {
                         // === Bloom Phase (Optional) ===
                         RecipeSection {
                             id: bloomSection
-                            title: qsTr("Bloom")
+                            title: TranslationManager.translate("recipeEditor.bloomTitle", "Bloom")
                             Layout.fillWidth: true
                             canEnable: true
                             sectionEnabled: recipe.bloomEnabled || false
                             onSectionToggled: function(enabled) { updateRecipe("bloomEnabled", enabled) }
 
                             RecipeRow {
-                                label: qsTr("Time")
+                                label: TranslationManager.translate("recipeEditor.bloomTimeLabel", "Time")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.bloomTime || 10
                                     from: 1; to: 30; stepSize: 1
                                     suffix: "s"
                                     decimals: 0
-                                    accessibleName: qsTr("Bloom time")
+                                    accessibleName: TranslationManager.translate("recipeEditor.bloomTime", "Bloom time")
                                     onValueModified: function(newValue) {
                                         updateRecipe("bloomTime", newValue)
                                     }
@@ -630,7 +630,7 @@ Page {
                             }
 
                             Text {
-                                text: qsTr("Zero-flow pause for CO2 release")
+                                text: TranslationManager.translate("recipeEditor.bloomDescription", "Zero-flow pause for CO2 release")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
@@ -641,14 +641,14 @@ Page {
                         // === Infuse Phase ===
                         RecipeSection {
                             id: infuseSection
-                            title: qsTr("Infuse")
+                            title: TranslationManager.translate("recipeEditor.infuseTitle", "Infuse")
                             Layout.fillWidth: true
                             canEnable: true
                             sectionEnabled: recipe.infuseEnabled !== false  // Default true
                             onSectionToggled: function(enabled) { updateRecipe("infuseEnabled", enabled) }
 
                             RecipeRow {
-                                label: qsTr("Pressure")
+                                label: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0
@@ -656,7 +656,7 @@ Page {
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
                                     accentColor: Theme.pressureGoalColor
-                                    accessibleName: qsTr("Infuse pressure")
+                                    accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure")
                                     onValueModified: function(newValue) {
                                         updateRecipe("infusePressure", newValue)
                                     }
@@ -664,7 +664,7 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Time")
+                                label: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time")
                                 visible: !recipe.infuseByWeight
                                 ValueInput {
                                     Layout.fillWidth: true
@@ -672,7 +672,7 @@ Page {
                                     from: 0; to: 60; stepSize: 1
                                     suffix: "s"
                                     decimals: 0
-                                    accessibleName: qsTr("Infuse time")
+                                    accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time")
                                     onValueModified: function(newValue) {
                                         updateRecipe("infuseTime", newValue)
                                     }
@@ -685,7 +685,7 @@ Page {
 
                                 CheckBox {
                                     id: infuseByWeightCheck
-                                    text: qsTr("By weight")
+                                    text: TranslationManager.translate("recipeEditor.byWeight", "By weight")
                                     checked: recipe.infuseByWeight || false
                                     onToggled: updateRecipe("infuseByWeight", checked)
                                     contentItem: Text {
@@ -705,7 +705,7 @@ Page {
                                     suffix: "g"
                                     valueColor: Theme.weightColor
                                     accentColor: Theme.weightColor
-                                    accessibleName: qsTr("Infuse weight")
+                                    accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight")
                                     onValueModified: function(newValue) {
                                         updateRecipe("infuseWeight", newValue)
                                     }
@@ -713,14 +713,14 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Volume")
+                                label: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.infuseVolume || 100
                                     from: 10; to: 200; stepSize: 10
                                     suffix: " mL"
                                     decimals: 0
-                                    accessibleName: qsTr("Infuse volume")
+                                    accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume")
                                     onValueModified: function(newValue) {
                                         updateRecipe("infuseVolume", newValue)
                                     }
@@ -731,20 +731,20 @@ Page {
                         // === Ramp Phase ===
                         RecipeSection {
                             id: rampSection
-                            title: qsTr("Ramp")
+                            title: TranslationManager.translate("recipeEditor.rampTitle", "Ramp")
                             Layout.fillWidth: true
                             canEnable: true
                             sectionEnabled: recipe.rampEnabled !== false  // Default true
                             onSectionToggled: function(enabled) { updateRecipe("rampEnabled", enabled) }
 
                             RecipeRow {
-                                label: qsTr("Time")
+                                label: TranslationManager.translate("recipeEditor.rampTimeLabel", "Time")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.rampTime || 5
                                     from: 0.5; to: 15; stepSize: 0.5
                                     suffix: "s"
-                                    accessibleName: qsTr("Ramp time")
+                                    accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time")
                                     onValueModified: function(newValue) {
                                         updateRecipe("rampTime", newValue)
                                     }
@@ -752,7 +752,7 @@ Page {
                             }
 
                             Text {
-                                text: qsTr("Smooth transition from infuse to pour")
+                                text: TranslationManager.translate("recipeEditor.rampDescription", "Smooth transition from infuse to pour")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
@@ -763,11 +763,11 @@ Page {
                         // === Pour Phase ===
                         RecipeSection {
                             id: pourSection
-                            title: qsTr("Pour")
+                            title: TranslationManager.translate("recipeEditor.pourTitle", "Pour")
                             Layout.fillWidth: true
 
                             RecipeRow {
-                                label: qsTr("Temp")
+                                label: TranslationManager.translate("recipeEditor.pourTemp", "Temp")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.pourTemperature || 93
@@ -775,7 +775,7 @@ Page {
                                     suffix: "\u00B0C"
                                     valueColor: Theme.temperatureColor
                                     accentColor: Theme.temperatureGoalColor
-                                    accessibleName: qsTr("Pour temperature")
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature")
                                     onValueModified: function(newValue) {
                                         updateRecipe("pourTemperature", newValue)
                                     }
@@ -787,7 +787,7 @@ Page {
                                 spacing: Theme.scaled(20)
 
                                 RadioButton {
-                                    text: qsTr("Pressure")
+                                    text: TranslationManager.translate("recipeEditor.pourStylePressure", "Pressure")
                                     checked: (recipe.pourStyle || "pressure") === "pressure"
                                     onToggled: if (checked) updateRecipe("pourStyle", "pressure")
                                     contentItem: Text {
@@ -800,7 +800,7 @@ Page {
                                 }
 
                                 RadioButton {
-                                    text: qsTr("Flow")
+                                    text: TranslationManager.translate("recipeEditor.pourStyleFlow", "Flow")
                                     checked: recipe.pourStyle === "flow"
                                     onToggled: if (checked) updateRecipe("pourStyle", "flow")
                                     contentItem: Text {
@@ -815,7 +815,7 @@ Page {
 
                             RecipeRow {
                                 visible: (recipe.pourStyle || "pressure") === "pressure"
-                                label: qsTr("Pressure")
+                                label: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.pourPressure || 9.0
@@ -823,7 +823,7 @@ Page {
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
                                     accentColor: Theme.pressureGoalColor
-                                    accessibleName: qsTr("Pour pressure")
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourPressure", "Pour pressure")
                                     onValueModified: function(newValue) {
                                         updateRecipe("pourPressure", newValue)
                                     }
@@ -832,7 +832,7 @@ Page {
 
                             RecipeRow {
                                 visible: recipe.pourStyle === "flow"
-                                label: qsTr("Flow")
+                                label: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.pourFlow || 2.0
@@ -840,7 +840,7 @@ Page {
                                     suffix: " mL/s"
                                     valueColor: Theme.flowColor
                                     accentColor: Theme.flowGoalColor
-                                    accessibleName: qsTr("Pour flow")
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow")
                                     onValueModified: function(newValue) {
                                         updateRecipe("pourFlow", newValue)
                                     }
@@ -849,14 +849,14 @@ Page {
 
                             RecipeRow {
                                 visible: (recipe.pourStyle || "pressure") === "pressure"
-                                label: qsTr("Flow limit")
+                                label: TranslationManager.translate("recipeEditor.flowLimitLabel", "Flow limit")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.flowLimit || 0
                                     from: 0; to: 6; stepSize: 0.1
                                     suffix: " mL/s"
                                     valueColor: (recipe.flowLimit || 0) > 0 ? Theme.flowColor : Theme.textSecondaryColor
-                                    accessibleName: qsTr("Pour flow limit")
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourFlowLimit", "Pour flow limit")
                                     onValueModified: function(newValue) {
                                         updateRecipe("flowLimit", newValue)
                                     }
@@ -865,14 +865,14 @@ Page {
 
                             RecipeRow {
                                 visible: recipe.pourStyle === "flow"
-                                label: qsTr("P limit")
+                                label: TranslationManager.translate("recipeEditor.pressureLimitLabel", "P limit")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.pressureLimit || 0
                                     from: 0; to: 12; stepSize: 0.1
                                     suffix: " bar"
                                     valueColor: (recipe.pressureLimit || 0) > 0 ? Theme.pressureColor : Theme.textSecondaryColor
-                                    accessibleName: qsTr("Pour pressure limit")
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourPressureLimit", "Pour pressure limit")
                                     onValueModified: function(newValue) {
                                         updateRecipe("pressureLimit", newValue)
                                     }
@@ -883,7 +883,7 @@ Page {
                         // === Decline Phase ===
                         RecipeSection {
                             id: declineSection
-                            title: qsTr("Decline")
+                            title: TranslationManager.translate("recipeEditor.declineTitle", "Decline")
                             Layout.fillWidth: true
                             visible: (recipe.pourStyle || "pressure") === "pressure"
                             canEnable: true
@@ -891,7 +891,7 @@ Page {
                             onSectionToggled: function(enabled) { updateRecipe("declineEnabled", enabled) }
 
                             RecipeRow {
-                                label: qsTr("To")
+                                label: TranslationManager.translate("recipeEditor.declineTo", "To")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.declineTo || 6.0
@@ -899,7 +899,7 @@ Page {
                                     suffix: " bar"
                                     valueColor: Theme.pressureColor
                                     accentColor: Theme.pressureGoalColor
-                                    accessibleName: qsTr("Decline to pressure")
+                                    accessibleName: TranslationManager.translate("recipeEditor.declineToPressure", "Decline to pressure")
                                     onValueModified: function(newValue) {
                                         updateRecipe("declineTo", newValue)
                                     }
@@ -907,14 +907,14 @@ Page {
                             }
 
                             RecipeRow {
-                                label: qsTr("Over")
+                                label: TranslationManager.translate("recipeEditor.declineOver", "Over")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.declineTime || 30
                                     from: 5; to: 60; stepSize: 1
                                     suffix: "s"
                                     decimals: 0
-                                    accessibleName: qsTr("Decline time")
+                                    accessibleName: TranslationManager.translate("recipeEditor.declineTime", "Decline time")
                                     onValueModified: function(newValue) {
                                         updateRecipe("declineTime", newValue)
                                     }
@@ -933,7 +933,7 @@ Page {
     // Bottom bar
     BottomBar {
         id: bottomBar
-        title: MainController.currentProfileName || qsTr("Recipe")
+        title: MainController.currentProfileName || TranslationManager.translate("recipeEditor.recipe", "Recipe")
         onBackClicked: {
             if (recipeModified) {
                 exitDialog.open()
@@ -953,7 +953,7 @@ Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
 
         Text {
-            text: MainController.frameCount() + " " + qsTr("frames")
+            text: MainController.frameCount() + " " + TranslationManager.translate("recipeEditor.frames", "frames")
             color: "white"
             font: Theme.bodyFont
         }
@@ -967,8 +967,8 @@ Page {
         }
 
         AccessibleButton {
-            text: qsTr("Done")
-            accessibleName: qsTr("Finish editing recipe")
+            text: TranslationManager.translate("recipeEditor.done", "Done")
+            accessibleName: TranslationManager.translate("recipeEditor.finishEditing", "Finish editing recipe")
             onClicked: {
                 if (recipeModified) {
                     exitDialog.open()
@@ -1017,7 +1017,7 @@ Page {
     // Save As dialog
     Dialog {
         id: saveAsDialog
-        title: qsTr("Save Recipe As")
+        title: TranslationManager.translate("recipeEditor.saveRecipeAs", "Save Recipe As")
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Theme.scaled(400)
@@ -1029,7 +1029,7 @@ Page {
             spacing: Theme.scaled(10)
 
             Text {
-                text: qsTr("Recipe Title")
+                text: TranslationManager.translate("recipeEditor.recipeTitle", "Recipe Title")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
             }
@@ -1094,7 +1094,7 @@ Page {
             MainController.createNewRecipe(MainController.currentProfileName || "New Recipe")
         }
         loadCurrentProfile()
-        root.currentPageTitle = MainController.currentProfileName || qsTr("Recipe Editor")
+        root.currentPageTitle = MainController.currentProfileName || TranslationManager.translate("recipeEditor.title", "Recipe Editor")
         // Schedule a delayed refresh to ensure chart is ready
         delayedRefreshTimer.start()
     }

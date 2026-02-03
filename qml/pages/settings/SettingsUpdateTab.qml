@@ -327,7 +327,7 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.update.checknow", "Check Now")
-                        accessibleName: qsTr("Check for app updates")
+                        accessibleName: TranslationManager.translate("settings.update.checkNowAccessible", "Check for app updates")
                         enabled: !MainController.updateChecker.checking
                         onClicked: MainController.updateChecker.checkForUpdates()
                     }
@@ -335,7 +335,7 @@ Item {
                     AccessibleButton {
                         primary: true
                         text: TranslationManager.translate("settings.update.downloadinstall", "Download & Install")
-                        accessibleName: qsTr("Download and install the available update")
+                        accessibleName: TranslationManager.translate("settings.update.downloadInstallAccessible", "Download and install the available update")
                         visible: MainController.updateChecker.updateAvailable && MainController.updateChecker.canDownloadUpdate
                         onClicked: MainController.updateChecker.downloadAndInstall()
                     }
@@ -343,14 +343,14 @@ Item {
                     AccessibleButton {
                         primary: true
                         text: TranslationManager.translate("settings.update.viewongithub", "View on GitHub")
-                        accessibleName: qsTr("Open the release page on GitHub")
+                        accessibleName: TranslationManager.translate("settings.update.viewOnGithubAccessible", "Open the release page on GitHub")
                         visible: MainController.updateChecker.updateAvailable && !MainController.updateChecker.canDownloadUpdate
                         onClicked: MainController.updateChecker.openReleasePage()
                     }
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.update.whatsnew", "What's New?")
-                        accessibleName: qsTr("View release notes for this update")
+                        accessibleName: TranslationManager.translate("settings.update.whatsNewAccessible", "View release notes for this update")
                         visible: MainController.updateChecker.releaseNotes !== ""
                         onClicked: releaseNotesPopup.open()
                     }
@@ -416,7 +416,7 @@ Item {
 
                     StyledIconButton {
                         text: "\u00D7"
-                        accessibleName: qsTr("Close release notes")
+                        accessibleName: TranslationManager.translate("settings.update.closeReleaseNotes", "Close release notes")
                         onClicked: releaseNotesPopup.close()
                     }
                 }

@@ -20,7 +20,7 @@ Dialog {
 
     onOpened: {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-            AccessibilityManager.announce(qsTr("Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType))
+            AccessibilityManager.announce(TranslationManager.translate("unsavedChanges.announcement", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType))
         }
     }
 
@@ -44,7 +44,7 @@ Dialog {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.scaled(20)
                 anchors.verticalCenter: parent.verticalCenter
-                text: qsTr("Unsaved Changes")
+                text: TranslationManager.translate("unsavedChanges.title", "Unsaved Changes")
                 font: Theme.titleFont
                 color: Theme.textColor
             }
@@ -60,7 +60,7 @@ Dialog {
 
         // Message
         Text {
-            text: qsTr("You have unsaved changes to this %1.\nWhat would you like to do?").arg(root.itemType)
+            text: TranslationManager.translate("unsavedChanges.message", "You have unsaved changes to this %1.\nWhat would you like to do?").arg(root.itemType)
             font: Theme.bodyFont
             color: Theme.textColor
             wrapMode: Text.Wrap
@@ -83,8 +83,8 @@ Dialog {
             AccessibleButton {
                 width: parent.buttonWidth
                 height: parent.buttonHeight
-                text: qsTr("Discard")
-                accessibleName: qsTr("Discard changes")
+                text: TranslationManager.translate("unsavedChanges.discard", "Discard")
+                accessibleName: TranslationManager.translate("unsavedChanges.discardChanges", "Discard changes")
                 onClicked: {
                     root.close()
                     root.discardClicked()
@@ -107,8 +107,8 @@ Dialog {
                 visible: root.showSaveAs
                 width: visible ? parent.buttonWidth : 0
                 height: parent.buttonHeight
-                text: qsTr("Save As")
-                accessibleName: qsTr("Save as new %1").arg(root.itemType)
+                text: TranslationManager.translate("unsavedChanges.saveAs", "Save As")
+                accessibleName: TranslationManager.translate("unsavedChanges.saveAsNew", "Save as new %1").arg(root.itemType)
                 onClicked: {
                     root.close()
                     root.saveAsClicked()
@@ -132,8 +132,8 @@ Dialog {
             AccessibleButton {
                 width: parent.buttonWidth
                 height: parent.buttonHeight
-                text: qsTr("Save")
-                accessibleName: qsTr("Save %1").arg(root.itemType)
+                text: TranslationManager.translate("unsavedChanges.save", "Save")
+                accessibleName: TranslationManager.translate("unsavedChanges.saveItem", "Save %1").arg(root.itemType)
                 enabled: root.canSave
                 onClicked: {
                     root.close()

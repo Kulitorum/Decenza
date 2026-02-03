@@ -211,7 +211,7 @@ Page {
 
                     AccessibleButton {
                         text: TranslationManager.translate("aisettings.button.refresh", "Refresh")
-                        accessibleName: qsTr("Refresh list of available Ollama AI models")
+                        accessibleName: TranslationManager.translate("aiSettings.refreshOllamaModels", "Refresh list of available Ollama AI models")
                         onClicked: {
                             if (MainController.aiManager) {
                                 MainController.aiManager.refreshOllamaModels()
@@ -232,7 +232,7 @@ Page {
                     primary: MainController.aiManager && MainController.aiManager.isConfigured
                     enabled: MainController.aiManager && MainController.aiManager.isConfigured
                     text: TranslationManager.translate("aisettings.button.test", "Test Connection")
-                    accessibleName: qsTr("Test connection to AI service")
+                    accessibleName: TranslationManager.translate("aiSettings.testConnection", "Test connection to AI service")
                     onClicked: {
                         aiSettingsPage.testResultMessage = TranslationManager.translate("aisettings.status.testing", "Testing...")
                         MainController.aiManager.testConnection()

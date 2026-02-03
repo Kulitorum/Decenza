@@ -53,9 +53,9 @@ Dialog {
     onAboutToShow: {
         // Announce dialog for accessibility
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-            var announcement = qsTr("Brew Settings dialog. Profile: ") + MainController.currentProfileName
+            var announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + MainController.currentProfileName
             if (Settings.dyeBeanBrand.length > 0 || Settings.dyeBeanType.length > 0) {
-                announcement += ". " + qsTr("Beans: ")
+                announcement += ". " + TranslationManager.translate("brewDialog.beansLabel", "Beans: ")
                 if (Settings.dyeBeanBrand.length > 0) announcement += Settings.dyeBeanBrand
                 if (Settings.dyeBeanType.length > 0) announcement += " " + Settings.dyeBeanType
             }
@@ -118,7 +118,7 @@ Dialog {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.scaled(20)
                 anchors.verticalCenter: parent.verticalCenter
-                text: qsTr("Brew Settings")
+                text: TranslationManager.translate("brewDialog.title", "Brew Settings")
                 font: Theme.titleFont
                 color: Theme.textColor
                 Accessible.ignored: true  // Dialog title announced on open
@@ -146,9 +146,9 @@ Dialog {
             // Accessibility: group the recipe info as one element
             Accessible.role: Accessible.StaticText
             Accessible.name: {
-                var name = qsTr("Base Recipe: ") + MainController.currentProfileName
+                var name = TranslationManager.translate("brewDialog.baseRecipeLabel", "Base Recipe: ") + MainController.currentProfileName
                 if (Settings.dyeBeanBrand.length > 0 || Settings.dyeBeanType.length > 0) {
-                    name += ". " + qsTr("Beans: ")
+                    name += ". " + TranslationManager.translate("brewDialog.beansLabel", "Beans: ")
                     if (Settings.dyeBeanBrand.length > 0) name += Settings.dyeBeanBrand
                     if (Settings.dyeBeanType.length > 0) name += " " + Settings.dyeBeanType
                 }
@@ -163,7 +163,7 @@ Dialog {
                 spacing: Theme.scaled(4)
 
                 Text {
-                    text: qsTr("Base Recipe")
+                    text: TranslationManager.translate("brewDialog.baseRecipe", "Base Recipe")
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(11)
                     font.bold: true
@@ -223,7 +223,7 @@ Dialog {
                 // Announce warning when it becomes visible
                 onVisibleChanged: {
                     if (visible && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                        AccessibilityManager.announce(qsTr("Warning: ") + warningText.text)
+                        AccessibilityManager.announce(TranslationManager.translate("brewDialog.warningPrefix", "Warning: ") + warningText.text)
                     }
                 }
 
@@ -233,7 +233,7 @@ Dialog {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.margins: Theme.scaled(12)
-                    text: qsTr("Please put the portafilter with coffee on the scale")
+                    text: TranslationManager.translate("brewDialog.scaleWarning", "Please put the portafilter with coffee on the scale")
                     font: Theme.bodyFont
                     color: Theme.warningColor
                     wrapMode: Text.Wrap
@@ -252,7 +252,7 @@ Dialog {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: qsTr("Temp:")
+                        text: TranslationManager.translate("brewDialog.tempLabel", "Temp:")
                         font: Theme.bodyFont
                         color: Theme.textSecondaryColor
                         Layout.alignment: Qt.AlignVCenter
@@ -271,7 +271,7 @@ Dialog {
                         suffix: "°C"
                         valueColor: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
                         accentColor: Theme.temperatureColor
-                        accessibleName: qsTr("Brew temperature")
+                        accessibleName: TranslationManager.translate("brewDialog.brewTemperature", "Brew temperature")
                         onValueModified: function(newValue) {
                             root.temperatureValue = newValue
                         }
@@ -280,8 +280,8 @@ Dialog {
                     // Save to profile button
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(56)
-                        text: qsTr("Save")
-                        accessibleName: qsTr("Save temperature to profile")
+                        text: TranslationManager.translate("brewDialog.save", "Save")
+                        accessibleName: TranslationManager.translate("brewDialog.saveTemperatureToProfile", "Save temperature to profile")
                         primary: true
                         enabled: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
                         onClicked: {
@@ -305,7 +305,7 @@ Dialog {
                 // Visual indicator showing profile default
                 Text {
                     visible: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
-                    text: qsTr("Profile: %1°C").arg(root.profileTemperature.toFixed(1))
+                    text: TranslationManager.translate("brewDialog.profileTempIndicator", "Profile: %1°C").arg(root.profileTemperature.toFixed(1))
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(11)
                     font.italic: true
@@ -313,7 +313,7 @@ Dialog {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(55) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: qsTr("Profile default temperature: %1 degrees").arg(root.profileTemperature.toFixed(1))
+                    Accessible.name: TranslationManager.translate("brewDialog.profileDefaultTemp", "Profile default temperature: %1 degrees").arg(root.profileTemperature.toFixed(1))
                 }
             }
 
@@ -323,7 +323,7 @@ Dialog {
                 spacing: Theme.scaled(8)
 
                 Text {
-                    text: qsTr("Dose:")
+                    text: TranslationManager.translate("brewDialog.doseLabel", "Dose:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
@@ -342,7 +342,7 @@ Dialog {
                     suffix: "g"
                     valueColor: Theme.weightColor
                     accentColor: Theme.weightColor
-                    accessibleName: qsTr("Dose weight")
+                    accessibleName: TranslationManager.translate("brewDialog.doseWeight", "Dose weight")
                     onValueModified: function(newValue) {
                         root.targetManuallySet = false  // Reset manual flag when dose changes
                         root.doseValue = newValue
@@ -354,8 +354,8 @@ Dialog {
 
                 AccessibleButton {
                     Layout.preferredHeight: Theme.scaled(56)
-                    text: qsTr("Get from scale")
-                    accessibleName: qsTr("Get dose from scale")
+                    text: TranslationManager.translate("brewDialog.getFromScale", "Get from scale")
+                    accessibleName: TranslationManager.translate("brewDialog.getDoseFromScale", "Get dose from scale")
                     primary: true
                     onClicked: {
                         var scaleWeight = MachineState.scaleWeight
@@ -374,7 +374,7 @@ Dialog {
             // Profile recommended dose indicator
             Text {
                 visible: MainController.profileHasRecommendedDose && Math.abs(root.doseValue - MainController.profileRecommendedDose) > 0.05
-                text: qsTr("Profile: %1g").arg(MainController.profileRecommendedDose.toFixed(1))
+                text: TranslationManager.translate("brewDialog.profileDoseIndicator", "Profile: %1g").arg(MainController.profileRecommendedDose.toFixed(1))
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.scaled(11)
                 font.italic: true
@@ -382,7 +382,7 @@ Dialog {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.leftMargin: Theme.scaled(55) + Theme.scaled(8)
                 Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("Profile recommended dose: %1 grams").arg(MainController.profileRecommendedDose.toFixed(1))
+                Accessible.name: TranslationManager.translate("brewDialog.profileRecommendedDose", "Profile recommended dose: %1 grams").arg(MainController.profileRecommendedDose.toFixed(1))
             }
 
             // Ratio input
@@ -391,7 +391,7 @@ Dialog {
                 spacing: Theme.scaled(8)
 
                 Text {
-                    text: qsTr("Ratio: 1:")
+                    text: TranslationManager.translate("brewDialog.ratioLabel", "Ratio: 1:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.preferredWidth: Theme.scaled(55)
@@ -408,7 +408,7 @@ Dialog {
                     decimals: 1
                     valueColor: Theme.primaryColor
                     accentColor: Theme.primaryColor
-                    accessibleName: qsTr("Brew ratio")
+                    accessibleName: TranslationManager.translate("brewDialog.brewRatio", "Brew ratio")
                     onValueModified: function(newValue) {
                         root.targetManuallySet = false  // Reset manual flag when ratio changes
                         root.ratio = newValue
@@ -426,7 +426,7 @@ Dialog {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: qsTr("Yield:")
+                        text: TranslationManager.translate("brewDialog.yieldLabel", "Yield:")
                         font: Theme.bodyFont
                         color: Theme.textSecondaryColor
                         Layout.alignment: Qt.AlignVCenter
@@ -446,7 +446,7 @@ Dialog {
                         // Color changes based on whether value is auto-calculated or manually set
                         valueColor: root.targetManuallySet ? Theme.primaryColor : Theme.weightColor
                         accentColor: root.targetManuallySet ? Theme.primaryColor : Theme.weightColor
-                        accessibleName: qsTr("Yield weight") + (root.targetManuallySet ? qsTr(" (manual)") : qsTr(" (calculated)"))
+                        accessibleName: TranslationManager.translate("brewDialog.yieldWeight", "Yield weight") + (root.targetManuallySet ? TranslationManager.translate("brewDialog.manual", " (manual)") : TranslationManager.translate("brewDialog.calculated", " (calculated)"))
                         onValueModified: function(newValue) {
                             root.targetManuallySet = true  // Mark as manually set
                             root.targetValue = newValue
@@ -460,8 +460,8 @@ Dialog {
                     // Save to profile button
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(56)
-                        text: qsTr("Save")
-                        accessibleName: qsTr("Save yield to profile")
+                        text: TranslationManager.translate("brewDialog.save", "Save")
+                        accessibleName: TranslationManager.translate("brewDialog.saveYieldToProfile", "Save yield to profile")
                         primary: true
                         enabled: root.targetValue !== root.profileTargetWeight
                         onClicked: {
@@ -487,7 +487,7 @@ Dialog {
                 visible: Settings.visualizerExtendedMetadata
 
                 Text {
-                    text: qsTr("Grind:")
+                    text: TranslationManager.translate("brewDialog.grindLabel", "Grind:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
@@ -502,7 +502,7 @@ Dialog {
                     model: MainController.shotHistory ? MainController.shotHistory.getDistinctGrinders() : []
                     currentIndex: model.indexOf(root.grinderModel)
                     onCurrentTextChanged: if (currentIndex >= 0) root.grinderModel = currentText
-                    Accessible.name: qsTr("Grinder model")
+                    Accessible.name: TranslationManager.translate("brewDialog.grinderModel", "Grinder model")
                 }
 
                 Text {
@@ -518,9 +518,9 @@ Dialog {
                     Layout.fillWidth: true
                     Layout.preferredWidth: Theme.scaled(80)
                     text: root.grindSetting
-                    placeholder: qsTr("Setting")
+                    placeholder: TranslationManager.translate("brewDialog.settingPlaceholder", "Setting")
                     onTextChanged: root.grindSetting = text
-                    Accessible.name: qsTr("Grind setting")
+                    Accessible.name: TranslationManager.translate("brewDialog.grindSetting", "Grind setting")
                 }
             }
         }
@@ -536,8 +536,8 @@ Dialog {
             // Clear All button
             AccessibleButton {
                 Layout.preferredHeight: Theme.scaled(50)
-                text: qsTr("Clear")
-                accessibleName: qsTr("Clear all overrides")
+                text: TranslationManager.translate("brewDialog.clear", "Clear")
+                accessibleName: TranslationManager.translate("brewDialog.clearAllOverrides", "Clear all overrides")
                 onClicked: {
                     // Reset to current profile and bean preset values (not cached values from dialog open)
                     root.profileTemperature = MainController.profileTargetTemperature
@@ -574,8 +574,8 @@ Dialog {
             AccessibleButton {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(50)
-                text: qsTr("Cancel")
-                accessibleName: qsTr("Cancel brew settings")
+                text: TranslationManager.translate("brewDialog.cancel", "Cancel")
+                accessibleName: TranslationManager.translate("brewDialog.cancelBrewSettings", "Cancel brew settings")
                 onClicked: root.reject()
                 background: Rectangle {
                     implicitHeight: Theme.scaled(50)
@@ -596,8 +596,8 @@ Dialog {
             AccessibleButton {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(50)
-                text: qsTr("OK")
-                accessibleName: qsTr("Confirm brew settings")
+                text: TranslationManager.translate("brewDialog.ok", "OK")
+                accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
                 onClicked: {
                     Settings.lastUsedRatio = root.ratio
                     Settings.dyeGrinderModel = root.grinderModel

@@ -212,7 +212,7 @@ Page {
             AccessibleButton {
                 id: refreshButton
                 text: "Refresh"
-                accessibleName: qsTr("Refresh shared shots list from visualizer")
+                accessibleName: TranslationManager.translate("visualizerMultiImport.refreshSharedShots", "Refresh shared shots list from visualizer")
                 Layout.preferredWidth: Theme.scaled(100)
                 Layout.preferredHeight: Theme.scaled(40)
                 enabled: !MainController.visualizerImporter.fetching &&
@@ -245,7 +245,7 @@ Page {
                 AccessibleButton {
                     id: addByCodeButton
                     text: "Add by Code"
-                    accessibleName: qsTr("Enter a 4-character share code to import a profile")
+                    accessibleName: TranslationManager.translate("visualizerMultiImport.enterShareCode", "Enter a 4-character share code to import a profile")
                     primary: true
                     width: Theme.scaled(120)
                     height: Theme.scaled(40)
@@ -298,7 +298,7 @@ Page {
 
                     AccessibleButton {
                         text: "Add"
-                        accessibleName: qsTr("Import profile using entered share code")
+                        accessibleName: TranslationManager.translate("visualizerMultiImport.importByCode", "Import profile using entered share code")
                         primary: true
                         width: Theme.scaled(60)
                         height: Theme.scaled(40)
@@ -312,7 +312,7 @@ Page {
 
                     AccessibleButton {
                         text: "Cancel"
-                        accessibleName: qsTr("Cancel entering share code")
+                        accessibleName: TranslationManager.translate("visualizerMultiImport.cancelShareCode", "Cancel entering share code")
                         width: Theme.scaled(60)
                         height: Theme.scaled(40)
 
@@ -868,7 +868,7 @@ Page {
 
             AccessibleButton {
                 text: "Import"
-                accessibleName: qsTr("Import profile with the new name")
+                accessibleName: TranslationManager.translate("visualizerMultiImport.importWithNewName", "Import profile with the new name")
                 primary: true
                 Layout.preferredWidth: Theme.scaled(80)
                 Layout.preferredHeight: Theme.scaled(44)
@@ -884,7 +884,7 @@ Page {
 
             AccessibleButton {
                 text: "Cancel"
-                accessibleName: qsTr("Cancel renaming and close dialog")
+                accessibleName: TranslationManager.translate("visualizerMultiImport.cancelRenaming", "Cancel renaming and close dialog")
                 Layout.preferredWidth: Theme.scaled(80)
                 Layout.preferredHeight: Theme.scaled(44)
 

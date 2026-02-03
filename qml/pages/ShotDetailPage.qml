@@ -437,7 +437,7 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("shotdetail.viewdebuglog", "View Debug Log")
-                    accessibleName: qsTr("View debug log for this shot")
+                    accessibleName: TranslationManager.translate("shotDetail.viewDebugLog", "View debug log for this shot")
                     Layout.fillWidth: true
                     onClicked: debugLogDialog.open()
                 }
@@ -445,7 +445,7 @@ Page {
                 AccessibleButton {
                     id: deleteButton
                     text: TranslationManager.translate("shotdetail.deleteshot", "Delete Shot")
-                    accessibleName: qsTr("Permanently delete this shot from history")
+                    accessibleName: TranslationManager.translate("shotDetail.deleteShotPermanently", "Permanently delete this shot from history")
                     Layout.fillWidth: true
                     onClicked: deleteConfirmDialog.open()
 

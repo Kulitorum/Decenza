@@ -185,7 +185,7 @@ KeyboardAwareContainer {
 
                             AccessibleButton {
                                 text: "Test"
-                                accessibleName: qsTr("Test location on shot map")
+                                accessibleName: TranslationManager.translate("settings.options.testLocation", "Test location on shot map")
                                 enabled: MainController.shotReporter && MainController.shotReporter.hasLocation
                                 onClicked: mapTestPopup.open()
                             }
@@ -228,7 +228,7 @@ KeyboardAwareContainer {
 
                         AccessibleButton {
                             text: "Close"
-                            accessibleName: qsTr("Close map test popup")
+                            accessibleName: TranslationManager.translate("settings.options.closeMapTest", "Close map test popup")
                             onClicked: mapTestPopup.close()
                         }
                     }
@@ -256,7 +256,7 @@ KeyboardAwareContainer {
                         Text {
                             anchors.centerIn: parent
                             visible: !Settings.hasQuick3D
-                            text: qsTr("3D Map requires Qt Quick3D\n(not available on this platform)")
+                            text: TranslationManager.translate("settings.options.quick3dRequired", "3D Map requires Qt Quick3D\n(not available on this platform)")
                             color: Theme.textSecondaryColor
                             horizontalAlignment: Text.AlignHCenter
                         }
@@ -358,7 +358,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: qsTr("Water Refill Level")
+                        text: TranslationManager.translate("settings.options.waterRefillLevel", "Water Refill Level")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
@@ -366,7 +366,7 @@ KeyboardAwareContainer {
 
                     Text {
                         Layout.fillWidth: true
-                        text: qsTr("Water level at which the machine warns you to refill")
+                        text: TranslationManager.translate("settings.options.waterRefillLevelDesc", "Water level at which the machine warns you to refill")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap
@@ -380,14 +380,14 @@ KeyboardAwareContainer {
                         decimals: 0
                         value: Settings.waterRefillPoint
                         suffix: " mm"
-                        accessibleName: qsTr("Water refill level")
+                        accessibleName: TranslationManager.translate("settings.options.waterRefillLevelAccessible", "Water refill level")
                         onValueModified: function(newValue) {
                             Settings.waterRefillPoint = newValue
                         }
                     }
 
                     Text {
-                        text: qsTr("Current level: %1 mm").arg(DE1Device.waterLevelMm.toFixed(1))
+                        text: TranslationManager.translate("settings.options.currentLevel", "Current level: %1 mm").arg(DE1Device.waterLevelMm.toFixed(1))
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -559,7 +559,7 @@ KeyboardAwareContainer {
                             enabled: autoWakeContent.selectedDayData.enabled ?? false
                             valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
                             displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
-                            accessibleName: qsTr("Wake hour")
+                            accessibleName: TranslationManager.translate("settings.options.wakeHour", "Wake hour")
                             onValueModified: function(newValue) {
                                 Settings.setAutoWakeDayTime(autoWakeContent.selectedDay, newValue, autoWakeContent.selectedDayData.minute ?? 0)
                             }
@@ -583,7 +583,7 @@ KeyboardAwareContainer {
                             enabled: autoWakeContent.selectedDayData.enabled ?? false
                             valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
                             displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
-                            accessibleName: qsTr("Wake minute")
+                            accessibleName: TranslationManager.translate("settings.options.wakeMinute", "Wake minute")
                             onValueModified: function(newValue) {
                                 Settings.setAutoWakeDayTime(autoWakeContent.selectedDay, autoWakeContent.selectedDayData.hour ?? 7, newValue)
                             }
@@ -638,7 +638,7 @@ KeyboardAwareContainer {
                                 }
                                 return mins + " min"
                             }
-                            accessibleName: qsTr("Stay awake duration")
+                            accessibleName: TranslationManager.translate("settings.options.stayAwakeDuration", "Stay awake duration")
                             onValueModified: function(newValue) {
                                 Settings.autoWakeStayAwakeMinutes = newValue
                             }
@@ -666,7 +666,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
 
                         Text {
-                            text: qsTr("Stop-at-Weight Calibration")
+                            text: TranslationManager.translate("settings.options.stopAtWeightCalibration", "Stop-at-Weight Calibration")
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
@@ -686,7 +686,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
 
                         Text {
-                            text: (Settings.scaleType || qsTr("none")) + " · " + qsTr("auto-learns timing")
+                            text: (Settings.scaleType || TranslationManager.translate("settings.options.none", "none")) + " · " + TranslationManager.translate("settings.options.autoLearns", "auto-learns timing")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }
@@ -694,7 +694,7 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         Text {
-                            text: qsTr("Reset")
+                            text: TranslationManager.translate("settings.options.reset", "Reset")
                             color: Theme.primaryColor
                             font.pixelSize: Theme.scaled(12)
                             MouseArea {

@@ -900,14 +900,14 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("common.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel saving bean preset")
+                    accessibleName: TranslationManager.translate("beanInfo.cancelSavingPreset", "Cancel saving bean preset")
                     onClicked: savePresetDialog.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("common.add", "Add")
-                    accessibleName: qsTr("Add new bean preset with current settings")
+                    accessibleName: TranslationManager.translate("beanInfo.addNewPreset", "Add new bean preset with current settings")
                     onClicked: {
                         if (newBeanNameInput.text.trim().length > 0) {
                             var presetName = newBeanNameInput.text.trim()
@@ -997,7 +997,7 @@ Page {
                 AccessibleButton {
                     id: deleteBeanBtn
                     text: TranslationManager.translate("common.delete", "Delete")
-                    accessibleName: qsTr("Delete this bean preset")
+                    accessibleName: TranslationManager.translate("beanInfo.deletePreset", "Delete this bean preset")
                     onClicked: {
                         Settings.removeBeanPreset(editPresetIndex)
                         editPresetDialog.close()
@@ -1024,14 +1024,14 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("common.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel editing bean preset")
+                    accessibleName: TranslationManager.translate("beanInfo.cancelEditingPreset", "Cancel editing bean preset")
                     onClicked: editPresetDialog.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("common.save", "Save")
-                    accessibleName: qsTr("Save changes to bean preset")
+                    accessibleName: TranslationManager.translate("beanInfo.saveChangesToPreset", "Save changes to bean preset")
                     onClicked: {
                         if (editBeanNameInput.text.trim().length > 0 && editPresetIndex >= 0) {
                             var preset = Settings.getBeanPreset(editPresetIndex)

@@ -383,14 +383,14 @@ Item {
                 AccessibleButton {
                     width: (parent.width - Theme.spacingSmall) / 2
                     text: "Cancel"
-                    accessibleName: qsTr("Cancel and keep language")
+                    accessibleName: TranslationManager.translate("settings.language.cancelKeep", "Cancel and keep language")
                     onClicked: deleteConfirmPopup.close()
                 }
 
                 AccessibleButton {
                     width: (parent.width - Theme.spacingSmall) / 2
                     text: "Delete"
-                    accessibleName: qsTr("Permanently delete this language and its translations")
+                    accessibleName: TranslationManager.translate("settings.language.permanentlyDelete", "Permanently delete this language and its translations")
                     warning: true
                     onClicked: {
                         TranslationManager.deleteLanguage(TranslationManager.currentLanguage)
@@ -476,7 +476,7 @@ Item {
             AccessibleButton {
                 width: parent.width
                 text: "OK"
-                accessibleName: qsTr("Close submission result dialog")
+                accessibleName: TranslationManager.translate("settings.language.closeSubmitResult", "Close submission result dialog")
                 primary: true
                 onClicked: submitResultPopup.close()
             }

@@ -180,8 +180,8 @@ Page {
                                 ? TranslationManager.translate("visualizer.button.importing", "Importing...")
                                 : TranslationManager.translate("visualizer.button.import", "Import Profile")
                             accessibleName: MainController.visualizerImporter.importing
-                                ? qsTr("Importing profile, please wait")
-                                : qsTr("Import profile using the 4-character share code")
+                                ? TranslationManager.translate("visualizerBrowser.importingPleaseWait", "Importing profile, please wait")
+                                : TranslationManager.translate("visualizerBrowser.importUsingShareCode", "Import profile using the 4-character share code")
                             onClicked: {
                                 MainController.visualizerImporter.importFromShareCode(shareCodeInput.text)
                             }
@@ -192,7 +192,7 @@ Page {
                             id: importSharedButton
                             primary: true
                             text: TranslationManager.translate("visualizer.button.importShared", "Import profiles I shared")
-                            accessibleName: qsTr("Import all profiles you have shared on Visualizer")
+                            accessibleName: TranslationManager.translate("visualizerBrowser.importSharedProfiles", "Import all profiles you have shared on Visualizer")
                             onClicked: {
                                 pageStack.push(Qt.resolvedUrl("VisualizerMultiImportPage.qml"))
                             }
@@ -305,7 +305,7 @@ Page {
                         AccessibleButton {
                             id: overwriteButton
                             text: TranslationManager.translate("visualizer.button.overwrite", "Overwrite")
-                            accessibleName: qsTr("Overwrite existing profile with imported version")
+                            accessibleName: TranslationManager.translate("visualizerBrowser.overwriteExisting", "Overwrite existing profile with imported version")
                             destructive: true
                             onClicked: {
                                 MainController.visualizerImporter.saveOverwrite()
@@ -317,7 +317,7 @@ Page {
                             id: saveAsNewButton
                             primary: true
                             text: TranslationManager.translate("visualizer.button.saveAsNew", "Save as New")
-                            accessibleName: qsTr("Save as a new profile with different name")
+                            accessibleName: TranslationManager.translate("visualizerBrowser.saveAsNewProfile", "Save as a new profile with different name")
                             onClicked: {
                                 newNameInput.text = duplicateProfileTitle + " (copy)"
                                 showingNameInput = true
@@ -327,7 +327,7 @@ Page {
                         AccessibleButton {
                             id: cancelButton
                             text: TranslationManager.translate("visualizer.button.cancel", "Cancel")
-                            accessibleName: qsTr("Cancel import")
+                            accessibleName: TranslationManager.translate("visualizerBrowser.cancelImport", "Cancel import")
                             onClicked: hideDuplicateDialog()
                         }
                     }
@@ -417,7 +417,7 @@ Page {
                             primary: true
                             enabled: newNameInput.text.trim().length > 0
                             text: TranslationManager.translate("visualizer.button.save", "Save")
-                            accessibleName: qsTr("Save profile with the new name")
+                            accessibleName: TranslationManager.translate("visualizerBrowser.saveWithNewName", "Save profile with the new name")
                             onClicked: {
                                 MainController.visualizerImporter.saveWithNewName(newNameInput.text.trim())
                                 hideDuplicateDialog()
@@ -427,7 +427,7 @@ Page {
                         AccessibleButton {
                             id: backButton
                             text: TranslationManager.translate("visualizer.button.back", "Back")
-                            accessibleName: qsTr("Go back to choose a different option")
+                            accessibleName: TranslationManager.translate("visualizerBrowser.goBackToChoose", "Go back to choose a different option")
                             onClicked: showingNameInput = false
                         }
                     }

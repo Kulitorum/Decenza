@@ -639,7 +639,7 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("hotwater.button.delete", "Delete")
-                    accessibleName: qsTr("Delete this water vessel preset")
+                    accessibleName: TranslationManager.translate("hotWater.deleteVesselPreset", "Delete this water vessel preset")
                     destructive: true
                     onClicked: {
                         Settings.removeWaterVesselPreset(editingVesselIndex)
@@ -651,14 +651,14 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("hotwater.button.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel editing water vessel")
+                    accessibleName: TranslationManager.translate("hotWater.cancelEditingVessel", "Cancel editing water vessel")
                     onClicked: editVesselPopup.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("hotwater.button.save", "Save")
-                    accessibleName: qsTr("Save changes to water vessel preset")
+                    accessibleName: TranslationManager.translate("hotWater.saveVesselChanges", "Save changes to water vessel preset")
                     onClicked: {
                         var preset = Settings.getWaterVesselPreset(editingVesselIndex)
                         Settings.updateWaterVesselPreset(editingVesselIndex, editVesselNameInput.text, preset.volume, preset.mode || "weight")
@@ -748,14 +748,14 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("hotwater.button.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel adding new water vessel")
+                    accessibleName: TranslationManager.translate("hotWater.cancelAddingVessel", "Cancel adding new water vessel")
                     onClicked: addVesselDialog.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("hotwater.button.add", "Add")
-                    accessibleName: qsTr("Add new water vessel with entered name")
+                    accessibleName: TranslationManager.translate("hotWater.addNewVessel", "Add new water vessel with entered name")
                     onClicked: {
                         if (newVesselNameInput.text.length > 0) {
                             Settings.addWaterVesselPreset(newVesselNameInput.text, 200)

@@ -83,7 +83,7 @@ Page {
     }
 
     function updatePageTitle() {
-        root.currentPageTitle = profile ? profile.title : qsTr("Profile Editor")
+        root.currentPageTitle = profile ? profile.title : TranslationManager.translate("profileEditor.title", "Profile Editor")
     }
 
     // Auto-upload profile to machine on any change
@@ -135,7 +135,7 @@ Page {
             anchors.rightMargin: Theme.scaled(15)
 
             Text {
-                text: qsTr("Advanced Editor")
+                text: TranslationManager.translate("profileEditor.advancedEditor", "Advanced Editor")
                 font.family: Theme.titleFont.family
                 font.pixelSize: Theme.titleFont.pixelSize
                 font.bold: true
@@ -143,16 +143,16 @@ Page {
             }
 
             Text {
-                text: qsTr("Full frame-by-frame control • Click frames to edit")
+                text: TranslationManager.translate("profileEditor.advancedEditorHint", "Full frame-by-frame control • Click frames to edit")
                 font: Theme.captionFont
                 color: Qt.rgba(1, 1, 1, 0.8)
                 Layout.fillWidth: true
             }
 
             AccessibleButton {
-                text: qsTr("Switch to D-Flow Editor")
+                text: TranslationManager.translate("profileEditor.switchToDFlow", "Switch to D-Flow Editor")
                 subtle: true
-                accessibleName: qsTr("Switch to simplified D-Flow recipe editor")
+                accessibleName: TranslationManager.translate("profileEditor.switchToDFlowAccessible", "Switch to simplified D-Flow recipe editor")
                 onClicked: switchToDFlowDialog.open()
             }
         }
@@ -209,14 +209,14 @@ Page {
 
                             AccessibleButton {
                                 primary: true
-                                text: qsTr("+ Add")
-                                accessibleName: qsTr("Add new frame to profile")
+                                text: TranslationManager.translate("profileEditor.addFrame", "+ Add")
+                                accessibleName: TranslationManager.translate("profileEditor.addFrameAccessible", "Add new frame to profile")
                                 onClicked: addStep()
                             }
 
                             AccessibleButton {
-                                text: qsTr("Delete")
-                                accessibleName: qsTr("Delete selected frame")
+                                text: TranslationManager.translate("profileEditor.deleteFrame", "Delete")
+                                accessibleName: TranslationManager.translate("profileEditor.deleteFrameAccessible", "Delete selected frame")
                                 destructive: true
                                 enabled: selectedStepIndex >= 0 && profile && profile.steps.length > 1
                                 onClicked: deleteStep(selectedStepIndex)
@@ -224,18 +224,18 @@ Page {
 
                             AccessibleButton {
                                 primary: true
-                                text: qsTr("Copy")
-                                accessibleName: qsTr("Duplicate selected frame")
+                                text: TranslationManager.translate("profileEditor.copyFrame", "Copy")
+                                accessibleName: TranslationManager.translate("profileEditor.duplicateFrameAccessible", "Duplicate selected frame")
                                 enabled: selectedStepIndex >= 0 && profile && profile.steps.length < 20
                                 onClicked: duplicateStep(selectedStepIndex)
                             }
 
                             StyledIconButton {
                                 text: "\u2190"
-                                accessibleName: qsTr("Move frame left")
+                                accessibleName: TranslationManager.translate("profileEditor.moveFrameLeft", "Move frame left")
                                 accessibleDescription: {
-                                    if (selectedStepIndex < 0) return qsTr("Select a frame first")
-                                    if (selectedStepIndex === 0) return qsTr("Frame is already first")
+                                    if (selectedStepIndex < 0) return TranslationManager.translate("profileEditor.selectFrameFirst", "Select a frame first")
+                                    if (selectedStepIndex === 0) return TranslationManager.translate("profileEditor.frameAlreadyFirst", "Frame is already first")
                                     return ""
                                 }
                                 enabled: selectedStepIndex > 0
@@ -244,10 +244,10 @@ Page {
 
                             StyledIconButton {
                                 text: "\u2192"
-                                accessibleName: qsTr("Move frame right")
+                                accessibleName: TranslationManager.translate("profileEditor.moveFrameRight", "Move frame right")
                                 accessibleDescription: {
-                                    if (selectedStepIndex < 0) return qsTr("Select a frame first")
-                                    if (profile && selectedStepIndex >= profile.steps.length - 1) return qsTr("Frame is already last")
+                                    if (selectedStepIndex < 0) return TranslationManager.translate("profileEditor.selectFrameFirst", "Select a frame first")
+                                    if (profile && selectedStepIndex >= profile.steps.length - 1) return TranslationManager.translate("profileEditor.frameAlreadyLast", "Frame is already last")
                                     return ""
                                 }
                                 enabled: selectedStepIndex >= 0 && selectedStepIndex < (profile ? profile.steps.length - 1 : 0)
@@ -294,14 +294,14 @@ Page {
                         visible: profile !== null
                         text: {
                             stepVersion  // Force re-evaluation on profile changes
-                            if (!profile) return qsTr("Profile Settings")
+                            if (!profile) return TranslationManager.translate("profileEditor.profileSettings", "Profile Settings")
                             var stopAtValue = profile.stop_at_type === "volume"
                                 ? (profile.target_volume || 36).toFixed(0) + "ml"
                                 : (profile.target_weight || 36).toFixed(0) + "g"
                             var temp = profile.steps.length > 0 ? profile.steps[0].temperature.toFixed(0) : "93"
-                            return qsTr("Profile Settings") + " (" + stopAtValue + ", " + temp + "°C)"
+                            return TranslationManager.translate("profileEditor.profileSettings", "Profile Settings") + " (" + stopAtValue + ", " + temp + "°C)"
                         }
-                        accessibleName: qsTr("Open profile settings")
+                        accessibleName: TranslationManager.translate("profileEditor.openProfileSettings", "Open profile settings")
                         onClicked: profileSettingsPopup.open()
                         background: Rectangle {
                             color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(255, 255, 255, 0.05)
@@ -356,7 +356,7 @@ Page {
             spacing: Theme.scaled(15)
 
             Text {
-                text: qsTr("Profile Settings")
+                text: TranslationManager.translate("profileEditor.profileSettingsTitle", "Profile Settings")
                 font: Theme.titleFont
                 color: Theme.textColor
             }
@@ -367,7 +367,7 @@ Page {
                 spacing: Theme.scaled(12)
 
                 Text {
-                    text: qsTr("Name")
+                    text: TranslationManager.translate("profileEditor.name", "Name")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.preferredWidth: Theme.scaled(80)
@@ -379,7 +379,7 @@ Page {
                     text: profile ? profile.title : ""
                     font: Theme.bodyFont
                     color: Theme.textColor
-                    placeholderText: qsTr("Profile name")
+                    placeholderText: TranslationManager.translate("profileEditor.profileNamePlaceholder", "Profile name")
                     placeholderTextColor: Theme.textSecondaryColor
                     leftPadding: Theme.scaled(12)
                     rightPadding: Theme.scaled(12)
@@ -407,7 +407,7 @@ Page {
                 spacing: Theme.scaled(12)
 
                 Text {
-                    text: qsTr("Stop at")
+                    text: TranslationManager.translate("profileEditor.stopAt", "Stop at")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.preferredWidth: Theme.scaled(80)
@@ -418,7 +418,7 @@ Page {
 
                     RadioButton {
                         id: stopAtWeightRadio
-                        text: qsTr("Weight")
+                        text: TranslationManager.translate("profileEditor.stopAtWeight", "Weight")
                         checked: !profile || profile.stop_at_type !== "volume"
                         contentItem: Text {
                             text: parent.text
@@ -438,7 +438,7 @@ Page {
 
                     RadioButton {
                         id: stopAtVolumeRadio
-                        text: qsTr("Volume")
+                        text: TranslationManager.translate("profileEditor.stopAtVolume", "Volume")
                         checked: profile && profile.stop_at_type === "volume"
                         contentItem: Text {
                             text: parent.text
@@ -468,7 +468,7 @@ Page {
                 Layout.fillWidth: true
                 visible: stopAtVolumeRadio.checked
                 property double puckRetention: Settings.dyeBeanWeight > 0 ? Math.round(Settings.dyeBeanWeight * 0.5) : 9
-                text: qsTr("Estimated volume equivalent (5g waste, %1g puck retention)").arg(puckRetention)
+                text: TranslationManager.translate("profileEditor.volumeEquivalentHint", "Estimated volume equivalent (5g waste, %1g puck retention)").arg(puckRetention)
                 font.pixelSize: Theme.scaled(11)
                 color: Theme.textSecondaryColor
                 wrapMode: Text.WordWrap
@@ -480,7 +480,7 @@ Page {
                 spacing: Theme.scaled(12)
 
                 Text {
-                    text: stopAtVolumeRadio.checked ? qsTr("Volume") : qsTr("Weight")
+                    text: stopAtVolumeRadio.checked ? TranslationManager.translate("profileEditor.volumeLabel", "Volume") : TranslationManager.translate("profileEditor.weightLabel", "Weight")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.preferredWidth: Theme.scaled(80)
@@ -500,7 +500,7 @@ Page {
                     suffix: stopAtVolumeRadio.checked ? " ml" : " g"
                     valueColor: stopAtVolumeRadio.checked ? Theme.flowColor : Theme.weightColor
                     accentColor: stopAtVolumeRadio.checked ? Theme.flowColor : Theme.weightColor
-                    accessibleName: stopAtVolumeRadio.checked ? qsTr("Target volume") : qsTr("Target weight")
+                    accessibleName: stopAtVolumeRadio.checked ? TranslationManager.translate("profileEditor.targetVolume", "Target volume") : TranslationManager.translate("profileEditor.targetWeight", "Target weight")
                     onValueModified: function(newValue) {
                         if (profile) {
                             if (stopAtVolumeRadio.checked) {
@@ -520,7 +520,7 @@ Page {
                 spacing: Theme.scaled(12)
 
                 Text {
-                    text: qsTr("All temps")
+                    text: TranslationManager.translate("profileEditor.allTemps", "All temps")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.preferredWidth: Theme.scaled(80)
@@ -539,7 +539,7 @@ Page {
                     suffix: "\u00B0C"
                     valueColor: Theme.temperatureColor
                     accentColor: Theme.temperatureGoalColor
-                    accessibleName: qsTr("Global temperature")
+                    accessibleName: TranslationManager.translate("profileEditor.globalTemperature", "Global temperature")
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
                             var delta = newValue - profile.steps[0].temperature
@@ -559,7 +559,7 @@ Page {
                 spacing: Theme.scaled(12)
 
                 Text {
-                    text: qsTr("Dose")
+                    text: TranslationManager.translate("profileEditor.dose", "Dose")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.preferredWidth: Theme.scaled(80)
@@ -601,7 +601,7 @@ Page {
                     suffix: " g"
                     valueColor: Theme.weightColor
                     accentColor: Theme.weightColor
-                    accessibleName: qsTr("Recommended dose")
+                    accessibleName: TranslationManager.translate("profileEditor.recommendedDose", "Recommended dose")
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.recommended_dose = newValue
@@ -614,9 +614,9 @@ Page {
             // Close button
             AccessibleButton {
                 Layout.alignment: Qt.AlignRight
-                text: qsTr("Done")
+                text: TranslationManager.translate("profileEditor.done", "Done")
                 primary: true
-                accessibleName: qsTr("Close profile settings")
+                accessibleName: TranslationManager.translate("profileEditor.closeProfileSettings", "Close profile settings")
                 onClicked: profileSettingsPopup.close()
             }
         }
@@ -625,7 +625,7 @@ Page {
     // Bottom bar
     BottomBar {
         id: bottomBar
-        title: profile ? profile.title : qsTr("Profile")
+        title: profile ? profile.title : TranslationManager.translate("profileEditor.profile", "Profile")
         onBackClicked: {
             if (profileModified) {
                 exitDialog.open()
@@ -644,7 +644,7 @@ Page {
         }
         Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3; visible: profile }
         Text {
-            text: profile ? profile.steps.length + " " + qsTr("frames") : ""
+            text: profile ? profile.steps.length + " " + TranslationManager.translate("profileEditor.frames", "frames") : ""
             color: "white"
             font: Theme.bodyFont
         }
@@ -662,8 +662,8 @@ Page {
             font: Theme.bodyFont
         }
         AccessibleButton {
-            text: qsTr("Done")
-            accessibleName: qsTr("Finish editing profile")
+            text: TranslationManager.translate("profileEditor.doneButton", "Done")
+            accessibleName: TranslationManager.translate("profileEditor.finishEditing", "Finish editing profile")
             onClicked: {
                 if (profileModified) {
                     exitDialog.open()
@@ -693,7 +693,7 @@ Page {
     // Save As dialog - just title input, filename derived automatically
     Dialog {
         id: saveAsDialog
-        title: qsTr("Save Profile As")
+        title: TranslationManager.translate("profileEditor.saveProfileAs", "Save Profile As")
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Theme.scaled(400)
@@ -757,7 +757,7 @@ Page {
     // Overwrite confirmation dialog
     Dialog {
         id: overwriteDialog
-        title: qsTr("Profile Exists")
+        title: TranslationManager.translate("profileEditor.profileExists", "Profile Exists")
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Theme.scaled(400)
@@ -882,7 +882,7 @@ Page {
                 // Pump mode
                 GroupBox {
                     Layout.fillWidth: true
-                    title: qsTr("Pump Mode")
+                    title: TranslationManager.translate("profileEditor.pumpMode", "Pump Mode")
                     background: Rectangle {
                         color: Qt.rgba(255, 255, 255, 0.05)
                         radius: Theme.scaled(8)
@@ -901,7 +901,7 @@ Page {
                         spacing: Theme.scaled(20)
 
                         RadioButton {
-                            text: qsTr("Pressure")
+                            text: TranslationManager.translate("profileEditor.pressure", "Pressure")
                             checked: { var v = stepVersion; return step && step.pump === "pressure" }
                             contentItem: Text {
                                 text: parent.text
@@ -919,7 +919,7 @@ Page {
                         }
 
                         RadioButton {
-                            text: qsTr("Flow")
+                            text: TranslationManager.translate("profileEditor.flow", "Flow")
                             checked: { var v = stepVersion; return step && step.pump === "flow" }
                             contentItem: Text {
                                 text: parent.text
@@ -944,7 +944,7 @@ Page {
                     spacing: Theme.scaled(12)
 
                     Text {
-                        text: step && step.pump === "flow" ? qsTr("Flow") : qsTr("Pressure")
+                        text: step && step.pump === "flow" ? TranslationManager.translate("profileEditor.flowValue", "Flow") : TranslationManager.translate("profileEditor.pressureValue", "Pressure")
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                         Layout.preferredWidth: Theme.scaled(80)
@@ -960,7 +960,7 @@ Page {
                         suffix: step && step.pump === "flow" ? " mL/s" : " bar"
                         valueColor: step && step.pump === "flow" ? Theme.flowColor : Theme.pressureColor
                         accentColor: step && step.pump === "flow" ? Theme.flowGoalColor : Theme.pressureGoalColor
-                        accessibleName: step && step.pump === "flow" ? qsTr("Flow setpoint") : qsTr("Pressure setpoint")
+                        accessibleName: step && step.pump === "flow" ? TranslationManager.translate("profileEditor.flowSetpoint", "Flow setpoint") : TranslationManager.translate("profileEditor.pressureSetpoint", "Pressure setpoint")
                         onValueModified: function(newValue) {
                             if (profile && selectedStepIndex >= 0) {
                                 if (profile.steps[selectedStepIndex].pump === "flow") {
@@ -997,7 +997,7 @@ Page {
                         suffix: "\u00B0C"
                         valueColor: Theme.temperatureColor
                         accentColor: Theme.temperatureGoalColor
-                        accessibleName: qsTr("Step temperature")
+                        accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature")
                         onValueModified: function(newValue) {
                             if (profile && selectedStepIndex >= 0) {
                                 profile.steps[selectedStepIndex].temperature = newValue
@@ -1030,7 +1030,7 @@ Page {
                         decimals: 0
                         suffix: "s"
                         accentColor: Theme.accentColor
-                        accessibleName: qsTr("Step duration")
+                        accessibleName: TranslationManager.translate("profileEditor.stepDuration", "Step duration")
                         onValueModified: function(newValue) {
                             if (profile && selectedStepIndex >= 0) {
                                 profile.steps[selectedStepIndex].seconds = newValue
@@ -1043,7 +1043,7 @@ Page {
                 // Transition
                 GroupBox {
                     Layout.fillWidth: true
-                    title: qsTr("Transition")
+                    title: TranslationManager.translate("profileEditor.transition", "Transition")
                     background: Rectangle {
                         color: Qt.rgba(255, 255, 255, 0.05)
                         radius: Theme.scaled(8)
@@ -1062,7 +1062,7 @@ Page {
                         spacing: Theme.scaled(20)
 
                         RadioButton {
-                            text: qsTr("Fast")
+                            text: TranslationManager.translate("profileEditor.fast", "Fast")
                             checked: { var v = stepVersion; return step && step.transition === "fast" }
                             contentItem: Text {
                                 text: parent.text
@@ -1080,7 +1080,7 @@ Page {
                         }
 
                         RadioButton {
-                            text: qsTr("Smooth")
+                            text: TranslationManager.translate("profileEditor.smooth", "Smooth")
                             checked: { var v = stepVersion; return step && step.transition === "smooth" }
                             contentItem: Text {
                                 text: parent.text
@@ -1102,7 +1102,7 @@ Page {
                 // Exit conditions (collapsible)
                 GroupBox {
                     Layout.fillWidth: true
-                    title: qsTr("Exit Condition")
+                    title: TranslationManager.translate("profileEditor.exitCondition", "Exit Condition")
                     background: Rectangle {
                         color: Qt.rgba(255, 255, 255, 0.05)
                         radius: Theme.scaled(8)
@@ -1122,7 +1122,7 @@ Page {
 
                         CheckBox {
                             id: exitIfCheck
-                            text: qsTr("Enable early exit")
+                            text: TranslationManager.translate("profileEditor.enableEarlyExit", "Enable early exit")
                             checked: { var v = stepVersion; return step ? step.exit_if : false }
                             contentItem: Text {
                                 text: parent.text
@@ -1143,7 +1143,7 @@ Page {
                             id: exitTypeCombo
                             Layout.fillWidth: true
                             enabled: exitIfCheck.checked
-                            model: [qsTr("Pressure Over"), qsTr("Pressure Under"), qsTr("Flow Over"), qsTr("Flow Under"), qsTr("Weight Over")]
+                            model: [TranslationManager.translate("profileEditor.pressureOver", "Pressure Over"), TranslationManager.translate("profileEditor.pressureUnder", "Pressure Under"), TranslationManager.translate("profileEditor.flowOver", "Flow Over"), TranslationManager.translate("profileEditor.flowUnder", "Flow Under"), TranslationManager.translate("profileEditor.weightOver", "Weight Over")]
                             contentItem: Text {
                                 text: exitTypeCombo.displayText
                                 font: Theme.bodyFont
@@ -1276,14 +1276,14 @@ Page {
                                 }
                             }
                             accessibleName: {
-                                if (!step) return qsTr("Exit value")
+                                if (!step) return TranslationManager.translate("profileEditor.exitValue", "Exit value")
                                 switch (step.exit_type) {
-                                    case "flow_over": return qsTr("Exit flow over")
-                                    case "flow_under": return qsTr("Exit flow under")
-                                    case "weight": return qsTr("Exit weight")
-                                    case "pressure_over": return qsTr("Exit pressure over")
-                                    case "pressure_under": return qsTr("Exit pressure under")
-                                    default: return qsTr("Exit value")
+                                    case "flow_over": return TranslationManager.translate("profileEditor.exitFlowOver", "Exit flow over")
+                                    case "flow_under": return TranslationManager.translate("profileEditor.exitFlowUnder", "Exit flow under")
+                                    case "weight": return TranslationManager.translate("profileEditor.exitWeight", "Exit weight")
+                                    case "pressure_over": return TranslationManager.translate("profileEditor.exitPressureOver", "Exit pressure over")
+                                    case "pressure_under": return TranslationManager.translate("profileEditor.exitPressureUnder", "Exit pressure under")
+                                    default: return TranslationManager.translate("profileEditor.exitValueDefault", "Exit value")
                                 }
                             }
                             onValueModified: function(newValue) {
@@ -1305,7 +1305,7 @@ Page {
                 // Sensor selection (coffee/water)
                 GroupBox {
                     Layout.fillWidth: true
-                    title: qsTr("Sensor")
+                    title: TranslationManager.translate("profileEditor.sensor", "Sensor")
                     background: Rectangle {
                         color: Qt.rgba(255, 255, 255, 0.05)
                         radius: Theme.scaled(8)
@@ -1324,7 +1324,7 @@ Page {
                         spacing: Theme.scaled(20)
 
                         RadioButton {
-                            text: qsTr("Coffee")
+                            text: TranslationManager.translate("profileEditor.coffee", "Coffee")
                             checked: { var v = stepVersion; return step && step.sensor === "coffee" }
                             contentItem: Text {
                                 text: parent.text
@@ -1342,7 +1342,7 @@ Page {
                         }
 
                         RadioButton {
-                            text: qsTr("Water")
+                            text: TranslationManager.translate("profileEditor.water", "Water")
                             checked: { var v = stepVersion; return step && step.sensor === "water" }
                             contentItem: Text {
                                 text: parent.text
@@ -1364,7 +1364,7 @@ Page {
                 // Maximum limits section
                 GroupBox {
                     Layout.fillWidth: true
-                    title: qsTr("Maximum Limits")
+                    title: TranslationManager.translate("profileEditor.maximumLimits", "Maximum Limits")
                     background: Rectangle {
                         color: Qt.rgba(255, 255, 255, 0.05)
                         radius: Theme.scaled(8)
@@ -1388,7 +1388,7 @@ Page {
                             spacing: Theme.scaled(8)
 
                             Text {
-                                text: qsTr("Volume")
+                                text: TranslationManager.translate("profileEditor.limitVolume", "Volume")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Layout.preferredWidth: Theme.scaled(60)
@@ -1404,7 +1404,7 @@ Page {
                                 suffix: " mL"
                                 valueColor: value > 0 ? Theme.flowColor : Theme.textSecondaryColor
                                 accentColor: Theme.flowColor
-                                accessibleName: qsTr("Step volume limit")
+                                accessibleName: TranslationManager.translate("profileEditor.stepVolumeLimit", "Step volume limit")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].volume = newValue
@@ -1420,7 +1420,7 @@ Page {
                             spacing: Theme.scaled(8)
 
                             Text {
-                                text: qsTr("Weight")
+                                text: TranslationManager.translate("profileEditor.limitWeight", "Weight")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Layout.preferredWidth: Theme.scaled(60)
@@ -1435,7 +1435,7 @@ Page {
                                 suffix: " g"
                                 valueColor: value > 0 ? Theme.weightColor : Theme.textSecondaryColor
                                 accentColor: Theme.weightColor
-                                accessibleName: qsTr("Step weight limit")
+                                accessibleName: TranslationManager.translate("profileEditor.stepWeightLimit", "Step weight limit")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].exit_weight = newValue
@@ -1451,7 +1451,7 @@ Page {
                 // Limiter section
                 GroupBox {
                     Layout.fillWidth: true
-                    title: step && step.pump === "flow" ? qsTr("Pressure Limit") : qsTr("Flow Limit")
+                    title: step && step.pump === "flow" ? TranslationManager.translate("profileEditor.pressureLimit", "Pressure Limit") : TranslationManager.translate("profileEditor.flowLimit", "Flow Limit")
                     background: Rectangle {
                         color: Qt.rgba(255, 255, 255, 0.05)
                         radius: Theme.scaled(8)
@@ -1475,7 +1475,7 @@ Page {
                             spacing: Theme.scaled(8)
 
                             Text {
-                                text: qsTr("Limit")
+                                text: TranslationManager.translate("profileEditor.limit", "Limit")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Layout.preferredWidth: Theme.scaled(60)
@@ -1490,7 +1490,7 @@ Page {
                                 suffix: step && step.pump === "flow" ? " bar" : " mL/s"
                                 valueColor: value > 0 ? Theme.warningColor : Theme.textSecondaryColor
                                 accentColor: Theme.warningColor
-                                accessibleName: step && step.pump === "flow" ? qsTr("Pressure limit") : qsTr("Flow limit")
+                                accessibleName: step && step.pump === "flow" ? TranslationManager.translate("profileEditor.pressureLimitAccessible", "Pressure limit") : TranslationManager.translate("profileEditor.flowLimitAccessible", "Flow limit")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].max_flow_or_pressure = newValue
@@ -1506,7 +1506,7 @@ Page {
                             spacing: Theme.scaled(8)
 
                             Text {
-                                text: qsTr("Range")
+                                text: TranslationManager.translate("profileEditor.range", "Range")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 Layout.preferredWidth: Theme.scaled(60)
@@ -1521,7 +1521,7 @@ Page {
                                 suffix: step && step.pump === "flow" ? " bar" : " mL/s"
                                 valueColor: Theme.textSecondaryColor
                                 accentColor: Theme.warningColor
-                                accessibleName: qsTr("Limiter range")
+                                accessibleName: TranslationManager.translate("profileEditor.limiterRange", "Limiter range")
                                 onValueModified: function(newValue) {
                                     if (profile && selectedStepIndex >= 0) {
                                         profile.steps[selectedStepIndex].max_flow_or_pressure_range = newValue
@@ -1539,7 +1539,7 @@ Page {
                     spacing: Theme.scaled(4)
 
                     Text {
-                        text: qsTr("Popup Message")
+                        text: TranslationManager.translate("profileEditor.popupMessage", "Popup Message")
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                     }
@@ -1550,7 +1550,7 @@ Page {
                         text: { var v = stepVersion; return step ? (step.popup || "") : "" }
                         font: Theme.bodyFont
                         color: Theme.textColor
-                        placeholderText: qsTr("e.g., Swirl now, $weight")
+                        placeholderText: TranslationManager.translate("profileEditor.popupMessagePlaceholder", "e.g., Swirl now, $weight")
                         placeholderTextColor: Theme.textSecondaryColor
                         leftPadding: Theme.scaled(12)
                         rightPadding: Theme.scaled(12)
@@ -1578,7 +1578,7 @@ Page {
     // Profile name edit dialog
     Dialog {
         id: profileNameDialog
-        title: qsTr("Edit Profile Name")
+        title: TranslationManager.translate("profileEditor.editProfileName", "Edit Profile Name")
         anchors.centerIn: parent
         width: Theme.scaled(400)
         modal: true
@@ -1646,7 +1646,7 @@ Page {
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.scaled(20)
                     anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("Switch to D-Flow Editor")
+                    text: TranslationManager.translate("profileEditor.switchToDFlowTitle", "Switch to D-Flow Editor")
                     font: Theme.titleFont
                     color: Theme.textColor
                 }
@@ -1668,7 +1668,7 @@ Page {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("This will simplify the profile to fit the D-Flow format.")
+                    text: TranslationManager.translate("profileEditor.dFlowSimplifyWarning", "This will simplify the profile to fit the D-Flow format.")
                     font: Theme.bodyFont
                     color: Theme.textColor
                     wrapMode: Text.WordWrap
@@ -1676,7 +1676,7 @@ Page {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("The converter will attempt to retain the main idea of your profile, but advanced settings like custom exit conditions, per-frame weight exits, and popup messages may be lost.")
+                    text: TranslationManager.translate("profileEditor.dFlowConvertWarning", "The converter will attempt to retain the main idea of your profile, but advanced settings like custom exit conditions, per-frame weight exits, and popup messages may be lost.")
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                     wrapMode: Text.WordWrap
@@ -1684,7 +1684,7 @@ Page {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("D-Flow profiles use a fixed structure: Fill → Bloom → Infuse → Ramp → Pour → Decline")
+                    text: TranslationManager.translate("profileEditor.dFlowStructure", "D-Flow profiles use a fixed structure: Fill → Bloom → Infuse → Ramp → Pour → Decline")
                     font: Theme.captionFont
                     color: Theme.warningColor
                     wrapMode: Text.WordWrap
@@ -1702,8 +1702,8 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(50)
-                    text: qsTr("Cancel")
-                    accessibleName: qsTr("Cancel and stay in Advanced Editor")
+                    text: TranslationManager.translate("profileEditor.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("profileEditor.cancelStayAdvanced", "Cancel and stay in Advanced Editor")
                     onClicked: switchToDFlowDialog.close()
                     background: Rectangle {
                         radius: Theme.buttonRadius
@@ -1723,8 +1723,8 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(50)
-                    text: qsTr("Convert")
-                    accessibleName: qsTr("Convert to D-Flow format")
+                    text: TranslationManager.translate("profileEditor.convert", "Convert")
+                    accessibleName: TranslationManager.translate("profileEditor.convertToDFlow", "Convert to D-Flow format")
                     onClicked: {
                         switchToDFlowDialog.close()
                         MainController.convertCurrentProfileToRecipe()
@@ -1840,9 +1840,9 @@ Page {
 
         // Announce the move for screen readers
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-            var name = step.name || qsTr("unnamed")
-            var direction = toIndex < fromIndex ? qsTr("left") : qsTr("right")
-            AccessibilityManager.announce(qsTr("Moved %1 %2 to position %3 of %4").arg(name).arg(direction).arg(toIndex + 1).arg(profile.steps.length))
+            var name = step.name || TranslationManager.translate("profileEditor.unnamed", "unnamed")
+            var direction = toIndex < fromIndex ? TranslationManager.translate("profileEditor.left", "left") : TranslationManager.translate("profileEditor.right", "right")
+            AccessibilityManager.announce(TranslationManager.translate("profileEditor.movedFrame", "Moved %1 %2 to position %3 of %4").arg(name).arg(direction).arg(toIndex + 1).arg(profile.steps.length))
         }
     }
 

@@ -259,7 +259,7 @@ KeyboardAwareContainer {
 
                         AccessibleButton {
                             text: TranslationManager.translate("settings.ai.refresh", "Refresh")
-                            accessibleName: qsTr("Refresh list of available Ollama AI models")
+                            accessibleName: TranslationManager.translate("settings.ai.refreshOllamaModels", "Refresh list of available Ollama AI models")
                             onClicked: MainController.aiManager?.refreshOllamaModels()
                         }
                     }
@@ -287,7 +287,7 @@ KeyboardAwareContainer {
                         primary: MainController.aiManager?.isConfigured ?? false
                         enabled: MainController.aiManager?.isConfigured ?? false
                         text: TranslationManager.translate("settings.ai.testconnection", "Test Connection")
-                        accessibleName: qsTr("Test connection to the AI service")
+                        accessibleName: TranslationManager.translate("settings.ai.testConnectionAccessible", "Test connection to the AI service")
                         onClicked: {
                             aiTab.testResultMessage = TranslationManager.translate("settings.ai.testing", "Testing...")
                             MainController.aiManager.testConnection()
@@ -331,8 +331,8 @@ KeyboardAwareContainer {
                               ? TranslationManager.translate("settings.ai.continueconversation", "Continue Chat")
                               : TranslationManager.translate("settings.ai.noconversation", "No Chat")
                         accessibleName: hasConversation
-                              ? qsTr("Continue previous AI conversation")
-                              : qsTr("No saved AI conversation")
+                              ? TranslationManager.translate("settings.ai.continueConversationAccessible", "Continue previous AI conversation")
+                              : TranslationManager.translate("settings.ai.noConversationAccessible", "No saved AI conversation")
                         onClicked: {
                             MainController.aiManager.conversation.loadFromStorage()
                             conversationOverlay.visible = true
@@ -388,7 +388,7 @@ KeyboardAwareContainer {
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.ai.conversation.clear", "Clear")
-                        accessibleName: qsTr("Clear entire AI conversation history")
+                        accessibleName: TranslationManager.translate("settings.ai.clearConversation", "Clear entire AI conversation history")
                         destructive: true
                         onClicked: {
                             MainController.aiManager?.conversation?.clearHistory()
@@ -473,7 +473,7 @@ KeyboardAwareContainer {
                         primary: conversationInput.text.length > 0
                         enabled: conversationInput.text.length > 0 && !(MainController.aiManager?.conversation?.busy ?? true)
                         text: TranslationManager.translate("settings.ai.conversation.send", "Send")
-                        accessibleName: qsTr("Send message to AI")
+                        accessibleName: TranslationManager.translate("settings.ai.sendMessage", "Send message to AI")
                         onClicked: conversationInput.sendMsg()
                     }
                 }

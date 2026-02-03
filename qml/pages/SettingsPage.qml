@@ -576,7 +576,7 @@ Page {
                                 stepSize: 1
                                 suffix: " g"
                                 valueColor: Theme.primaryColor
-                                accessibleName: qsTr("Measured weight")
+                                accessibleName: TranslationManager.translate("settingsPage.measuredWeight", "Measured weight")
 
                                 onValueModified: function(newValue) {
                                     weightInput.value = newValue
@@ -747,7 +747,7 @@ Page {
                             suffix: "g"
                             width: Theme.scaled(150)
                             Layout.alignment: Qt.AlignHCenter
-                            accessibleName: qsTr("Verification weight")
+                            accessibleName: TranslationManager.translate("settingsPage.verificationWeight", "Verification weight")
                             onValueModified: function(newValue) {
                                 flowCalibrationDialog.verificationActualWeight = newValue
                             }
@@ -922,7 +922,7 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("common.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel saving theme")
+                    accessibleName: TranslationManager.translate("settingsPage.cancelSavingTheme", "Cancel saving theme")
                     onClicked: saveThemeDialog.close()
                 }
 
@@ -930,7 +930,7 @@ Page {
                     Layout.fillWidth: true
                     primary: true
                     text: TranslationManager.translate("common.save", "Save")
-                    accessibleName: qsTr("Save current theme with entered name")
+                    accessibleName: TranslationManager.translate("settingsPage.saveThemeWithName", "Save current theme with entered name")
                     enabled: saveThemeDialog.themeName.trim().length > 0
                     onClicked: {
                         var name = saveThemeDialog.themeName.trim()

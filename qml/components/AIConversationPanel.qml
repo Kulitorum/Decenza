@@ -98,8 +98,8 @@ Item {
                 primary: true
                 text: conversation && conversation.busy ? "..." : root._buttonText
                 accessibleName: conversation && conversation.hasHistory
-                    ? qsTr("Send follow-up question to AI")
-                    : qsTr("Ask AI for recommendation")
+                    ? TranslationManager.translate("aiConversation.sendFollowUp", "Send follow-up question to AI")
+                    : TranslationManager.translate("aiConversation.askForRecommendation", "Ask AI for recommendation")
                 enabled: root._canAsk
 
                 onClicked: {
@@ -128,7 +128,7 @@ Item {
             AccessibleButton {
                 id: clearButton
                 text: "Clear"
-                accessibleName: qsTr("Clear AI conversation history")
+                accessibleName: TranslationManager.translate("aiConversation.clearHistory", "Clear AI conversation history")
                 visible: conversation && conversation.hasHistory
                 enabled: conversation && !conversation.busy
 

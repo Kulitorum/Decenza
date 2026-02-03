@@ -122,14 +122,14 @@ Page {
                     AccessibleButton {
                         visible: viewFilter.currentIndex === 1  // Cleaning/Descale view
                         text: TranslationManager.translate("profileselector.button.descaling_wizard", "Descaling Wizard")
-                        accessibleName: qsTr("Open descaling wizard to clean your machine")
+                        accessibleName: TranslationManager.translate("profileSelector.openDescalingWizard", "Open descaling wizard to clean your machine")
                         Layout.preferredHeight: Theme.scaled(44)
                         onClicked: root.goToDescaling()
                     }
 
                     AccessibleButton {
                         text: TranslationManager.translate("profileselector.button.import_visualizer", "From Visualizer")
-                        accessibleName: qsTr("Import profiles from Visualizer website")
+                        accessibleName: TranslationManager.translate("profileSelector.importFromVisualizer", "Import profiles from Visualizer website")
                         primary: true
                         Layout.preferredHeight: Theme.scaled(44)
                         onClicked: root.goToVisualizerBrowser()
@@ -140,8 +140,8 @@ Page {
                               TranslationManager.translate("profileselector.button.import_file", "Import File") :
                               TranslationManager.translate("profileselector.button.import_tablet", "From Tablet")
                         accessibleName: Qt.platform.os === "ios" ?
-                              qsTr("Import a profile file from Files app") :
-                              qsTr("Import profiles from Decent tablet")
+                              TranslationManager.translate("profileSelector.importFromFiles", "Import a profile file from Files app") :
+                              TranslationManager.translate("profileSelector.importFromTablet", "Import profiles from Decent tablet")
                         primary: true
                         Layout.preferredHeight: Theme.scaled(44)
                         onClicked: root.goToProfileImport()
@@ -669,7 +669,7 @@ Page {
                                     } else {
                                         // Select it (first click)
                                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                            AccessibilityManager.announce(root.cleanForSpeech(modelData.name) + " " + qsTr("selected"))
+                                            AccessibilityManager.announce(root.cleanForSpeech(modelData.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
                                         }
                                         Settings.selectedFavoriteProfile = index
                                     }
@@ -714,14 +714,14 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileselector.button.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel deletion and keep profile")
+                    accessibleName: TranslationManager.translate("profileSelector.cancelDeletion", "Cancel deletion and keep profile")
                     onClicked: deleteDialog.close()
                 }
 
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileselector.button.delete", "Delete")
-                    accessibleName: qsTr("Permanently delete this profile")
+                    accessibleName: TranslationManager.translate("profileSelector.permanentlyDeleteProfile", "Permanently delete this profile")
                     destructive: true
                     onClicked: {
                         MainController.deleteProfile(deleteDialog.profileName)

@@ -138,7 +138,7 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.themes.reset", "Reset")
-                        accessibleName: qsTr("Reset theme colors to default")
+                        accessibleName: TranslationManager.translate("settings.themes.resetAccessible", "Reset theme colors to default")
                         destructive: true
                         onClicked: Settings.resetThemeToDefault()
                     }
@@ -334,7 +334,7 @@ Item {
                     id: randomThemeBtn
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.themes.randomTheme", "Random Theme")
-                    accessibleName: qsTr("Apply a random color theme")
+                    accessibleName: TranslationManager.translate("settings.themes.randomThemeAccessible", "Apply a random color theme")
                     onClicked: {
                         var randomHue = Math.random() * 360
                         var randomSat = 65 + Math.random() * 20  // 65-85%

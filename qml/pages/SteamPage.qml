@@ -899,7 +899,7 @@ Page {
 
                 AccessibleButton {
                     text: deleteButtonText.text
-                    accessibleName: qsTr("Delete this pitcher preset")
+                    accessibleName: TranslationManager.translate("steam.deletePitcherPreset", "Delete this pitcher preset")
                     destructive: true
                     onClicked: {
                         Settings.removeSteamPitcherPreset(editingPitcherIndex)
@@ -911,14 +911,14 @@ Page {
 
                 AccessibleButton {
                     text: cancelButtonText.text
-                    accessibleName: qsTr("Cancel editing pitcher preset")
+                    accessibleName: TranslationManager.translate("steam.cancelEditingPitcher", "Cancel editing pitcher preset")
                     onClicked: editPitcherPopup.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: saveButtonText.text
-                    accessibleName: qsTr("Save changes to pitcher preset")
+                    accessibleName: TranslationManager.translate("steam.savePitcherChanges", "Save changes to pitcher preset")
                     onClicked: {
                         var preset = Settings.getSteamPitcherPreset(editingPitcherIndex)
                         Settings.updateSteamPitcherPreset(editingPitcherIndex, editPitcherNameInput.text, preset.duration, preset.flow)
@@ -1012,14 +1012,14 @@ Page {
 
                 AccessibleButton {
                     text: addCancelButtonText.text
-                    accessibleName: qsTr("Cancel adding new pitcher preset")
+                    accessibleName: TranslationManager.translate("steam.cancelAddingPitcher", "Cancel adding new pitcher preset")
                     onClicked: addPitcherDialog.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: addButtonText.text
-                    accessibleName: qsTr("Add new pitcher preset with entered name")
+                    accessibleName: TranslationManager.translate("steam.addNewPitcher", "Add new pitcher preset with entered name")
                     onClicked: {
                         if (newPitcherName.text.trim() !== "") {
                             var presetCount = Settings.steamPitcherPresets.length

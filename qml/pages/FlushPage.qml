@@ -561,7 +561,7 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("flush.button.delete", "Delete")
-                    accessibleName: qsTr("Delete this flush preset")
+                    accessibleName: TranslationManager.translate("flush.deletePreset", "Delete this flush preset")
                     destructive: true
                     onClicked: {
                         Settings.removeFlushPreset(editingPresetIndex)
@@ -573,14 +573,14 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("flush.button.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel editing flush preset")
+                    accessibleName: TranslationManager.translate("flush.cancelEditingPreset", "Cancel editing flush preset")
                     onClicked: editPresetPopup.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("flush.button.save", "Save")
-                    accessibleName: qsTr("Save changes to flush preset")
+                    accessibleName: TranslationManager.translate("flush.savePresetChanges", "Save changes to flush preset")
                     onClicked: {
                         var preset = Settings.getFlushPreset(editingPresetIndex)
                         Settings.updateFlushPreset(editingPresetIndex, editPresetNameInput.text, preset.flow, preset.seconds)
@@ -670,14 +670,14 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("flush.button.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel adding new flush preset")
+                    accessibleName: TranslationManager.translate("flush.cancelAddingPreset", "Cancel adding new flush preset")
                     onClicked: addPresetDialog.close()
                 }
 
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("flush.button.add", "Add")
-                    accessibleName: qsTr("Add new flush preset with entered name")
+                    accessibleName: TranslationManager.translate("flush.addNewPreset", "Add new flush preset with entered name")
                     onClicked: {
                         if (newPresetNameInput.text.length > 0) {
                             Settings.addFlushPreset(newPresetNameInput.text, 6.0, 5.0)

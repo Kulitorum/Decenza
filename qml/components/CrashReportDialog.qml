@@ -78,7 +78,7 @@ Dialog {
                     }
 
                     Text {
-                        text: qsTr("App Crashed")
+                        text: TranslationManager.translate("crashReport.appCrashed", "App Crashed")
                         font: Theme.titleFont
                         color: Theme.textColor
                     }
@@ -95,7 +95,7 @@ Dialog {
 
             // Message
             Text {
-                text: qsTr("The app crashed during the last session.\nWould you like to send a crash report to help us fix this issue?")
+                text: TranslationManager.translate("crashReport.message", "The app crashed during the last session.\nWould you like to send a crash report to help us fix this issue?")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -128,7 +128,7 @@ Dialog {
                         Layout.fillWidth: true
 
                         Text {
-                            text: qsTr("Crash Details")
+                            text: TranslationManager.translate("crashReport.crashDetails", "Crash Details")
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
                         }
@@ -136,7 +136,7 @@ Dialog {
                         Item { Layout.fillWidth: true }
 
                         Text {
-                            text: parent.parent.parent.detailsExpanded ? qsTr("Hide") : qsTr("Show")
+                            text: parent.parent.parent.detailsExpanded ? TranslationManager.translate("crashReport.hide", "Hide") : TranslationManager.translate("crashReport.show", "Show")
                             font: Theme.labelFont
                             color: Theme.primaryColor
 
@@ -169,7 +169,7 @@ Dialog {
 
             // User notes input
             Text {
-                text: qsTr("What were you doing? (optional)")
+                text: TranslationManager.translate("crashReport.whatWereYouDoing", "What were you doing? (optional)")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
                 Layout.leftMargin: Theme.scaled(20)
@@ -193,7 +193,7 @@ Dialog {
                     anchors.margins: Theme.scaled(8)
                     font: Theme.bodyFont
                     color: Theme.textColor
-                    placeholderText: qsTr("e.g., 'Steaming milk after a shot'")
+                    placeholderText: TranslationManager.translate("crashReport.placeholder", "e.g., 'Steaming milk after a shot'")
                     placeholderTextColor: Qt.rgba(Theme.textSecondaryColor.r, Theme.textSecondaryColor.g, Theme.textSecondaryColor.b, 0.5)
                     wrapMode: TextArea.Wrap
                     background: null
@@ -213,8 +213,8 @@ Dialog {
                 AccessibleButton {
                     width: parent.buttonWidth
                     height: parent.buttonHeight
-                    text: qsTr("Dismiss")
-                    accessibleName: qsTr("Dismiss crash report")
+                    text: TranslationManager.translate("crashReport.dismiss", "Dismiss")
+                    accessibleName: TranslationManager.translate("crashReport.dismissAccessible", "Dismiss crash report")
                     onClicked: {
                         root.close()
                         root.dismissed()
@@ -238,8 +238,8 @@ Dialog {
                 AccessibleButton {
                     width: parent.buttonWidth
                     height: parent.buttonHeight
-                    text: qsTr("Send Report")
-                    accessibleName: qsTr("Send crash report")
+                    text: TranslationManager.translate("crashReport.sendReport", "Send Report")
+                    accessibleName: TranslationManager.translate("crashReport.sendReportAccessible", "Send crash report")
                     onClicked: {
                         root.dialogState = "submitting"
                         CrashReporter.submitReport(crashLog, userNotesInput.text, debugLogTail)
@@ -274,7 +274,7 @@ Dialog {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: qsTr("Submitting crash report...")
+                text: TranslationManager.translate("crashReport.submitting", "Submitting crash report...")
                 font: Theme.bodyFont
                 color: Theme.textColor
             }
@@ -313,7 +313,7 @@ Dialog {
                     }
 
                     Text {
-                        text: qsTr("Report Submitted")
+                        text: TranslationManager.translate("crashReport.reportSubmitted", "Report Submitted")
                         font: Theme.titleFont
                         color: Theme.textColor
                     }
@@ -329,7 +329,7 @@ Dialog {
             }
 
             Text {
-                text: qsTr("Thank you! Your crash report has been submitted and will help us improve the app.")
+                text: TranslationManager.translate("crashReport.thankYou", "Thank you! Your crash report has been submitted and will help us improve the app.")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -339,7 +339,7 @@ Dialog {
 
             Text {
                 visible: issueUrl !== ""
-                text: qsTr("View issue on GitHub")
+                text: TranslationManager.translate("crashReport.viewOnGithub", "View issue on GitHub")
                 font: Theme.bodyFont
                 color: Theme.primaryColor
                 Layout.leftMargin: Theme.scaled(20)
@@ -362,8 +362,8 @@ Dialog {
                     anchors.right: parent.right
                     width: Theme.scaled(120)
                     height: parent.height
-                    text: qsTr("OK")
-                    accessibleName: qsTr("Close dialog")
+                    text: TranslationManager.translate("crashReport.ok", "OK")
+                    accessibleName: TranslationManager.translate("crashReport.closeDialog", "Close dialog")
                     onClicked: {
                         root.close()
                         root.reported()
@@ -418,7 +418,7 @@ Dialog {
                     }
 
                     Text {
-                        text: qsTr("Submission Failed")
+                        text: TranslationManager.translate("crashReport.submissionFailed", "Submission Failed")
                         font: Theme.titleFont
                         color: Theme.textColor
                     }
@@ -434,7 +434,7 @@ Dialog {
             }
 
             Text {
-                text: qsTr("Failed to submit crash report:\n%1").arg(errorMessage)
+                text: TranslationManager.translate("crashReport.failedToSubmit", "Failed to submit crash report:\n%1").arg(errorMessage)
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -457,8 +457,8 @@ Dialog {
                 AccessibleButton {
                     width: parent.buttonWidth
                     height: parent.buttonHeight
-                    text: qsTr("Dismiss")
-                    accessibleName: qsTr("Dismiss crash report")
+                    text: TranslationManager.translate("crashReport.dismiss", "Dismiss")
+                    accessibleName: TranslationManager.translate("crashReport.dismissAccessible", "Dismiss crash report")
                     onClicked: {
                         root.close()
                         root.dismissed()
@@ -482,8 +482,8 @@ Dialog {
                 AccessibleButton {
                     width: parent.buttonWidth
                     height: parent.buttonHeight
-                    text: qsTr("Retry")
-                    accessibleName: qsTr("Retry sending crash report")
+                    text: TranslationManager.translate("crashReport.retry", "Retry")
+                    accessibleName: TranslationManager.translate("crashReport.retryAccessible", "Retry sending crash report")
                     onClicked: {
                         root.dialogState = "submitting"
                         CrashReporter.submitReport(crashLog, userNotesInput.text, debugLogTail)

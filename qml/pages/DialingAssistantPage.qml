@@ -108,7 +108,7 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("dialingassistant.button.goback", "Go Back")
-                    accessibleName: qsTr("Return to previous page")
+                    accessibleName: TranslationManager.translate("dialingAssistant.returnToPreviousPage", "Return to previous page")
                     Layout.alignment: Qt.AlignHCenter
                     onClicked: pageStack.pop()
                 }
@@ -199,7 +199,7 @@ Page {
                     primary: enabled
                     text: MainController.aiManager && MainController.aiManager.conversation &&
                           MainController.aiManager.conversation.busy ? "..." : TranslationManager.translate("dialingassistant.followup.button", "Ask")
-                    accessibleName: qsTr("Send follow-up question about dialing in")
+                    accessibleName: TranslationManager.translate("dialingAssistant.sendFollowUpQuestion", "Send follow-up question about dialing in")
                     enabled: followUpInput.text.length > 0 &&
                              MainController.aiManager && MainController.aiManager.conversation &&
                              !MainController.aiManager.conversation.busy

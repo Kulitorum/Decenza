@@ -59,7 +59,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(250)
                     Layout.preferredHeight: Theme.scaled(60)
                     text: TranslationManager.translate("profileimport.ios.choose_file", "Choose Profile File")
-                    accessibleName: qsTr("Open file picker to select a profile file")
+                    accessibleName: TranslationManager.translate("profileImport.openFilePicker", "Open file picker to select a profile file")
                     primary: true
                     enabled: !MainController.profileImporter.isImporting
                     onClicked: profileFileDialog.open()
@@ -109,14 +109,14 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.rescan", "Rescan")
-                    accessibleName: qsTr("Rescan for profiles from Decent tablet")
+                    accessibleName: TranslationManager.translate("profileImport.rescanProfiles", "Rescan for profiles from Decent tablet")
                     enabled: !MainController.profileImporter.isScanning
                     onClicked: MainController.profileImporter.scanProfiles()
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.import_all", "Import All New")
-                    accessibleName: qsTr("Import all new profiles at once")
+                    accessibleName: TranslationManager.translate("profileImport.importAllNew", "Import all new profiles at once")
                     primary: true
                     visible: MainController.profileImporter.availableProfiles.length > 0
                     enabled: !MainController.profileImporter.isImporting && !MainController.profileImporter.isScanning
@@ -125,7 +125,7 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.update_all", "Update All")
-                    accessibleName: qsTr("Update all profiles that have changed")
+                    accessibleName: TranslationManager.translate("profileImport.updateAllChanged", "Update all profiles that have changed")
                     warning: true
                     visible: {
                         // Only show if there are profiles with "different" status
@@ -275,8 +275,8 @@ Page {
                                   TranslationManager.translate("profileimport.button.update", "Update") :
                                   TranslationManager.translate("profileimport.button.import", "Import")
                             accessibleName: profileDelegate.isDifferent ?
-                                  qsTr("Update profile %1 with newer version").arg(profileData.title) :
-                                  qsTr("Import profile %1").arg(profileData.title)
+                                  TranslationManager.translate("profileImport.updateProfileVersion", "Update profile %1 with newer version").arg(profileData.title) :
+                                  TranslationManager.translate("profileImport.importProfile", "Import profile %1").arg(profileData.title)
                             warning: profileDelegate.isDifferent
                             primary: !profileDelegate.isDifferent
                             enabled: !MainController.profileImporter.isImporting
@@ -381,7 +381,7 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileimport.button.overwrite", "Overwrite")
-                    accessibleName: qsTr("Overwrite existing profile with this version")
+                    accessibleName: TranslationManager.translate("profileImport.overwriteExisting", "Overwrite existing profile with this version")
                     destructive: true
                     onClicked: {
                         MainController.profileImporter.saveOverwrite()
@@ -392,7 +392,7 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileimport.button.save_as_new", "Save as New")
-                    accessibleName: qsTr("Save as a new profile with different name")
+                    accessibleName: TranslationManager.translate("profileImport.saveAsNewProfile", "Save as a new profile with different name")
                     primary: true
                     onClicked: {
                         duplicateDialog.showNameInput = true
@@ -402,7 +402,7 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileimport.button.cancel", "Cancel")
-                    accessibleName: qsTr("Cancel import and close dialog")
+                    accessibleName: TranslationManager.translate("profileImport.cancelImport", "Cancel import and close dialog")
                     onClicked: {
                         MainController.profileImporter.cancelImport()
                         duplicateDialog.close()
@@ -419,7 +419,7 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileimport.button.save", "Save")
-                    accessibleName: qsTr("Save profile with the new name")
+                    accessibleName: TranslationManager.translate("profileImport.saveWithNewName", "Save profile with the new name")
                     primary: true
                     enabled: newNameInput.text.trim().length > 0
                     onClicked: {
@@ -431,7 +431,7 @@ Page {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileimport.button.back", "Back")
-                    accessibleName: qsTr("Go back to choose a different option")
+                    accessibleName: TranslationManager.translate("profileImport.goBackToChoose", "Go back to choose a different option")
                     onClicked: {
                         duplicateDialog.showNameInput = false
                     }
