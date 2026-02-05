@@ -293,6 +293,21 @@ QString MainController::currentProfileName() const {
     return m_currentProfile.title();
 }
 
+bool MainController::isDFlowTitle(const QString& title) {
+    // Check if title indicates a D-Flow profile (matching de1app behavior)
+    // Ignores leading * (modified indicator that may come from imports)
+    QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
+    return t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive);
+}
+
+bool MainController::isCurrentProfileRecipe() const {
+    // Match de1app behavior: detect D-Flow profiles by title prefix at runtime
+    if (m_currentProfile.isRecipeMode()) {
+        return true;
+    }
+    return isDFlowTitle(m_currentProfile.title());
+}
+
 double MainController::targetWeight() const {
     if (m_settings && m_settings->hasBrewYieldOverride()) {
         return m_settings->brewYieldOverride();
@@ -1012,7 +1027,7 @@ void MainController::refreshProfiles() {
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.source = ProfileSource::BuiltIn;
-        info.isRecipeMode = isRecipeMode;
+        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1039,7 +1054,7 @@ void MainController::refreshProfiles() {
             info.title = title.isEmpty() ? name : title;
             info.beverageType = beverageType;
             info.source = ProfileSource::UserCreated;  // All SAF profiles are user-created
-            info.isRecipeMode = isRecipeMode;
+            info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
             m_allProfiles.append(info);
 
             m_availableProfiles.append(name);
@@ -1063,7 +1078,7 @@ void MainController::refreshProfiles() {
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.source = ProfileSource::Downloaded;
-        info.isRecipeMode = isRecipeMode;
+        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1086,7 +1101,7 @@ void MainController::refreshProfiles() {
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.source = ProfileSource::UserCreated;
-        info.isRecipeMode = isRecipeMode;
+        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1381,7 +1396,12 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     qDebug() << "Recipe profile uploaded with" << m_currentProfile.steps().size() << "frames";
 }
 
-QVariantMap MainController::getCurrentRecipeParams() const {
+QVariantMap MainController::getCurrentRecipeParams() {
+    if (!m_currentProfile.isRecipeMode() && isDFlowTitle(m_currentProfile.title())) {
+        // Auto-convert D-Flow profiles (detected by title prefix, matching de1app behavior)
+        RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
+        qDebug() << "Auto-converted D-Flow profile to recipe mode:" << m_currentProfile.title();
+    }
     if (m_currentProfile.isRecipeMode()) {
         return m_currentProfile.recipeParams().toVariantMap();
     }

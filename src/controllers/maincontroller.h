@@ -121,7 +121,8 @@ public:
     bool isCalibrationMode() const { return m_calibrationMode; }
     bool isSawSettling() const;
     QString currentFrameName() const { return m_currentFrameName; }
-    bool isCurrentProfileRecipe() const { return m_currentProfile.isRecipeMode(); }
+    bool isCurrentProfileRecipe() const;
+    static bool isDFlowTitle(const QString& title);  // Check if title indicates D-Flow profile
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
     ProfileConverter* profileConverter() const { return m_profileConverter; }
@@ -156,7 +157,7 @@ public:
 
     // Recipe Editor methods (DEPRECATED - kept for backward compatibility)
     Q_INVOKABLE void uploadRecipeProfile(const QVariantMap& recipeParams);
-    Q_INVOKABLE QVariantMap getCurrentRecipeParams() const;
+    Q_INVOKABLE QVariantMap getCurrentRecipeParams();
     Q_INVOKABLE void createNewRecipe(const QString& title = "New Recipe");
     Q_INVOKABLE void applyRecipePreset(const QString& presetName);
 
