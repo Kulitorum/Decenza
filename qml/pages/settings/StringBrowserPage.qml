@@ -60,7 +60,23 @@ Page {
     Connections {
         target: TranslationManager
         function onTranslationsChanged() {
+            // Save scroll position before refresh
+            var savedContentY = stringListView.contentY
+            var savedKey = stringListView.lastEditedKey
             stringModel.refresh()
+            // Restore scroll position after refresh
+            if (savedKey) {
+                // Find the index of the last edited item by key
+                for (var i = 0; i < stringModel.count; i++) {
+                    if (stringModel.get(i).fallback === savedKey) {
+                        stringListView.lastEditedIndex = i
+                        break
+                    }
+                }
+                stringListView.lastEditedKey = ""
+            }
+            // Restore contentY immediately
+            stringListView.contentY = savedContentY
         }
     }
 
@@ -369,8 +385,9 @@ Page {
             Accessible.name: isEnglish ? "String customization list" : "Translation list"
             Accessible.description: stringModel.count + " strings. Swipe to navigate, double tap to edit."
 
-            // Track last edited index for scroll restoration
+            // Track last edited index/key for scroll restoration
             property int lastEditedIndex: -1
+            property string lastEditedKey: ""
             property real lastContentY: 0
 
             // Center editing item in visible area (accounting for keyboard)
@@ -668,8 +685,9 @@ Page {
                                     TranslationManager.setGroupTranslation(model.fallback, newText)
                                 }
 
-                                // Save position before layout changes
+                                // Save position before layout changes (use key for lookup after refresh)
                                 stringListView.lastEditedIndex = index
+                                stringListView.lastEditedKey = model.fallback
                                 stringListView.lastContentY = stringListView.contentY
 
                                 stringBrowserPage.isEditing = false
