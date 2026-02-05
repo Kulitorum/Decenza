@@ -3474,6 +3474,7 @@ QString ShotServer::generateUploadPage() const
             color: var(--text-secondary);
             font-size: 0.875rem;
         }
+)HTML" R"HTML(
         .warning {
             margin-top: 1.5rem;
             padding: 1rem;
@@ -5982,6 +5983,10 @@ QString ShotServer::generateLayoutPage() const
             justify-content: center;
         }
         .ai-overlay.open { display: flex; }
+)HTML";
+
+    // Part 2b: AI dialog and remaining CSS
+    html += R"HTML(
         .ai-dialog {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -6401,7 +6406,10 @@ QString ShotServer::generateLayoutPage() const
         }
         panel.innerHTML = html;
     }
+)HTML";
 
+    // Part 5b: Layout editor JS - interaction handlers
+    html += R"HTML(
     function chipClick(itemId, zone, type) {
         if (selectedChip && selectedChip.id === itemId) {
             // Deselect
@@ -6617,7 +6625,10 @@ QString ShotServer::generateLayoutPage() const
             if (cb) cb(result);
         });
     }
+)HTML";
 
+    // Part 5c: Layout editor JS - AI dialog
+    html += R"HTML(
     // ---- AI Dialog ----
 
     function openAiDialog() {

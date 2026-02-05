@@ -2537,11 +2537,9 @@ QString Settings::generateItemId(const QString& type) const {
 }
 
 QString Settings::layoutConfiguration() const {
-    QString stored = m_settings.value("layout/configuration").toString();
-    if (stored.isEmpty()) {
-        return defaultLayoutJson();
-    }
-    return stored;
+    // Use getLayoutObject() to ensure migrations are applied (e.g. statusBar zone)
+    QJsonObject layout = getLayoutObject();
+    return QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
 }
 
 void Settings::setLayoutConfiguration(const QString& json) {
