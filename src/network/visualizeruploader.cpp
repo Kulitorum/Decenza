@@ -106,6 +106,15 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
         return;
     }
 
+    // Skip maintenance profiles (cleaning, calibration, descaling)
+    if (profile) {
+        QString bevType = profile->beverageType();
+        if (bevType == "cleaning" || bevType == "calibrate" || bevType == "descale") {
+            qDebug() << "Visualizer: Skipping upload for maintenance profile:" << bevType;
+            return;
+        }
+    }
+
     // Check credentials
     QString username = m_settings->value("visualizer/username", "").toString();
     QString password = m_settings->value("visualizer/password", "").toString();
@@ -195,6 +204,21 @@ void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
     if (shotData.isEmpty()) {
         emit uploadFailed("No shot data available");
         return;
+    }
+
+    // Skip maintenance profiles (cleaning, calibration, descaling)
+    {
+        QString profileJson = shotData["profileJson"].toString();
+        if (!profileJson.isEmpty()) {
+            QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+            if (!profileDoc.isNull()) {
+                QString bevType = profileDoc.object()["beverage_type"].toString();
+                if (bevType == "cleaning" || bevType == "calibrate" || bevType == "descale") {
+                    qDebug() << "Visualizer: Skipping upload for maintenance profile:" << bevType;
+                    return;
+                }
+            }
+        }
     }
 
     // Check credentials

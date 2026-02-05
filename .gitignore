@@ -43,3 +43,4 @@ screenshot.png
 logcat_*.txt
 -.zip
 .claude/
+.DS_Store
