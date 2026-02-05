@@ -8,6 +8,7 @@
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
+#include "../ai/aimanager.h"
 #include "version.h"
 
 #include <QNetworkInterface>
@@ -3473,6 +3474,7 @@ QString ShotServer::generateUploadPage() const
             color: var(--text-secondary);
             font-size: 0.875rem;
         }
+)HTML" R"HTML(
         .warning {
             margin-top: 1.5rem;
             padding: 1rem;
@@ -5686,6 +5688,120 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         m_settings->setZoneYOffset(zone, offset);
         sendJson(socket, R"({"success":true})");
     }
+    else if (path == "/api/layout/ai") {
+        if (!m_aiManager) {
+            sendJson(socket, R"({"error":"AI manager not available"})");
+            return;
+        }
+        if (!m_aiManager->isConfigured()) {
+            sendJson(socket, R"({"error":"No AI provider configured. Go to Settings \u2192 AI on the machine to set up a provider."})");
+            return;
+        }
+        if (m_aiManager->isAnalyzing()) {
+            sendJson(socket, R"({"error":"AI is already processing a request. Please wait."})");
+            return;
+        }
+        QString userPrompt = obj["prompt"].toString();
+        if (userPrompt.isEmpty()) {
+            sendJson(socket, R"({"error":"Missing prompt"})");
+            return;
+        }
+
+        // Build system prompt with layout context
+        QString currentLayout = m_settings ? m_settings->layoutConfiguration() : "{}";
+        QString systemPrompt = QStringLiteral(
+            "You are a layout designer for the Decenza DE1 espresso machine controller app. "
+            "The app has a customizable layout with these zones:\n"
+            "- statusBar: Top status bar visible on ALL pages (compact horizontal bar)\n"
+            "- topLeft / topRight: Top bar of home screen (compact)\n"
+            "- centerStatus: Status readouts area (large widgets)\n"
+            "- centerTop: Main action buttons area (large buttons)\n"
+            "- centerMiddle: Info display area (large widgets)\n"
+            "- bottomLeft / bottomRight: Bottom bar of home screen (compact)\n\n"
+            "Available widget types:\n"
+            "- espresso: Espresso button (with profile presets)\n"
+            "- steam: Steam button (with pitcher presets)\n"
+            "- hotwater: Hot water button (with vessel presets)\n"
+            "- flush: Flush button (with flush presets)\n"
+            "- beans: Bean presets button\n"
+            "- history: Shot history navigation\n"
+            "- autofavorites: Auto-favorites navigation\n"
+            "- sleep: Put machine to sleep\n"
+            "- settings: Navigate to settings\n"
+            "- temperature: Group head temperature (tap to tare scale)\n"
+            "- steamTemperature: Steam boiler temperature\n"
+            "- waterLevel: Water tank level (ml or %)\n"
+            "- connectionStatus: Machine online/offline indicator\n"
+            "- scaleWeight: Scale weight with tare/ratio (tap=tare, double-tap=ratio)\n"
+            "- shotPlan: Shot plan summary (profile, dose, yield)\n"
+            "- pageTitle: Current page name (for status bar)\n"
+            "- spacer: Flexible empty space (fills available width)\n"
+            "- separator: Thin vertical line divider\n"
+            "- text: Custom text with variable substitution (%TEMP%, %STEAM_TEMP%, %WEIGHT%, %PROFILE%, %TIME%, etc.)\n"
+            "- weather: Weather display\n\n"
+            "Each item needs a unique 'id' (format: typename + number, e.g. 'espresso1', 'temp_sb1').\n"
+            "The 'offsets' object can have vertical offsets for center zones (e.g. centerStatus: -65).\n\n"
+            "Current layout:\n%1\n\n"
+            "Respond with ONLY the complete layout JSON (no markdown, no explanation). "
+            "The JSON must have 'version':1, 'zones' object with all zone arrays, and optional 'offsets' object."
+        ).arg(currentLayout);
+
+        // Store socket for async response
+        m_pendingAiSocket = socket;
+
+        // Connect to AI signals (one-shot)
+        auto onResult = [this](const QString& recommendation) {
+            if (!m_pendingAiSocket) return;
+
+            // Try to parse as JSON to validate
+            QJsonDocument doc = QJsonDocument::fromJson(recommendation.toUtf8());
+            if (doc.isObject() && doc.object().contains("zones")) {
+                // Valid layout JSON - apply it
+                if (m_settings) {
+                    m_settings->setLayoutConfiguration(recommendation);
+                }
+                QJsonObject response;
+                response["success"] = true;
+                response["layout"] = doc.object();
+                sendJson(m_pendingAiSocket, QJsonDocument(response).toJson(QJsonDocument::Compact));
+            } else {
+                // AI returned text, not valid JSON - send as suggestion
+                QJsonObject response;
+                response["success"] = false;
+                response["message"] = recommendation;
+                sendJson(m_pendingAiSocket, QJsonDocument(response).toJson(QJsonDocument::Compact));
+            }
+            m_pendingAiSocket = nullptr;
+        };
+
+        auto onError = [this](const QString& error) {
+            if (!m_pendingAiSocket) return;
+            QJsonObject response;
+            response["error"] = error;
+            sendJson(m_pendingAiSocket, QJsonDocument(response).toJson(QJsonDocument::Compact));
+            m_pendingAiSocket = nullptr;
+        };
+
+        // One-shot connections
+        QMetaObject::Connection* resultConn = new QMetaObject::Connection();
+        QMetaObject::Connection* errorConn = new QMetaObject::Connection();
+        *resultConn = connect(m_aiManager, &AIManager::recommendationReceived, this, [=](const QString& r) {
+            onResult(r);
+            disconnect(*resultConn);
+            disconnect(*errorConn);
+            delete resultConn;
+            delete errorConn;
+        });
+        *errorConn = connect(m_aiManager, &AIManager::errorOccurred, this, [=](const QString& e) {
+            onError(e);
+            disconnect(*resultConn);
+            disconnect(*errorConn);
+            delete resultConn;
+            delete errorConn;
+        });
+
+        m_aiManager->analyze(systemPrompt, userPrompt);
+    }
     else {
         sendResponse(socket, 404, "application/json", R"({"error":"Unknown layout endpoint"})");
     }
@@ -5856,6 +5972,61 @@ QString ShotServer::generateLayoutPage() const
         }
         .reset-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+        /* AI dialog */
+        .ai-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        .ai-overlay.open { display: flex; }
+)HTML";
+
+    // Part 2b: AI dialog and remaining CSS
+    html += R"HTML(
+        .ai-dialog {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: min(90vw, 540px);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .ai-dialog h3 { color: var(--accent); margin: 0 0 1rem; font-size: 1rem; }
+        .ai-prompt {
+            width: 100%;
+            min-height: 80px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.875rem;
+            padding: 0.75rem;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .ai-prompt:focus { border-color: var(--accent); outline: none; }
+        .ai-result {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: var(--text);
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .ai-result.error { border-color: #f85149; color: #f85149; }
+        .ai-result.success { border-color: var(--accent); }
+        .ai-loading { color: var(--text-secondary); font-style: italic; }
+        .ai-btns { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.75rem; }
+
         /* Text editor panel */
         .editor-card {
             background: var(--surface);
@@ -5989,6 +6160,7 @@ QString ShotServer::generateLayoutPage() const
                 <h1>Layout Editor</h1>
             </div>
             <div class="header-right">
+                <button class="reset-btn" onclick="openAiDialog()" style="border-color:var(--accent);color:var(--accent)">&#10024; Ask AI</button>
                 <button class="reset-btn" onclick="resetLayout()">Reset to Default</button>
 )HTML";
     html += generateMenuHtml();
@@ -6000,6 +6172,19 @@ QString ShotServer::generateLayoutPage() const
 
     // Part 4: Main content
     html += R"HTML(
+    <!-- AI Dialog -->
+    <div class="ai-overlay" id="aiOverlay" onclick="if(event.target===this)closeAiDialog()">
+        <div class="ai-dialog">
+            <h3>&#10024; Ask AI to Design Your Layout</h3>
+            <textarea class="ai-prompt" id="aiPrompt" placeholder="Describe what you want, e.g.&#10;&#10;&bull; Add steam temperature to the status bar&#10;&bull; Minimalist layout with just espresso and steam&#10;&bull; Put the clock in the top right corner&#10;&bull; Move settings to the status bar"></textarea>
+            <div id="aiResultArea"></div>
+            <div class="ai-btns">
+                <button class="btn btn-cancel" onclick="closeAiDialog()">Close</button>
+                <button class="btn btn-save" id="aiSendBtn" onclick="sendAiPrompt()">Generate</button>
+            </div>
+        </div>
+    </div>
+
     <div class="main-layout">
         <div class="zones-panel" id="zonesPanel"></div>
         <div class="editor-panel editor-hidden" id="editorPanel">
@@ -6095,6 +6280,7 @@ QString ShotServer::generateLayoutPage() const
     var currentAction = "";
 
     var ZONES = [
+        {key: "statusBar", label: "Status Bar (All Pages)", hasOffset: false},
         {key: "topLeft", label: "Top Bar (Left)", hasOffset: false},
         {key: "topRight", label: "Top Bar (Right)", hasOffset: false},
         {key: "centerStatus", label: "Center - Top", hasOffset: true},
@@ -6110,18 +6296,22 @@ QString ShotServer::generateLayoutPage() const
         {type:"beans",label:"Beans"},{type:"history",label:"History"},
         {type:"autofavorites",label:"Favorites"},{type:"sleep",label:"Sleep"},
         {type:"settings",label:"Settings"},{type:"temperature",label:"Temperature"},
+        {type:"steamTemperature",label:"Steam Temp"},
         {type:"waterLevel",label:"Water Level"},{type:"connectionStatus",label:"Connection"},
         {type:"scaleWeight",label:"Scale Weight"},{type:"shotPlan",label:"Shot Plan"},
-        {type:"spacer",label:"Spacer",special:true},{type:"text",label:"Text",special:true},
+        {type:"pageTitle",label:"Page Title",special:true},
+        {type:"spacer",label:"Spacer",special:true},{type:"separator",label:"Separator",special:true},
+        {type:"text",label:"Text",special:true},
         {type:"weather",label:"Weather",special:true}
     ];
 
     var DISPLAY_NAMES = {
         espresso:"Espresso",steam:"Steam",hotwater:"Hot Water",flush:"Flush",
         beans:"Beans",history:"History",autofavorites:"Favorites",sleep:"Sleep",
-        settings:"Settings",temperature:"Temp",waterLevel:"Water",
-        connectionStatus:"Connection",scaleWeight:"Scale",shotPlan:"Shot Plan",
-        spacer:"Spacer",text:"Text",weather:"Weather"
+        settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
+        waterLevel:"Water",connectionStatus:"Connection",scaleWeight:"Scale",
+        shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
+        text:"Text",weather:"Weather"
     };
 
     var ACTIONS = [
@@ -6158,8 +6348,8 @@ QString ShotServer::generateLayoutPage() const
             var items = (layoutData && layoutData.zones && layoutData.zones[zone.key]) || [];
 
             // Pair top and bottom zones side by side
-            var isPairStart = (z === 0 || z === 5);
-            var isPairEnd = (z === 1 || z === 6);
+            var isPairStart = (zone.key === "topLeft" || zone.key === "bottomLeft");
+            var isPairEnd = (zone.key === "topRight" || zone.key === "bottomRight");
             if (isPairStart) html += '<div class="zone-row">';
 
             html += '<div class="zone-card" style="' + (isPairStart || isPairEnd ? 'flex:1' : '') + '">';
@@ -6180,7 +6370,7 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="chips-area">';
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
-                var isSpecial = item.type === "spacer" || item.type === "text" || item.type === "weather";
+                var isSpecial = item.type === "spacer" || item.type === "text" || item.type === "weather" || item.type === "separator" || item.type === "pageTitle";
                 var isSel = selectedChip && selectedChip.id === item.id;
                 var cls = "chip" + (isSel ? " selected" : "") + (isSpecial ? " special" : "");
                 html += '<span class="' + cls + '" onclick="chipClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">';
@@ -6216,7 +6406,10 @@ QString ShotServer::generateLayoutPage() const
         }
         panel.innerHTML = html;
     }
+)HTML";
 
+    // Part 5b: Layout editor JS - interaction handlers
+    html += R"HTML(
     function chipClick(itemId, zone, type) {
         if (selectedChip && selectedChip.id === itemId) {
             // Deselect
@@ -6431,6 +6624,60 @@ QString ShotServer::generateLayoutPage() const
         }).then(function(r){return r.json()}).then(function(result) {
             if (cb) cb(result);
         });
+    }
+)HTML";
+
+    // Part 5c: Layout editor JS - AI dialog
+    html += R"HTML(
+    // ---- AI Dialog ----
+
+    function openAiDialog() {
+        document.getElementById("aiOverlay").classList.add("open");
+        document.getElementById("aiPrompt").focus();
+        document.getElementById("aiResultArea").innerHTML = "";
+    }
+
+    function closeAiDialog() {
+        document.getElementById("aiOverlay").classList.remove("open");
+    }
+
+    function sendAiPrompt() {
+        var prompt = document.getElementById("aiPrompt").value.trim();
+        if (!prompt) return;
+        var btn = document.getElementById("aiSendBtn");
+        btn.disabled = true;
+        btn.textContent = "Thinking...";
+        document.getElementById("aiResultArea").innerHTML = '<div class="ai-result ai-loading">AI is generating your layout...</div>';
+
+        fetch("/api/layout/ai", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({prompt: prompt})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.textContent = "Generate";
+            if (data.error) {
+                document.getElementById("aiResultArea").innerHTML = '<div class="ai-result error">' + escapeHtml(data.error) + '</div>';
+            } else if (data.success) {
+                document.getElementById("aiResultArea").innerHTML = '<div class="ai-result success">Layout applied successfully!</div>';
+                loadLayout();
+            } else if (data.message) {
+                document.getElementById("aiResultArea").innerHTML = '<div class="ai-result">' + escapeHtml(data.message) + '</div>';
+            }
+        })
+        .catch(function(err) {
+            btn.disabled = false;
+            btn.textContent = "Generate";
+            document.getElementById("aiResultArea").innerHTML = '<div class="ai-result error">Request failed: ' + escapeHtml(err.message) + '</div>';
+        });
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
     }
 
     // Initial load

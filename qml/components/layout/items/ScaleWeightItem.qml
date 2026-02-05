@@ -10,18 +10,71 @@ Item {
 
     property bool isFlowScale: ScaleDevice && ScaleDevice.name === "Flow Scale"
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
+    property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+
+    // Scale warning: saved scale not connected or connection failed
+    property bool showScaleWarning: BLEManager.scaleConnectionFailed || (BLEManager.hasSavedScale && !root.scaleConnected)
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+
+    // Shared color logic
+    function scaleColor(pressed) {
+        if (pressed) return Theme.accentColor
+        if (MainController.brewByRatioActive) return Theme.primaryColor
+        if (root.isFlowScale) return Theme.textSecondaryColor
+        return Theme.weightColor
+    }
+
+    function weightText() {
+        var weight = MachineState.scaleWeight.toFixed(1)
+        var suffix = root.isFlowScale ? "g~" : "g"
+        if (MainController.brewByRatioActive) {
+            return weight + suffix + " 1:" + MainController.brewByRatio.toFixed(1)
+        }
+        return weight + suffix
+    }
 
     // --- COMPACT MODE ---
     Item {
         id: compactContent
         visible: root.isCompact
         anchors.fill: parent
-        implicitWidth: compactScaleRow.implicitWidth
-        implicitHeight: compactScaleRow.implicitHeight
+        implicitWidth: compactWarning.visible ? compactWarning.implicitWidth : compactScaleRow.implicitWidth
+        implicitHeight: compactWarning.visible ? compactWarning.implicitHeight : compactScaleRow.implicitHeight
 
+        // Scale warning (connecting / not found) - tap to scan
+        Rectangle {
+            id: compactWarning
+            visible: root.showScaleWarning && !root.scaleConnected
+            anchors.centerIn: parent
+            width: compactWarningRow.implicitWidth + Theme.spacingMedium
+            height: Theme.touchTargetMin
+            color: BLEManager.scaleConnectionFailed ? Theme.errorColor : "transparent"
+            radius: Theme.scaled(4)
+
+            Row {
+                id: compactWarningRow
+                anchors.centerIn: parent
+                spacing: Theme.spacingSmall
+
+                Tr {
+                    key: BLEManager.scaleConnectionFailed ? "statusbar.scale_not_found" : "statusbar.scale_ellipsis"
+                    fallback: BLEManager.scaleConnectionFailed ? "Scale not found" : "Scale..."
+                    color: BLEManager.scaleConnectionFailed ? "white" : Theme.textSecondaryColor
+                    font: Theme.bodyFont
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: BLEManager.scanForScales()
+            }
+        }
+
+        // Scale connected: weight display with tare/ratio interaction
         Row {
             id: compactScaleRow
             anchors.centerIn: parent
@@ -33,31 +86,103 @@ Item {
                 width: Theme.scaled(8)
                 height: Theme.scaled(8)
                 radius: Theme.scaled(4)
-                color: root.isFlowScale ? Theme.textSecondaryColor : Theme.weightColor
+                color: root.scaleColor(scaleMouseArea.pressed)
             }
 
             Text {
-                text: {
-                    var weight = MachineState.scaleWeight.toFixed(1)
-                    var suffix = root.isFlowScale ? "g~" : "g"
-                    if (MainController.brewByRatioActive) {
-                        return weight + suffix + " 1:" + MainController.brewByRatio.toFixed(1)
-                    }
-                    return weight + suffix
-                }
-                color: MainController.brewByRatioActive ? Theme.primaryColor
-                     : root.isFlowScale ? Theme.textSecondaryColor
-                     : Theme.weightColor
+                text: root.weightText()
+                color: root.scaleColor(scaleMouseArea.pressed)
                 font: Theme.bodyFont
             }
         }
 
+        // Disconnected (no saved scale)
         Text {
             anchors.centerIn: parent
-            visible: !root.scaleConnected
+            visible: !root.scaleConnected && !root.showScaleWarning
             text: "--"
             color: Theme.textSecondaryColor
             font: Theme.bodyFont
+        }
+
+        // Tare / ratio interaction overlay
+        MouseArea {
+            id: scaleMouseArea
+            anchors.fill: parent
+            anchors.margins: -Theme.spacingSmall
+            visible: root.scaleConnected
+            cursorShape: Qt.PointingHandCursor
+
+            property int tapCount: 0
+            property var lastTapTime: 0
+            property bool longPressTriggered: false
+
+            onPressed: {
+                longPressTriggered = false
+                if (root.accessibilityEnabled && !MachineState.isFlowing) {
+                    longPressTimer.start()
+                }
+            }
+
+            onReleased: {
+                longPressTimer.stop()
+                if (longPressTriggered) {
+                    longPressTriggered = false
+                    return
+                }
+            }
+
+            onCanceled: {
+                longPressTimer.stop()
+                longPressTriggered = false
+            }
+
+            onClicked: {
+                if (longPressTriggered) return
+
+                if (MachineState.isFlowing) {
+                    MachineState.tareScale()
+                    return
+                }
+
+                var now = Date.now()
+                var timeSinceLast = now - lastTapTime
+
+                if (timeSinceLast < 300) {
+                    tapCount++
+                } else {
+                    tapCount = 1
+                }
+                lastTapTime = now
+
+                if (tapCount >= 2) {
+                    tapCount = 0
+                    singleTapTimer.stop()
+                    scaleBrewDialog.open()
+                } else {
+                    singleTapTimer.restart()
+                }
+            }
+        }
+
+        Timer {
+            id: longPressTimer
+            interval: 600
+            onTriggered: {
+                scaleMouseArea.longPressTriggered = true
+                scaleBrewDialog.open()
+            }
+        }
+
+        Timer {
+            id: singleTapTimer
+            interval: 300
+            onTriggered: {
+                if (scaleMouseArea.tapCount === 1) {
+                    MachineState.tareScale()
+                }
+                scaleMouseArea.tapCount = 0
+            }
         }
     }
 
@@ -77,17 +202,8 @@ Item {
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 visible: root.scaleConnected
-                text: {
-                    var weight = MachineState.scaleWeight.toFixed(1)
-                    var suffix = root.isFlowScale ? "g~" : "g"
-                    if (MainController.brewByRatioActive) {
-                        return weight + suffix + " 1:" + MainController.brewByRatio.toFixed(1)
-                    }
-                    return weight + suffix
-                }
-                color: MainController.brewByRatioActive ? Theme.primaryColor
-                     : root.isFlowScale ? Theme.textSecondaryColor
-                     : Theme.weightColor
+                text: root.weightText()
+                color: root.scaleColor(false)
                 font: Theme.valueFont
             }
 
@@ -107,5 +223,10 @@ Item {
                 font: Theme.labelFont
             }
         }
+    }
+
+    // Brew settings dialog (temperature, dose, grind, ratio, yield)
+    BrewDialog {
+        id: scaleBrewDialog
     }
 }

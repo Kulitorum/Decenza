@@ -148,7 +148,7 @@ Rectangle {
                             text: getItemDisplayName(modelData.type)
                             color: modelData.id === root.selectedItemId
                                 ? "white"
-                                : ((modelData.type === "spacer" || modelData.type === "text" || modelData.type === "weather") ? "orange" : Theme.textColor)
+                                : ((modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "text" || modelData.type === "weather") ? "orange" : Theme.textColor)
                             font: Theme.bodyFont
                         }
 
@@ -280,11 +280,14 @@ Rectangle {
                             { type: "sleep", label: "Sleep" },
                             { type: "settings", label: "Settings" },
                             { type: "temperature", label: "Temperature" },
+                            { type: "steamTemperature", label: "Steam Temp" },
                             { type: "waterLevel", label: "Water Level" },
                             { type: "connectionStatus", label: "Connection" },
                             { type: "scaleWeight", label: "Scale Weight" },
                             { type: "shotPlan", label: "Shot Plan" },
+                            { type: "pageTitle", label: "Page Title" },
                             { type: "spacer", label: "Spacer" },
+                            { type: "separator", label: "Separator" },
                             { type: "text", label: "Text" },
                             { type: "weather", label: "Weather" }
                         ]
@@ -300,7 +303,7 @@ Rectangle {
                                 anchors.leftMargin: Theme.scaled(12)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.label
-                                color: (modelData.type === "spacer" || modelData.type === "text" || modelData.type === "weather") ? "orange" : Theme.textColor
+                                color: (modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "text" || modelData.type === "weather") ? "orange" : Theme.textColor
                                 font: Theme.bodyFont
                             }
 
@@ -332,9 +335,11 @@ Rectangle {
             "espresso": "Espresso", "steam": "Steam", "hotwater": "Hot Water",
             "flush": "Flush", "beans": "Beans", "history": "History",
             "autofavorites": "Favorites", "sleep": "Sleep", "settings": "Settings",
-            "temperature": "Temp", "waterLevel": "Water",
+            "temperature": "Temp", "steamTemperature": "Steam Temp",
+            "waterLevel": "Water",
             "connectionStatus": "Connection", "scaleWeight": "Scale",
-            "shotPlan": "Shot Plan", "spacer": "Spacer", "text": "Text",
+            "shotPlan": "Shot Plan", "pageTitle": "Page Title",
+            "spacer": "Spacer", "separator": "Sep", "text": "Text",
             "weather": "Weather"
         }
         return names[type] || type

@@ -85,7 +85,7 @@ Item {
 
     // Ensure there's always a way to reach Settings from the home screen
     function ensureSettingsAccessible() {
-        var zones = ["topLeft", "topRight", "centerStatus", "centerTop",
+        var zones = ["statusBar", "topLeft", "topRight", "centerStatus", "centerTop",
                      "centerMiddle", "bottomLeft", "bottomRight"]
         for (var z = 0; z < zones.length; z++) {
             var items = Settings.getZoneItems(zones[z])
@@ -152,6 +152,23 @@ Item {
                 font: Theme.captionFont
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
+            }
+
+            // Status Bar zone (visible on all pages)
+            LayoutEditorZone {
+                Layout.fillWidth: true
+                zoneName: "statusBar"
+                zoneLabel: TranslationManager.translate("settings.layout.zone.statusbar", "Status Bar (All Pages)")
+                items: layoutTab.getZoneItems("statusBar")
+                selectedItemId: layoutTab.selectedItemId
+
+                onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "statusBar") }
+                onZoneTapped: layoutTab.onZoneTapped("statusBar")
+                onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "statusBar") }
+                onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "statusBar") }
+                onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
+                onAddItemRequested: function(type) { Settings.addItem(type, "statusBar") }
+                onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
             }
 
             // Zone cards - paired top zones

@@ -10,7 +10,7 @@ Loader {
     readonly property string itemId: modelData.id || ""
 
     // Is this a bar zone (compact rendering)?
-    readonly property bool isCompact: zoneName.startsWith("top") || zoneName.startsWith("bottom")
+    readonly property bool isCompact: zoneName.startsWith("top") || zoneName.startsWith("bottom") || zoneName === "statusBar"
 
     source: {
         var src = ""
@@ -32,6 +32,9 @@ Loader {
             case "spacer":           src = "items/SpacerItem.qml"; break
             case "text":             src = "items/TextItem.qml"; break
             case "weather":          src = "items/WeatherItem.qml"; break
+            case "pageTitle":        src = "items/PageTitleItem.qml"; break
+            case "steamTemperature": src = "items/SteamTemperatureItem.qml"; break
+            case "separator":        src = "items/SeparatorItem.qml"; break
             default:                 src = ""; break
         }
         console.log("[IdlePage] type:", itemType, "zone:", zoneName, "compact:", isCompact, "source:", src)

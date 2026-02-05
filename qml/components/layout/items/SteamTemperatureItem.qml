@@ -8,14 +8,13 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
-    readonly property double effectiveTargetTemp: Settings.hasTemperatureOverride
-        ? Settings.temperatureOverride
-        : MainController.profileTargetTemperature
+    readonly property real currentTemp: DE1Device.steamTemperature
+    readonly property real targetTemp: Settings.steamTemperature
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
-    // --- COMPACT MODE (bar rendering) ---
+    // --- COMPACT MODE (bar / status bar rendering) ---
     Item {
         id: compactContent
         visible: root.isCompact
@@ -26,8 +25,8 @@ Item {
         Text {
             id: compactTemp
             anchors.centerIn: parent
-            text: DE1Device.temperature.toFixed(1) + "\u00B0C"
-            color: Theme.temperatureColor
+            text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C\u2009\u2668" : "\u2014"
+            color: Theme.warningColor
             font: Theme.bodyFont
         }
 
@@ -35,11 +34,10 @@ Item {
             anchors.fill: parent
             anchors.margins: -Theme.spacingSmall
             onClicked: {
-                MachineState.tareScale()
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var announcement = "Group temperature: " + DE1Device.temperature.toFixed(1) + " degrees, target: " + root.effectiveTargetTemp.toFixed(0) + " degrees"
-                    if (Settings.hasTemperatureOverride) announcement += " (override active)"
-                    AccessibilityManager.announceLabel(announcement)
+                    AccessibilityManager.announceLabel(
+                        "Steam temperature: " + root.currentTemp.toFixed(0) +
+                        " degrees, target: " + root.targetTemp.toFixed(0) + " degrees")
                 }
             }
         }
@@ -62,34 +60,24 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(4)
                 Text {
-                    text: DE1Device.temperature.toFixed(1) + "\u00B0C"
-                    color: Theme.temperatureColor
+                    text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
+                    color: Theme.warningColor
                     font: Theme.valueFont
                 }
                 Text {
                     anchors.baseline: parent.children[0].baseline
-                    text: "/ " + root.effectiveTargetTemp.toFixed(1) + "\u00B0C"
-                    color: Settings.hasTemperatureOverride ? Theme.primaryColor : Theme.textSecondaryColor
+                    text: "/ " + root.targetTemp.toFixed(0) + "\u00B0C"
+                    color: Theme.textSecondaryColor
                     font.family: Theme.valueFont.family
                     font.pixelSize: Theme.valueFont.pixelSize / 2
                 }
             }
 
-            Row {
+            Text {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: Theme.scaled(4)
-                Tr {
-                    key: "idle.label.grouptemp"
-                    fallback: "Group Temp"
-                    color: Theme.textSecondaryColor
-                    font: Theme.labelFont
-                }
-                Text {
-                    visible: Settings.hasTemperatureOverride
-                    text: "(override)"
-                    color: Theme.primaryColor
-                    font: Theme.labelFont
-                }
+                text: "Steam Temp"
+                color: Theme.textSecondaryColor
+                font: Theme.labelFont
             }
         }
 
@@ -97,9 +85,9 @@ Item {
             anchors.fill: parent
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var announcement = "Group temperature: " + DE1Device.temperature.toFixed(1) + " degrees, target: " + root.effectiveTargetTemp.toFixed(0) + " degrees"
-                    if (Settings.hasTemperatureOverride) announcement += " (override active)"
-                    AccessibilityManager.announceLabel(announcement)
+                    AccessibilityManager.announceLabel(
+                        "Steam temperature: " + root.currentTemp.toFixed(0) +
+                        " degrees, target: " + root.targetTemp.toFixed(0) + " degrees")
                 }
             }
         }

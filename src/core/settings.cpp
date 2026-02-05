@@ -2458,6 +2458,17 @@ QString Settings::defaultLayoutJson() const {
         QJsonObject({{"type", "autofavorites"}, {"id", "autofavorites1"}}),
         QJsonObject({{"type", "settings"}, {"id", "settings1"}}),
     });
+    zones["statusBar"] = QJsonArray({
+        QJsonObject({{"type", "pageTitle"}, {"id", "pagetitle1"}}),
+        QJsonObject({{"type", "spacer"}, {"id", "spacer_sb1"}}),
+        QJsonObject({{"type", "temperature"}, {"id", "temp_sb1"}}),
+        QJsonObject({{"type", "separator"}, {"id", "sep_sb1"}}),
+        QJsonObject({{"type", "waterLevel"}, {"id", "water_sb1"}}),
+        QJsonObject({{"type", "separator"}, {"id", "sep_sb2"}}),
+        QJsonObject({{"type", "scaleWeight"}, {"id", "scale_sb1"}}),
+        QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
+        QJsonObject({{"type", "connectionStatus"}, {"id", "conn_sb1"}}),
+    });
 
     layout["zones"] = zones;
     return QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
@@ -2472,7 +2483,26 @@ QJsonObject Settings::getLayoutObject() const {
     if (doc.isNull() || !doc.isObject()) {
         return QJsonDocument::fromJson(defaultLayoutJson().toUtf8()).object();
     }
-    return doc.object();
+    QJsonObject layout = doc.object();
+
+    // Migration: ensure statusBar zone exists for configs created before this feature
+    QJsonObject zones = layout["zones"].toObject();
+    if (!zones.contains("statusBar")) {
+        zones["statusBar"] = QJsonArray({
+            QJsonObject({{"type", "pageTitle"}, {"id", "pagetitle1"}}),
+            QJsonObject({{"type", "spacer"}, {"id", "spacer_sb1"}}),
+            QJsonObject({{"type", "temperature"}, {"id", "temp_sb1"}}),
+            QJsonObject({{"type", "separator"}, {"id", "sep_sb1"}}),
+            QJsonObject({{"type", "waterLevel"}, {"id", "water_sb1"}}),
+            QJsonObject({{"type", "separator"}, {"id", "sep_sb2"}}),
+            QJsonObject({{"type", "scaleWeight"}, {"id", "scale_sb1"}}),
+            QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
+            QJsonObject({{"type", "connectionStatus"}, {"id", "conn_sb1"}}),
+        });
+        layout["zones"] = zones;
+    }
+
+    return layout;
 }
 
 void Settings::saveLayoutObject(const QJsonObject& layout) {
@@ -2507,11 +2537,9 @@ QString Settings::generateItemId(const QString& type) const {
 }
 
 QString Settings::layoutConfiguration() const {
-    QString stored = m_settings.value("layout/configuration").toString();
-    if (stored.isEmpty()) {
-        return defaultLayoutJson();
-    }
-    return stored;
+    // Use getLayoutObject() to ensure migrations are applied (e.g. statusBar zone)
+    QJsonObject layout = getLayoutObject();
+    return QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
 }
 
 void Settings::setLayoutConfiguration(const QString& json) {

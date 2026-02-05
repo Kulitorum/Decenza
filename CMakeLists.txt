@@ -454,6 +454,9 @@ set(QML_FILES
     qml/components/layout/items/SpacerItem.qml
     qml/components/layout/items/TextItem.qml
     qml/components/layout/items/WeatherItem.qml
+    qml/components/layout/items/PageTitleItem.qml
+    qml/components/layout/items/SteamTemperatureItem.qml
+    qml/components/layout/items/SeparatorItem.qml
     qml/components/layout/TextEditorPopup.qml
 )
 

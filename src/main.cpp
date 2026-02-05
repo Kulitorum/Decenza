@@ -198,8 +198,9 @@ int main(int argc, char *argv[])
     ScreensaverVideoManager screensaverManager(&settings, &profileStorage);
     checkpoint("ScreensaverVideoManager");
 
-    // Connect screensaver manager to shot server for personal media upload
+    // Connect screensaver manager and AI manager to shot server
     mainController.shotServer()->setScreensaverVideoManager(&screensaverManager);
+    mainController.shotServer()->setAIManager(&aiManager);
 
     // Connect screensaver manager to data migration client for media import
     mainController.dataMigration()->setScreensaverVideoManager(&screensaverManager);
