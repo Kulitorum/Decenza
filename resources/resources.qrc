@@ -46,6 +46,7 @@
         <file>icons/temperature.svg</file>
         <file>icons/tick.svg</file>
         <file>icons/usb.svg</file>
+        <file>icons/quit.svg</file>
         <file>icons/wifi.svg</file>
         <!-- GHC Simulator -->
         <file>GHC_Small.png</file>

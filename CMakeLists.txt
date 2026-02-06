@@ -443,6 +443,7 @@ set(QML_FILES
     qml/components/layout/items/PageTitleItem.qml
     qml/components/layout/items/SteamTemperatureItem.qml
     qml/components/layout/items/SeparatorItem.qml
+    qml/components/layout/items/QuitItem.qml
     qml/components/layout/TextEditorPopup.qml
 )
 

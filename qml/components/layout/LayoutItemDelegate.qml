@@ -35,6 +35,7 @@ Loader {
             case "pageTitle":        src = "items/PageTitleItem.qml"; break
             case "steamTemperature": src = "items/SteamTemperatureItem.qml"; break
             case "separator":        src = "items/SeparatorItem.qml"; break
+            case "quit":             src = "items/QuitItem.qml"; break
             default:                 src = ""; break
         }
         return src ? Qt.resolvedUrl(src) : ""

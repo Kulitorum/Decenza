@@ -289,7 +289,8 @@ Rectangle {
                             { type: "spacer", label: "Spacer" },
                             { type: "separator", label: "Separator" },
                             { type: "text", label: "Text" },
-                            { type: "weather", label: "Weather" }
+                            { type: "weather", label: "Weather" },
+                            { type: "quit", label: "Quit" }
                         ]
 
                         delegate: Rectangle {
@@ -340,7 +341,8 @@ Rectangle {
             "connectionStatus": "Connection", "scaleWeight": "Scale",
             "shotPlan": "Shot Plan", "pageTitle": "Page Title",
             "spacer": "Spacer", "separator": "Sep", "text": "Text",
-            "weather": "Weather"
+            "weather": "Weather",
+            "quit": "Quit"
         }
         return names[type] || type
     }
