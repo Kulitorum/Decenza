@@ -44,6 +44,33 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-macos-v2'
 
+      - name: Install Apple Developer ID certificate
+        env:
+          P12_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/developer_id_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # Decode from base64
+          echo -n "$P12_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # Verify certificate
+          echo "Installed certificates:"
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
       - name: Configure CMake
         run: |
           mkdir -p build/macos
@@ -68,6 +95,30 @@ jobs:
 
           echo "Bundled frameworks:"
           ls -la "$APP_PATH/Contents/Frameworks/" | head -20
+
+      - name: Sign the application
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          APP_PATH="build/macos/Release/Decenza_DE1.app"
+
+          # Unlock keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Sign all nested components first, then the app itself
+          # --options runtime enables hardened runtime (required for notarization)
+          # --deep signs nested code
+          # --force replaces any existing signatures
+          codesign --deep --force --options runtime \
+            --sign "Developer ID Application: Michael Holm (HKHN2RK2P4)" \
+            "$APP_PATH"
+
+          # Verify signature
+          echo "Verifying signature..."
+          codesign -dvv "$APP_PATH"
+          codesign --verify --strict "$APP_PATH"
+          echo "Signature verified successfully"
 
       - name: Create DMG
         run: |
@@ -100,6 +151,43 @@ jobs:
           echo "Created: $DMG_NAME"
           ls -la "$DMG_NAME"
 
+      - name: Sign the DMG
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
+
+          # Unlock keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Sign the DMG
+          codesign --force --sign "Developer ID Application: Michael Holm (HKHN2RK2P4)" "$DMG_NAME"
+
+          echo "DMG signed successfully"
+
+      - name: Notarize the DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_APP_PASSWORD: ${{ secrets.APPLE_ID_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
+
+          echo "Submitting for notarization..."
+          xcrun notarytool submit "$DMG_NAME" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_ID_APP_PASSWORD" \
+            --wait
+
+          echo "Stapling notarization ticket to DMG..."
+          xcrun stapler staple "$DMG_NAME"
+
+          echo "Notarization complete!"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -124,3 +212,8 @@ jobs:
 
           echo "Uploading to release: $TAG"
           gh release upload "$TAG" "$DMG_NAME" --clobber || echo "Release $TAG not found, skipping upload"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
