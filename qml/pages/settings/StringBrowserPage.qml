@@ -60,23 +60,24 @@ Page {
     Connections {
         target: TranslationManager
         function onTranslationsChanged() {
-            // Save scroll position before refresh
-            var savedContentY = stringListView.contentY
-            var savedKey = stringListView.lastEditedKey
+            // Save the fallback key of the first visible item (before refresh)
+            var savedKey = ""
+            var firstVisibleIndex = stringListView.indexAt(0, stringListView.contentY + 10)
+            if (firstVisibleIndex >= 0 && firstVisibleIndex < stringModel.count) {
+                savedKey = stringModel.get(firstVisibleIndex).fallback
+            }
+
             stringModel.refresh()
-            // Restore scroll position after refresh
+
+            // Find and scroll back to the saved item
             if (savedKey) {
-                // Find the index of the last edited item by key
                 for (var i = 0; i < stringModel.count; i++) {
                     if (stringModel.get(i).fallback === savedKey) {
-                        stringListView.lastEditedIndex = i
+                        stringListView.positionViewAtIndex(i, ListView.Beginning)
                         break
                     }
                 }
-                stringListView.lastEditedKey = ""
             }
-            // Restore contentY immediately
-            stringListView.contentY = savedContentY
         }
     }
 
@@ -135,6 +136,29 @@ Page {
                             var translated = total - untranslated
                             var percent = Math.round((translated / Math.max(1, total)) * 100)
                             return "Translation progress: " + percent + " percent. " + translated + " of " + total + " strings translated."
+                        }
+                    }
+
+                    // Clear All AI button (hidden for English)
+                    Rectangle {
+                        visible: !isEnglish
+                        width: Theme.scaled(80)
+                        height: Theme.scaled(36)
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: clearAiArea.pressed ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
+                        radius: Theme.buttonRadius
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Clear AI"
+                            font: Theme.bodyFont
+                            color: "white"
+                        }
+
+                        MouseArea {
+                            id: clearAiArea
+                            anchors.fill: parent
+                            onClicked: clearAiPopup.open()
                         }
                     }
 
@@ -385,10 +409,6 @@ Page {
             Accessible.name: isEnglish ? "String customization list" : "Translation list"
             Accessible.description: stringModel.count + " strings. Swipe to navigate, double tap to edit."
 
-            // Track last edited index/key for scroll restoration
-            property int lastEditedIndex: -1
-            property string lastEditedKey: ""
-            property real lastContentY: 0
 
             // Center editing item in visible area (accounting for keyboard)
             function centerOnItem(idx) {
@@ -398,6 +418,7 @@ Page {
                 positionViewAtIndex(idx, ListView.Center)
 
                 // Then adjust for keyboard after a frame
+                var pageHeight = stringListView.height * 2  // Approximate page height
                 Qt.callLater(function() {
                     var item = itemAtIndex(idx)
                     if (!item) return
@@ -407,7 +428,7 @@ Page {
                     var kbHeight = kbRect.height / Screen.devicePixelRatio
                     if (kbHeight <= 0) {
                         // Estimate keyboard at 40% of page height
-                        kbHeight = stringBrowserPage.height * 0.4
+                        kbHeight = pageHeight * 0.4
                     }
 
                     // Calculate how much keyboard overlaps with ListView
@@ -434,15 +455,6 @@ Page {
                 })
             }
 
-            // Scroll to keep item visible after exiting edit mode
-            function scrollToLastEdited() {
-                if (lastEditedIndex >= 0 && lastEditedIndex < count) {
-                    // Use Contain to just make it visible, not necessarily centered
-                    positionViewAtIndex(lastEditedIndex, ListView.Contain)
-                    lastEditedIndex = -1
-                }
-            }
-
             delegate: Rectangle {
                 id: delegateRoot
                 width: stringListView.width
@@ -450,6 +462,23 @@ Page {
                 height: Math.max(Theme.scaled(48), rowHeight + Theme.scaled(16))
                 color: index % 2 === 0 ? Theme.surfaceColor : Qt.darker(Theme.surfaceColor, 1.05)
                 radius: Theme.scaled(4)
+
+                // Functions at delegate level where singletons are accessible
+                function setEditing(editing, idx) {
+                    isEditing = editing
+                    editingIndex = idx
+                }
+
+                function saveAndExitEditing(fallbackKey, newText, oldText) {
+                    if (newText !== oldText) {
+                        TranslationManager.setGroupTranslation(fallbackKey, newText)
+                        // Clear AI translation when user manually edits (non-English)
+                        if (newText !== "" && TranslationManager.currentLanguage !== "en") {
+                            TranslationManager.clearAiTranslation(fallbackKey)
+                        }
+                    }
+                    setEditing(false, -1)
+                }
 
                 // Accessibility: announce the English text and translation status
                 Accessible.role: Accessible.ListItem
@@ -553,7 +582,10 @@ Page {
                         Accessible.focusable: model.aiTranslation ? true : false
 
                         Text {
-                            anchors.fill: parent
+                            anchors.left: parent.left
+                            anchors.right: aiClearButton.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
                             anchors.margins: Theme.scaled(4)
                             text: model.aiTranslation || "-"
                             font: Theme.bodyFont
@@ -563,9 +595,39 @@ Page {
                             opacity: model.aiTranslation ? 1.0 : 0.5
                         }
 
+                        // Clear AI translation button
+                        Text {
+                            id: aiClearButton
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.rightMargin: Theme.scaled(4)
+                            width: model.aiTranslation ? Theme.scaled(20) : 0
+                            visible: model.aiTranslation && model.aiTranslation !== ""
+                            text: "\u2715"
+                            font.pixelSize: Theme.scaled(14)
+                            color: aiClearArea.pressed ? Theme.warningColor : Theme.textSecondaryColor
+                            horizontalAlignment: Text.AlignHCenter
+
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Clear AI translation"
+                            Accessible.focusable: true
+
+                            MouseArea {
+                                id: aiClearArea
+                                anchors.fill: parent
+                                anchors.margins: Theme.scaled(-8)
+                                onClicked: {
+                                    TranslationManager.clearAiTranslation(model.fallback)
+                                }
+                            }
+                        }
+
                         MouseArea {
                             id: aiCopyArea
-                            anchors.fill: parent
+                            anchors.left: parent.left
+                            anchors.right: aiClearButton.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
                             onClicked: {
                                 if (model.aiTranslation && model.aiTranslation !== "") {
                                     TranslationManager.copyAiToFinal(model.fallback)
@@ -650,8 +712,7 @@ Page {
 
                             onActiveFocusChanged: {
                                 if (activeFocus) {
-                                    stringBrowserPage.isEditing = true
-                                    stringBrowserPage.editingIndex = index
+                                    delegateRoot.setEditing(true, index)
                                     centerTimer.start()
                                 } else {
                                     // Save on focus lost
@@ -679,24 +740,10 @@ Page {
                             }
 
                             function exitEditing() {
-                                // Save translation
                                 var newText = text.trim()
-                                if (newText !== (model.translation || "")) {
-                                    TranslationManager.setGroupTranslation(model.fallback, newText)
-                                }
-
-                                // Save position before layout changes (use key for lookup after refresh)
-                                stringListView.lastEditedIndex = index
-                                stringListView.lastEditedKey = model.fallback
-                                stringListView.lastContentY = stringListView.contentY
-
-                                stringBrowserPage.isEditing = false
-                                stringBrowserPage.editingIndex = -1
+                                delegateRoot.saveAndExitEditing(model.fallback, newText, model.translation || "")
                                 focus = false
                                 Qt.inputMethod.hide()
-
-                                // Restore scroll after layout settles
-                                exitScrollTimer.start()
                             }
                         }
 
@@ -713,13 +760,7 @@ Page {
             Timer {
                 id: centerTimer
                 interval: 150
-                onTriggered: stringListView.centerOnItem(stringBrowserPage.editingIndex)
-            }
-
-            Timer {
-                id: exitScrollTimer
-                interval: 150
-                onTriggered: stringListView.scrollToLastEdited()
+                onTriggered: stringListView.centerOnItem(editingIndex)
             }
         }
     }
@@ -972,23 +1013,105 @@ Page {
         }
     }
 
+    // Clear AI translations confirmation popup
+    Popup {
+        id: clearAiPopup
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        dim: true
+        padding: Theme.scaled(20)
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.warningColor
+        }
+
+        contentItem: Column {
+            spacing: Theme.scaled(16)
+            width: Theme.scaled(320)
+
+            Text {
+                width: parent.width
+                text: "Clear All AI Translations?"
+                font: Theme.subtitleFont
+                color: Theme.warningColor
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                width: parent.width
+                text: "This will delete all AI-generated translations for " + TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage) + ".\n\nHuman-edited translations will be preserved.\n\nYou can then re-translate with AI Translate."
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.Wrap
+            }
+
+            Row {
+                width: parent.width
+                spacing: Theme.scaled(8)
+
+                Rectangle {
+                    width: (parent.width - Theme.scaled(8)) / 2
+                    height: Theme.scaled(40)
+                    color: cancelClearArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+                    radius: Theme.buttonRadius
+                    border.width: 1
+                    border.color: Theme.borderColor
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Cancel"
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                    }
+
+                    MouseArea {
+                        id: cancelClearArea
+                        anchors.fill: parent
+                        onClicked: clearAiPopup.close()
+                    }
+                }
+
+                Rectangle {
+                    width: (parent.width - Theme.scaled(8)) / 2
+                    height: Theme.scaled(40)
+                    color: confirmClearArea.pressed ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
+                    radius: Theme.buttonRadius
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Clear All"
+                        font: Theme.bodyFont
+                        color: "white"
+                    }
+
+                    MouseArea {
+                        id: confirmClearArea
+                        anchors.fill: parent
+                        onClicked: {
+                            TranslationManager.clearAllAiTranslations()
+                            clearAiPopup.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Bottom bar - anchored to page bottom
     BottomBar {
         id: bottomBar
         title: isEnglish ? "String Customizer" : "Translation Browser"
         onBackClicked: {
-            if (stringBrowserPage.isEditing) {
-                // Save position before layout changes
-                stringListView.lastEditedIndex = stringBrowserPage.editingIndex
-                stringListView.lastContentY = stringListView.contentY
-
-                stringBrowserPage.isEditing = false
-                stringBrowserPage.editingIndex = -1
+            if (isEditing) {
+                isEditing = false
+                editingIndex = -1
                 stringListView.forceActiveFocus()
                 Qt.inputMethod.hide()
-
-                // Restore scroll after layout settles
-                exitScrollTimer.start()
             } else {
                 pageStack.pop()
             }

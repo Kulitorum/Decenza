@@ -1923,6 +1923,68 @@ void TranslationManager::copyAiToFinal(const QString& fallback)
     emit translationsChanged();
 }
 
+void TranslationManager::clearAiTranslation(const QString& fallback)
+{
+    if (!m_aiTranslations.contains(fallback)) return;
+
+    m_aiTranslations.remove(fallback);
+
+    // Also clear the AI-generated flag for all keys using this fallback
+    QStringList keys = getKeysForFallback(fallback);
+    for (const QString& key : keys) {
+        m_aiGenerated.remove(key);
+    }
+
+    saveAiTranslations();
+    m_translationVersion++;
+    emit translationsChanged();
+}
+
+void TranslationManager::clearAllAiTranslations()
+{
+    if (m_currentLanguage == "en") return;
+
+    int aiCacheCount = m_aiTranslations.size();
+    int clearedFromMain = 0;
+    int preservedUserEdits = 0;
+
+    // Clear AI-generated translations from main translations map
+    // but preserve user overrides (human edits)
+    QStringList keysToRemove;
+    for (auto it = m_translations.constBegin(); it != m_translations.constEnd(); ++it) {
+        if (m_aiGenerated.contains(it.key()) && !m_userOverrides.contains(it.key())) {
+            keysToRemove.append(it.key());
+        } else if (m_userOverrides.contains(it.key())) {
+            preservedUserEdits++;
+        }
+    }
+
+    for (const QString& key : keysToRemove) {
+        m_translations.remove(key);
+        clearedFromMain++;
+    }
+
+    // Clear AI caches
+    m_aiTranslations.clear();
+    m_aiGenerated.clear();
+
+    // Delete the AI translations file
+    QString aiPath = translationsDir() + "/" + m_currentLanguage + "_ai.json";
+    QFile::remove(aiPath);
+
+    // Save updated translations
+    saveTranslations();
+    recalculateUntranslatedCount();
+
+    qDebug() << "Cleared AI translations for" << m_currentLanguage
+             << "- AI cache:" << aiCacheCount
+             << "- Removed from main:" << clearedFromMain
+             << "- Preserved user edits:" << preservedUserEdits;
+
+    m_translationVersion++;
+    emit translationsChanged();
+}
+
 void TranslationManager::loadAiTranslations()
 {
     m_aiTranslations.clear();
