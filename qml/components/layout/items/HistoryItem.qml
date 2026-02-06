@@ -32,8 +32,8 @@ Item {
 
             Image {
                 source: "qrc:/icons/espresso.svg"
-                sourceSize.width: Theme.scaled(20)
                 sourceSize.height: Theme.scaled(20)
+                fillMode: Image.PreserveAspectFit
                 Accessible.ignored: true
             }
             Tr {

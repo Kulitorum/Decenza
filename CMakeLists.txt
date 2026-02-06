@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza_DE1 VERSION 1.3.7 LANGUAGES CXX)
+project(Decenza_DE1 VERSION 1.3.8 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -199,8 +199,8 @@ if(ANDROID)
     )
 endif()
 
-# iOS-specific native CoreBluetooth transport
-if(IOS)
+# Native CoreBluetooth transport (iOS and macOS)
+if(APPLE)
     list(APPEND SOURCES
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm
     )
@@ -288,8 +288,8 @@ if(ANDROID)
     )
 endif()
 
-# iOS-specific native CoreBluetooth transport header
-if(IOS)
+# Native CoreBluetooth transport header (iOS and macOS)
+if(APPLE)
     list(APPEND HEADERS
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.h
     )
@@ -559,6 +559,10 @@ endif()
 
 # macOS deployment
 if(APPLE AND NOT IOS)
+    # Link CoreBluetooth for native scale BLE transport on macOS
+    target_link_libraries(Decenza_DE1 PRIVATE
+        "-framework CoreBluetooth"
+    )
     set_target_properties(Decenza_DE1 PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist"

@@ -2,7 +2,7 @@
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
 <svg width="100%" height="100%" viewBox="0 0 522 500" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:2;">
     <g>
-        <path d="M404.872,470.916L261.372,401.094L117.872,470.916L139.934,312.866L29.185,197.967L186.319,170.109L261.372,29.277L336.425,170.109L493.559,197.967L382.81,312.866L404.872,470.916Z" style="fill:rgb(35,31,32);fill-rule:nonzero;"/>
-        <path d="M404.872,470.916L261.372,401.094L117.872,470.916L139.934,312.866L29.185,197.967L186.319,170.109L261.372,29.277L336.425,170.109L493.559,197.967L382.81,312.866L404.872,470.916Z" style="fill:none;stroke:rgb(0,0,2);stroke-width:56.69px;"/>
+        <path d="M404.872,470.916L261.372,401.094L117.872,470.916L139.934,312.866L29.185,197.967L186.319,170.109L261.372,29.277L336.425,170.109L493.559,197.967L382.81,312.866L404.872,470.916Z" style="fill:white;fill-rule:nonzero;"/>
+        <path d="M404.872,470.916L261.372,401.094L117.872,470.916L139.934,312.866L29.185,197.967L186.319,170.109L261.372,29.277L336.425,170.109L493.559,197.967L382.81,312.866L404.872,470.916Z" style="fill:none;stroke:white;stroke-width:56.69px;"/>
     </g>
 </svg>

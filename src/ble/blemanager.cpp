@@ -19,6 +19,11 @@
 #include <UIKit/UIKit.h>
 #endif
 
+#ifdef Q_OS_MACOS
+#include <QDesktopServices>
+#include <QUrl>
+#endif
+
 BLEManager::BLEManager(QObject* parent)
     : QObject(parent)
 {
@@ -562,10 +567,12 @@ void BLEManager::openBluetoothSettings()
     }
 #elif defined(Q_OS_IOS)
     // iOS: Open Settings app (can't deep-link to Bluetooth directly)
-    // Using the general settings URL scheme
     qDebug() << "On iOS, please open Settings > Bluetooth manually";
+#elif defined(Q_OS_MACOS)
+    // macOS: Open System Settings to Bluetooth privacy pane
+    QDesktopServices::openUrl(QUrl("x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth"));
 #else
-    qDebug() << "openBluetoothSettings is only available on mobile platforms";
+    qDebug() << "openBluetoothSettings is not implemented for this platform";
 #endif
 }
 

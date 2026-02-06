@@ -17,7 +17,7 @@
 #ifdef Q_OS_ANDROID
 #include "../transport/androidscalebletransport.h"
 #endif
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "../transport/corebluetooth/corebluetoothscalebletransport.h"
 #endif
 
@@ -25,8 +25,8 @@ namespace {
     ScaleBleTransport* createTransportForPlatform() {
 #ifdef Q_OS_ANDROID
         return new AndroidScaleBleTransport();
-#elif defined(Q_OS_IOS)
-        // Use native CoreBluetooth on iOS - Qt BLE has issues with CCCD discovery
+#elif defined(Q_OS_IOS) || defined(Q_OS_MACOS)
+        // Use native CoreBluetooth on iOS/macOS - Qt BLE has issues with CCCD discovery
         return new CoreBluetoothScaleBleTransport();
 #else
         return new QtScaleBleTransport();
