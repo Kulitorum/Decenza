@@ -47,7 +47,7 @@ Item {
 
                         Text {
                             Layout.alignment: Qt.AlignHCenter
-                            text: "Decenza DE1"
+                            text: "Decenza"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                         }

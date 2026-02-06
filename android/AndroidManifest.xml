@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kulitorum.decenza_de1"
-    android:versionCode="2432"
+    android:versionCode="2433"
     android:versionName="1.3.7">
 
     <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -26,7 +26,7 @@
 
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
-        android:label="Decenza DE1"
+        android:label="Decenza"
         android:icon="@drawable/icon"
         android:theme="@style/AppTheme"
         android:allowBackup="true">

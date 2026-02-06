@@ -151,7 +151,7 @@ jobs:
 
           # Upload using altool
           xcrun altool --upload-app \
-            -f "$RUNNER_TEMP/export/Decenza DE1.ipa" \
+            -f "$RUNNER_TEMP/export/Decenza.ipa" \
             --type ios \
             --apiKey $APP_STORE_CONNECT_API_KEY_ID \
             --apiIssuer $APP_STORE_CONNECT_API_ISSUER_ID

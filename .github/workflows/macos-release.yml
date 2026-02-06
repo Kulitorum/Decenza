@@ -137,13 +137,13 @@ jobs:
 
           # Create a temporary directory for DMG contents
           mkdir -p dmg_contents
-          cp -R "$APP_PATH" "dmg_contents/Decenza DE1.app"
+          cp -R "$APP_PATH" "dmg_contents/Decenza.app"
 
           # Create Applications symlink
           ln -s /Applications dmg_contents/Applications
 
           # Create DMG
-          hdiutil create -volname "Decenza DE1" \
+          hdiutil create -volname "Decenza" \
             -srcfolder dmg_contents \
             -ov -format UDZO \
             "$DMG_NAME"

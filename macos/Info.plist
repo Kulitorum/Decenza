@@ -5,13 +5,13 @@
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleDisplayName</key>
-    <string>Decenza DE1</string>
+    <string>Decenza</string>
     <key>CFBundleExecutable</key>
     <string>Decenza_DE1</string>
     <key>CFBundleIdentifier</key>
     <string>io.github.kulitorum.decenza</string>
     <key>CFBundleName</key>
-    <string>Decenza DE1</string>
+    <string>Decenza</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

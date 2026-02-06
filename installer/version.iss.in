@@ -2,5 +2,5 @@
 #define VersionNumber "@PROJECT_VERSION@"
 #define TargetName "Decenza_DE1"
 #define TargetArch "x64"
-#define TargetProduct "Decenza DE1"
+#define TargetProduct "Decenza"
 #define TargetCompany "Decenza"

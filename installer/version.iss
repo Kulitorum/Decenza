@@ -2,5 +2,5 @@
 #define VersionNumber "1.3.7"
 #define TargetName "Decenza_DE1"
 #define TargetArch "x64"
-#define TargetProduct "Decenza DE1"
+#define TargetProduct "Decenza"
 #define TargetCompany "Decenza"

@@ -150,7 +150,7 @@ jobs:
           if ! gh release view "$TAG_NAME" > /dev/null 2>&1; then
             echo "Creating release $TAG_NAME"
             gh release create "$TAG_NAME" \
-              --title "Decenza DE1 $TAG_NAME" \
+              --title "Decenza $TAG_NAME" \
               --generate-notes
           fi
 

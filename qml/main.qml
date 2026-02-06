@@ -12,7 +12,7 @@ ApplicationWindow {
     // On desktop use reference size; on Android let system control fullscreen
     width: 960
     height: 600
-    title: "Decenza DE1"
+    title: "Decenza"
     color: Theme.backgroundColor
 
     // Flag to prevent navigation during flow calibration
@@ -1428,7 +1428,7 @@ ApplicationWindow {
             border.color: "white"
         }
 
-        Tr { id: trWelcomeTitle; key: "main.dialog.welcome.title"; fallback: "Welcome to Decenza DE1"; visible: false }
+        Tr { id: trWelcomeTitle; key: "main.dialog.welcome.title"; fallback: "Welcome to Decenza"; visible: false }
 
         contentItem: Column {
             spacing: Theme.spacingLarge

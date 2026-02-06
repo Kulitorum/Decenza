@@ -36,7 +36,7 @@ Item {
                         spacing: Theme.spacingSmall
 
                         Text {
-                            text: "Decenza DE1"
+                            text: "Decenza"
                             font.pixelSize: Theme.scaled(32)
                             font.bold: true
                             color: Theme.primaryColor
