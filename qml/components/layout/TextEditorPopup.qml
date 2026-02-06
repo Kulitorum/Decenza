@@ -15,7 +15,13 @@ Popup {
     property string textContent: "Text"
     property string textAlign: "center"
     property string textAction: ""
+    property string textLongPressAction: ""
+    property string textDoubleclickAction: ""
+    property string textEmoji: ""
+    property string textBackgroundColor: ""
+    property string textColorValue: "#ffffff"
     property bool aiPending: false
+    property bool showEmojiPicker: false
 
     signal saved()
 
@@ -28,7 +34,7 @@ Popup {
     x: Math.round((parent.width - width) / 2)
     y: Theme.spacingSmall
     width: parent.width - Theme.spacingSmall * 2
-    height: Math.min(mainColumn.implicitHeight + padding * 2, parent.height * 0.6)
+    height: Math.min(mainColumn.implicitHeight + padding * 2, parent.height * 0.85)
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -37,55 +43,99 @@ Popup {
         border.width: 1
     }
 
-    onClosed: aiPending = false
+    onClosed: {
+        aiPending = false
+        showEmojiPicker = false
+    }
+
+    // Detect malformed HTML (tags inside attribute values) and strip to plain text
+    function sanitizeHtml(html) {
+        if (!html || html.indexOf("<") < 0) return html
+        var inTag = false
+        var inQuote = false
+        for (var i = 0; i < html.length; i++) {
+            var ch = html[i]
+            if (inQuote) {
+                if (ch === '"') inQuote = false
+                else if (ch === '<') {
+                    console.warn("[TextEditorPopup] Malformed HTML detected, stripping tags")
+                    return html.replace(/<[^>]*>/g, "")
+                }
+            } else if (inTag) {
+                if (ch === '"') inQuote = true
+                else if (ch === '>') inTag = false
+            } else {
+                if (ch === '<') inTag = true
+            }
+        }
+        return html
+    }
 
     function openForItem(id, zone, props) {
         itemId = id
         zoneName = zone
-        textContent = props.content || "Text"
+        var rawContent = props.content || "Text"
+        textContent = sanitizeHtml(rawContent)
+        // Auto-fix malformed content in settings so TextItem stops crashing
+        if (textContent !== rawContent) {
+            console.warn("[TextEditorPopup] Auto-saved sanitized content for item:", id)
+            Settings.setItemProperty(id, "content", textContent)
+        }
         textAlign = props.align || "center"
         textAction = props.action || ""
+        textLongPressAction = props.longPressAction || ""
+        textDoubleclickAction = props.doubleclickAction || ""
+        textEmoji = props.emoji || ""
+        textBackgroundColor = props.backgroundColor || ""
         aiPending = false
+        showEmojiPicker = false
+        textColorValue = "#ffffff"
         contentInput.text = textContent
         open()
     }
 
     function doSave() {
-        textContent = contentInput.text || "Text"
+        textContent = cleanupHtml(contentInput.text)
         Settings.setItemProperty(itemId, "content", textContent)
         Settings.setItemProperty(itemId, "align", textAlign)
         Settings.setItemProperty(itemId, "action", textAction)
+        Settings.setItemProperty(itemId, "longPressAction", textLongPressAction)
+        Settings.setItemProperty(itemId, "doubleclickAction", textDoubleclickAction)
+        Settings.setItemProperty(itemId, "emoji", textEmoji)
+        Settings.setItemProperty(itemId, "backgroundColor", textBackgroundColor)
         saved()
         close()
     }
 
-    // --- Tag insertion helpers ---
-    function insertTag(openTag, closeTag) {
+    // --- WYSIWYG formatting helpers ---
+    // Uses RichText TextArea's insert() which interprets HTML correctly
+    function applyFormat(openTag, closeTag) {
         var start = contentInput.selectionStart
         var end = contentInput.selectionEnd
-        var txt = contentInput.text
-        if (start !== end) {
-            var selected = txt.substring(start, end)
-            contentInput.text = txt.substring(0, start) + openTag + selected + closeTag + txt.substring(end)
-            contentInput.cursorPosition = end + openTag.length + closeTag.length
-        } else {
-            contentInput.text = txt.substring(0, start) + openTag + closeTag + txt.substring(start)
-            contentInput.cursorPosition = start + openTag.length
-        }
+        if (start === end) return  // need a selection
+        var selected = contentInput.selectedText
+        contentInput.remove(start, end)
+        contentInput.insert(start, openTag + selected + closeTag)
         contentInput.forceActiveFocus()
     }
 
-    function insertBold()         { insertTag("<b>", "</b>") }
-    function insertItalic()       { insertTag("<i>", "</i>") }
-    function insertColor(color)   { insertTag('<span style="color:' + color + '">', '</span>') }
-    function insertFontSize(size) { insertTag('<span style="font-size:' + size + 'px">', '</span>') }
+    function insertBold()         { applyFormat("<b>", "</b>") }
+    function insertItalic()       { applyFormat("<i>", "</i>") }
+    function insertColor(color)   { applyFormat('<span style="color:' + color + '">', '</span>') }
+    function insertFontSize(size) { applyFormat('<span style="font-size:' + size + 'px">', '</span>') }
 
     function insertVariable(token) {
         var pos = contentInput.cursorPosition
-        var txt = contentInput.text
-        contentInput.text = txt.substring(0, pos) + token + txt.substring(pos)
-        contentInput.cursorPosition = pos + token.length
+        contentInput.insert(pos, token)
         contentInput.forceActiveFocus()
+    }
+
+    // Strip Qt's verbose RichText document wrapper, keep just body content
+    function cleanupHtml(html) {
+        if (!html) return ""
+        var bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)
+        if (bodyMatch) html = bodyMatch[1].trim()
+        return html || "Text"
     }
 
     // AI Advice: listen for response while this popup is open
@@ -204,364 +254,618 @@ Popup {
         return result
     }
 
-    contentItem: ColumnLayout {
-        id: mainColumn
-        spacing: Theme.scaled(4)
-
-        // === ROW 1: Content input (full width, scrollable) ===
-        Rectangle {
-            Layout.fillWidth: true
-            height: Theme.scaled(56)
-            color: Theme.backgroundColor
-            radius: Theme.scaled(6)
-            border.color: contentInput.activeFocus ? Theme.primaryColor : Theme.borderColor
-            border.width: 1
-
-            Flickable {
-                id: inputFlickable
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(4)
-                clip: true
-                flickableDirection: Flickable.VerticalFlick
-                boundsBehavior: Flickable.StopAtBounds
-
-                TextArea.flickable: TextArea {
-                    id: contentInput
-                    text: popup.textContent
-                    color: Theme.textColor
-                    font.family: "monospace"
-                    font.pixelSize: Theme.captionFont.pixelSize
-                    placeholderText: "Enter text or HTML..."
-                    placeholderTextColor: Theme.textSecondaryColor
-                    wrapMode: Text.Wrap
-                    background: null
-                    topPadding: 0
-                    bottomPadding: 0
-                    leftPadding: 0
-                    rightPadding: 0
-                }
-
-                ScrollBar.vertical: ScrollBar {
-                    width: Theme.scaled(4)
-                    policy: inputFlickable.contentHeight > inputFlickable.height
-                            ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-                }
-            }
+    // Helper to get action label
+    function getActionLabel(actionId) {
+        if (!actionId) return "None"
+        var actions = getFilteredActions()
+        for (var i = 0; i < actions.length; i++) {
+            if (actions[i].id === actionId) return actions[i].label
         }
+        return actionId
+    }
 
-        // === ROW 2: Three columns — Format/Color | Variables | Actions ===
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: Theme.scaled(6)
+    contentItem: ScrollView {
+        contentWidth: availableWidth
+        clip: true
 
-            // --- LEFT COLUMN: Format + Color ---
-            ColumnLayout {
-                Layout.alignment: Qt.AlignTop
-                Layout.preferredWidth: Theme.scaled(180)
-                spacing: Theme.scaled(4)
+        ColumnLayout {
+            id: mainColumn
+            width: parent.width
+            spacing: Theme.scaled(4)
 
-                // Format toolbar
+            // === ROW 1: Icon/Emoji selector ===
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+
                 Text {
-                    text: "Format"
+                    text: "Icon"
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont
+                    Layout.alignment: Qt.AlignVCenter
                 }
 
-                RowLayout {
+                // Current icon preview
+                Rectangle {
+                    width: Theme.scaled(40)
+                    height: Theme.scaled(40)
+                    radius: Theme.scaled(6)
+                    color: Theme.backgroundColor
+                    border.color: Theme.borderColor
+                    border.width: 1
+
+                    // SVG preview
+                    Image {
+                        visible: popup.textEmoji !== "" && popup.textEmoji.indexOf("qrc:") === 0
+                        anchors.centerIn: parent
+                        source: popup.textEmoji.indexOf("qrc:") === 0 ? popup.textEmoji : ""
+                        sourceSize.width: Theme.scaled(28)
+                        sourceSize.height: Theme.scaled(28)
+                    }
+
+                    // Emoji preview
+                    Text {
+                        visible: popup.textEmoji !== "" && popup.textEmoji.indexOf("qrc:") !== 0
+                        anchors.centerIn: parent
+                        text: popup.textEmoji
+                        font.family: Theme.emojiFontFamily
+                        font.pixelSize: Theme.scaled(24)
+                    }
+
+                    // Empty state
+                    Text {
+                        visible: popup.textEmoji === ""
+                        anchors.centerIn: parent
+                        text: "—"
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+                }
+
+                // Pick / Clear buttons
+                Rectangle {
+                    Layout.preferredWidth: pickText.implicitWidth + Theme.scaled(16)
+                    height: Theme.scaled(28)
+                    radius: Theme.scaled(6)
+                    color: pickMa.pressed ? Theme.primaryColor : Theme.backgroundColor
+                    border.color: Theme.primaryColor
+                    border.width: 1
+
+                    Text {
+                        id: pickText
+                        anchors.centerIn: parent
+                        text: popup.showEmojiPicker ? "Hide Picker" : "Pick Icon"
+                        color: pickMa.pressed ? "white" : Theme.primaryColor
+                        font: Theme.captionFont
+                    }
+                    MouseArea {
+                        id: pickMa
+                        anchors.fill: parent
+                        onClicked: popup.showEmojiPicker = !popup.showEmojiPicker
+                    }
+                }
+
+                Rectangle {
+                    visible: popup.textEmoji !== ""
+                    width: clearEmojiText.implicitWidth + Theme.scaled(16)
+                    height: Theme.scaled(28)
+                    radius: Theme.scaled(6)
+                    color: clearEmojiMa.pressed ? Theme.errorColor : Theme.backgroundColor
+                    border.color: Theme.errorColor
+                    border.width: 1
+
+                    Text {
+                        id: clearEmojiText
+                        anchors.centerIn: parent
+                        text: "Clear"
+                        color: clearEmojiMa.pressed ? "white" : Theme.errorColor
+                        font: Theme.captionFont
+                    }
+                    MouseArea {
+                        id: clearEmojiMa
+                        anchors.fill: parent
+                        onClicked: popup.textEmoji = ""
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
+            // Emoji picker (expandable)
+            EmojiPicker {
+                visible: popup.showEmojiPicker
+                Layout.fillWidth: true
+                selectedValue: popup.textEmoji
+                onSelected: function(value) {
+                    popup.textEmoji = value
+                }
+                onCleared: popup.textEmoji = ""
+            }
+
+            // === ROW 2: Content input + Preview ===
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(6)
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: Theme.scaled(112)
+                    color: Theme.backgroundColor
+                    radius: Theme.scaled(6)
+                    border.color: contentInput.activeFocus ? Theme.primaryColor : Theme.borderColor
+                    border.width: 1
+
+                    Flickable {
+                        id: inputFlickable
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(4)
+                        clip: true
+                        flickableDirection: Flickable.VerticalFlick
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        TextArea.flickable: TextArea {
+                            id: contentInput
+                            text: popup.textContent
+                            textFormat: TextEdit.RichText
+                            color: Theme.textColor
+                            font: Theme.bodyFont
+                            placeholderText: "Enter text..."
+                            placeholderTextColor: Theme.textSecondaryColor
+                            wrapMode: Text.Wrap
+                            background: null
+                            topPadding: 0
+                            bottomPadding: 0
+                            leftPadding: 0
+                            rightPadding: 0
+                        }
+
+                        ScrollBar.vertical: ScrollBar {
+                            width: Theme.scaled(4)
+                            policy: inputFlickable.contentHeight > inputFlickable.height
+                                    ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                        }
+                    }
+                }
+
+                // Compact preview (widget thumbnail)
+                Rectangle {
+                    width: Theme.scaled(112)
+                    height: Theme.scaled(112)
+                    radius: Theme.scaled(6)
+                    color: popup.textBackgroundColor || Theme.backgroundColor
+                    border.color: (popup.textAction !== "" || popup.textLongPressAction !== "" || popup.textDoubleclickAction !== "")
+                        ? Theme.primaryColor : Theme.borderColor
+                    border.width: (popup.textAction !== "" || popup.textLongPressAction !== "" || popup.textDoubleclickAction !== "") ? 2 : 1
+                    clip: true
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: Theme.scaled(4)
+
+                        Image {
+                            visible: popup.textEmoji !== "" && popup.textEmoji.indexOf("qrc:") === 0
+                            source: popup.textEmoji.indexOf("qrc:") === 0 ? popup.textEmoji : ""
+                            sourceSize.width: Theme.scaled(40)
+                            sourceSize.height: Theme.scaled(40)
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+
+                        Text {
+                            visible: popup.textEmoji !== "" && popup.textEmoji.indexOf("qrc:") !== 0
+                            text: popup.textEmoji
+                            font.family: Theme.emojiFontFamily
+                            font.pixelSize: Theme.scaled(36)
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+
+                        Text {
+                            width: Theme.scaled(100)
+                            text: contentInput.getText(0, Math.min(contentInput.length, 30)) || "Text"
+                            textFormat: Text.PlainText
+                            color: (popup.textEmoji !== "" || popup.textBackgroundColor !== "") ? "white" : Theme.textColor
+                            font: Theme.captionFont
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 3
+                            elide: Text.ElideRight
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+                    }
+                }
+            }
+
+            // === ROW 3: Three columns — Format/Color | Variables | Actions ===
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(6)
+
+                // --- LEFT COLUMN: Format + Color ---
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignTop
+                    Layout.fillWidth: true
                     spacing: Theme.scaled(4)
 
-                    // Bold
-                    Rectangle {
-                        width: Theme.scaled(30); height: Theme.scaled(30)
-                        radius: Theme.scaled(4)
-                        color: boldMa.pressed ? Theme.primaryColor : Theme.backgroundColor
-                        border.color: Theme.borderColor; border.width: 1
-                        Text {
-                            anchors.centerIn: parent; text: "B"
-                            color: Theme.textColor; font.bold: true
-                            font.pixelSize: Theme.captionFont.pixelSize
-                        }
-                        MouseArea { id: boldMa; anchors.fill: parent; onClicked: popup.insertBold() }
+                    // Format toolbar
+                    Text {
+                        text: "Format"
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
                     }
 
-                    // Italic
-                    Rectangle {
-                        width: Theme.scaled(30); height: Theme.scaled(30)
-                        radius: Theme.scaled(4)
-                        color: italicMa.pressed ? Theme.primaryColor : Theme.backgroundColor
-                        border.color: Theme.borderColor; border.width: 1
-                        Text {
-                            anchors.centerIn: parent; text: "I"
-                            color: Theme.textColor; font.italic: true
-                            font.pixelSize: Theme.captionFont.pixelSize
-                        }
-                        MouseArea { id: italicMa; anchors.fill: parent; onClicked: popup.insertItalic() }
-                    }
+                    RowLayout {
+                        spacing: Theme.scaled(4)
 
-                    Rectangle { width: 1; height: Theme.scaled(20); color: Theme.borderColor }
-
-                    // Font sizes
-                    Repeater {
-                        model: [
-                            { label: "S", size: "12" },
-                            { label: "M", size: "18" },
-                            { label: "L", size: "28" },
-                            { label: "XL", size: "48" }
-                        ]
+                        // Bold
                         Rectangle {
                             width: Theme.scaled(30); height: Theme.scaled(30)
                             radius: Theme.scaled(4)
-                            color: sizeMa.pressed ? Theme.primaryColor : Theme.backgroundColor
+                            color: boldMa.pressed ? Theme.primaryColor : Theme.backgroundColor
                             border.color: Theme.borderColor; border.width: 1
                             Text {
-                                anchors.centerIn: parent; text: modelData.label
-                                color: Theme.textColor; font: Theme.captionFont
+                                anchors.centerIn: parent; text: "B"
+                                color: Theme.textColor; font.bold: true
+                                font.pixelSize: Theme.captionFont.pixelSize
                             }
-                            MouseArea { id: sizeMa; anchors.fill: parent; onClicked: popup.insertFontSize(modelData.size) }
+                            MouseArea { id: boldMa; anchors.fill: parent; onClicked: popup.insertBold() }
                         }
-                    }
-                }
 
-                // Alignment
-                RowLayout {
-                    spacing: Theme.scaled(4)
-
-                    Repeater {
-                        model: [
-                            { label: "\u25C0", align: "left" },
-                            { label: "\u25CF", align: "center" },
-                            { label: "\u25B6", align: "right" }
-                        ]
+                        // Italic
                         Rectangle {
                             width: Theme.scaled(30); height: Theme.scaled(30)
                             radius: Theme.scaled(4)
-                            color: popup.textAlign === modelData.align ? Theme.primaryColor : Theme.backgroundColor
+                            color: italicMa.pressed ? Theme.primaryColor : Theme.backgroundColor
                             border.color: Theme.borderColor; border.width: 1
                             Text {
-                                anchors.centerIn: parent; text: modelData.label
-                                color: popup.textAlign === modelData.align ? "white" : Theme.textColor
+                                anchors.centerIn: parent; text: "I"
+                                color: Theme.textColor; font.italic: true
+                                font.pixelSize: Theme.captionFont.pixelSize
+                            }
+                            MouseArea { id: italicMa; anchors.fill: parent; onClicked: popup.insertItalic() }
+                        }
+
+                        Rectangle { width: 1; height: Theme.scaled(20); color: Theme.borderColor }
+
+                        // Font sizes
+                        Repeater {
+                            model: [
+                                { label: "S", size: "12" },
+                                { label: "M", size: "18" },
+                                { label: "L", size: "28" },
+                                { label: "XL", size: "48" }
+                            ]
+                            Rectangle {
+                                width: Theme.scaled(30); height: Theme.scaled(30)
+                                radius: Theme.scaled(4)
+                                color: sizeMa.pressed ? Theme.primaryColor : Theme.backgroundColor
+                                border.color: Theme.borderColor; border.width: 1
+                                Text {
+                                    anchors.centerIn: parent; text: modelData.label
+                                    color: Theme.textColor; font: Theme.captionFont
+                                }
+                                MouseArea { id: sizeMa; anchors.fill: parent; onClicked: popup.insertFontSize(modelData.size) }
+                            }
+                        }
+                    }
+
+                    // Alignment
+                    RowLayout {
+                        spacing: Theme.scaled(4)
+
+                        Repeater {
+                            model: [
+                                { label: "\u25C0", align: "left" },
+                                { label: "\u25CF", align: "center" },
+                                { label: "\u25B6", align: "right" }
+                            ]
+                            Rectangle {
+                                width: Theme.scaled(30); height: Theme.scaled(30)
+                                radius: Theme.scaled(4)
+                                color: popup.textAlign === modelData.align ? Theme.primaryColor : Theme.backgroundColor
+                                border.color: Theme.borderColor; border.width: 1
+                                Text {
+                                    anchors.centerIn: parent; text: modelData.label
+                                    color: popup.textAlign === modelData.align ? "white" : Theme.textColor
+                                    font.pixelSize: Theme.scaled(10)
+                                }
+                                MouseArea { anchors.fill: parent; onClicked: popup.textAlign = modelData.align }
+                            }
+                        }
+                    }
+
+                    // Color swatches
+                    RowLayout {
+                        spacing: Theme.scaled(6)
+
+                        Text {
+                            text: "Color"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                        }
+
+                        Rectangle {
+                            width: Theme.scaled(26); height: Theme.scaled(26)
+                            radius: Theme.scaled(13)
+                            color: popup.textColorValue
+                            border.color: Theme.borderColor; border.width: 1
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    colorPickerPopup.mode = "text"
+                                    colorPickerPopup.initialColor = Qt.color(popup.textColorValue)
+                                    colorPickerPopup.open()
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Bg"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                        }
+
+                        Rectangle {
+                            width: Theme.scaled(26); height: Theme.scaled(26)
+                            radius: Theme.scaled(13)
+                            color: popup.textBackgroundColor || Theme.backgroundColor
+                            border.color: popup.textBackgroundColor ? "white" : Theme.borderColor
+                            border.width: popup.textBackgroundColor ? 2 : 1
+
+                            Text {
+                                visible: !popup.textBackgroundColor
+                                anchors.centerIn: parent
+                                text: "\u00D7"
+                                color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
                             }
-                            MouseArea { anchors.fill: parent; onClicked: popup.textAlign = modelData.align }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    colorPickerPopup.mode = "bg"
+                                    colorPickerPopup.initialColor = popup.textBackgroundColor
+                                        ? Qt.color(popup.textBackgroundColor) : Qt.color("#333333")
+                                    colorPickerPopup.open()
+                                }
+                            }
+                        }
+
+                        // Clear bg
+                        Rectangle {
+                            visible: popup.textBackgroundColor !== ""
+                            width: Theme.scaled(22); height: Theme.scaled(22)
+                            radius: Theme.scaled(11)
+                            color: clearBgMa.pressed ? Theme.errorColor : "transparent"
+                            border.color: Theme.errorColor; border.width: 1
+                            Text {
+                                anchors.centerIn: parent
+                                text: "\u00D7"
+                                color: clearBgMa.pressed ? "white" : Theme.errorColor
+                                font.pixelSize: Theme.scaled(12)
+                            }
+                            MouseArea {
+                                id: clearBgMa
+                                anchors.fill: parent
+                                onClicked: popup.textBackgroundColor = ""
+                            }
                         }
                     }
                 }
 
-                // Color palette
-                Text {
-                    text: "Color"
-                    color: Theme.textSecondaryColor
-                    font: Theme.captionFont
+                // Vertical separator
+                Rectangle {
+                    Layout.fillHeight: true
+                    width: 1
+                    color: Theme.borderColor
                 }
 
-                Grid {
-                    columns: 6
-                    spacing: Theme.scaled(4)
+                // --- CENTER COLUMN: Variables (scrollable) ---
+                ColumnLayout {
+                    Layout.preferredWidth: Theme.scaled(85)
+                    Layout.maximumWidth: Theme.scaled(100)
+                    Layout.fillHeight: true
+                    spacing: Theme.scaled(2)
 
-                    Repeater {
+                    Text {
+                        text: "Variables"
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+
                         model: [
-                            "#ffffff", "#a0a8b8", "#4e85f4", "#e94560",
-                            "#00cc6d", "#ffaa00", "#a2693d", "#c0c5e3",
-                            "#e73249", "#18c37e", "#ff4444", "#9C27B0"
+                            { token: "%TEMP%", label: "Temp (°C)" },
+                            { token: "%STEAM_TEMP%", label: "Steam (°C)" },
+                            { token: "%PRESSURE%", label: "Pressure (bar)" },
+                            { token: "%FLOW%", label: "Flow (ml/s)" },
+                            { token: "%WATER%", label: "Water (%)" },
+                            { token: "%WATER_ML%", label: "Water (ml)" },
+                            { token: "%WEIGHT%", label: "Weight (g)" },
+                            { token: "%SHOT_TIME%", label: "Shot Time (s)" },
+                            { token: "%TARGET_WEIGHT%", label: "Target Wt (g)" },
+                            { token: "%VOLUME%", label: "Volume (ml)" },
+                            { token: "%PROFILE%", label: "Profile Name" },
+                            { token: "%STATE%", label: "Machine State" },
+                            { token: "%TARGET_TEMP%", label: "Target Temp" },
+                            { token: "%SCALE%", label: "Scale Name" },
+                            { token: "%TIME%", label: "Time (HH:MM)" },
+                            { token: "%DATE%", label: "Date" },
+                            { token: "%RATIO%", label: "Brew Ratio" },
+                            { token: "%DOSE%", label: "Dose (g)" },
+                            { token: "%CONNECTED%", label: "Online/Offline" },
+                            { token: "%CONNECTED_COLOR%", label: "Status Color" },
+                            { token: "%DEVICES%", label: "Devices" }
                         ]
 
-                        Rectangle {
-                            width: Theme.scaled(24)
-                            height: Theme.scaled(24)
-                            radius: Theme.scaled(12)
-                            color: modelData
-                            border.color: colorMa.pressed ? "white" : Theme.borderColor
-                            border.width: 1
+                        delegate: Rectangle {
+                            width: ListView.view.width
+                            height: Theme.scaled(26)
+                            radius: Theme.scaled(3)
+                            color: varDelegateMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : "transparent"
+
+                            Text {
+                                anchors.left: parent.left
+                                anchors.leftMargin: Theme.scaled(4)
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData.label
+                                color: Theme.primaryColor
+                                font: Theme.captionFont
+                            }
 
                             MouseArea {
-                                id: colorMa
+                                id: varDelegateMa
                                 anchors.fill: parent
-                                onClicked: popup.insertColor(modelData)
+                                onClicked: popup.insertVariable(modelData.token)
+                            }
+                        }
+                    }
+                }
+
+                // Vertical separator
+                Rectangle {
+                    Layout.fillHeight: true
+                    width: 1
+                    color: Theme.borderColor
+                }
+
+                // --- RIGHT COLUMN: Actions (3 gesture selectors) ---
+                ColumnLayout {
+                    Layout.preferredWidth: Theme.scaled(110)
+                    Layout.maximumWidth: Theme.scaled(130)
+                    Layout.alignment: Qt.AlignTop
+                    spacing: Theme.scaled(4)
+
+                    Text {
+                        text: "Actions"
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+
+                    // Click action selector
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: Theme.scaled(28)
+                        radius: Theme.scaled(4)
+                        color: Theme.backgroundColor
+                        border.color: popup.textAction ? Theme.primaryColor : Theme.borderColor
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(4)
+                            anchors.rightMargin: Theme.scaled(4)
+
+                            Text {
+                                text: "Click:"
+                                color: Theme.textSecondaryColor
+                                font: Theme.captionFont
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: popup.getActionLabel(popup.textAction)
+                                color: popup.textAction ? Theme.primaryColor : Theme.textColor
+                                font: Theme.captionFont
+                                elide: Text.ElideRight
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                actionPickerPopup.gesture = "click"
+                                actionPickerPopup.open()
+                            }
+                        }
+                    }
+
+                    // Long Press action selector
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: Theme.scaled(28)
+                        radius: Theme.scaled(4)
+                        color: Theme.backgroundColor
+                        border.color: popup.textLongPressAction ? Theme.primaryColor : Theme.borderColor
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(4)
+                            anchors.rightMargin: Theme.scaled(4)
+
+                            Text {
+                                text: "Long:"
+                                color: Theme.textSecondaryColor
+                                font: Theme.captionFont
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: popup.getActionLabel(popup.textLongPressAction)
+                                color: popup.textLongPressAction ? Theme.primaryColor : Theme.textColor
+                                font: Theme.captionFont
+                                elide: Text.ElideRight
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                actionPickerPopup.gesture = "longpress"
+                                actionPickerPopup.open()
+                            }
+                        }
+                    }
+
+                    // Double Click action selector
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: Theme.scaled(28)
+                        radius: Theme.scaled(4)
+                        color: Theme.backgroundColor
+                        border.color: popup.textDoubleclickAction ? Theme.primaryColor : Theme.borderColor
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(4)
+                            anchors.rightMargin: Theme.scaled(4)
+
+                            Text {
+                                text: "DblClk:"
+                                color: Theme.textSecondaryColor
+                                font: Theme.captionFont
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: popup.getActionLabel(popup.textDoubleclickAction)
+                                color: popup.textDoubleclickAction ? Theme.primaryColor : Theme.textColor
+                                font: Theme.captionFont
+                                elide: Text.ElideRight
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                actionPickerPopup.gesture = "doubleclick"
+                                actionPickerPopup.open()
                             }
                         }
                     }
                 }
             }
 
-            // Vertical separator
-            Rectangle {
-                Layout.fillHeight: true
-                width: 1
-                color: Theme.borderColor
-            }
-
-            // --- CENTER COLUMN: Variables (scrollable) ---
-            ColumnLayout {
+            // === ROW 4: Buttons (horizontal) ===
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: Theme.scaled(2)
-
-                Text {
-                    text: "Variables"
-                    color: Theme.textSecondaryColor
-                    font: Theme.captionFont
-                }
-
-                ListView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    model: [
-                        { token: "%TEMP%", label: "Temp (°C)" },
-                        { token: "%STEAM_TEMP%", label: "Steam (°C)" },
-                        { token: "%PRESSURE%", label: "Pressure (bar)" },
-                        { token: "%FLOW%", label: "Flow (ml/s)" },
-                        { token: "%WATER%", label: "Water (%)" },
-                        { token: "%WATER_ML%", label: "Water (ml)" },
-                        { token: "%WEIGHT%", label: "Weight (g)" },
-                        { token: "%SHOT_TIME%", label: "Shot Time (s)" },
-                        { token: "%TARGET_WEIGHT%", label: "Target Wt (g)" },
-                        { token: "%VOLUME%", label: "Volume (ml)" },
-                        { token: "%PROFILE%", label: "Profile Name" },
-                        { token: "%STATE%", label: "Machine State" },
-                        { token: "%TARGET_TEMP%", label: "Target Temp" },
-                        { token: "%SCALE%", label: "Scale Name" },
-                        { token: "%TIME%", label: "Time (HH:MM)" },
-                        { token: "%DATE%", label: "Date" },
-                        { token: "%RATIO%", label: "Brew Ratio" },
-                        { token: "%DOSE%", label: "Dose (g)" },
-                        { token: "%CONNECTED%", label: "Online/Offline" },
-                        { token: "%CONNECTED_COLOR%", label: "Status Color" },
-                        { token: "%DEVICES%", label: "Devices" }
-                    ]
-
-                    delegate: Rectangle {
-                        width: ListView.view.width
-                        height: Theme.scaled(26)
-                        radius: Theme.scaled(3)
-                        color: varDelegateMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : "transparent"
-
-                        Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: Theme.scaled(4)
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.label
-                            color: Theme.primaryColor
-                            font: Theme.captionFont
-                        }
-
-                        MouseArea {
-                            id: varDelegateMa
-                            anchors.fill: parent
-                            onClicked: popup.insertVariable(modelData.token)
-                        }
-                    }
-                }
-            }
-
-            // Vertical separator
-            Rectangle {
-                Layout.fillHeight: true
-                width: 1
-                color: Theme.borderColor
-            }
-
-            // --- RIGHT COLUMN: Actions (scrollable) ---
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: Theme.scaled(2)
-
-                Text {
-                    text: "Action"
-                    color: Theme.textSecondaryColor
-                    font: Theme.captionFont
-                }
-
-                ListView {
-                    id: actionList
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    model: {
-                        var items = [{ id: "", label: "None" }]
-                        var filtered = popup.getFilteredActions()
-                        for (var i = 0; i < filtered.length; i++)
-                            items.push(filtered[i])
-                        return items
-                    }
-
-                    delegate: Rectangle {
-                        width: ListView.view.width
-                        height: Theme.scaled(26)
-                        radius: Theme.scaled(3)
-                        color: popup.textAction === modelData.id
-                            ? Theme.primaryColor
-                            : (actionDelegateMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : "transparent")
-
-                        Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: Theme.scaled(4)
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.label
-                            color: popup.textAction === modelData.id ? "white" : Theme.textColor
-                            font: Theme.captionFont
-                        }
-
-                        MouseArea {
-                            id: actionDelegateMa
-                            anchors.fill: parent
-                            onClicked: popup.textAction = modelData.id
-                        }
-                    }
-                }
-            }
-        }
-
-        // === ROW 3: Preview + Buttons ===
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.scaled(6)
-
-            // Preview
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: Math.max(previewText.implicitHeight + Theme.scaled(8), Theme.scaled(32))
-                color: Theme.backgroundColor
-                radius: Theme.scaled(6)
-                border.color: popup.textAction !== "" ? Theme.primaryColor : Theme.borderColor
-                border.width: popup.textAction !== "" ? 2 : 1
-
-                Text {
-                    id: previewText
-                    anchors.centerIn: parent
-                    width: parent.width - Theme.scaled(12)
-                    text: popup.substitutePreview(contentInput.text)
-                    textFormat: Text.RichText
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    horizontalAlignment: {
-                        switch (popup.textAlign) {
-                            case "left": return Text.AlignLeft
-                            case "right": return Text.AlignRight
-                            default: return Text.AlignHCenter
-                        }
-                    }
-                    wrapMode: Text.Wrap
-                }
-            }
-
-            // Buttons stacked vertically
-            ColumnLayout {
-                Layout.preferredWidth: popup.width * 0.15
-                Layout.maximumWidth: popup.width * 0.15
                 spacing: Theme.scaled(4)
+
+                Item { Layout.fillWidth: true }
 
                 // AI Advice
                 Rectangle {
                     visible: MainController.aiManager
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: aiRow.implicitWidth + Theme.scaled(16)
+                    Layout.preferredWidth: aiRow.implicitWidth + Theme.scaled(16)
                     height: Theme.scaled(28)
                     radius: Theme.scaled(6)
                     opacity: MainController.aiManager && MainController.aiManager.isConfigured
@@ -607,14 +911,13 @@ Popup {
 
                 // Cancel
                 Rectangle {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: Theme.scaled(70)
                     height: Theme.scaled(28)
                     radius: Theme.scaled(6)
                     color: cancelMa.pressed ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
                     border.color: Theme.borderColor; border.width: 1
 
                     Text {
-                        id: cancelText
                         anchors.centerIn: parent
                         text: "Cancel"
                         color: Theme.textColor
@@ -625,19 +928,221 @@ Popup {
 
                 // Save
                 Rectangle {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: Theme.scaled(70)
                     height: Theme.scaled(28)
                     radius: Theme.scaled(6)
                     color: saveMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
                     Text {
-                        id: saveText
                         anchors.centerIn: parent
                         text: "Save"
                         color: "white"
                         font: Theme.captionFont
                     }
                     MouseArea { id: saveMa; anchors.fill: parent; onClicked: popup.doSave() }
+                }
+            }
+        }
+    }
+
+    // === Color picker popup (deferred via Loader) ===
+    Popup {
+        id: colorPickerPopup
+        property string mode: "text"  // "text" or "bg"
+        property color initialColor: "#ffffff"
+
+        parent: Overlay.overlay
+        modal: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: Theme.spacingMedium
+
+        x: Theme.spacingSmall
+        y: Theme.spacingSmall
+        width: parent.width - Theme.spacingSmall * 2
+        height: parent.height * 0.33
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        onOpened: cpLoader.active = true
+        onClosed: cpLoader.active = false
+
+        contentItem: Loader {
+            id: cpLoader
+            active: false
+            onLoaded: {
+                if (item && item.children.length > 0)
+                    item.children[0].setColor(colorPickerPopup.initialColor)
+            }
+            sourceComponent: RowLayout {
+                spacing: Theme.spacingMedium
+
+                ColorEditor {
+                    id: cpEditorInner
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    showBrightnessSlider: false
+                }
+
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: Theme.scaled(8)
+
+                    Rectangle {
+                        width: Theme.scaled(48); height: Theme.scaled(48)
+                        radius: Theme.scaled(8)
+                        color: cpEditorInner.color
+                        border.color: "white"; border.width: 2
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Text {
+                        text: colorPickerPopup.mode === "text" ? "Text Color" : "Background"
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: Theme.scaled(80)
+                        height: Theme.scaled(32)
+                        radius: Theme.scaled(6)
+                        color: cpApplyMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        Text { anchors.centerIn: parent; text: "Apply"; color: "white"; font: Theme.captionFont }
+                        MouseArea {
+                            id: cpApplyMa
+                            anchors.fill: parent
+                            onClicked: {
+                                var c = cpEditorInner.color.toString()
+                                if (colorPickerPopup.mode === "text") {
+                                    popup.textColorValue = c
+                                    popup.insertColor(c)
+                                } else {
+                                    popup.textBackgroundColor = c
+                                }
+                                colorPickerPopup.close()
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: Theme.scaled(80)
+                        height: Theme.scaled(32)
+                        radius: Theme.scaled(6)
+                        color: cpCloseMa.pressed ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
+                        border.color: Theme.borderColor; border.width: 1
+                        Text { anchors.centerIn: parent; text: "Close"; color: Theme.textColor; font: Theme.captionFont }
+                        MouseArea { id: cpCloseMa; anchors.fill: parent; onClicked: colorPickerPopup.close() }
+                    }
+                }
+            }
+        }
+    }
+
+    // === Action picker popup (deferred via Loader) ===
+    Popup {
+        id: actionPickerPopup
+        property string gesture: "click"
+
+        parent: Overlay.overlay
+        modal: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: Theme.spacingSmall
+
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: Theme.scaled(200)
+        height: Theme.scaled(350)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        onOpened: apLoader.active = true
+        onClosed: apLoader.active = false
+
+        contentItem: Loader {
+            id: apLoader
+            active: false
+            sourceComponent: ColumnLayout {
+                spacing: Theme.scaled(2)
+
+                Text {
+                    text: {
+                        switch (actionPickerPopup.gesture) {
+                            case "click": return "Click Action"
+                            case "longpress": return "Long Press Action"
+                            case "doubleclick": return "Double Click Action"
+                            default: return "Action"
+                        }
+                    }
+                    color: Theme.textColor
+                    font: Theme.labelFont
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+
+                ListView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    model: {
+                        var items = [{ id: "", label: "None" }]
+                        var filtered = popup.getFilteredActions()
+                        for (var i = 0; i < filtered.length; i++)
+                            items.push(filtered[i])
+                        return items
+                    }
+
+                    delegate: Rectangle {
+                        width: ListView.view.width
+                        height: Theme.scaled(28)
+                        radius: Theme.scaled(4)
+
+                        property bool isSelected: {
+                            switch (actionPickerPopup.gesture) {
+                                case "click": return popup.textAction === modelData.id
+                                case "longpress": return popup.textLongPressAction === modelData.id
+                                case "doubleclick": return popup.textDoubleclickAction === modelData.id
+                                default: return false
+                            }
+                        }
+
+                        color: isSelected ? Theme.primaryColor
+                            : (apDelegateMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : "transparent")
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.scaled(8)
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: modelData.label
+                            color: parent.isSelected ? "white" : Theme.textColor
+                            font: Theme.captionFont
+                        }
+
+                        MouseArea {
+                            id: apDelegateMa
+                            anchors.fill: parent
+                            onClicked: {
+                                switch (actionPickerPopup.gesture) {
+                                    case "click": popup.textAction = modelData.id; break
+                                    case "longpress": popup.textLongPressAction = modelData.id; break
+                                    case "doubleclick": popup.textDoubleclickAction = modelData.id; break
+                                }
+                                actionPickerPopup.close()
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -654,13 +1159,15 @@ Popup {
             { id: "navigate:descaling",      label: "Go to Descaling",      contexts: ["idle", "all"] },
             { id: "navigate:ai",             label: "Go to AI Settings",    contexts: ["idle", "all"] },
             { id: "navigate:visualizer",     label: "Go to Visualizer",     contexts: ["idle", "all"] },
+            { id: "navigate:autofavorites",  label: "Go to Favorites",      contexts: ["idle", "all"] },
             { id: "command:sleep",           label: "Sleep",                contexts: ["idle"] },
             { id: "command:startEspresso",   label: "Start Espresso",       contexts: ["idle"] },
             { id: "command:startSteam",      label: "Start Steam",          contexts: ["idle"] },
             { id: "command:startHotWater",   label: "Start Hot Water",      contexts: ["idle"] },
             { id: "command:startFlush",      label: "Start Flush",          contexts: ["idle"] },
             { id: "command:idle",            label: "Stop (Idle)",          contexts: ["idle", "espresso", "steam", "hotwater", "flush"] },
-            { id: "command:tare",            label: "Tare Scale",           contexts: ["idle", "espresso", "all"] }
+            { id: "command:tare",            label: "Tare Scale",           contexts: ["idle", "espresso", "all"] },
+            { id: "command:quit",            label: "Quit App",             contexts: ["idle"] }
         ]
         var ctx = popup.pageContext
         return allActions.filter(function(a) {

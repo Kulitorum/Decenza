@@ -83,6 +83,30 @@ Item {
         textEditorPopup.openForItem(itemId, zoneName, props)
     }
 
+    // Convert a widget to a Text widget with equivalent behavior
+    function convertItemToText(itemId, originalType) {
+        var mappings = {
+            "settings":         { emoji: "qrc:/icons/settings.svg",    content: "Settings",      action: "navigate:settings" },
+            "history":          { emoji: "qrc:/icons/history.svg",     content: "History",       action: "navigate:history" },
+            "autofavorites":    { emoji: "qrc:/icons/star.svg",        content: "Favorites",     action: "navigate:autofavorites" },
+            "sleep":            { emoji: "qrc:/icons/sleep.svg",       content: "Sleep",         action: "command:sleep" },
+            "quit":             { emoji: "qrc:/icons/quit.svg",        content: "Quit",          action: "command:quit" },
+            "temperature":      { emoji: "qrc:/icons/temperature.svg", content: "%TEMP%\u00B0C", action: "" },
+            "waterLevel":       { emoji: "qrc:/icons/water.svg",       content: "%WATER%%",      action: "" },
+            "connectionStatus": { emoji: "qrc:/icons/bluetooth.svg",   content: "%CONNECTED%",   action: "" },
+            "scaleWeight":      { emoji: "",                           content: "%WEIGHT%g",     action: "" }
+        }
+        var mapping = mappings[originalType]
+        if (!mapping) return
+
+        Settings.setItemProperty(itemId, "type", "text")
+        Settings.setItemProperty(itemId, "content", mapping.content)
+        Settings.setItemProperty(itemId, "action", mapping.action)
+        Settings.setItemProperty(itemId, "emoji", mapping.emoji)
+        selectedItemId = ""
+        selectedFromZone = ""
+    }
+
     // Ensure there's always a way to reach Settings from the home screen
     function ensureSettingsAccessible() {
         var zones = ["statusBar", "topLeft", "topRight", "centerStatus", "centerTop",
@@ -169,6 +193,7 @@ Item {
                 onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
                 onAddItemRequested: function(type) { Settings.addItem(type, "statusBar") }
                 onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
             }
 
             // Zone cards - paired top zones
@@ -190,6 +215,7 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topLeft") }
                     onAddItemRequested: function(type) { Settings.addItem(type, "topLeft") }
                     onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
                 }
 
                 LayoutEditorZone {
@@ -206,6 +232,7 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topRight") }
                     onAddItemRequested: function(type) { Settings.addItem(type, "topRight") }
                     onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
                 }
             }
 
@@ -226,6 +253,7 @@ Item {
                 onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
                 onAddItemRequested: function(type) { Settings.addItem(type, "centerStatus") }
                 onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
                 onMoveUp: Settings.setZoneYOffset("centerStatus", yOffset - 5)
                 onMoveDown: Settings.setZoneYOffset("centerStatus", yOffset + 5)
             }
@@ -247,6 +275,7 @@ Item {
                 onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
                 onAddItemRequested: function(type) { Settings.addItem(type, "centerTop") }
                 onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
                 onMoveUp: Settings.setZoneYOffset("centerTop", yOffset - 5)
                 onMoveDown: Settings.setZoneYOffset("centerTop", yOffset + 5)
             }
@@ -268,6 +297,7 @@ Item {
                 onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
                 onAddItemRequested: function(type) { Settings.addItem(type, "centerMiddle") }
                 onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
                 onMoveUp: Settings.setZoneYOffset("centerMiddle", yOffset - 5)
                 onMoveDown: Settings.setZoneYOffset("centerMiddle", yOffset + 5)
             }
@@ -291,6 +321,7 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomLeft") }
                     onAddItemRequested: function(type) { Settings.addItem(type, "bottomLeft") }
                     onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
                 }
 
                 LayoutEditorZone {
@@ -307,6 +338,7 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomRight") }
                     onAddItemRequested: function(type) { Settings.addItem(type, "bottomRight") }
                     onEditTextRequested: function(itemId, zoneName) { layoutTab.openTextEditor(itemId, zoneName) }
+                onConvertToTextRequested: function(itemId, itemType) { layoutTab.convertItemToText(itemId, itemType) }
                 }
             }
         }

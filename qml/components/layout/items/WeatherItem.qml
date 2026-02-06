@@ -73,6 +73,7 @@ Item {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: weatherEmoji(modelData.weatherIcon || "")
+                        font.family: Theme.emojiFontFamily
                         font.pixelSize: Theme.scaled(16)
                     }
                     Text {
@@ -121,6 +122,7 @@ Item {
                             return weatherEmoji(forecast[0].weatherIcon || "")
                         return ""
                     }
+                    font.family: Theme.emojiFontFamily
                     font.pixelSize: Theme.scaled(28)
                 }
 
@@ -199,6 +201,7 @@ Item {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: weatherEmoji(modelData.weatherIcon || "")
+                        font.family: Theme.emojiFontFamily
                         font.pixelSize: Theme.scaled(16)
                     }
 
