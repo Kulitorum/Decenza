@@ -60,7 +60,7 @@ Page {
             editDrinkWeight = editShotData.finalWeight || 0
             editDrinkTds = editShotData.drinkTds || 0
             editDrinkEy = editShotData.drinkEy || 0
-            editEnjoyment = editShotData.enjoyment || 75
+            editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
             editNotes = editShotData.espressoNotes || ""
         }
     }
@@ -77,7 +77,7 @@ Page {
     property double editDrinkWeight: 0
     property double editDrinkTds: 0
     property double editDrinkEy: 0
-    property int editEnjoyment: 75
+    property int editEnjoyment: 0  // 0 = unrated
     property string editNotes: ""
 
     // Save edited shot back to history
