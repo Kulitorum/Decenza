@@ -101,7 +101,8 @@ Page {
         }
         MainController.shotHistory.updateShotMetadata(editShotId, metadata)
 
-        // Also sync metadata back to Settings so it becomes the default for the next shot
+        // Sync sticky metadata back to Settings (bean/grinder info) for the next shot
+        // but NOT enjoyment/notes which are shot-specific
         Settings.dyeBeanBrand = editBeanBrand
         Settings.dyeBeanType = editBeanType
         Settings.dyeRoastDate = editRoastDate
@@ -113,8 +114,7 @@ Page {
         Settings.dyeDrinkWeight = editDrinkWeight
         Settings.dyeDrinkTds = editDrinkTds
         Settings.dyeDrinkEy = editDrinkEy
-        Settings.dyeEspressoEnjoyment = editEnjoyment
-        Settings.dyeShotNotes = editNotes
+        // Note: enjoyment and notes are NOT synced back - they're shot-specific
 
         // Reload the shot data to mark changes as saved (clears hasUnsavedChanges)
         loadShotForEditing()
