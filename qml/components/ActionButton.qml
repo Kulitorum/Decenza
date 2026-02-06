@@ -50,16 +50,15 @@ Button {
 
         Item {
             anchors.horizontalCenter: parent.horizontalCenter
-            width: Theme.scaled(48)
-            height: Theme.scaled(48)
+            width: iconImage.paintedWidth
+            height: control.iconSize
             visible: control.iconSource !== ""
 
             Image {
+                id: iconImage
                 anchors.centerIn: parent
                 source: control.iconSource
-                width: control.iconSize
                 height: control.iconSize
-                sourceSize.width: control.iconSize * 2
                 sourceSize.height: control.iconSize * 2
                 fillMode: Image.PreserveAspectFit
                 opacity: control.enabled ? 1.0 : 0.5

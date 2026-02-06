@@ -14,10 +14,10 @@
         <file>splash/splash4.png</file>
         <file>splash/splash5.png</file>
         <!-- Icons -->
-        <file>icons/espresso.svg</file>
+        <file alias="icons/espresso.svg">icons/espresso 8mm.svg</file>
         <file>icons/steam.svg</file>
         <file>icons/water.svg</file>
-        <file>icons/flush.svg</file>
+        <file alias="icons/flush.svg">icons/flush 8mm.svg</file>
         <file>icons/settings.svg</file>
         <file>icons/back.svg</file>
         <file>icons/edit.svg</file>

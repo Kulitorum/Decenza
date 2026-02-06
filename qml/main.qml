@@ -295,6 +295,7 @@ ApplicationWindow {
             case "bleError":
                 bleErrorDialog.errorMessage = next.params.errorMessage || ""
                 bleErrorDialog.isLocationError = next.params.isLocationError || false
+                bleErrorDialog.isBluetoothError = next.params.isBluetoothError || false
                 bleErrorDialog.open()
                 break
             case "refill":
@@ -826,6 +827,7 @@ ApplicationWindow {
 
         property string errorMessage: ""
         property bool isLocationError: false
+        property bool isBluetoothError: false
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -875,6 +877,18 @@ ApplicationWindow {
             }
 
             AccessibleButton {
+                Tr { id: trOpenBluetoothSettings; key: "main.button.openBluetoothSettings"; fallback: "Open Bluetooth Settings"; visible: false }
+                text: trOpenBluetoothSettings.text
+                accessibleName: trOpenBluetoothSettings.text
+                visible: bleErrorDialog.isBluetoothError
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: {
+                    BLEManager.openBluetoothSettings()
+                    bleErrorDialog.close()
+                }
+            }
+
+            AccessibleButton {
                 Tr { id: trOkBle; key: "common.button.ok"; fallback: "OK"; visible: false }
                 text: trOkBle.text
                 accessibleName: trDismissDialogBle.text
@@ -889,14 +903,16 @@ ApplicationWindow {
         target: BLEManager
         function onErrorOccurred(error) {
             var isLocation = error.indexOf("Location") !== -1
+            var isBluetooth = error.indexOf("Bluetooth") !== -1 && error.indexOf("permission") !== -1
             var msg = isLocation
                 ? "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
                 : error
             if (screensaverActive) {
-                queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation})
+                queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth})
                 return
             }
             bleErrorDialog.isLocationError = isLocation
+            bleErrorDialog.isBluetoothError = isBluetooth
             bleErrorDialog.errorMessage = msg
             bleErrorDialog.open()
         }

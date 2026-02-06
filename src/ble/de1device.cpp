@@ -1183,8 +1183,8 @@ void DE1Device::sendInitialSettings() {
     QByteArray frame(8, 0);
     frame[0] = 0;    // FrameToWrite = 0
     frame[1] = 0;    // Flag = 0 (pressure control, no exit condition)
-    frame[2] = 144;  // SetVal (U8P4) = 9.0 * 16 = 144 (9 bar)
-    frame[3] = 186;  // Temp (U8P1) = 93.0 * 2 = 186 (93°C)
+    frame[2] = static_cast<char>(144);  // SetVal (U8P4) = 9.0 * 16 = 144 (9 bar)
+    frame[3] = static_cast<char>(186);  // Temp (U8P1) = 93.0 * 2 = 186 (93°C)
     frame[4] = 62;   // FrameLen (F8_1_7) ~30 seconds encoded
     frame[5] = 0;    // TriggerVal
     frame[6] = 0;    // MaxVol high byte

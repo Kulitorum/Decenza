@@ -52,8 +52,8 @@ Item {
 
             Image {
                 source: "qrc:/icons/edit.svg"
-                sourceSize.width: Theme.scaled(20)
                 sourceSize.height: Theme.scaled(20)
+                fillMode: Image.PreserveAspectFit
                 opacity: DE1Device.guiEnabled ? 1.0 : 0.5
                 Accessible.ignored: true
             }

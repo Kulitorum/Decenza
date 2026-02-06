@@ -4,7 +4,7 @@
 #include <QTimer>
 #include <QMetaObject>
 
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #import <Foundation/Foundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
 
@@ -24,7 +24,7 @@ static inline QString uuidKey(const QBluetoothUuid& s, const QBluetoothUuid& c) 
     return s.toString() + "|" + c.toString();
 }
 
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 static inline NSString* qsToNs(const QString& s) {
     QByteArray u8 = s.toUtf8();
     return [NSString stringWithUTF8String:u8.constData()];
@@ -459,13 +459,13 @@ didWriteValueForCharacteristic:(CBCharacteristic *)characteristic
 
 @end
 
-#endif // Q_OS_IOS
+#endif // Q_OS_IOS || Q_OS_MACOS
 
 // ---------- C++ class ----------
 CoreBluetoothScaleBleTransport::CoreBluetoothScaleBleTransport(QObject* parent)
     : ScaleBleTransport(parent)
 {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     d = new Impl;
     d->q = this;
     d->periph = nullptr;
@@ -481,7 +481,7 @@ CoreBluetoothScaleBleTransport::CoreBluetoothScaleBleTransport(QObject* parent)
 }
 
 CoreBluetoothScaleBleTransport::~CoreBluetoothScaleBleTransport() {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (d) {
         // Mark as invalid FIRST - this makes pending dispatch_async blocks no-op
         d->isValid = false;
@@ -520,7 +520,7 @@ void CoreBluetoothScaleBleTransport::log(const QString& msg) {
 }
 
 bool CoreBluetoothScaleBleTransport::isConnected() const {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     return d && d->connected;
 #else
     return false;
@@ -528,7 +528,7 @@ bool CoreBluetoothScaleBleTransport::isConnected() const {
 }
 
 void CoreBluetoothScaleBleTransport::connectToDevice(const QString& address, const QString& name) {
-#ifndef Q_OS_IOS
+#if !defined(Q_OS_IOS) && !defined(Q_OS_MACOS)
     Q_UNUSED(address); Q_UNUSED(name);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
 #else
@@ -571,7 +571,7 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QString& address, con
 }
 
 void CoreBluetoothScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
-#ifndef Q_OS_IOS
+#if !defined(Q_OS_IOS) && !defined(Q_OS_MACOS)
     Q_UNUSED(device);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
 #else
@@ -582,7 +582,7 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo&
 }
 
 void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!d) return;
 
     // CoreBluetooth calls must be on main thread
@@ -612,7 +612,7 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
 }
 
 void CoreBluetoothScaleBleTransport::discoverServices() {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!d || !d->isValid || !d->periph) { emit error("No peripheral"); return; }
     log("Discovering services");
     // On iOS, Qt main thread = dispatch main queue, so just call directly
@@ -623,7 +623,7 @@ void CoreBluetoothScaleBleTransport::discoverServices() {
 }
 
 void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceUuid) {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!d || !d->isValid || !d->periph) { emit error("No peripheral"); return; }
 
     CBService* svc = d->findService(serviceUuid);
@@ -648,7 +648,7 @@ void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUui
 
 void CoreBluetoothScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                                         const QBluetoothUuid& characteristicUuid) {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!d || !d->periph) { emit error("No peripheral"); return; }
 
     CBCharacteristic* ch = d->findChar(serviceUuid, characteristicUuid);
@@ -676,7 +676,7 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
                                                         const QBluetoothUuid& characteristicUuid,
                                                         const QByteArray& data,
                                                         WriteType writeType) {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!d || !d->periph) { emit error("No peripheral"); return; }
 
     CBCharacteristic* ch = d->findChar(serviceUuid, characteristicUuid);
@@ -703,7 +703,7 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
 
 void CoreBluetoothScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
                                                        const QBluetoothUuid& characteristicUuid) {
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!d || !d->periph) { emit error("No peripheral"); return; }
 
     CBCharacteristic* ch = d->findChar(serviceUuid, characteristicUuid);

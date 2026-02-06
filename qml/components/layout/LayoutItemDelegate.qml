@@ -38,7 +38,7 @@ Loader {
             default:                 src = ""; break
         }
         console.log("[IdlePage] type:", itemType, "zone:", zoneName, "compact:", isCompact, "source:", src)
-        return src
+        return src ? Qt.resolvedUrl(src) : ""
     }
 
     onLoaded: {

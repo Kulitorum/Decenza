@@ -148,6 +148,8 @@ public:
     Q_INVOKABLE QString getAiTranslation(const QString& fallback) const;  // Get AI translation for fallback text
     Q_INVOKABLE bool isAiGenerated(const QString& key) const;  // Check if translation is unmodified AI output
     Q_INVOKABLE void copyAiToFinal(const QString& fallback);  // Copy AI translation to final for all keys
+    Q_INVOKABLE void clearAiTranslation(const QString& fallback);  // Clear AI translation for a string
+    Q_INVOKABLE void clearAllAiTranslations();  // Clear all AI translations for current language
 
     // Auto-update language on startup
     void checkForLanguageUpdate();
