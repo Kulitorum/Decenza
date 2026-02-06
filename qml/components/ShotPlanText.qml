@@ -25,6 +25,18 @@ Text {
     property double dose: Settings.dyeBeanWeight
     property double targetWeight: MainController.targetWeight
 
+    Component.onCompleted: {
+        console.log("[ShotPlanText] onCompleted: profileName=" + profileName
+            + " profileTemp=" + profileTemp
+            + " overrideTemp=" + overrideTemp
+            + " targetWeight=" + targetWeight
+            + " dose=" + dose
+            + " beanName=" + beanName
+            + " hasTemperatureOverride=" + Settings.hasTemperatureOverride
+            + " hasBrewYieldOverride=" + Settings.hasBrewYieldOverride
+            + " brewYieldOverride=" + Settings.brewYieldOverride)
+    }
+
     text: {
         var parts = []
         var tempStr = profileTemp > 0 ? profileTemp.toFixed(0) + "\u00B0C" : ""

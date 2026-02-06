@@ -31,7 +31,7 @@ Item {
             spacing: Theme.spacingSmall
 
             Image {
-                source: "qrc:/icons/espresso.svg"
+                source: "qrc:/icons/history.svg"
                 sourceSize.height: Theme.scaled(20)
                 fillMode: Image.PreserveAspectFit
                 Accessible.ignored: true
@@ -64,7 +64,7 @@ Item {
             anchors.fill: parent
             translationKey: "idle.button.history"
             translationFallback: "History"
-            iconSource: "qrc:/icons/espresso.svg"
+            iconSource: "qrc:/icons/history.svg"
             iconSize: Theme.scaled(43)
             backgroundColor: Theme.primaryColor
             onClicked: root.goToHistory()

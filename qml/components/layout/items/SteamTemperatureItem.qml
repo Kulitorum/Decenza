@@ -25,7 +25,7 @@ Item {
         Text {
             id: compactTemp
             anchors.centerIn: parent
-            text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C\u2009\u2668" : "\u2014"
+            text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
             color: Theme.warningColor
             font: Theme.bodyFont
         }

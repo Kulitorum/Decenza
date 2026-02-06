@@ -51,7 +51,7 @@ Item {
             spacing: Theme.spacingSmall
 
             Image {
-                source: "qrc:/icons/edit.svg"
+                source: "qrc:/icons/coffeebeans.svg"
                 sourceSize.height: Theme.scaled(20)
                 fillMode: Image.PreserveAspectFit
                 opacity: DE1Device.guiEnabled ? 1.0 : 0.5
@@ -90,7 +90,7 @@ Item {
             anchors.fill: parent
             translationKey: "idle.button.beaninfo"
             translationFallback: "Beans"
-            iconSource: "qrc:/icons/edit.svg"
+            iconSource: "qrc:/icons/coffeebeans.svg"
             iconSize: Theme.scaled(43)
             enabled: DE1Device.guiEnabled
             backgroundColor: Settings.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor

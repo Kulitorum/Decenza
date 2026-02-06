@@ -258,6 +258,9 @@ MainController::MainController(Settings* settings, DE1Device* device,
             // Sync selectedFavoriteProfile so UI shows correct pill
             int favoriteIndex = m_settings->findFavoriteIndexByFilename(m_baseProfileName);
             m_settings->setSelectedFavoriteProfile(favoriteIndex);
+            // Sync overrides so shot plan shows correct profile data
+            m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+            m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
         }
         if (m_machineState) {
             m_machineState->setTargetWeight(targetWeight());
@@ -793,6 +796,12 @@ void MainController::loadProfile(const QString& profileName) {
     m_baseProfileName = resolvedName;
     bool wasModified = m_profileModified;
     m_profileModified = false;
+
+    // Remove stale temp file so next startup loads the correct profile
+    if (wasModified) {
+        QString tempPath = profilesPath() + "/_current.json";
+        QFile::remove(tempPath);
+    }
 
     if (m_settings) {
         m_settings->setCurrentProfile(resolvedName);

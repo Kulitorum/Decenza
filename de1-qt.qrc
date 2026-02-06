@@ -20,8 +20,6 @@
         <file>qtquickcontrols2.conf</file>
         <file>resources/icons/back.svg</file>
         <file>resources/icons/edit.svg</file>
-        <file>resources/icons/espresso.svg</file>
-        <file>resources/icons/flush.svg</file>
         <file>resources/icons/settings.svg</file>
         <file>resources/icons/steam.svg</file>
         <file>resources/icons/water.svg</file>

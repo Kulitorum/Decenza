@@ -24,7 +24,29 @@
         <file>icons/sleep.svg</file>
         <file>icons/sparkle.svg</file>
         <file>icons/keyboard_hide.svg</file>
+        <file>icons/battery-0.svg</file>
+        <file>icons/battery-25.svg</file>
+        <file>icons/battery-50.svg</file>
+        <file>icons/battery-75.svg</file>
+        <file>icons/battery-100.svg</file>
+        <file>icons/bluetooth.svg</file>
+        <file>icons/box.svg</file>
+        <file>icons/box-checked.svg</file>
+        <file>icons/coffeebeans.svg</file>
+        <file>icons/cross.svg</file>
+        <file>icons/decent-de1.svg</file>
+        <file>icons/filter.svg</file>
+        <file>icons/grind.svg</file>
+        <file>icons/hand.svg</file>
+        <file>icons/history.svg</file>
+        <file>icons/niche-zero.svg</file>
         <file>icons/star.svg</file>
+        <file>icons/star-outline.svg</file>
+        <file>icons/tea.svg</file>
+        <file>icons/temperature.svg</file>
+        <file>icons/tick.svg</file>
+        <file>icons/usb.svg</file>
+        <file>icons/wifi.svg</file>
         <!-- GHC Simulator -->
         <file>GHC_Small.png</file>
         <!-- Shot Map Screensaver -->

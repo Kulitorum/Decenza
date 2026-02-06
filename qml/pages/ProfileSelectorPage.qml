@@ -592,7 +592,7 @@ Page {
                                         }
 
                                         onReleased: {
-                                            favoritePill.anchors.fill = parent
+                                            favoritePill.anchors.fill = favoriteDelegate
                                             // Calculate new position based on Y
                                             var newIndex = Math.floor((favoritePill.y + favoritePill.height/2) / (Theme.scaled(60) + Theme.scaled(8)))
                                             newIndex = Math.max(0, Math.min(newIndex, Settings.favoriteProfiles.length - 1))
