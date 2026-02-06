@@ -19,8 +19,6 @@ apply plugin: qtGradlePluginType
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
     implementation 'androidx.core:core:1.16.0'
-    // Nordic BLE library - battle-tested, handles all Android BLE edge cases
-    implementation 'no.nordicsemi.android:ble:2.9.0'
 }
 
 android {

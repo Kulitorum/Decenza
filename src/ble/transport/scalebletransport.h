@@ -11,9 +11,8 @@
  * Abstract BLE transport interface for scales.
  *
  * This abstraction allows different BLE implementations:
- * - QtScaleBleTransport: Uses Qt's QLowEnergyController (desktop, works well)
- * - AndroidScaleBleTransport: Uses native Android BLE via JNI (fixes CCCD issues)
- * - IosScaleBleTransport: Uses CoreBluetooth (future)
+ * - QtScaleBleTransport: Uses Qt's QLowEnergyController (Android, desktop)
+ * - CoreBluetoothScaleBleTransport: Uses native CoreBluetooth (iOS, macOS)
  *
  * Scale classes use this interface for all BLE operations.
  * Protocol parsing remains in each scale class.

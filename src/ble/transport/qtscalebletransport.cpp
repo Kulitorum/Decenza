@@ -111,7 +111,6 @@ void QtScaleBleTransport::disconnectFromDevice() {
         service->deleteLater();
     }
     m_services.clear();
-    m_pendingNotificationCharacteristic = QBluetoothUuid();
 
     if (m_controller) {
         m_controller->disconnect();
@@ -180,13 +179,15 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
 
     if (cccd.isValid()) {
         QT_TRANSPORT_LOG("Writing CCCD to enable notifications");
-        // Track which characteristic we're enabling notifications for
-        m_pendingNotificationCharacteristic = characteristicUuid;
         service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
     } else {
-        QT_TRANSPORT_LOG("ERROR: CCCD descriptor not found");
-        emit error("CCCD descriptor not found");
+        QT_TRANSPORT_LOG("CCCD descriptor not found - scale may still send notifications");
     }
+
+    // Emit immediately (fire-and-forget) - don't wait for CCCD write response.
+    // Some scales (e.g. Bookoo) reject CCCD writes but still send notifications.
+    // Nordic BLE library had the same behavior: report success regardless of CCCD outcome.
+    emit notificationsEnabled(characteristicUuid);
 }
 
 void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
@@ -342,11 +343,7 @@ void QtScaleBleTransport::onServiceStateChanged(QLowEnergyService::ServiceState 
 
 void QtScaleBleTransport::onCharacteristicChanged(const QLowEnergyCharacteristic& c,
                                                    const QByteArray& value) {
-    // Log raw notification data for debugging
-    QT_TRANSPORT_LOG(QString("Notify %1: %2 bytes: %3")
-        .arg(c.uuid().toString())
-        .arg(value.size())
-        .arg(QString(value.toHex())));
+    // Don't log every notification - too spammy (weight updates come constantly)
     emit characteristicChanged(c.uuid(), value);
 }
 
@@ -366,15 +363,8 @@ void QtScaleBleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic
 
 void QtScaleBleTransport::onDescriptorWritten(const QLowEnergyDescriptor& d, const QByteArray& value) {
     Q_UNUSED(value);
-    // Check if this is a CCCD descriptor (notification enable)
     if (d.type() == QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration) {
-        if (!m_pendingNotificationCharacteristic.isNull()) {
-            QT_TRANSPORT_LOG(QString("Notifications enabled for %1").arg(m_pendingNotificationCharacteristic.toString()));
-            emit notificationsEnabled(m_pendingNotificationCharacteristic);
-            m_pendingNotificationCharacteristic = QBluetoothUuid();  // Clear
-        } else {
-            QT_TRANSPORT_LOG("Descriptor written but no pending characteristic tracked");
-        }
+        QT_TRANSPORT_LOG("CCCD write confirmed by remote device");
     }
 }
 
@@ -387,7 +377,10 @@ void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
         case QLowEnergyService::NoError: errorName = "NoError"; break;
         case QLowEnergyService::OperationError: errorName = "OperationError"; break;
         case QLowEnergyService::CharacteristicWriteError: errorName = "CharacteristicWriteError"; break;
-        case QLowEnergyService::DescriptorWriteError: errorName = "DescriptorWriteError"; break;
+        case QLowEnergyService::DescriptorWriteError:
+            // CCCD write failures are non-fatal - some scales reject them but still notify
+            QT_TRANSPORT_LOG("DescriptorWriteError (non-fatal, scale may still send notifications)");
+            return;
         case QLowEnergyService::UnknownError: errorName = "UnknownError"; break;
         case QLowEnergyService::CharacteristicReadError: errorName = "CharacteristicReadError"; break;
         case QLowEnergyService::DescriptorReadError: errorName = "DescriptorReadError"; break;

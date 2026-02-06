@@ -54,7 +54,6 @@ private:
 
     QLowEnergyController* m_controller = nullptr;
     QMap<QBluetoothUuid, QLowEnergyService*> m_services;
-    QBluetoothUuid m_pendingNotificationCharacteristic;  // Track last characteristic we're enabling notifications for
     QString m_deviceAddress;
     QString m_deviceName;
     QString m_deviceId;  // UUID on iOS, address on other platforms - for duplicate detection
