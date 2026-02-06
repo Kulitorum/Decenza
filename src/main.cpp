@@ -140,7 +140,7 @@ int main(int argc, char *argv[])
 
     // Connect timing controller outputs to shot data model
     QObject::connect(&timingController, &ShotTimingController::weightSampleReady,
-                     &shotDataModel, qOverload<double, double>(&ShotDataModel::addWeightSample));
+                     &shotDataModel, qOverload<double, double, double>(&ShotDataModel::addWeightSample));
 
     // Connect stop-at-weight signal to DE1
     QObject::connect(&timingController, &ShotTimingController::stopAtWeightReached,

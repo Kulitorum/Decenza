@@ -62,6 +62,7 @@ struct ShotRecord {
     QVector<QPointF> resistance;
     QVector<QPointF> waterDispensed;
     QVector<QPointF> weight;
+    QVector<QPointF> weightFlowRate;  // Flow rate from scale (g/s) for visualizer export
 
     // Phase markers
     QList<HistoryPhaseMarker> phases;

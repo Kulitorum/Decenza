@@ -57,6 +57,7 @@ public:
     const QVector<QPointF>& temperatureGoalData() const { return m_temperatureGoalPoints; }
     const QVector<QPointF>& weightData() const { return m_weightPoints; }  // Cumulative weight (g) for graph
     const QVector<QPointF>& cumulativeWeightData() const { return m_cumulativeWeightPoints; }  // Cumulative weight for export
+    const QVector<QPointF>& weightFlowRateData() const { return m_weightFlowRatePoints; }  // Flow rate from scale (g/s) for export
 
 public slots:
     void clear();
@@ -98,6 +99,7 @@ private:
     QVector<QPointF> m_temperatureGoalPoints;
     QVector<QPointF> m_weightPoints;  // Cumulative weight (g) - for graphing
     QVector<QPointF> m_cumulativeWeightPoints;  // Cumulative weight (g) - for export
+    QVector<QPointF> m_weightFlowRatePoints;  // Flow rate from scale (g/s) - for visualizer export
 
     // Chart series pointers (QPointer auto-nulls when QML destroys them)
     QPointer<QLineSeries> m_pressureSeries;

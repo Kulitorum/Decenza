@@ -161,7 +161,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     // Emit weight sample with same timestamp as other curves (perfect sync)
     // Weight value is cached from onWeightSample, emitted here for graph alignment
     if (m_extractionStarted && m_weight >= 0.1) {
-        emit weightSampleReady(time, m_weight);
+        emit weightSampleReady(time, m_weight, m_flowRate);
     }
 }
 
@@ -174,7 +174,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate)
 
         // Also emit to graph so drip is visible (use live calculated time)
         double time = shotTime();
-        emit weightSampleReady(time, weight);
+        emit weightSampleReady(time, weight, 0.0);
 
         // Check for weight stabilization (time-based since scale only sends on change)
         double delta = qAbs(weight - m_lastStableWeight);

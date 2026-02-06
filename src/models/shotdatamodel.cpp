@@ -14,6 +14,7 @@ ShotDataModel::ShotDataModel(QObject* parent)
     m_temperatureGoalPoints.reserve(INITIAL_CAPACITY);
     m_weightPoints.reserve(INITIAL_CAPACITY);
     m_cumulativeWeightPoints.reserve(INITIAL_CAPACITY);
+    m_weightFlowRatePoints.reserve(INITIAL_CAPACITY);
 
     // Initialize first segments for goal curves
     m_pressureGoalSegments.append(QVector<QPointF>());
@@ -118,6 +119,7 @@ void ShotDataModel::clear() {
     m_temperatureGoalPoints.clear();
     m_weightPoints.clear();
     m_cumulativeWeightPoints.clear();
+    m_weightFlowRatePoints.clear();
     m_pendingMarkers.clear();
 
     // Reset goal segments - keep first segment with capacity
@@ -175,6 +177,7 @@ void ShotDataModel::clearWeightData() {
     // Clear any pre-tare weight samples (race condition fix)
     m_weightPoints.clear();
     m_cumulativeWeightPoints.clear();
+    m_weightFlowRatePoints.clear();
     if (m_weightSeries) {
         m_weightSeries->clear();
     }
@@ -251,7 +254,10 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
 }
 
 void ShotDataModel::addWeightSample(double time, double weight, double flowRate) {
-    Q_UNUSED(flowRate);  // No longer used for graphing - we plot cumulative weight now
+    // Store weight flow rate for visualizer export (flow["by_weight"])
+    if (flowRate >= 0) {
+        m_weightFlowRatePoints.append(QPointF(time, flowRate));
+    }
     addWeightSample(time, weight);
 }
 

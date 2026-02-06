@@ -212,7 +212,8 @@ void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
         if (!profileJson.isEmpty()) {
             QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
             if (!profileDoc.isNull()) {
-                QString bevType = profileDoc.object()["beverage_type"].toString();
+                QJsonObject profileObj = profileDoc.object();
+                QString bevType = profileObj["beverage_type"].toString();
                 if (bevType == "cleaning" || bevType == "calibrate" || bevType == "descale") {
                     qDebug() << "Visualizer: Skipping upload for maintenance profile:" << bevType;
                     return;
@@ -294,6 +295,7 @@ void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
     QVector<QPointF> flowGoalData = toPointVector(shotData["flowGoal"].toList());
     QVector<QPointF> tempGoalData = toPointVector(shotData["temperatureGoal"].toList());
     QVector<QPointF> weightData = toPointVector(shotData["weight"].toList());
+    QVector<QPointF> weightFlowRateData = toPointVector(shotData["weightFlowRate"].toList());
 
     // Elapsed time array (from pressure data - the master timeline)
     root["elapsed"] = extractTimes(pressureData);
@@ -308,6 +310,10 @@ void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
     QJsonObject flow;
     flow["flow"] = extractValues(flowData);
     flow["goal"] = interpolateGoalData(flowGoalData, pressureData);
+    // Weight-based flow rate (g/s from scale) - interpolate to match elapsed timestamps
+    if (!weightFlowRateData.isEmpty()) {
+        flow["by_weight"] = interpolateGoalData(weightFlowRateData, pressureData);
+    }
     root["flow"] = flow;
 
     // Temperature object - interpolate goal to match elapsed timestamps
@@ -540,7 +546,8 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
             errorMsg = "Shot not found on Visualizer";
         } else if (statusCode == 422) {
             QJsonDocument doc = QJsonDocument::fromJson(response);
-            errorMsg = doc.object()["error"].toString();
+            QJsonObject obj = doc.object();
+            errorMsg = obj["error"].toString();
             if (errorMsg.isEmpty()) {
                 errorMsg = "Invalid data (422)";
             }
@@ -624,7 +631,8 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             errorMsg = "Invalid credentials";
         } else if (statusCode == 422) {
             QJsonDocument doc = QJsonDocument::fromJson(response);
-            errorMsg = doc.object()["error"].toString();
+            QJsonObject obj = doc.object();
+            errorMsg = obj["error"].toString();
             if (errorMsg.isEmpty()) {
                 errorMsg = "Invalid shot data (422)";
             }
@@ -676,7 +684,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     const auto& pressureGoalData = shotData->pressureGoalData();
     const auto& flowGoalData = shotData->flowGoalData();
     const auto& temperatureGoalData = shotData->temperatureGoalData();
-    const auto& weightFlowData = shotData->weightData();  // Flow rate from scale (g/s)
+    const auto& weightFlowRateData = shotData->weightFlowRateData();  // Flow rate from scale (g/s)
     const auto& cumulativeWeightData = shotData->cumulativeWeightData();  // Cumulative weight (g)
 
     // Use de1app version 2 format
@@ -715,9 +723,9 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     flow["flow"] = flowValues;
     // Interpolate goal data to match elapsed timestamps
     flow["goal"] = interpolateGoalData(flowGoalData, pressureData);
-    // Interpolate weight flow to match elapsed timestamps
-    if (!weightFlowData.isEmpty()) {
-        flow["by_weight"] = interpolateGoalData(weightFlowData, pressureData);
+    // Interpolate weight flow rate (g/s from scale) to match elapsed timestamps
+    if (!weightFlowRateData.isEmpty()) {
+        flow["by_weight"] = interpolateGoalData(weightFlowRateData, pressureData);
     }
     root["flow"] = flow;
 

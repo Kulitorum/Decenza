@@ -33,7 +33,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     const auto& pressureData = shotData->pressureData();
     const auto& flowData = shotData->flowData();
     const auto& tempData = shotData->temperatureData();
-    const auto& weightFlowData = shotData->weightData();  // Flow rate from scale (g/s)
+    const auto& weightFlowData = shotData->weightFlowRateData();  // Flow rate from scale (g/s)
     const auto& cumulativeWeightData = shotData->cumulativeWeightData();  // Cumulative weight (g)
 
     if (pressureData.isEmpty()) {

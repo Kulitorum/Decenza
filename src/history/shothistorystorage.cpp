@@ -286,6 +286,8 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData)
     root["weight"] = pointsToJsonObject(shotData->cumulativeWeightData());
     // Also store flow rate from scale for future graph display
     root["weightFlow"] = pointsToJsonObject(shotData->weightData());
+    // Weight-based flow rate (g/s) for visualizer export
+    root["weightFlowRate"] = pointsToJsonObject(shotData->weightFlowRateData());
 
     QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
     return qCompress(json, 9);  // Max compression
@@ -327,6 +329,8 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     if (root.contains("waterDispensed"))
         record->waterDispensed = arrayToPoints(root["waterDispensed"].toObject());
     record->weight = arrayToPoints(root["weight"].toObject());
+    if (root.contains("weightFlowRate"))
+        record->weightFlowRate = arrayToPoints(root["weightFlowRate"].toObject());
 }
 
 qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
@@ -733,6 +737,7 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["flowGoal"] = pointsToVariant(record.flowGoal);
     result["temperatureGoal"] = pointsToVariant(record.temperatureGoal);
     result["weight"] = pointsToVariant(record.weight);
+    result["weightFlowRate"] = pointsToVariant(record.weightFlowRate);
 
     // Phase markers
     QVariantList phases;
@@ -1621,6 +1626,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     root["flowGoal"] = pointsToJsonObject(record.flowGoal);
     root["temperatureGoal"] = pointsToJsonObject(record.temperatureGoal);
     root["weight"] = pointsToJsonObject(record.weight);
+    root["weightFlowRate"] = pointsToJsonObject(record.weightFlowRate);
 
     QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
     QByteArray compressedData = qCompress(json, 9);

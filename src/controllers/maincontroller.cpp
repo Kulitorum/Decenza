@@ -2562,6 +2562,7 @@ void MainController::generateFakeShotData() {
         return (QRandomGenerator::global()->bounded(100) / 100.0) * range;
     };
 
+    double prevWeight = 0.0;
     for (int i = 0; i < numSamples; i++) {
         double t = i * sampleRate;
         double temperature = 92.0 + noise(1.0);  // 92-93°C
@@ -2607,11 +2608,14 @@ void MainController::generateFakeShotData() {
             weight = 36.0 + progress * 4.0;  // 36-40g
         }
 
+        // Derive weight flow rate (g/s) from weight delta
+        double weightFlowRate = (i > 0) ? (weight - prevWeight) / sampleRate : 0.0;
+        prevWeight = weight;
+
         // addSample(time, pressure, flow, temperature, mixTemp, pressureGoal, flowGoal, temperatureGoal, frameNumber, isFlowMode)
         // Simulation uses pressure mode (isFlowMode = false)
         m_shotDataModel->addSample(t, pressure, flow, temperature, temperature, pressureGoal, flowGoal, 92.0, frameNumber, false);
-        // addWeightSample(time, weight, flowRate)
-        m_shotDataModel->addWeightSample(t, weight, flow);
+        m_shotDataModel->addWeightSample(t, weight, weightFlowRate);
     }
 
     // Add phase markers (simulation uses pressure mode)

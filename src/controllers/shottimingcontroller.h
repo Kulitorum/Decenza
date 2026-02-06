@@ -81,7 +81,7 @@ signals:
     void sampleReady(double time, double pressure, double flow, double temp,
                      double pressureGoal, double flowGoal, double tempGoal,
                      int frameNumber, bool isFlowMode);
-    void weightSampleReady(double time, double weight);
+    void weightSampleReady(double time, double weight, double flowRate);
 
     // Stop conditions
     void stopAtWeightReached();
