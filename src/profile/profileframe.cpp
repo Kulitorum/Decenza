@@ -26,11 +26,10 @@ QJsonObject ProfileFrame::toJson() const {
     if (exitFlowUnder > 0) obj["exit_flow_under"] = exitFlowUnder;
     if (exitWeight > 0) obj["exit_weight"] = exitWeight;
 
-    // Limiter
-    if (maxFlowOrPressure > 0) {
-        obj["max_flow_or_pressure"] = maxFlowOrPressure;
-        obj["max_flow_or_pressure_range"] = maxFlowOrPressureRange;
-    }
+    // Limiter - always save both fields for round-trip fidelity
+    // (D-Flow profiles set range to 0.2 even when limiter value is 0)
+    obj["max_flow_or_pressure"] = maxFlowOrPressure;
+    obj["max_flow_or_pressure_range"] = maxFlowOrPressureRange;
 
     // User notification popup
     if (!popup.isEmpty()) {
@@ -168,7 +167,10 @@ ProfileFrame ProfileFrame::withSetpoint(double pressureOrFlow, double temp) cons
 }
 
 uint8_t ProfileFrame::computeFlags() const {
-    uint8_t flags = DE1::FrameFlag::IgnoreLimit;  // Default
+    // IgnoreLimit controls the HEADER-level MinimumPressure/MaximumFlow limits,
+    // NOT the per-frame extension frame limiters. De1app always sets this flag.
+    // Extension frames (max_flow_or_pressure) work independently.
+    uint8_t flags = DE1::FrameFlag::IgnoreLimit;
 
     // Flow vs pressure control
     if (pump == "flow") {
