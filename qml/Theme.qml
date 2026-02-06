@@ -19,6 +19,9 @@ QtObject {
     property bool configurePageScaleEnabled: false
     property string currentPageObjectName: ""
 
+    // Emoji font family name (set by main.qml after FontLoader completes)
+    property string emojiFontFamily: "Noto Color Emoji"
+
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }
 

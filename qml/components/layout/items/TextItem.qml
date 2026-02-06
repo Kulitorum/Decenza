@@ -13,7 +13,13 @@ Item {
     readonly property string content: modelData.content || "Text"
     readonly property string textAlign: modelData.align || "center"
     readonly property string action: modelData.action || ""
-    readonly property bool hasAction: action !== ""
+    readonly property string longPressAction: modelData.longPressAction || ""
+    readonly property string doubleclickAction: modelData.doubleclickAction || ""
+    readonly property string emoji: modelData.emoji || ""
+    readonly property string bgColor: modelData.backgroundColor || ""
+    readonly property bool hasAction: action !== "" || longPressAction !== "" || doubleclickAction !== ""
+    readonly property bool hasEmoji: emoji !== ""
+    readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
     readonly property int qtAlignment: {
         switch (textAlign) {
@@ -63,9 +69,33 @@ Item {
         onTriggered: root._refreshTick++
     }
 
+    // Detect malformed HTML (e.g. tags inside attribute values) and strip to plain text
+    function sanitizeHtml(html) {
+        if (!html || html.indexOf("<") < 0) return html
+        var inTag = false
+        var inQuote = false
+        for (var i = 0; i < html.length; i++) {
+            var ch = html[i]
+            if (inQuote) {
+                if (ch === '"') inQuote = false
+                else if (ch === '<') {
+                    // Tag inside a quoted attribute — HTML is broken, strip all tags
+                    console.warn("[TextItem] Malformed HTML detected, stripping tags:", html.substring(0, 80))
+                    return html.replace(/<[^>]*>/g, "")
+                }
+            } else if (inTag) {
+                if (ch === '"') inQuote = true
+                else if (ch === '>') inTag = false
+            } else {
+                if (ch === '<') inTag = true
+            }
+        }
+        return html
+    }
+
     function substituteVariables(text) {
         if (!text) return ""
-        var result = text
+        var result = sanitizeHtml(text)
         // Machine
         result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" ? DE1Device.temperature.toFixed(1) : "—")
         result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? DE1Device.steamTemperature.toFixed(1) : "—")
@@ -105,9 +135,9 @@ Item {
         return result
     }
 
-    function executeAction() {
-        if (!hasAction) return
-        var parts = action.split(":")
+    function executeActionString(actionStr) {
+        if (!actionStr) return
+        var parts = actionStr.split(":")
         if (parts.length < 2) return
         var category = parts[0]
         var target = parts.slice(1).join(":")
@@ -121,7 +151,8 @@ Item {
                 "recipes": "RecipeEditorPage.qml",
                 "descaling": "DescalingPage.qml",
                 "ai": "AISettingsPage.qml",
-                "visualizer": "VisualizerBrowserPage.qml"
+                "visualizer": "VisualizerBrowserPage.qml",
+                "autofavorites": "AutoFavoritesPage.qml"
             }
             var page = pageMap[target]
             if (page && typeof pageStack !== "undefined") {
@@ -161,6 +192,9 @@ Item {
                     if (typeof MachineState !== "undefined")
                         MachineState.tareScale()
                     break
+                case "quit":
+                    Qt.quit()
+                    break
             }
         }
     }
@@ -170,39 +204,65 @@ Item {
         id: compactContent
         visible: root.isCompact
         anchors.fill: parent
-        implicitWidth: compactText.implicitWidth + (root.hasAction ? Theme.scaled(16) : 0)
+        implicitWidth: compactRow.implicitWidth + (root.hasAction || root.hasEmoji ? Theme.scaled(16) : 0)
         implicitHeight: Theme.bottomBarHeight
 
         Rectangle {
-            visible: root.hasAction
+            visible: root.hasAction || root.hasEmoji
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
-            color: compactTapArea.pressed
-                ? Qt.darker(Theme.surfaceColor, 1.3)
-                : Theme.surfaceColor
+            color: {
+                var base = root.bgColor || (root.hasAction ? "#555555" : Theme.surfaceColor)
+                return compactTap.isPressed ? Qt.darker(base, 1.2) : base
+            }
             radius: Theme.cardRadius
-            border.color: Theme.borderColor
-            border.width: 1
+            opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
         }
 
-        Text {
-            id: compactText
+        RowLayout {
+            id: compactRow
             anchors.centerIn: parent
-            text: root.resolvedText
-            textFormat: Text.RichText
-            color: Theme.textColor
-            font: Theme.bodyFont
-            horizontalAlignment: root.qtAlignment
-            elide: Text.ElideRight
-            maximumLineCount: 1
+            spacing: Theme.spacingSmall
+
+            // SVG icon in compact mode
+            Image {
+                visible: root.hasEmoji && root.emojiIsSvg
+                source: root.emojiIsSvg ? root.emoji : ""
+                sourceSize.width: Theme.scaled(28)
+                sourceSize.height: Theme.scaled(28)
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            // Emoji text in compact mode
+            Text {
+                visible: root.hasEmoji && !root.emojiIsSvg
+                text: root.emoji
+                font.family: Theme.emojiFontFamily
+                font.pixelSize: Theme.scaled(22)
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Text {
+                text: root.resolvedText
+                textFormat: Text.RichText
+                color: (root.hasAction || root.hasEmoji) ? "white" : Theme.textColor
+                font: Theme.bodyFont
+                horizontalAlignment: root.qtAlignment
+                elide: Text.ElideRight
+                maximumLineCount: 1
+            }
         }
 
-        MouseArea {
-            id: compactTapArea
+        AccessibleTapHandler {
+            id: compactTap
             anchors.fill: parent
-            visible: root.hasAction
-            onClicked: root.executeAction()
+            accessibleName: root.resolvedText
+            supportLongPress: root.longPressAction !== ""
+            supportDoubleClick: root.doubleclickAction !== ""
+            onAccessibleClicked: root.executeActionString(root.action)
+            onAccessibleLongPressed: root.executeActionString(root.longPressAction)
+            onAccessibleDoubleClicked: root.executeActionString(root.doubleclickAction)
         }
     }
 
@@ -211,22 +271,59 @@ Item {
         id: fullContent
         visible: !root.isCompact
         anchors.fill: parent
-        implicitWidth: fullText.implicitWidth + (root.hasAction ? Theme.scaled(24) : 0)
-        implicitHeight: fullText.implicitHeight + (root.hasAction ? Theme.scaled(16) : 0)
+        implicitWidth: root.hasEmoji ? Theme.scaled(150) : (fullText.implicitWidth + (root.hasAction ? Theme.scaled(24) : 0))
+        implicitHeight: root.hasEmoji ? Theme.scaled(120) : (fullText.implicitHeight + (root.hasAction ? Theme.scaled(16) : 0))
 
         Rectangle {
-            visible: root.hasAction
+            visible: root.hasAction || root.hasEmoji
             anchors.fill: parent
-            color: fullTapArea.pressed
-                ? Qt.darker(Theme.surfaceColor, 1.3)
-                : Theme.surfaceColor
+            color: {
+                var base = root.bgColor || (root.hasAction ? "#555555" : Theme.surfaceColor)
+                return fullTap.isPressed ? Qt.darker(base, 1.2) : base
+            }
             radius: Theme.cardRadius
-            border.color: Theme.borderColor
-            border.width: 1
+            opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
         }
 
+        // Layout with emoji: icon above text (like ActionButton)
+        Column {
+            visible: root.hasEmoji
+            anchors.centerIn: parent
+            spacing: Theme.spacingSmall
+
+            // SVG icon
+            Image {
+                visible: root.emojiIsSvg
+                source: root.emojiIsSvg ? root.emoji : ""
+                sourceSize.width: Theme.scaled(48)
+                sourceSize.height: Theme.scaled(48)
+                anchors.horizontalCenter: parent.horizontalCenter
+                opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+            }
+
+            // Emoji text
+            Text {
+                visible: !root.emojiIsSvg
+                text: root.emoji
+                font.family: Theme.emojiFontFamily
+                font.pixelSize: Theme.scaled(48)
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: root.resolvedText
+                textFormat: Text.RichText
+                color: (root.hasAction || root.hasEmoji) ? "white" : Theme.textColor
+                font: Theme.bodyFont
+                horizontalAlignment: Text.AlignHCenter
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
+
+        // Layout without emoji: text only (original behavior)
         Text {
             id: fullText
+            visible: !root.hasEmoji
             anchors.centerIn: parent
             width: parent.width > 0 ? parent.width - (root.hasAction ? Theme.scaled(24) : 0) : implicitWidth
             text: root.resolvedText
@@ -237,11 +334,15 @@ Item {
             wrapMode: Text.Wrap
         }
 
-        MouseArea {
-            id: fullTapArea
+        AccessibleTapHandler {
+            id: fullTap
             anchors.fill: parent
-            visible: root.hasAction
-            onClicked: root.executeAction()
+            accessibleName: root.resolvedText
+            supportLongPress: root.longPressAction !== ""
+            supportDoubleClick: root.doubleclickAction !== ""
+            onAccessibleClicked: root.executeActionString(root.action)
+            onAccessibleLongPressed: root.executeActionString(root.longPressAction)
+            onAccessibleDoubleClicked: root.executeActionString(root.doubleclickAction)
         }
     }
 }

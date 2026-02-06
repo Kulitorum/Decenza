@@ -11,6 +11,7 @@ Item {
     property real hue: 220
     property real saturation: 70
     property real lightness: 55
+    property bool showBrightnessSlider: true
 
     // Set color from external source
     function setColor(c) {
@@ -145,8 +146,9 @@ Item {
                 }
             }
 
-            // Screen brightness slider
+            // Screen brightness slider (optional)
             Rectangle {
+                visible: root.showBrightnessSlider
                 id: brightnessSlider
                 Layout.fillWidth: true
                 height: Theme.scaled(24)
