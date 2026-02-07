@@ -49,6 +49,7 @@
         <file>icons/tick.svg</file>
         <file>icons/usb.svg</file>
         <file>icons/quit.svg</file>
+        <file>icons/scale.svg</file>
         <file>icons/wifi.svg</file>
         <!-- GHC Simulator -->
         <file>GHC_Small.png</file>

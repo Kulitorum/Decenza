@@ -43,6 +43,7 @@ Item {
             { value: "qrc:/icons/tick.svg", label: "Tick" },
             { value: "qrc:/icons/cross.svg", label: "Cross" },
             { value: "qrc:/icons/decent-de1.svg", label: "DE1" },
+            { value: "qrc:/icons/scale.svg", label: "Scale" },
             { value: "qrc:/icons/quit.svg", label: "Quit" }
         ]
     })
