@@ -169,7 +169,6 @@ Item {
 
                                 AccessibleMouseArea {
                                     anchors.fill: parent
-                                    enabled: refillKitContent.opacity > 0.9
                                     accessibleName: modelData.label + " refill kit mode. " + modelData.desc +
                                                    (Settings.refillKitOverride === modelData.value ? ", selected" : "")
                                     accessibleItem: refillKitButton
