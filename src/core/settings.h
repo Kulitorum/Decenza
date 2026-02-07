@@ -145,6 +145,7 @@ class Settings : public QObject {
 
     // Developer settings
     Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
+    Q_PROPERTY(bool simulationMode READ simulationMode WRITE setSimulationMode NOTIFY simulationModeChanged)
 
     // Temperature override (persistent)
     Q_PROPERTY(double temperatureOverride READ temperatureOverride WRITE setTemperatureOverride NOTIFY temperatureOverrideChanged)
@@ -497,6 +498,9 @@ public:
     bool developerTranslationUpload() const;
     void setDeveloperTranslationUpload(bool enabled);
 
+    bool simulationMode() const;
+    void setSimulationMode(bool enabled);
+
     // Temperature override (persistent)
     double temperatureOverride() const;
     void setTemperatureOverride(double temp);
@@ -651,6 +655,7 @@ signals:
     void waterRefillPointChanged();
     void refillKitOverrideChanged();
     void developerTranslationUploadChanged();
+    void simulationModeChanged();
     void temperatureOverrideChanged();
     void brewOverridesChanged();
     void autoWakeEnabledChanged();

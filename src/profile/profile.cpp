@@ -274,7 +274,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     Profile profile;
     QJsonObject obj = doc.object();
 
-    profile.m_title = obj["title"].toString("Default");
+    profile.setTitle(obj["title"].toString("Default"));
     profile.m_author = obj["author"].toString();
     // Support both new "profile_notes" and legacy "notes" keys
     profile.m_profileNotes = obj["profile_notes"].toString();
@@ -427,7 +427,7 @@ Profile Profile::loadFromTclString(const QString& content) {
     };
 
     // Extract metadata
-    profile.m_title = extractValue("profile_title");
+    profile.setTitle(extractValue("profile_title"));
     profile.m_author = extractValue("author");
     profile.m_profileNotes = extractValue("profile_notes");
     profile.m_profileType = extractValue("settings_profile_type");
@@ -620,7 +620,7 @@ Profile Profile::loadFromDE1AppJson(const QString& jsonContent) {
     };
 
     // Extract metadata
-    profile.m_title = json["title"].toString("Imported Profile");
+    profile.setTitle(json["title"].toString("Imported Profile"));
     profile.m_author = json["author"].toString();
     // Support both "profile_notes" and "notes" keys
     profile.m_profileNotes = json["profile_notes"].toString();

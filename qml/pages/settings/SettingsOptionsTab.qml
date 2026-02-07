@@ -61,12 +61,39 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(14)
                         }
 
+                        // Status indicator when simulation mode is active
+                        Rectangle {
+                            visible: Settings.simulationMode
+                            Layout.leftMargin: Theme.scaled(8)
+                            implicitWidth: statusLabel.implicitWidth + Theme.scaled(12)
+                            implicitHeight: Theme.scaled(20)
+                            radius: Theme.scaled(10)
+                            color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2)
+                            border.width: 1
+                            border.color: Theme.primaryColor
+
+                            Text {
+                                id: statusLabel
+                                anchors.centerIn: parent
+                                text: TranslationManager.translate("settings.preferences.simulationActive", "Active")
+                                color: Theme.primaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                font.bold: true
+                            }
+
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: TranslationManager.translate("settings.preferences.simulationModeActive", "Simulation mode is active")
+                        }
+
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: DE1Device.simulationMode
+                            checked: Settings.simulationMode
                             accessibleName: TranslationManager.translate("settings.preferences.unlockGui", "Unlock GUI")
                             onToggled: {
+                                // Save to persistent Settings
+                                Settings.simulationMode = checked
+                                // Also set on devices for current session
                                 DE1Device.simulationMode = checked
                                 if (ScaleDevice) {
                                     ScaleDevice.simulationMode = checked

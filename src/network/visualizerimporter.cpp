@@ -717,12 +717,8 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
 Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
     Profile profile;
 
-    QString title = json["title"].toString("Imported Profile");
-    // Strip leading * (modified indicator that shouldn't be part of the actual title)
-    if (title.startsWith(QLatin1Char('*'))) {
-        title = title.mid(1);
-    }
-    profile.setTitle(title);
+    // setTitle() automatically strips leading "*" (de1app modified indicator)
+    profile.setTitle(json["title"].toString("Imported Profile"));
     profile.setAuthor(json["author"].toString());
     // Support both "profile_notes" and "notes" keys
     QString notes = json["profile_notes"].toString();

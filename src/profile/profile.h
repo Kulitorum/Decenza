@@ -36,7 +36,10 @@ public:
 
     // === Metadata ===
     QString title() const { return m_title; }
-    void setTitle(const QString& title) { m_title = title; }
+    void setTitle(const QString& title) {
+        // Strip leading "*" (de1app modified indicator)
+        m_title = title.startsWith(QLatin1Char('*')) ? title.mid(1).trimmed() : title;
+    }
 
     QString author() const { return m_author; }
     void setAuthor(const QString& author) { m_author = author; }

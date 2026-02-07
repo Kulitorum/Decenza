@@ -2001,6 +2001,17 @@ void Settings::setDeveloperTranslationUpload(bool enabled) {
     }
 }
 
+bool Settings::simulationMode() const {
+    return m_settings.value("developer/simulationMode", false).toBool();
+}
+
+void Settings::setSimulationMode(bool enabled) {
+    if (simulationMode() != enabled) {
+        m_settings.setValue("developer/simulationMode", enabled);
+        emit simulationModeChanged();
+    }
+}
+
 // Temperature override (persistent)
 double Settings::temperatureOverride() const {
     return m_temperatureOverride;

@@ -33,6 +33,26 @@ Dialog {
     property string grinderModel: ""
     property string grindSetting: ""
 
+    // Combine grinder suggestions from history + current bean preset
+    function getGrinderSuggestions() {
+        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinders() : []
+        // Add current bean grinder if not in list
+        if (Settings.dyeGrinderModel.length > 0 && suggestions.indexOf(Settings.dyeGrinderModel) === -1) {
+            suggestions.unshift(Settings.dyeGrinderModel)  // Add at beginning
+        }
+        return suggestions
+    }
+
+    // Combine grind setting suggestions from history (filtered by grinder) + current bean preset
+    function getGrinderSettingSuggestions() {
+        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(root.grinderModel) : []
+        // Add current bean grind setting if not in list
+        if (Settings.dyeGrinderSetting.length > 0 && suggestions.indexOf(Settings.dyeGrinderSetting) === -1) {
+            suggestions.unshift(Settings.dyeGrinderSetting)  // Add at beginning
+        }
+        return suggestions
+    }
+
     // Low dose warning - shown when dose is low OR when scale read failed
     property bool showScaleWarning: false
     property bool lowDoseWarning: doseValue < 3 || showScaleWarning
@@ -270,7 +290,7 @@ Dialog {
                     // Save to profile button
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(56)
-                        text: TranslationManager.translate("brewDialog.save", "Save")
+                        text: TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
                         accessibleName: TranslationManager.translate("brewDialog.saveTemperatureToProfile", "Save temperature to profile")
                         primary: true
                         enabled: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
@@ -450,7 +470,7 @@ Dialog {
                     // Save to profile button
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(56)
-                        text: TranslationManager.translate("brewDialog.save", "Save")
+                        text: TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
                         accessibleName: TranslationManager.translate("brewDialog.saveYieldToProfile", "Save yield to profile")
                         primary: true
                         enabled: root.targetValue !== root.profileTargetWeight
@@ -490,22 +510,24 @@ Dialog {
                 visible: Settings.visualizerExtendedMetadata
 
                 Text {
-                    text: TranslationManager.translate("brewDialog.grindLabel", "Grind:")
+                    text: TranslationManager.translate("brewDialog.grinderLabel", "Grinder:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: Theme.scaled(55)
+                    Layout.preferredWidth: Theme.scaled(65)
                     Accessible.ignored: true  // Label for sighted users; inputs have accessibleName
                 }
 
-                StyledComboBox {
+                SuggestionField {
                     id: grinderInput
                     Layout.fillWidth: true
-                    Layout.preferredWidth: Theme.scaled(100)
-                    model: MainController.shotHistory ? MainController.shotHistory.getDistinctGrinders() : []
-                    currentIndex: model.indexOf(root.grinderModel)
-                    onCurrentTextChanged: if (currentIndex >= 0) root.grinderModel = currentText
-                    Accessible.name: TranslationManager.translate("brewDialog.grinderModel", "Grinder model")
+                    Layout.preferredWidth: Theme.scaled(120)
+                    label: ""  // Empty label - the "Grinder:" label already provides context
+                    accessibleName: TranslationManager.translate("brewDialog.grinderModel", "Grinder model")
+                    text: root.grinderModel
+                    suggestions: root.getGrinderSuggestions()
+                    onTextEdited: function(t) { root.grinderModel = t }
+                    // Note: No inputFocused signal needed here since BrewDialog doesn't use keyboard offset
                 }
 
                 Text {
@@ -516,14 +538,16 @@ Dialog {
                     Accessible.ignored: true
                 }
 
-                StyledTextField {
+                SuggestionField {
                     id: grindInput
                     Layout.fillWidth: true
-                    Layout.preferredWidth: Theme.scaled(80)
+                    Layout.preferredWidth: Theme.scaled(110)
+                    label: ""  // Empty label - the "Grinder:" label and grinder field already provide context
+                    accessibleName: TranslationManager.translate("brewDialog.grinderSetting", "Grinder setting")
                     text: root.grindSetting
-                    placeholder: TranslationManager.translate("brewDialog.settingPlaceholder", "Setting")
-                    onTextChanged: root.grindSetting = text
-                    Accessible.name: TranslationManager.translate("brewDialog.grindSetting", "Grind setting")
+                    suggestions: root.getGrinderSettingSuggestions()
+                    onTextEdited: function(t) { root.grindSetting = t }
+                    // Note: No inputFocused signal needed here since BrewDialog doesn't use keyboard offset
                 }
             }
         }
