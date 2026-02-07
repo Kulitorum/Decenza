@@ -2702,7 +2702,7 @@ void MainController::generateFakeShotData() {
             m_settings->setDyeDrinkWeight(m_pendingShotFinalWeight);
 
             // Reset shot-specific metadata for next shot
-            m_settings->setDyeEspressoEnjoyment(0);
+            m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
             m_settings->setDyeShotNotes("");
             m_settings->sync();
         } else {
