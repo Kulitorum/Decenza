@@ -174,6 +174,11 @@ set(SOURCES
     src/history/shotimporter.cpp
     src/models/shotcomparisonmodel.cpp
     src/network/shotserver.cpp
+    src/network/shotserver_shots.cpp
+    src/network/shotserver_upload.cpp
+    src/network/shotserver_backup.cpp
+    src/network/shotserver_layout.cpp
+    src/network/shotserver_settings.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
