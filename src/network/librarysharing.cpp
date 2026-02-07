@@ -11,6 +11,10 @@
 #include <QUrlQuery>
 #include <QBuffer>
 #include <QUuid>
+#include <QFile>
+#include <QDir>
+#include <QSet>
+#include <QStandardPaths>
 #include <QDebug>
 
 static const char* API_BASE = "https://api.decenza.coffee/v1/library";
@@ -20,6 +24,7 @@ LibrarySharing::LibrarySharing(Settings* settings, WidgetLibrary* library, QObje
     , m_settings(settings)
     , m_library(library)
 {
+    loadCommunityCache();
 }
 
 // ---------------------------------------------------------------------------
@@ -41,10 +46,12 @@ QNetworkRequest LibrarySharing::buildRequest(const QString& path) const
 
 void LibrarySharing::uploadEntry(const QString& entryId)
 {
-    uploadEntryWithThumbnail(entryId, QImage());
+    uploadEntryWithThumbnails(entryId, QImage(), QImage());
 }
 
-void LibrarySharing::uploadEntryWithThumbnail(const QString& entryId, const QImage& thumbnail)
+void LibrarySharing::uploadEntryWithThumbnails(const QString& entryId,
+                                                const QImage& thumbnailFull,
+                                                const QImage& thumbnailCompact)
 {
     if (m_uploading) {
         qWarning() << "LibrarySharing: Already uploading";
@@ -61,21 +68,18 @@ void LibrarySharing::uploadEntryWithThumbnail(const QString& entryId, const QIma
     setUploading(true);
     setLastError(QString());
 
-    // Convert thumbnail to PNG bytes if provided
-    QByteArray thumbnailPng;
-    QImage img = thumbnail;
-    if (img.isNull()) {
-        // Try loading from the library's stored thumbnail
-        QString thumbPath = m_library->thumbnailPath(entryId);
-        if (!thumbPath.isEmpty()) {
-            img.load(thumbPath);
-        }
-    }
-    if (!img.isNull()) {
-        QBuffer buf(&thumbnailPng);
+    // Convert thumbnails to PNG bytes
+    auto imageToPng = [](const QImage& img) -> QByteArray {
+        if (img.isNull()) return {};
+        QByteArray png;
+        QBuffer buf(&png);
         buf.open(QIODevice::WriteOnly);
         img.save(&buf, "PNG");
-    }
+        return png;
+    };
+
+    QByteArray fullPng = imageToPng(thumbnailFull);
+    QByteArray compactPng = imageToPng(thumbnailCompact);
 
     // Build multipart request
     QString boundary = "----DecenzaBoundary" + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -84,23 +88,22 @@ void LibrarySharing::uploadEntryWithThumbnail(const QString& entryId, const QIma
     request.setHeader(QNetworkRequest::ContentTypeHeader,
         QString("multipart/form-data; boundary=%1").arg(boundary));
 
-    QByteArray body = buildMultipart(entryJson, thumbnailPng, boundary);
+    QByteArray body = buildMultipart(entryJson, fullPng, compactPng, boundary);
 
     qDebug() << "LibrarySharing: Uploading entry" << entryId
              << "(" << body.size() << "bytes)";
-    qDebug() << "LibrarySharing: Content-Type:" << request.header(QNetworkRequest::ContentTypeHeader).toString();
-    qDebug() << "LibrarySharing: Entry JSON (" << entryJson.size() << "bytes):" << entryJson.left(500);
-    if (!thumbnailPng.isEmpty())
-        qDebug() << "LibrarySharing: Thumbnail:" << thumbnailPng.size() << "bytes";
-    else
-        qDebug() << "LibrarySharing: No thumbnail";
+    if (!fullPng.isEmpty())
+        qDebug() << "LibrarySharing: Thumbnail full:" << fullPng.size() << "bytes";
+    if (!compactPng.isEmpty())
+        qDebug() << "LibrarySharing: Thumbnail compact:" << compactPng.size() << "bytes";
 
     QNetworkReply* reply = m_networkManager.post(request, body);
     connect(reply, &QNetworkReply::finished, this, &LibrarySharing::onUploadFinished);
 }
 
 QByteArray LibrarySharing::buildMultipart(const QByteArray& entryJson,
-                                            const QByteArray& thumbnailPng,
+                                            const QByteArray& thumbnailFullPng,
+                                            const QByteArray& thumbnailCompactPng,
                                             const QString& boundary) const
 {
     QByteArray body;
@@ -114,12 +117,21 @@ QByteArray LibrarySharing::buildMultipart(const QByteArray& entryJson,
     body += entryJson;
     body += "\r\n";
 
-    // Thumbnail part (optional)
-    if (!thumbnailPng.isEmpty()) {
+    // Full thumbnail (optional)
+    if (!thumbnailFullPng.isEmpty()) {
         body += sep;
-        body += "Content-Disposition: form-data; name=\"thumbnail\"; filename=\"thumbnail.png\"\r\n";
+        body += "Content-Disposition: form-data; name=\"thumbnail_full\"; filename=\"thumbnail_full.png\"\r\n";
         body += "Content-Type: image/png\r\n\r\n";
-        body += thumbnailPng;
+        body += thumbnailFullPng;
+        body += "\r\n";
+    }
+
+    // Compact thumbnail (optional)
+    if (!thumbnailCompactPng.isEmpty()) {
+        body += sep;
+        body += "Content-Disposition: form-data; name=\"thumbnail_compact\"; filename=\"thumbnail_compact.png\"\r\n";
+        body += "Content-Type: image/png\r\n\r\n";
+        body += thumbnailCompactPng;
         body += "\r\n";
     }
 
@@ -139,16 +151,25 @@ void LibrarySharing::onUploadFinished()
     qDebug() << "LibrarySharing: Upload response status:" << statusCode;
     qDebug() << "LibrarySharing: Upload response body:" << responseBody.left(1000);
 
+    QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+    QJsonObject obj = doc.object();
+
+    // 409 = duplicate entry already exists on server
+    if (statusCode == 409) {
+        QString existingId = obj["existingId"].toString();
+        qDebug() << "LibrarySharing: Already shared (existing ID:" << existingId << ")";
+        setLastError("Already shared");
+        emit uploadFailed("Already shared");
+        return;
+    }
+
     if (reply->error() != QNetworkReply::NoError) {
-        QString error = reply->errorString();
+        QString error = obj["error"].toString(reply->errorString());
         qWarning() << "LibrarySharing: Upload failed -" << error;
         setLastError(error);
         emit uploadFailed(error);
         return;
     }
-
-    QJsonDocument doc = QJsonDocument::fromJson(responseBody);
-    QJsonObject obj = doc.object();
 
     if (obj.contains("id")) {
         QString serverId = obj["id"].toString();
@@ -178,6 +199,18 @@ void LibrarySharing::browseCommunity(const QString& type,
         return;
     }
 
+    bool unfiltered = isUnfilteredBrowse(type, variable, action, search);
+
+    // For unfiltered page-1 requests, show cache immediately and do incremental fetch
+    if (unfiltered && page == 1 && !m_cachedEntries.isEmpty()) {
+        m_communityEntries = m_cachedEntries;
+        emit communityEntriesChanged();
+        setTotalCommunityResults(m_cachedEntries.size());
+    }
+
+    m_browseIsUnfiltered = unfiltered && page == 1;
+    m_browseIsIncremental = m_browseIsUnfiltered && !m_newestCreatedAt.isEmpty();
+
     setBrowsing(true);
     setLastError(QString());
 
@@ -188,6 +221,10 @@ void LibrarySharing::browseCommunity(const QString& type,
     if (!search.isEmpty())   query.addQueryItem("search", search);
     if (!sort.isEmpty())     query.addQueryItem("sort", sort);
     query.addQueryItem("page", QString::number(page));
+
+    // Incremental: only fetch entries newer than our cache
+    if (m_browseIsIncremental)
+        query.addQueryItem("since", m_newestCreatedAt);
 
     QUrl url(QString("%1/entries").arg(API_BASE));
     url.setQuery(query);
@@ -254,14 +291,57 @@ void LibrarySharing::onBrowseFinished()
         entries.append(val.toObject().toVariantMap());
     }
 
-    m_communityEntries = entries;
-    emit communityEntriesChanged();
+    // Remove deleted entries from cache
+    QJsonArray deletedArr = obj["deletedIds"].toArray();
+    if (!deletedArr.isEmpty()) {
+        QSet<QString> deletedIds;
+        for (const auto& val : deletedArr)
+            deletedIds.insert(val.toString());
 
-    int total = obj["total"].toInt(entries.size());
+        m_cachedEntries.erase(
+            std::remove_if(m_cachedEntries.begin(), m_cachedEntries.end(),
+                [&deletedIds](const QVariant& e) {
+                    return deletedIds.contains(e.toMap()["id"].toString());
+                }),
+            m_cachedEntries.end());
+
+        qDebug() << "LibrarySharing: Removed" << deletedIds.size() << "deleted entries from cache";
+    }
+
+    if (m_browseIsIncremental) {
+        // Incremental: merge new entries into cache
+        qDebug() << "LibrarySharing: Incremental fetch returned" << entries.size() << "new entries";
+        if (!entries.isEmpty()) {
+            mergeIntoCache(entries);
+        }
+        if (!entries.isEmpty() || !deletedArr.isEmpty()) {
+            saveCommunityCache();
+        }
+        m_communityEntries = m_cachedEntries;
+    } else if (m_browseIsUnfiltered && !entries.isEmpty()) {
+        // First full unfiltered fetch - seed the cache
+        m_cachedEntries = entries;
+        m_newestCreatedAt.clear();
+        for (const auto& e : entries) {
+            QString ca = e.toMap()["createdAt"].toString();
+            if (ca > m_newestCreatedAt)
+                m_newestCreatedAt = ca;
+        }
+        saveCommunityCache();
+        m_communityEntries = entries;
+        qDebug() << "LibrarySharing: Cached" << entries.size() << "entries, newest:" << m_newestCreatedAt;
+    } else {
+        // Filtered or paginated query - no caching
+        m_communityEntries = entries;
+    }
+
+    emit communityEntriesChanged();
+    int total = obj["total"].toInt(m_communityEntries.size());
     setTotalCommunityResults(total);
 
-    qDebug() << "LibrarySharing: Browse returned" << entries.size()
-             << "entries (total:" << total << ")";
+    qDebug() << "LibrarySharing: Browse total:" << total << "displayed:" << m_communityEntries.size();
+    m_browseIsIncremental = false;
+    m_browseIsUnfiltered = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +486,7 @@ void LibrarySharing::deleteFromServer(const QString& serverId)
 
     QNetworkRequest request = buildRequest("/entries/" + serverId);
 
+    m_pendingDeleteId = serverId;
     qDebug() << "LibrarySharing: Deleting server entry" << serverId;
 
     QNetworkReply* reply = m_networkManager.deleteResource(request);
@@ -422,10 +503,23 @@ void LibrarySharing::onDeleteFinished()
         QString error = reply->errorString();
         qWarning() << "LibrarySharing: Delete failed -" << error;
         setLastError(error);
+        emit deleteFailed(error);
         return;
     }
 
+    // Remove from cache
+    if (!m_pendingDeleteId.isEmpty()) {
+        m_cachedEntries.erase(
+            std::remove_if(m_cachedEntries.begin(), m_cachedEntries.end(),
+                [this](const QVariant& e) {
+                    return e.toMap()["id"].toString() == m_pendingDeleteId;
+                }),
+            m_cachedEntries.end());
+        saveCommunityCache();
+    }
+
     qDebug() << "LibrarySharing: Server entry deleted";
+    emit deleteSuccess();
 }
 
 // ---------------------------------------------------------------------------
@@ -458,6 +552,87 @@ void LibrarySharing::onFlagFinished()
     } else {
         qDebug() << "LibrarySharing: Entry flagged";
     }
+}
+
+// ---------------------------------------------------------------------------
+// Community cache
+// ---------------------------------------------------------------------------
+
+QString LibrarySharing::cachePath() const
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + "/library/community_cache.json";
+}
+
+void LibrarySharing::loadCommunityCache()
+{
+    QFile file(cachePath());
+    if (!file.open(QIODevice::ReadOnly))
+        return;
+
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    QJsonObject obj = doc.object();
+
+    m_newestCreatedAt = obj["newestCreatedAt"].toString();
+
+    QJsonArray arr = obj["entries"].toArray();
+    m_cachedEntries.clear();
+    for (const auto& val : arr) {
+        m_cachedEntries.append(val.toObject().toVariantMap());
+    }
+
+    qDebug() << "LibrarySharing: Loaded community cache -"
+             << m_cachedEntries.size() << "entries, newest:" << m_newestCreatedAt;
+}
+
+void LibrarySharing::saveCommunityCache()
+{
+    QDir().mkpath(QFileInfo(cachePath()).absolutePath());
+
+    QJsonArray arr;
+    for (const auto& entry : m_cachedEntries) {
+        arr.append(QJsonObject::fromVariantMap(entry.toMap()));
+    }
+
+    QJsonObject obj;
+    obj["newestCreatedAt"] = m_newestCreatedAt;
+    obj["entries"] = arr;
+
+    QFile file(cachePath());
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    }
+}
+
+void LibrarySharing::mergeIntoCache(const QVariantList& newEntries)
+{
+    // Build set of existing IDs for dedup
+    QSet<QString> existingIds;
+    for (const auto& e : m_cachedEntries) {
+        existingIds.insert(e.toMap()["id"].toString());
+    }
+
+    // Prepend new entries (they're newer)
+    QVariantList merged;
+    for (const auto& e : newEntries) {
+        QVariantMap map = e.toMap();
+        QString id = map["id"].toString();
+        if (!existingIds.contains(id)) {
+            merged.append(e);
+            // Track newest createdAt
+            QString ca = map["createdAt"].toString();
+            if (ca > m_newestCreatedAt)
+                m_newestCreatedAt = ca;
+        }
+    }
+    merged.append(m_cachedEntries);
+    m_cachedEntries = merged;
+}
+
+bool LibrarySharing::isUnfilteredBrowse(const QString& type, const QString& variable,
+                                         const QString& action, const QString& search) const
+{
+    return type.isEmpty() && variable.isEmpty() && action.isEmpty() && search.isEmpty();
 }
 
 // ---------------------------------------------------------------------------

@@ -51,6 +51,8 @@
         <file>icons/quit.svg</file>
         <file>icons/scale.svg</file>
         <file>icons/wifi.svg</file>
+        <file>icons/ArrowLeft.svg</file>
+        <file>icons/Upload.svg</file>
         <!-- GHC Simulator -->
         <file>GHC_Small.png</file>
         <!-- Shot Map Screensaver -->

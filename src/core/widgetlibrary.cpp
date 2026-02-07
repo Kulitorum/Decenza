@@ -541,8 +541,18 @@ void WidgetLibrary::loadIndex()
 
     m_index.clear();
     QJsonArray arr = doc.array();
+    bool needsRebuild = false;
     for (const QJsonValue& val : arr) {
-        m_index.append(val.toObject().toVariantMap());
+        QJsonObject obj = val.toObject();
+        if (!obj.contains("data"))
+            needsRebuild = true;
+        m_index.append(obj.toVariantMap());
+    }
+
+    if (needsRebuild && !arr.isEmpty()) {
+        qDebug() << "WidgetLibrary: Index missing data fields, rebuilding";
+        rebuildIndex();
+        return;
     }
 
     qDebug() << "WidgetLibrary: Loaded index with" << m_index.size() << "entries";
@@ -588,7 +598,7 @@ void WidgetLibrary::rebuildIndex()
 
         QJsonObject entry = doc.object();
 
-        // Build metadata for index
+        // Build metadata for index (includes data for preview rendering)
         QVariantMap meta;
         meta["id"] = entry["id"].toString();
         meta["type"] = entry["type"].toString();
@@ -596,6 +606,7 @@ void WidgetLibrary::rebuildIndex()
         meta["description"] = entry["description"].toString();
         meta["createdAt"] = entry["createdAt"].toString();
         meta["tags"] = entry["tags"].toArray().toVariantList();
+        meta["data"] = entry["data"].toObject().toVariantMap();
 
         m_index.append(meta);
     }
@@ -622,7 +633,7 @@ QString WidgetLibrary::saveEntryFile(const QJsonObject& entry)
     file.write(QJsonDocument(entry).toJson(QJsonDocument::Compact));
     file.close();
 
-    // Add to index
+    // Add to index (includes data for preview rendering in QML)
     QVariantMap meta;
     meta["id"] = entryId;
     meta["type"] = entry["type"].toString();
@@ -630,6 +641,7 @@ QString WidgetLibrary::saveEntryFile(const QJsonObject& entry)
     meta["description"] = entry["description"].toString();
     meta["createdAt"] = entry["createdAt"].toString();
     meta["tags"] = entry["tags"].toArray().toVariantList();
+    meta["data"] = entry["data"].toObject().toVariantMap();
 
     m_index.append(meta);
     saveIndex();
@@ -674,12 +686,34 @@ QJsonObject WidgetLibrary::buildEnvelope(const QString& type, const QString& nam
                                           const QString& description,
                                           const QJsonObject& data) const
 {
+    // Auto-generate name from content if not provided
+    QString autoName = name;
+    if (autoName.isEmpty()) {
+        if (type == "item") {
+            QJsonObject item = data["item"].toObject();
+            // Try content (strip HTML)
+            QString content = item["content"].toString();
+            content.remove(QRegularExpression("<[^>]*>"));
+            content = content.trimmed();
+            if (!content.isEmpty() && content != "Text" && content != "Custom")
+                autoName = content.left(30);
+            else if (!item["emoji"].toString().isEmpty())
+                autoName = "Custom widget";
+            else
+                autoName = "Widget";
+        } else if (type == "zone") {
+            autoName = data["zoneName"].toString();
+            if (autoName.isEmpty()) autoName = "Zone";
+        } else if (type == "layout") {
+            autoName = "Layout";
+        }
+    }
+
     QJsonObject envelope;
     envelope["version"] = 1;
     envelope["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
     envelope["type"] = type;
-    envelope["name"] = name;
-    envelope["description"] = description;
+    envelope["name"] = autoName;
     envelope["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     envelope["appVersion"] = QString(VERSION_STRING);
     envelope["data"] = data;

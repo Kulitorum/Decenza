@@ -453,7 +453,6 @@ set(QML_FILES
     qml/components/layout/EmojiData.js
     qml/components/library/LibraryPanel.qml
     qml/components/library/LibraryItemCard.qml
-    qml/components/library/SaveToLibraryDialog.qml
     qml/pages/CommunityBrowserPage.qml
 )
 

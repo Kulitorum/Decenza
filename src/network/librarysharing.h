@@ -6,6 +6,7 @@
 #include <QVariantMap>
 #include <QJsonObject>
 #include <QImage>
+#include <QDateTime>
 
 class Settings;
 class WidgetLibrary;
@@ -49,8 +50,10 @@ public:
     /// Upload a local library entry to the server (multipart: JSON + thumbnail)
     Q_INVOKABLE void uploadEntry(const QString& entryId);
 
-    /// Upload with a pre-captured thumbnail image
-    Q_INVOKABLE void uploadEntryWithThumbnail(const QString& entryId, const QImage& thumbnail);
+    /// Upload with pre-captured thumbnail images (full and compact display modes)
+    Q_INVOKABLE void uploadEntryWithThumbnails(const QString& entryId,
+                                                const QImage& thumbnailFull,
+                                                const QImage& thumbnailCompact);
 
     /// Browse community entries with filters (paginated)
     /// @param type Filter by entry type: "item", "zone", "layout", or "" for all
@@ -94,6 +97,8 @@ signals:
     void uploadFailed(const QString& error);
     void downloadComplete(const QString& localEntryId);
     void downloadFailed(const QString& error);
+    void deleteSuccess();
+    void deleteFailed(const QString& error);
 
 private slots:
     void onUploadFinished();
@@ -107,13 +112,23 @@ private slots:
 
 private:
     QNetworkRequest buildRequest(const QString& path) const;
-    QByteArray buildMultipart(const QByteArray& entryJson, const QByteArray& thumbnailPng,
+    QByteArray buildMultipart(const QByteArray& entryJson,
+                               const QByteArray& thumbnailFullPng,
+                               const QByteArray& thumbnailCompactPng,
                                const QString& boundary) const;
     void setUploading(bool v);
     void setBrowsing(bool v);
     void setDownloading(bool v);
     void setLastError(const QString& error);
     void setTotalCommunityResults(int count);
+
+    // Community cache
+    QString cachePath() const;
+    void loadCommunityCache();
+    void saveCommunityCache();
+    void mergeIntoCache(const QVariantList& newEntries);
+    bool isUnfilteredBrowse(const QString& type, const QString& variable,
+                            const QString& action, const QString& search) const;
 
     Settings* m_settings;
     WidgetLibrary* m_library;
@@ -122,11 +137,18 @@ private:
     bool m_uploading = false;
     bool m_browsing = false;
     bool m_downloading = false;
+    bool m_browseIsIncremental = false;  // true when using since= param
+    bool m_browseIsUnfiltered = false;   // true when no filters applied
     QString m_lastError;
     QVariantList m_communityEntries;
     QVariantList m_featuredEntries;
     int m_totalCommunityResults = 0;
 
-    // Pending download server ID (for two-step download)
+    // Community cache
+    QVariantList m_cachedEntries;
+    QString m_newestCreatedAt;
+
+    // Pending operation IDs
     QString m_pendingDownloadId;
+    QString m_pendingDeleteId;
 };

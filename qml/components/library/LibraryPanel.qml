@@ -14,7 +14,20 @@ Rectangle {
 
     // Display state
     property int displayMode: 0  // 0=full, 1=compact
-    property string activeTab: "local"  // "local", "community", "featured", "mine"
+    property string activeTab: "local"  // "local", "community"
+
+    // Whether the selected entry can be deleted
+    readonly property bool canDeleteSelected: {
+        if (WidgetLibrary.selectedEntryId === "") return false
+        if (activeTab === "local") return true
+        // Community tab: only allow deleting own entries
+        var entries = LibrarySharing.communityEntries
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].id === WidgetLibrary.selectedEntryId)
+                return entries[i].deviceId === Settings.deviceId()
+        }
+        return false
+    }
 
     color: Theme.surfaceColor
     radius: Theme.cardRadius
@@ -24,10 +37,6 @@ Rectangle {
     onActiveTabChanged: {
         if (activeTab === "community")
             LibrarySharing.browseCommunity("", "", "", "", "newest", 1)
-        else if (activeTab === "featured")
-            LibrarySharing.loadFeatured()
-        else if (activeTab === "mine")
-            LibrarySharing.browseMyUploads(1)
     }
 
     ColumnLayout {
@@ -100,9 +109,7 @@ Rectangle {
             Repeater {
                 model: [
                     { key: "local", label: "My Library" },
-                    { key: "community", label: "Community" },
-                    { key: "featured", label: "Featured" },
-                    { key: "mine", label: "Shared" }
+                    { key: "community", label: "Community" }
                 ]
 
                 Rectangle {
@@ -221,14 +228,49 @@ Rectangle {
                                     enabled: modelData.enabled
                                     onClicked: {
                                         addMenu.close()
-                                        saveDialog.saveType = modelData.type
-                                        saveDialog.showThemeCheckbox = (modelData.type === "layout")
-                                        saveDialog.open()
+                                        switch (modelData.type) {
+                                            case "item":
+                                                WidgetLibrary.addItemFromLayout(selectedItemId, "", "")
+                                                break
+                                            case "zone":
+                                                WidgetLibrary.addZoneFromLayout(selectedZoneName, "", "")
+                                                break
+                                            case "layout":
+                                                WidgetLibrary.addCurrentLayout("", "", false)
+                                                break
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
+
+            // Apply to zone button
+            Rectangle {
+                width: Theme.scaled(30)
+                height: Theme.scaled(30)
+                radius: Theme.scaled(4)
+                color: applyMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
+                border.color: applyEnabled ? Theme.primaryColor : Theme.borderColor
+                border.width: 1
+                opacity: applyEnabled ? 1.0 : 0.4
+
+                property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && selectedZoneName !== ""
+
+                Image {
+                    anchors.centerIn: parent
+                    source: "qrc:/icons/ArrowLeft.svg"
+                    sourceSize.width: Theme.scaled(16)
+                    sourceSize.height: Theme.scaled(16)
+                }
+
+                MouseArea {
+                    id: applyMa
+                    anchors.fill: parent
+                    enabled: parent.applyEnabled
+                    onClicked: applySelected()
                 }
             }
 
@@ -238,9 +280,9 @@ Rectangle {
                 height: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: delMa.pressed ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.3) : "transparent"
-                border.color: WidgetLibrary.selectedEntryId !== "" ? Theme.errorColor : Theme.borderColor
+                border.color: canDeleteSelected ? Theme.errorColor : Theme.borderColor
                 border.width: 1
-                opacity: WidgetLibrary.selectedEntryId !== "" ? 1.0 : 0.4
+                opacity: canDeleteSelected ? 1.0 : 0.4
 
                 Text {
                     anchors.centerIn: parent
@@ -251,13 +293,14 @@ Rectangle {
                 MouseArea {
                     id: delMa
                     anchors.fill: parent
-                    enabled: WidgetLibrary.selectedEntryId !== ""
+                    enabled: canDeleteSelected
                     onClicked: deleteConfirm.open()
                 }
             }
 
-            // Share button
+            // Share button (local tab only)
             Rectangle {
+                visible: activeTab === "local"
                 width: Theme.scaled(30)
                 height: Theme.scaled(30)
                 radius: Theme.scaled(4)
@@ -266,21 +309,18 @@ Rectangle {
                 border.width: 1
                 opacity: WidgetLibrary.selectedEntryId !== "" ? 1.0 : 0.4
 
-                Text {
+                Image {
                     anchors.centerIn: parent
-                    text: "\u2191"  // Up arrow (share)
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(14)
-                    font.bold: true
+                    source: "qrc:/icons/Upload.svg"
+                    sourceSize.width: Theme.scaled(16)
+                    sourceSize.height: Theme.scaled(16)
                 }
 
                 MouseArea {
                     id: shareMa
                     anchors.fill: parent
                     enabled: WidgetLibrary.selectedEntryId !== ""
-                    onClicked: {
-                        LibrarySharing.uploadEntry(WidgetLibrary.selectedEntryId)
-                    }
+                    onClicked: captureAndUpload()
                 }
             }
         }
@@ -297,8 +337,6 @@ Rectangle {
             model: {
                 if (activeTab === "local") return WidgetLibrary.entries
                 if (activeTab === "community") return LibrarySharing.communityEntries
-                if (activeTab === "featured") return LibrarySharing.featuredEntries
-                if (activeTab === "mine") return LibrarySharing.communityEntries
                 return []
             }
 
@@ -320,13 +358,9 @@ Rectangle {
             Text {
                 visible: libraryList.count === 0 && !LibrarySharing.browsing
                 anchors.centerIn: parent
-                text: {
-                    if (activeTab === "local")
-                        return "No items in library.\nSelect a widget and click Add."
-                    if (activeTab === "mine")
-                        return "No shared items yet.\nSelect an entry and click Share."
-                    return "No entries found."
-                }
+                text: activeTab === "local"
+                    ? "No items in library.\nSelect a widget and click Add."
+                    : "No entries found."
                 color: Theme.textSecondaryColor
                 font: Theme.captionFont
                 horizontalAlignment: Text.AlignHCenter
@@ -354,37 +388,185 @@ Rectangle {
 
         // Browse All button (for community/featured tabs)
         AccessibleButton {
-            visible: activeTab !== "local"
+            visible: activeTab === "community"
             Layout.fillWidth: true
             text: "Browse All"
             accessibleName: "Browse all community items"
             onClicked: {
-                pageStack.push("qrc:/qml/pages/CommunityBrowserPage.qml")
+                pageStack.push(Qt.resolvedUrl("../../pages/CommunityBrowserPage.qml"))
             }
         }
     }
 
-    // Save dialog
-    SaveToLibraryDialog {
-        id: saveDialog
+    // Off-screen thumbnail renderers for upload (full + compact)
+    Item {
+        id: thumbContainer
+        visible: false
+        width: Theme.scaled(280)
+        height: Math.max(thumbCardFull.height, thumbCardCompact.height)
 
-        onAccepted: function(name, description, includeTheme) {
-            var entryId = ""
-            switch (saveDialog.saveType) {
-                case "item":
-                    entryId = WidgetLibrary.addItemFromLayout(selectedItemId, name, description)
-                    break
-                case "zone":
-                    entryId = WidgetLibrary.addZoneFromLayout(selectedZoneName, name, description)
-                    break
-                case "layout":
-                    entryId = WidgetLibrary.addCurrentLayout(name, description, includeTheme)
-                    break
-            }
-            if (entryId) {
-                console.log("Saved to library:", saveDialog.saveType, entryId)
+        LibraryItemCard {
+            id: thumbCardFull
+            width: parent.width
+            displayMode: 0
+            entryData: ({})
+            isSelected: false
+        }
+
+        LibraryItemCard {
+            id: thumbCardCompact
+            y: thumbCardFull.height + Theme.scaled(4)
+            width: parent.width
+            displayMode: 1
+            entryData: ({})
+            isSelected: false
+        }
+    }
+
+    // Track pending apply-after-download
+    property string pendingApplyZone: ""
+
+    function applySelected() {
+        var entryId = WidgetLibrary.selectedEntryId
+        if (!entryId || !selectedZoneName) return
+
+        // Local entry - apply directly
+        var entry = WidgetLibrary.getEntry(entryId)
+        if (entry && entry.type) {
+            applyEntry(entryId, entry.type, selectedZoneName)
+            return
+        }
+
+        // Community entry - need to find the type from community data, then download first
+        var entries = LibrarySharing.communityEntries
+        var type = ""
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].id === entryId) {
+                type = entries[i].type || ""
+                break
             }
         }
+        if (!type) return
+
+        pendingApplyZone = selectedZoneName
+        showToast("Downloading...", Theme.primaryColor)
+        LibrarySharing.downloadEntry(entryId)
+    }
+
+    function applyEntry(entryId, type, zoneName) {
+        switch (type) {
+            case "item":
+                WidgetLibrary.applyItem(entryId, zoneName)
+                break
+            case "zone":
+                WidgetLibrary.applyZone(entryId, zoneName)
+                break
+            case "layout":
+                WidgetLibrary.applyLayout(entryId)
+                break
+        }
+    }
+
+    function captureAndUpload() {
+        var entryId = WidgetLibrary.selectedEntryId
+        if (!entryId) return
+
+        var fullEntry = WidgetLibrary.getEntryData(entryId)
+        if (!fullEntry || !fullEntry.type) {
+            LibrarySharing.uploadEntry(entryId)
+            return
+        }
+        thumbCardFull.entryData = fullEntry
+        thumbCardCompact.entryData = fullEntry
+
+        Qt.callLater(function() {
+            thumbContainer.visible = true
+            thumbContainer.x = -9999
+
+            // Grab full preview first, then compact, then upload both
+            thumbCardFull.grabToImage(function(fullResult) {
+                thumbCardCompact.grabToImage(function(compactResult) {
+                    thumbContainer.visible = false
+                    LibrarySharing.uploadEntryWithThumbnails(entryId,
+                        fullResult.image, compactResult.image)
+                }, Qt.size(Theme.scaled(280), thumbCardCompact.height))
+            }, Qt.size(Theme.scaled(280), thumbCardFull.height))
+        })
+    }
+
+    // Upload/sharing feedback
+    Connections {
+        target: LibrarySharing
+        function onUploadSuccess(serverId) {
+            showToast("Shared successfully!", Theme.successColor)
+        }
+        function onUploadFailed(error) {
+            if (error === "Already shared")
+                showToast("Already shared", Theme.warningColor)
+            else
+                showToast("Upload failed: " + error, Theme.errorColor)
+        }
+        function onDeleteSuccess() {
+            showToast("Deleted from server", Theme.successColor)
+            // Refresh community list
+            LibrarySharing.browseCommunity("", "", "", "", "newest", 1)
+        }
+        function onDeleteFailed(error) {
+            showToast("Delete failed: " + error, Theme.errorColor)
+        }
+        function onDownloadComplete(localEntryId) {
+            if (pendingApplyZone) {
+                var entry = WidgetLibrary.getEntry(localEntryId)
+                if (entry && entry.type) {
+                    applyEntry(localEntryId, entry.type, pendingApplyZone)
+                    showToast("Applied!", Theme.successColor)
+                }
+                pendingApplyZone = ""
+            }
+        }
+        function onDownloadFailed(error) {
+            if (pendingApplyZone) {
+                showToast("Download failed: " + error, Theme.errorColor)
+                pendingApplyZone = ""
+            }
+        }
+    }
+
+    function showToast(message, color) {
+        toastText.text = message
+        toastBg.border.color = color || Theme.borderColor
+        toastBg.visible = true
+        toastTimer.restart()
+    }
+
+    Rectangle {
+        id: toastBg
+        visible: false
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(8)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(toastText.implicitWidth + Theme.scaled(24), libraryPanel.width - Theme.scaled(16))
+        height: Theme.scaled(32)
+        radius: Theme.scaled(16)
+        color: Theme.surfaceColor
+        border.width: 1
+        z: 10
+
+        Text {
+            id: toastText
+            anchors.centerIn: parent
+            color: Theme.textColor
+            font: Theme.captionFont
+            elide: Text.ElideRight
+            width: parent.width - Theme.scaled(16)
+            horizontalAlignment: Text.AlignHCenter
+        }
+    }
+
+    Timer {
+        id: toastTimer
+        interval: 3000
+        onTriggered: toastBg.visible = false
     }
 
     // Delete confirmation dialog
@@ -406,18 +588,11 @@ Rectangle {
             spacing: Theme.spacingMedium
 
             Text {
-                text: "Delete this library entry?"
+                text: activeTab === "community"
+                    ? "Delete from server?"
+                    : "Delete this library entry?"
                 color: Theme.textColor
                 font: Theme.subtitleFont
-            }
-
-            Text {
-                text: {
-                    var entry = WidgetLibrary.getEntry(WidgetLibrary.selectedEntryId)
-                    return entry.name || ""
-                }
-                color: Theme.textSecondaryColor
-                font: Theme.bodyFont
             }
 
             RowLayout {
@@ -434,7 +609,12 @@ Rectangle {
                     text: "Delete"
                     accessibleName: "Confirm delete"
                     onClicked: {
-                        WidgetLibrary.removeEntry(WidgetLibrary.selectedEntryId)
+                        if (activeTab === "community") {
+                            LibrarySharing.deleteFromServer(WidgetLibrary.selectedEntryId)
+                        } else {
+                            WidgetLibrary.removeEntry(WidgetLibrary.selectedEntryId)
+                        }
+                        WidgetLibrary.selectedEntryId = ""
                         deleteConfirm.close()
                     }
                 }
