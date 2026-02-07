@@ -287,12 +287,15 @@ KeyboardAwareContainer {
             Layout.fillHeight: true
             spacing: Theme.scaled(15)
 
-            // Water Level Display
+            // Water Level Status (always shown, but content varies based on refill kit)
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: waterLevelContent.implicitHeight + Theme.scaled(30)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
+
+                // Refill kit is active if detected OR forced on via override
+                property bool refillKitActive: DE1Device.refillKitDetected === 1 || Settings.refillKitOverride === 1
 
                 ColumnLayout {
                     id: waterLevelContent
@@ -300,25 +303,93 @@ KeyboardAwareContainer {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(8)
+                    spacing: Theme.scaled(12)
 
-                    Tr {
-                        key: "settings.options.waterLevelDisplay"
-                        fallback: "Water Level Display"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
-                    }
-
-                    Tr {
+                    // Header
+                    RowLayout {
                         Layout.fillWidth: true
-                        key: "settings.options.waterLevelDisplayDesc"
-                        fallback: "Choose how to display the water tank level"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
+                        spacing: Theme.scaled(8)
+
+                        Tr {
+                            key: "settings.options.waterLevel"
+                            fallback: "Water Level"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        // Refill kit active indicator
+                        Rectangle {
+                            width: Theme.scaled(20)
+                            height: Theme.scaled(20)
+                            radius: Theme.scaled(10)
+                            color: Theme.successColor + "30"
+                            visible: parent.parent.parent.refillKitActive
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "\u2713"  // Checkmark
+                                color: Theme.successColor
+                                font.pixelSize: Theme.scaled(12)
+                                font.bold: true
+                            }
+                        }
+
+                        Tr {
+                            key: "settings.options.refillKitActive"
+                            fallback: "Auto-refill active"
+                            color: Theme.successColor
+                            font.pixelSize: Theme.scaled(12)
+                            visible: parent.parent.parent.refillKitActive
+                        }
                     }
 
+                    // Current water level display
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: levelDisplay.implicitHeight + Theme.scaled(20)
+                        color: {
+                            var level = DE1Device.waterLevelMm
+                            // Warn if critically low (< 10mm) when refill kit is active
+                            if (parent.parent.refillKitActive && level < 10) {
+                                return Theme.errorColor + "20"
+                            }
+                            return Theme.backgroundColor
+                        }
+                        radius: Theme.scaled(6)
+
+                        ColumnLayout {
+                            id: levelDisplay
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(10)
+                            spacing: Theme.scaled(4)
+
+                            Text {
+                                text: {
+                                    var level = DE1Device.waterLevelMm
+                                    var ml = DE1Device.waterLevelMl
+                                    var percent = DE1Device.waterLevel
+                                    return ml + " ml (" + percent.toFixed(0) + "%) · " + level.toFixed(1) + " mm"
+                                }
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(18)
+                                font.bold: true
+                            }
+
+                            // Warning for low water with active refill kit
+                            Text {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("settings.options.refillKitMalfunction",
+                                    "⚠ Water critically low despite refill kit - check kit connection")
+                                color: Theme.errorColor
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
+                                visible: parent.parent.parent.parent.refillKitActive && DE1Device.waterLevelMm < 10
+                            }
+                        }
+                    }
+
+                    // Display unit toggle (always shown - user preference regardless of refill kit)
                     RowLayout {
                         Layout.fillWidth: true
 
@@ -342,12 +413,13 @@ KeyboardAwareContainer {
                 }
             }
 
-            // Water Refill Level
+            // Water Refill Threshold (only when no refill kit - manual refill only)
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: refillContent.implicitHeight + Theme.scaled(30)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
+                visible: !(DE1Device.refillKitDetected === 1 || Settings.refillKitOverride === 1)
 
                 ColumnLayout {
                     id: refillContent
@@ -358,7 +430,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: TranslationManager.translate("settings.options.waterRefillLevel", "Water Refill Level")
+                        text: TranslationManager.translate("settings.options.waterRefillLevel", "Water Refill Threshold")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
@@ -384,12 +456,6 @@ KeyboardAwareContainer {
                         onValueModified: function(newValue) {
                             Settings.waterRefillPoint = newValue
                         }
-                    }
-
-                    Text {
-                        text: TranslationManager.translate("settings.options.currentLevel", "Current level: %1 mm").arg(DE1Device.waterLevelMm.toFixed(1))
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
                     }
                 }
             }
