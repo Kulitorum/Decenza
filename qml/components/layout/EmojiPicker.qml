@@ -44,7 +44,8 @@ Item {
             { value: "qrc:/icons/cross.svg", label: "Cross" },
             { value: "qrc:/icons/decent-de1.svg", label: "DE1" },
             { value: "qrc:/icons/scale.svg", label: "Scale" },
-            { value: "qrc:/icons/quit.svg", label: "Quit" }
+            { value: "qrc:/icons/quit.svg", label: "Quit" },
+            { value: "qrc:/icons/Graph.svg", label: "Graph" }
         ]
     })
 
@@ -159,22 +160,12 @@ Item {
                 border.color: isSelected ? Theme.primaryColor : "transparent"
                 border.width: 1
 
-                // SVG icon rendering
+                // Emoji/icon image (both SVG icons and emoji use Image now)
                 Image {
-                    visible: root.categories[root._activeCategory].isSvg
                     anchors.centerIn: parent
-                    source: root.categories[root._activeCategory].isSvg ? parent.itemValue : ""
+                    source: Theme.emojiToImage(parent.itemValue)
                     sourceSize.width: Theme.scaled(28)
                     sourceSize.height: Theme.scaled(28)
-                }
-
-                // Emoji text rendering
-                Text {
-                    visible: !root.categories[root._activeCategory].isSvg
-                    anchors.centerIn: parent
-                    text: parent.itemValue
-                    font.family: Theme.emojiFontFamily
-                    font.pixelSize: Theme.scaled(24)
                 }
 
                 MouseArea {

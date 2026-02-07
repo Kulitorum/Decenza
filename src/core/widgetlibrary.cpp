@@ -47,9 +47,7 @@ void WidgetLibrary::setSelectedEntryId(const QString& id)
 
 // --- Save from layout ---
 
-QString WidgetLibrary::addItemFromLayout(const QString& itemId,
-                                          const QString& name,
-                                          const QString& description)
+QString WidgetLibrary::addItemFromLayout(const QString& itemId)
 {
     QVariantMap props = m_settings->getItemProperties(itemId);
     if (props.isEmpty()) {
@@ -64,7 +62,7 @@ QString WidgetLibrary::addItemFromLayout(const QString& itemId,
     QJsonObject data;
     data["item"] = itemObj;
 
-    QJsonObject envelope = buildEnvelope("item", name, description, data);
+    QJsonObject envelope = buildEnvelope("item", data);
 
     // Extract tags
     QStringList tags = extractTagsFromItem(itemObj);
@@ -77,9 +75,7 @@ QString WidgetLibrary::addItemFromLayout(const QString& itemId,
     return entryId;
 }
 
-QString WidgetLibrary::addZoneFromLayout(const QString& zoneName,
-                                          const QString& name,
-                                          const QString& description)
+QString WidgetLibrary::addZoneFromLayout(const QString& zoneName)
 {
     QVariantList zoneItems = m_settings->getZoneItems(zoneName);
     if (zoneItems.isEmpty()) {
@@ -102,7 +98,7 @@ QString WidgetLibrary::addZoneFromLayout(const QString& zoneName,
     data["yOffset"] = m_settings->getZoneYOffset(zoneName);
     data["items"] = itemsArray;
 
-    QJsonObject envelope = buildEnvelope("zone", name, description, data);
+    QJsonObject envelope = buildEnvelope("zone", data);
     envelope["tags"] = QJsonArray::fromStringList(allTags);
 
     QString entryId = saveEntryFile(envelope);
@@ -112,9 +108,7 @@ QString WidgetLibrary::addZoneFromLayout(const QString& zoneName,
     return entryId;
 }
 
-QString WidgetLibrary::addCurrentLayout(const QString& name,
-                                         const QString& description,
-                                         bool includeTheme)
+QString WidgetLibrary::addCurrentLayout(bool includeTheme)
 {
     QJsonObject layoutObj = QJsonDocument::fromJson(
         m_settings->layoutConfiguration().toUtf8()).object();
@@ -147,7 +141,7 @@ QString WidgetLibrary::addCurrentLayout(const QString& name,
         ? QJsonObject::fromVariantMap(m_settings->customThemeColors())
         : QJsonValue(QJsonValue::Null);
 
-    QJsonObject envelope = buildEnvelope("layout", name, description, data);
+    QJsonObject envelope = buildEnvelope("layout", data);
     envelope["tags"] = QJsonArray::fromStringList(allTags);
 
     QString entryId = saveEntryFile(envelope);
@@ -186,38 +180,7 @@ bool WidgetLibrary::removeEntry(const QString& entryId)
     return true;
 }
 
-bool WidgetLibrary::renameEntry(const QString& entryId, const QString& newName)
-{
-    QJsonObject entry = readEntryFile(entryId);
-    if (entry.isEmpty())
-        return false;
 
-    entry["name"] = newName;
-    entry["updatedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-
-    // Write back
-    QString filePath = libraryPath() + "/" + entryId + ".json";
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "WidgetLibrary: Failed to write entry:" << filePath;
-        return false;
-    }
-    file.write(QJsonDocument(entry).toJson(QJsonDocument::Compact));
-    file.close();
-
-    // Update index
-    for (int i = 0; i < m_index.size(); ++i) {
-        QVariantMap meta = m_index[i].toMap();
-        if (meta["id"].toString() == entryId) {
-            meta["name"] = newName;
-            m_index[i] = meta;
-            break;
-        }
-    }
-    saveIndex();
-    emit entriesChanged();
-    return true;
-}
 
 QVariantMap WidgetLibrary::getEntry(const QString& entryId) const
 {
@@ -269,7 +232,7 @@ bool WidgetLibrary::applyItem(const QString& entryId, const QString& targetZone)
         }
     }
 
-    qDebug() << "WidgetLibrary: Applied item" << entry["name"].toString()
+    qDebug() << "WidgetLibrary: Applied item" << entryId
              << "to zone" << targetZone << "as" << newItemId;
     return true;
 }
@@ -318,7 +281,7 @@ bool WidgetLibrary::applyZone(const QString& entryId, const QString& targetZone)
         m_settings->setZoneYOffset(targetZone, data["yOffset"].toInt());
     }
 
-    qDebug() << "WidgetLibrary: Applied zone" << entry["name"].toString()
+    qDebug() << "WidgetLibrary: Applied zone" << entryId
              << "to" << targetZone << "with" << items.size() << "items";
     return true;
 }
@@ -364,7 +327,7 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
         }
     }
 
-    qDebug() << "WidgetLibrary: Applied layout" << entry["name"].toString()
+    qDebug() << "WidgetLibrary: Applied layout" << entryId
              << "(theme:" << applyTheme << ")";
     return true;
 }
@@ -382,14 +345,15 @@ QString WidgetLibrary::importEntry(const QByteArray& json)
     QJsonObject entry = doc.object();
 
     // Validate required fields
-    if (!entry.contains("type") || !entry.contains("name") || !entry.contains("data")) {
+    if (!entry.contains("type") || !entry.contains("data")) {
         qWarning() << "WidgetLibrary: Missing required fields in import";
         return QString();
     }
 
-    // Assign a new local ID (the server ID is not used locally)
-    QString newId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    entry["id"] = newId;
+    // Use server ID if present, otherwise generate one
+    if (!entry.contains("id") || entry["id"].toString().isEmpty()) {
+        entry["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
     entry["importedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
 
     return saveEntryFile(entry);
@@ -602,8 +566,6 @@ void WidgetLibrary::rebuildIndex()
         QVariantMap meta;
         meta["id"] = entry["id"].toString();
         meta["type"] = entry["type"].toString();
-        meta["name"] = entry["name"].toString();
-        meta["description"] = entry["description"].toString();
         meta["createdAt"] = entry["createdAt"].toString();
         meta["tags"] = entry["tags"].toArray().toVariantList();
         meta["data"] = entry["data"].toObject().toVariantMap();
@@ -637,8 +599,6 @@ QString WidgetLibrary::saveEntryFile(const QJsonObject& entry)
     QVariantMap meta;
     meta["id"] = entryId;
     meta["type"] = entry["type"].toString();
-    meta["name"] = entry["name"].toString();
-    meta["description"] = entry["description"].toString();
     meta["createdAt"] = entry["createdAt"].toString();
     meta["tags"] = entry["tags"].toArray().toVariantList();
     meta["data"] = entry["data"].toObject().toVariantMap();
@@ -648,7 +608,7 @@ QString WidgetLibrary::saveEntryFile(const QJsonObject& entry)
     emit entriesChanged();
 
     qDebug() << "WidgetLibrary: Saved" << entry["type"].toString()
-             << "entry:" << entry["name"].toString() << "(" << entryId << ")";
+             << "entry:" << entryId;
     return entryId;
 }
 
@@ -682,38 +642,13 @@ bool WidgetLibrary::deleteEntryFile(const QString& entryId)
     return QFile::remove(filePath);
 }
 
-QJsonObject WidgetLibrary::buildEnvelope(const QString& type, const QString& name,
-                                          const QString& description,
+QJsonObject WidgetLibrary::buildEnvelope(const QString& type,
                                           const QJsonObject& data) const
 {
-    // Auto-generate name from content if not provided
-    QString autoName = name;
-    if (autoName.isEmpty()) {
-        if (type == "item") {
-            QJsonObject item = data["item"].toObject();
-            // Try content (strip HTML)
-            QString content = item["content"].toString();
-            content.remove(QRegularExpression("<[^>]*>"));
-            content = content.trimmed();
-            if (!content.isEmpty() && content != "Text" && content != "Custom")
-                autoName = content.left(30);
-            else if (!item["emoji"].toString().isEmpty())
-                autoName = "Custom widget";
-            else
-                autoName = "Widget";
-        } else if (type == "zone") {
-            autoName = data["zoneName"].toString();
-            if (autoName.isEmpty()) autoName = "Zone";
-        } else if (type == "layout") {
-            autoName = "Layout";
-        }
-    }
-
     QJsonObject envelope;
     envelope["version"] = 1;
     envelope["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
     envelope["type"] = type;
-    envelope["name"] = autoName;
     envelope["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     envelope["appVersion"] = QString(VERSION_STRING);
     envelope["data"] = data;

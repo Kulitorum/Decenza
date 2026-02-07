@@ -19,8 +19,19 @@ QtObject {
     property bool configurePageScaleEnabled: false
     property string currentPageObjectName: ""
 
-    // Emoji font family name (set by main.qml after FontLoader completes)
-    property string emojiFontFamily: "Noto Color Emoji"
+    // Convert emoji character to pre-rendered SVG image path.
+    // Passes through qrc:/icons/... paths unchanged.
+    function emojiToImage(emoji) {
+        if (!emoji) return ""
+        if (emoji.indexOf("qrc:") === 0) return emoji
+        var cps = []
+        for (var i = 0; i < emoji.length; ) {
+            var cp = emoji.codePointAt(i)
+            i += cp > 0xFFFF ? 2 : 1
+            if (cp !== 0xFE0F) cps.push(cp.toString(16))
+        }
+        return "qrc:/emoji/" + cps.join("-") + ".svg"
+    }
 
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }

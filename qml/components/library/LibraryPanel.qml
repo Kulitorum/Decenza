@@ -230,15 +230,16 @@ Rectangle {
                                         addMenu.close()
                                         switch (modelData.type) {
                                             case "item":
-                                                WidgetLibrary.addItemFromLayout(selectedItemId, "", "")
+                                                WidgetLibrary.addItemFromLayout(selectedItemId)
                                                 break
                                             case "zone":
-                                                WidgetLibrary.addZoneFromLayout(selectedZoneName, "", "")
+                                                WidgetLibrary.addZoneFromLayout(selectedZoneName)
                                                 break
                                             case "layout":
-                                                WidgetLibrary.addCurrentLayout("", "", false)
+                                                WidgetLibrary.addCurrentLayout(false)
                                                 break
                                         }
+                                        activeTab = "local"
                                     }
                                 }
                             }

@@ -125,6 +125,10 @@ private:
     QString m_savedScaleType;
     QString m_savedScaleName;
 
+    // Scale reconnect failure tracking
+    int m_scaleReconnectFailures = 0;
+    static constexpr int MaxScaleReconnectAttempts = 3;
+
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;
 

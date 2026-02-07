@@ -138,18 +138,10 @@ Rectangle {
                 spacing: Theme.spacingSmall
 
                 Image {
-                    visible: itemEmojiIsSvg
-                    source: itemEmojiIsSvg ? itemEmoji : ""
+                    visible: itemHasEmoji
+                    source: visible ? Theme.emojiToImage(itemEmoji) : ""
                     sourceSize.width: Theme.scaled(22)
                     sourceSize.height: Theme.scaled(22)
-                    Layout.alignment: Qt.AlignVCenter
-                }
-
-                Text {
-                    visible: itemHasEmoji && !itemEmojiIsSvg
-                    text: itemEmoji
-                    font.family: Theme.emojiFontFamily
-                    font.pixelSize: Theme.scaled(18)
                     Layout.alignment: Qt.AlignVCenter
                 }
 
@@ -192,18 +184,10 @@ Rectangle {
                         spacing: Theme.scaled(2)
 
                         Image {
-                            visible: (modelData.emoji || "").indexOf("qrc:") === 0
-                            source: visible ? (modelData.emoji || "") : ""
+                            visible: (modelData.emoji || "") !== ""
+                            source: visible ? Theme.emojiToImage(modelData.emoji || "") : ""
                             sourceSize.width: Theme.scaled(14)
                             sourceSize.height: Theme.scaled(14)
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        Text {
-                            visible: (modelData.emoji || "") !== "" && (modelData.emoji || "").indexOf("qrc:") !== 0
-                            text: modelData.emoji || ""
-                            font.family: Theme.emojiFontFamily
-                            font.pixelSize: Theme.scaled(12)
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
@@ -263,18 +247,10 @@ Rectangle {
 
         // Emoji preview (local entries only)
         Image {
-            visible: entryType === "item" && itemEmojiIsSvg && !hasThumbnail
-            source: visible ? itemEmoji : ""
+            visible: entryType === "item" && itemHasEmoji && !hasThumbnail
+            source: visible ? Theme.emojiToImage(itemEmoji) : ""
             sourceSize.width: Theme.scaled(18)
             sourceSize.height: Theme.scaled(18)
-            Layout.alignment: Qt.AlignVCenter
-        }
-
-        Text {
-            visible: entryType === "item" && itemHasEmoji && !itemEmojiIsSvg && !hasThumbnail
-            text: itemEmoji
-            font.family: Theme.emojiFontFamily
-            font.pixelSize: Theme.scaled(14)
             Layout.alignment: Qt.AlignVCenter
         }
 
@@ -282,7 +258,7 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: {
-                if (hasThumbnail) return entryData.name || entryType
+                if (hasThumbnail) return entryType
                 if (entryType === "item") return resolveContent(itemContent)
                 if (entryType === "zone") return entryZoneItems.length + " items"
                 return "Layout"

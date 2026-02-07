@@ -208,6 +208,7 @@ This means:
 
 - **Qt Framework**: LGPL-3.0 / Commercial ([qt.io/licensing](https://www.qt.io/licensing))
 - **FFmpeg** (via Qt Multimedia): LGPL-2.1+
+- **Twemoji** (emoji graphics): CC-BY 4.0 ([github.com/twitter/twemoji](https://github.com/twitter/twemoji))
 
 ### DE1 Protocol
 
@@ -219,6 +220,7 @@ This application implements the DE1 Bluetooth LE protocol based on publicly avai
 - The Qt Project for the excellent cross-platform framework
 - The open-source coffee community for protocol documentation
 - [Pexels](https://pexels.com/) for screensaver videos
+- [Twemoji](https://github.com/twitter/twemoji) by Twitter/X for emoji graphics (CC-BY 4.0)
 
 ## Disclaimer
 

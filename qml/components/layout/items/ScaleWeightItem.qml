@@ -40,7 +40,7 @@ Item {
         id: compactContent
         visible: root.isCompact
         anchors.fill: parent
-        implicitWidth: compactWarning.visible ? compactWarning.implicitWidth : compactScaleRow.implicitWidth
+        implicitWidth: compactWarning.visible ? compactWarning.width : compactScaleRow.implicitWidth
         implicitHeight: compactWarning.visible ? compactWarning.implicitHeight : compactScaleRow.implicitHeight
 
         // Scale warning (connecting / not found) - tap to scan

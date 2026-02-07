@@ -70,11 +70,11 @@ Item {
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
-                    Text {
+                    Image {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: weatherEmoji(modelData.weatherIcon || "")
-                        font.family: Theme.emojiFontFamily
-                        font.pixelSize: Theme.scaled(16)
+                        source: Theme.emojiToImage(weatherEmoji(modelData.weatherIcon || ""))
+                        sourceSize.width: Theme.scaled(16)
+                        sourceSize.height: Theme.scaled(16)
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -115,15 +115,15 @@ Item {
                 spacing: Theme.scaled(8)
                 visible: WeatherManager.valid
 
-                Text {
-                    text: {
+                Image {
+                    source: {
                         var forecast = WeatherManager.hourlyForecast
                         if (forecast.length > 0)
-                            return weatherEmoji(forecast[0].weatherIcon || "")
+                            return Theme.emojiToImage(weatherEmoji(forecast[0].weatherIcon || ""))
                         return ""
                     }
-                    font.family: Theme.emojiFontFamily
-                    font.pixelSize: Theme.scaled(28)
+                    sourceSize.width: Theme.scaled(28)
+                    sourceSize.height: Theme.scaled(28)
                 }
 
                 Text {
@@ -198,11 +198,11 @@ Item {
                     }
 
                     // Weather icon
-                    Text {
+                    Image {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: weatherEmoji(modelData.weatherIcon || "")
-                        font.family: Theme.emojiFontFamily
-                        font.pixelSize: Theme.scaled(16)
+                        source: Theme.emojiToImage(weatherEmoji(modelData.weatherIcon || ""))
+                        sourceSize.width: Theme.scaled(16)
+                        sourceSize.height: Theme.scaled(16)
                     }
 
                     // Temperature

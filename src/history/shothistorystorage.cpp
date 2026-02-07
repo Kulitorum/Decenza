@@ -224,17 +224,25 @@ bool ShotHistoryStorage::runMigrations()
     query.exec("SELECT version FROM schema_version LIMIT 1");
     int currentVersion = query.next() ? query.value(0).toInt() : 1;
 
+    // Helper: check if a column exists in a table
+    auto hasColumn = [&](const QString& table, const QString& column) -> bool {
+        QSqlQuery q(m_db);
+        q.exec(QString("PRAGMA table_info(%1)").arg(table));
+        while (q.next()) {
+            if (q.value(1).toString() == column)
+                return true;
+        }
+        return false;
+    };
+
     // Migration 3: Replace brew_overrides_json with dedicated columns
     if (currentVersion < 3) {
         qDebug() << "ShotHistoryStorage: Running migration to version 3 (dedicated override columns)";
 
-        // Add new columns
-        if (!query.exec("ALTER TABLE shots ADD COLUMN temperature_override REAL")) {
-            qWarning() << "ShotHistoryStorage: Failed to add temperature_override column:" << query.lastError().text();
-        }
-        if (!query.exec("ALTER TABLE shots ADD COLUMN yield_override REAL")) {
-            qWarning() << "ShotHistoryStorage: Failed to add yield_override column:" << query.lastError().text();
-        }
+        if (!hasColumn("shots", "temperature_override"))
+            query.exec("ALTER TABLE shots ADD COLUMN temperature_override REAL");
+        if (!hasColumn("shots", "yield_override"))
+            query.exec("ALTER TABLE shots ADD COLUMN yield_override REAL");
 
         query.exec("UPDATE schema_version SET version = 3");
         currentVersion = 3;
@@ -243,9 +251,10 @@ bool ShotHistoryStorage::runMigrations()
     // Migration 4: Add transition_reason to shot_phases
     if (currentVersion < 4) {
         qDebug() << "ShotHistoryStorage: Running migration to version 4 (transition_reason)";
-        if (!query.exec("ALTER TABLE shot_phases ADD COLUMN transition_reason TEXT DEFAULT ''")) {
-            qWarning() << "ShotHistoryStorage: Failed to add transition_reason column:" << query.lastError().text();
-        }
+
+        if (!hasColumn("shot_phases", "transition_reason"))
+            query.exec("ALTER TABLE shot_phases ADD COLUMN transition_reason TEXT DEFAULT ''");
+
         query.exec("UPDATE schema_version SET version = 4");
         currentVersion = 4;
     }

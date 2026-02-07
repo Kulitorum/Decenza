@@ -1,8 +1,6 @@
 <!DOCTYPE RCC>
 <RCC version="1.0">
     <qresource prefix="/">
-        <!-- Fonts -->
-        <file>fonts/NotoColorEmoji.ttf</file>
         <!-- Sounds -->
         <file>sounds/tick.wav</file>
         <file>sounds/frameclick1.wav</file>
@@ -51,6 +49,7 @@
         <file>icons/quit.svg</file>
         <file>icons/scale.svg</file>
         <file>icons/wifi.svg</file>
+        <file>icons/Graph.svg</file>
         <file>icons/ArrowLeft.svg</file>
         <file>icons/Upload.svg</file>
         <!-- GHC Simulator -->

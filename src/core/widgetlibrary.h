@@ -21,7 +21,7 @@ class Settings;
  *   - "layout": An entire layout (all zones + offsets, optionally with theme)
  *
  * Usage from QML:
- *   WidgetLibrary.addItemFromLayout(itemId, "My Widget", "description")
+ *   WidgetLibrary.addItemFromLayout(itemId)
  *   WidgetLibrary.applyItem(entryId, "centerStatus")
  */
 class WidgetLibrary : public QObject
@@ -41,19 +41,12 @@ public:
     void setSelectedEntryId(const QString& id);
 
     // Save from current layout to library
-    Q_INVOKABLE QString addItemFromLayout(const QString& itemId,
-                                           const QString& name,
-                                           const QString& description = QString());
-    Q_INVOKABLE QString addZoneFromLayout(const QString& zoneName,
-                                           const QString& name,
-                                           const QString& description = QString());
-    Q_INVOKABLE QString addCurrentLayout(const QString& name,
-                                          const QString& description = QString(),
-                                          bool includeTheme = false);
+    Q_INVOKABLE QString addItemFromLayout(const QString& itemId);
+    Q_INVOKABLE QString addZoneFromLayout(const QString& zoneName);
+    Q_INVOKABLE QString addCurrentLayout(bool includeTheme = false);
 
     // Manage library entries
     Q_INVOKABLE bool removeEntry(const QString& entryId);
-    Q_INVOKABLE bool renameEntry(const QString& entryId, const QString& newName);
     Q_INVOKABLE QVariantMap getEntry(const QString& entryId) const;
     Q_INVOKABLE QVariantMap getEntryData(const QString& entryId) const;
 
@@ -93,8 +86,7 @@ private:
     QString saveEntryFile(const QJsonObject& entry);
     QJsonObject readEntryFile(const QString& entryId) const;
     bool deleteEntryFile(const QString& entryId);
-    QJsonObject buildEnvelope(const QString& type, const QString& name,
-                              const QString& description, const QJsonObject& data) const;
+    QJsonObject buildEnvelope(const QString& type, const QJsonObject& data) const;
     QStringList extractTagsFromItem(const QJsonObject& item) const;
 
     Settings* m_settings;

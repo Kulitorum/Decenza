@@ -225,21 +225,12 @@ Item {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
-            // SVG icon in compact mode
+            // Emoji/icon in compact mode
             Image {
-                visible: root.hasEmoji && root.emojiIsSvg
-                source: root.emojiIsSvg ? root.emoji : ""
+                visible: root.hasEmoji
+                source: visible ? Theme.emojiToImage(root.emoji) : ""
                 sourceSize.width: Theme.scaled(28)
                 sourceSize.height: Theme.scaled(28)
-                Layout.alignment: Qt.AlignVCenter
-            }
-
-            // Emoji text in compact mode
-            Text {
-                visible: root.hasEmoji && !root.emojiIsSvg
-                text: root.emoji
-                font.family: Theme.emojiFontFamily
-                font.pixelSize: Theme.scaled(22)
                 Layout.alignment: Qt.AlignVCenter
             }
 
@@ -291,23 +282,13 @@ Item {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
-            // SVG icon
+            // Emoji/icon
             Image {
-                visible: root.emojiIsSvg
-                source: root.emojiIsSvg ? root.emoji : ""
+                source: Theme.emojiToImage(root.emoji)
                 sourceSize.width: Theme.scaled(48)
                 sourceSize.height: Theme.scaled(48)
                 anchors.horizontalCenter: parent.horizontalCenter
                 opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
-            }
-
-            // Emoji text
-            Text {
-                visible: !root.emojiIsSvg
-                text: root.emoji
-                font.family: Theme.emojiFontFamily
-                font.pixelSize: Theme.scaled(48)
-                anchors.horizontalCenter: parent.horizontalCenter
             }
 
             Text {

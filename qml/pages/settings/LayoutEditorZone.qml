@@ -163,18 +163,10 @@ Rectangle {
                             Layout.alignment: Qt.AlignVCenter
 
                             Image {
-                                visible: (modelData.emoji || "").indexOf("qrc:") === 0
-                                source: visible ? (modelData.emoji || "") : ""
+                                visible: (modelData.emoji || "") !== ""
+                                source: visible ? Theme.emojiToImage(modelData.emoji || "") : ""
                                 sourceSize.width: Theme.scaled(18)
                                 sourceSize.height: Theme.scaled(18)
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-
-                            Text {
-                                visible: (modelData.emoji || "") !== "" && (modelData.emoji || "").indexOf("qrc:") !== 0
-                                text: modelData.emoji || ""
-                                font.family: Theme.emojiFontFamily
-                                font.pixelSize: Theme.scaled(14)
                                 anchors.verticalCenter: parent.verticalCenter
                             }
 

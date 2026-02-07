@@ -294,22 +294,13 @@ Popup {
                     border.color: Theme.borderColor
                     border.width: 1
 
-                    // SVG preview
+                    // Emoji/icon preview
                     Image {
-                        visible: popup.textEmoji !== "" && popup.textEmoji.indexOf("qrc:") === 0
+                        visible: popup.textEmoji !== ""
                         anchors.centerIn: parent
-                        source: popup.textEmoji.indexOf("qrc:") === 0 ? popup.textEmoji : ""
+                        source: visible ? Theme.emojiToImage(popup.textEmoji) : ""
                         sourceSize.width: Theme.scaled(28)
                         sourceSize.height: Theme.scaled(28)
-                    }
-
-                    // Emoji preview
-                    Text {
-                        visible: popup.textEmoji !== "" && popup.textEmoji.indexOf("qrc:") !== 0
-                        anchors.centerIn: parent
-                        text: popup.textEmoji
-                        font.family: Theme.emojiFontFamily
-                        font.pixelSize: Theme.scaled(24)
                     }
 
                     // Empty state
@@ -460,18 +451,10 @@ Popup {
                             spacing: Theme.scaled(2)
 
                             Image {
-                                visible: previewCol.emojiIsSvg
-                                source: previewCol.emojiIsSvg ? popup.textEmoji : ""
+                                visible: previewCol.hasEmoji
+                                source: visible ? Theme.emojiToImage(popup.textEmoji) : ""
                                 sourceSize.width: Theme.scaled(28)
                                 sourceSize.height: Theme.scaled(28)
-                                anchors.horizontalCenter: parent.horizontalCenter
-                            }
-
-                            Text {
-                                visible: previewCol.hasEmoji && !previewCol.emojiIsSvg
-                                text: popup.textEmoji
-                                font.family: Theme.emojiFontFamily
-                                font.pixelSize: Theme.scaled(24)
                                 anchors.horizontalCenter: parent.horizontalCenter
                             }
 
@@ -512,18 +495,10 @@ Popup {
                             spacing: Theme.scaled(4)
 
                             Image {
-                                visible: previewCol.emojiIsSvg
-                                source: previewCol.emojiIsSvg ? popup.textEmoji : ""
+                                visible: previewCol.hasEmoji
+                                source: visible ? Theme.emojiToImage(popup.textEmoji) : ""
                                 sourceSize.width: Theme.scaled(18)
                                 sourceSize.height: Theme.scaled(18)
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-
-                            Text {
-                                visible: previewCol.hasEmoji && !previewCol.emojiIsSvg
-                                text: popup.textEmoji
-                                font.family: Theme.emojiFontFamily
-                                font.pixelSize: Theme.scaled(16)
                                 anchors.verticalCenter: parent.verticalCenter
                             }
 

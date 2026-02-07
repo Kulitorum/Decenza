@@ -15,9 +15,6 @@ ApplicationWindow {
     title: "Decenza"
     color: Theme.backgroundColor
 
-    // Noto Color Emoji font for consistent cross-platform emoji rendering
-    FontLoader { id: emojiFontLoader; source: "qrc:/fonts/NotoColorEmoji.ttf" }
-
     // Flag to prevent navigation during flow calibration
     property bool calibrationInProgress: false
 
