@@ -120,6 +120,7 @@ int main(int argc, char *argv[])
 
     DE1Device de1Device;
     de1Device.setSettings(&settings);  // For water level auto-calibration
+    de1Device.setSimulationMode(settings.simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
     FlowScale flowScale;  // Virtual scale using DE1 flow data (fallback when no BLE scale)
     ShotDataModel shotDataModel;

@@ -646,23 +646,67 @@ void ProfileImporter::saveAsNew()
         return;
     }
 
-    // Generate unique name
     QString baseTitle = m_pendingProfile.title();
     QString baseFilename = generateFilename(baseTitle);
-    QString newFilename = baseFilename;
-    int counter = 1;
+    QString duplicatePath = downloadedProfilesPath() + "/" + baseFilename + ".json";
 
-    while (QFile::exists(downloadedProfilesPath() + "/" + newFilename + ".json") ||
-           QFile::exists(":/profiles/" + newFilename + ".json")) {
-        newFilename = baseFilename + "_" + QString::number(counter);
-        counter++;
+    // Check if there's a duplicate
+    if (QFile::exists(duplicatePath) || QFile::exists(":/profiles/" + baseFilename + ".json")) {
+        // Try descriptive naming first
+        Profile existingProfile = Profile::loadFromFile(duplicatePath);
+        if (!existingProfile.isValid() && QFile::exists(":/profiles/" + baseFilename + ".json")) {
+            existingProfile = Profile::loadFromFile(":/profiles/" + baseFilename + ".json");
+        }
+
+        QString newTitle;
+        QString newFilename;
+
+        // Strategy 1: Different author
+        if (existingProfile.isValid() &&
+            !m_pendingProfile.author().isEmpty() &&
+            !existingProfile.author().isEmpty() &&
+            m_pendingProfile.author() != existingProfile.author()) {
+            newTitle = baseTitle + " (by " + m_pendingProfile.author() + ")";
+            newFilename = generateFilename(newTitle);
+        }
+        // Strategy 2: Different step count
+        else if (existingProfile.isValid() &&
+                 m_pendingProfile.steps().size() != existingProfile.steps().size()) {
+            newTitle = baseTitle + " (" + QString::number(m_pendingProfile.steps().size()) + " steps)";
+            newFilename = generateFilename(newTitle);
+        }
+        // Fallback: Numbered suffix
+        else {
+            int counter = 2;
+            do {
+                newTitle = baseTitle + " (" + QString::number(counter) + ")";
+                newFilename = generateFilename(newTitle);
+                counter++;
+            } while (QFile::exists(downloadedProfilesPath() + "/" + newFilename + ".json") ||
+                     QFile::exists(":/profiles/" + newFilename + ".json"));
+        }
+
+        // Check if the descriptive name is already taken
+        if (QFile::exists(downloadedProfilesPath() + "/" + newFilename + ".json") ||
+            QFile::exists(":/profiles/" + newFilename + ".json")) {
+            // Fall back to numbered suffix
+            int counter = 2;
+            do {
+                newTitle = baseTitle + " (" + QString::number(counter) + ")";
+                newFilename = generateFilename(newTitle);
+                counter++;
+            } while (QFile::exists(downloadedProfilesPath() + "/" + newFilename + ".json") ||
+                     QFile::exists(":/profiles/" + newFilename + ".json"));
+        }
+
+        m_pendingProfile.setTitle(newTitle);
+        baseFilename = newFilename;
     }
 
-    // Update title to match
-    QString newTitle = baseTitle + " (" + QString::number(counter - 1) + ")";
-    m_pendingProfile.setTitle(newTitle);
+    // At this point baseFilename is unique
+    QString newTitle = m_pendingProfile.title();
 
-    QString fullPath = downloadedProfilesPath() + "/" + newFilename + ".json";
+    QString fullPath = downloadedProfilesPath() + "/" + baseFilename + ".json";
     if (m_pendingProfile.saveToFile(fullPath)) {
         setStatus("Saved as: " + newTitle);
         emit importSuccess(newTitle);

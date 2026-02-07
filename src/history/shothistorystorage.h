@@ -151,6 +151,10 @@ public:
     Q_INVOKABLE QStringList getDistinctBaristas();
     Q_INVOKABLE QStringList getDistinctRoastLevels();
 
+    // Get filter options with parent-based filtering
+    Q_INVOKABLE QStringList getDistinctBeanTypesForBrand(const QString& beanBrand);
+    Q_INVOKABLE QStringList getDistinctGrinderSettingsForGrinder(const QString& grinderModel);
+
     // Get filter options with cascading filter (for dependent dropdowns)
     Q_INVOKABLE QStringList getDistinctProfilesFiltered(const QVariantMap& filter);
     Q_INVOKABLE QStringList getDistinctBeanBrandsFiltered(const QVariantMap& filter);
@@ -211,6 +215,8 @@ private:
     // Helper for getDistinct*Filtered methods - excludeColumn is not filtered on itself
     QStringList getDistinctValuesFiltered(const QString& column, const QString& excludeColumn,
                                           const QVariantMap& filter);
+    // Helper to apply smart sorting for grinder settings
+    void sortGrinderSettings(QStringList& settings);
 
     // Helper for converting QVector<QPointF> to JSON object with t/v arrays
     static QJsonObject pointsToJsonObject(const QVector<QPointF>& points);

@@ -2,6 +2,7 @@
 #include "settings.h"
 #include "settingsserializer.h"
 #include "profilestorage.h"
+#include "../profile/profile.h"
 #include "../history/shothistorystorage.h"
 #include "../screensaver/screensavervideomanager.h"
 
@@ -395,25 +396,59 @@ void DataMigrationClient::onProfileFileReply()
         QDir().mkpath(basePath);
         QString targetPath = basePath + "/" + filename;
 
-        // Handle duplicate filenames
-        if (QFile::exists(targetPath)) {
-            QString baseName = QFileInfo(targetPath).completeBaseName();
-            QString suffix = QFileInfo(targetPath).suffix();
-            int counter = 1;
-            do {
-                targetPath = QString("%1/%2_imported%3.%4")
-                    .arg(basePath, baseName)
-                    .arg(counter > 1 ? QString::number(counter) : "")
-                    .arg(suffix);
-                counter++;
-            } while (QFile::exists(targetPath));
+        // Load the profile to clean it (strips "*" prefix) and check for duplicates
+        Profile incomingProfile = Profile::loadFromJsonString(QString::fromUtf8(content));
+
+        if (!incomingProfile.isValid()) {
+            qWarning() << "DataMigrationClient: Invalid profile, skipping:" << filename;
+            reply->deleteLater();
+            m_currentReply = nullptr;
+            downloadNextProfile();
+            return;
         }
 
-        QFile outFile(targetPath);
-        if (outFile.open(QIODevice::WriteOnly)) {
-            outFile.write(content);
-            outFile.close();
-            m_profilesImported++;
+        // Check if file exists and if it's a true duplicate (same content)
+        bool shouldSkip = false;
+        if (QFile::exists(targetPath)) {
+            // Load existing profile to compare
+            Profile existingProfile = Profile::loadFromFile(targetPath);
+
+            if (existingProfile.isValid()) {
+                // Check if they're the same profile (same title, author, and step count)
+                bool sameTitle = existingProfile.title() == incomingProfile.title();
+                bool sameAuthor = existingProfile.author() == incomingProfile.author();
+                bool sameSteps = existingProfile.steps().size() == incomingProfile.steps().size();
+
+                if (sameTitle && sameAuthor && sameSteps) {
+                    // True duplicate - skip import
+                    qDebug() << "DataMigrationClient: Skipping duplicate profile:" << filename;
+                    shouldSkip = true;
+                }
+            }
+
+            // If not a true duplicate, append _imported suffix
+            if (!shouldSkip) {
+                QString baseName = QFileInfo(targetPath).completeBaseName();
+                QString suffix = QFileInfo(targetPath).suffix();
+                int counter = 1;
+                do {
+                    targetPath = QString("%1/%2_imported%3.%4")
+                        .arg(basePath, baseName)
+                        .arg(counter > 1 ? QString::number(counter) : "")
+                        .arg(suffix);
+                    counter++;
+                } while (QFile::exists(targetPath));
+            }
+        }
+
+        // Save the cleaned profile (with "*" stripped and any other normalization)
+        if (!shouldSkip) {
+            if (incomingProfile.saveToFile(targetPath)) {
+                m_profilesImported++;
+                qDebug() << "DataMigrationClient: Imported profile:" << incomingProfile.title();
+            } else {
+                qWarning() << "DataMigrationClient: Failed to save profile:" << targetPath;
+            }
         }
     }
 

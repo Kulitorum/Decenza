@@ -9,11 +9,12 @@ Item {
     property string label: ""
     property string text: ""
     property var suggestions: []  // List of existing values from database
+    property string accessibleName: ""  // Explicit accessible name for screen readers (overrides label)
 
     signal textEdited(string text)
     signal inputFocused(Item field)  // Emitted when text input gets focus (for keyboard handling)
 
-    implicitHeight: fieldLabel.height + Theme.scaled(48) + 2
+    implicitHeight: (root.label.length > 0 ? fieldLabel.height + Theme.scaled(2) : 0) + Theme.scaled(48)
 
     // Sync textInput when root.text changes from parent binding
     onTextChanged: {
@@ -25,6 +26,7 @@ Item {
     // Handle selection from suggestion list (called from delegate)
     function selectSuggestion(selectedText) {
         justSelected = true
+        isActivelyTyping = false  // Reset - this is a selection, not typing
         suggestionPopup.close()
         textInput.text = selectedText
         // Don't set root.text directly - emit signal and let parent update via binding
@@ -33,9 +35,13 @@ Item {
         Qt.inputMethod.hide()
     }
 
+    // Track if user is actively typing (vs just focusing with existing text)
+    property bool isActivelyTyping: false
+
     // Filter suggestions based on current input
     function getFilteredSuggestions() {
-        if (!textInput.text || textInput.text.length === 0) {
+        // Show all suggestions when not actively typing (just focused with existing text)
+        if (!isActivelyTyping || !textInput.text || textInput.text.length === 0) {
             return suggestions
         }
         var filter = textInput.text.toLowerCase()
@@ -55,6 +61,7 @@ Item {
         text: root.label
         color: Theme.textColor
         font.pixelSize: Theme.scaled(14)
+        visible: root.label.length > 0
     }
 
     // Text input with dropdown
@@ -62,8 +69,8 @@ Item {
         id: textInput
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: fieldLabel.bottom
-        anchors.topMargin: Theme.scaled(2)
+        anchors.top: root.label.length > 0 ? fieldLabel.bottom : parent.top
+        anchors.topMargin: root.label.length > 0 ? Theme.scaled(2) : 0
         height: Theme.scaled(48)
         text: root.text
         placeholder: root.label
@@ -73,6 +80,8 @@ Item {
         rightPadding: Theme.scaled(84)
 
         onTextEdited: {
+            // User is actively typing (not just focusing)
+            isActivelyTyping = true
             // Don't set root.text here - that breaks the parent binding!
             // Just emit the signal and let parent update via its binding
             root.textEdited(text)
@@ -85,6 +94,7 @@ Item {
         onActiveFocusChanged: {
             if (activeFocus) {
                 justSelected = false  // Reset so typing works again
+                isActivelyTyping = false  // Reset - show all suggestions initially
                 root.inputFocused(textInput)
                 // Show suggestions when focused
                 if (suggestions.length > 0) {
@@ -125,7 +135,7 @@ Item {
         }
 
         Accessible.role: Accessible.EditableText
-        Accessible.name: root.label
+        Accessible.name: root.accessibleName.length > 0 ? root.accessibleName : root.label
     }
 
     // Buttons row (stacked horizontally on the right)
@@ -157,10 +167,12 @@ Item {
                 anchors.fill: parent
                 onClicked: {
                     justSelected = false  // Reset so typing works again
+                    isActivelyTyping = false  // Reset to show all suggestions
                     textInput.text = ""
-                    root.text = ""
+                    // Don't set root.text directly - that breaks parent bindings!
+                    // Just emit signal and let parent update via its binding
                     root.textEdited("")
-                    textInput.forceActiveFocus()
+                    // Open dropdown without keyboard - user can tap text area to type if needed
                     if (suggestions.length > 0) {
                         suggestionPopup.open()
                     }
@@ -189,7 +201,8 @@ Item {
                     if (suggestionPopup.visible) {
                         suggestionPopup.close()
                     } else {
-                        textInput.forceActiveFocus()
+                        // Just open dropdown without focusing text input (no keyboard)
+                        isActivelyTyping = false  // Reset to show all suggestions
                         suggestionPopup.open()
                     }
                 }

@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
+#include <algorithm>
 
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
@@ -1006,7 +1007,9 @@ QStringList ShotHistoryStorage::getDistinctGrinders()
 
 QStringList ShotHistoryStorage::getDistinctGrinderSettings()
 {
-    return getDistinctValues("grinder_setting");
+    QStringList settings = getDistinctValues("grinder_setting");
+    sortGrinderSettings(settings);
+    return settings;
 }
 
 QStringList ShotHistoryStorage::getDistinctBaristas()
@@ -1661,6 +1664,100 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     m_db.commit();
 
     return shotId;
+}
+
+QStringList ShotHistoryStorage::getDistinctBeanTypesForBrand(const QString& beanBrand)
+{
+    QStringList results;
+    if (!m_ready) return results;
+
+    QString sql;
+    QSqlQuery query(m_db);
+
+    if (beanBrand.isEmpty()) {
+        // Fallback to all bean types if no brand specified
+        return getDistinctBeanTypes();
+    }
+
+    sql = "SELECT DISTINCT bean_type FROM shots "
+          "WHERE bean_brand = ? AND bean_type IS NOT NULL AND bean_type != '' "
+          "ORDER BY bean_type";
+
+    query.prepare(sql);
+    query.bindValue(0, beanBrand);
+    query.exec();
+
+    while (query.next()) {
+        QString value = query.value(0).toString();
+        if (!value.isEmpty()) {
+            results << value;
+        }
+    }
+
+    return results;
+}
+
+QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QString& grinderModel)
+{
+    QStringList results;
+    if (!m_ready) return results;
+
+    QString sql;
+    QSqlQuery query(m_db);
+
+    if (grinderModel.isEmpty()) {
+        // Fallback to all grinder settings if no grinder specified
+        return getDistinctGrinderSettings();
+    }
+
+    sql = "SELECT DISTINCT grinder_setting FROM shots "
+          "WHERE grinder_model = ? AND grinder_setting IS NOT NULL AND grinder_setting != '' "
+          "ORDER BY grinder_setting";
+
+    query.prepare(sql);
+    query.bindValue(0, grinderModel);
+    query.exec();
+
+    while (query.next()) {
+        QString value = query.value(0).toString();
+        if (!value.isEmpty()) {
+            results << value;
+        }
+    }
+
+    // Apply smart sorting
+    sortGrinderSettings(results);
+    return results;
+}
+
+void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)
+{
+    if (settings.isEmpty()) {
+        return;
+    }
+
+    // Check if all values parse as numbers
+    bool allNumeric = true;
+    for (const QString& setting : settings) {
+        bool ok = false;
+        setting.toDouble(&ok);
+        if (!ok) {
+            allNumeric = false;
+            break;
+        }
+    }
+
+    if (allNumeric) {
+        // Sort numerically
+        std::sort(settings.begin(), settings.end(), [](const QString& a, const QString& b) {
+            return a.toDouble() < b.toDouble();
+        });
+    } else {
+        // Sort alphabetically with natural ordering
+        std::sort(settings.begin(), settings.end(), [](const QString& a, const QString& b) {
+            return QString::localeAwareCompare(a, b) < 0;
+        });
+    }
 }
 
 void ShotHistoryStorage::refreshTotalShots()

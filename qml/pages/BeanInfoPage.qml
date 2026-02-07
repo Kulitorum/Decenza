@@ -510,7 +510,8 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.coffee", "Coffee")
                     text: isEditMode ? editBeanType : Settings.dyeBeanType
-                    suggestions: MainController.shotHistory.getDistinctBeanTypes()
+                    suggestions: MainController.shotHistory.getDistinctBeanTypesForBrand(
+                        isEditMode ? editBeanBrand : Settings.dyeBeanBrand)
                     onTextEdited: function(t) { if (isEditMode) editBeanType = t; else Settings.dyeBeanType = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -549,7 +550,8 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.setting", "Setting")
                     text: isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
-                    suggestions: MainController.shotHistory.getDistinctGrinderSettings()
+                    suggestions: MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
+                        isEditMode ? editGrinderModel : Settings.dyeGrinderModel)
                     onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else Settings.dyeGrinderSetting = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }

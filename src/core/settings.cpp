@@ -2000,6 +2000,17 @@ void Settings::setRefillKitOverride(int value) {
     }
 }
 
+bool Settings::simulationMode() const {
+    return m_settings.value("developer/simulationMode", false).toBool();
+}
+
+void Settings::setSimulationMode(bool enabled) {
+    if (simulationMode() != enabled) {
+        m_settings.setValue("developer/simulationMode", enabled);
+        emit simulationModeChanged();
+    }
+}
+
 bool Settings::developerTranslationUpload() const {
     // Runtime-only flag - not persisted, resets to false on app restart
     return m_developerTranslationUpload;

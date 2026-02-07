@@ -317,18 +317,22 @@ Page {
                 rowSpacing: 6
 
                 // === ROW 1: Bean info ===
-                LabeledField {
+                SuggestionField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
                     text: editBeanBrand
+                    suggestions: MainController.shotHistory.getDistinctBeanBrands()
                     onTextEdited: function(t) { editBeanBrand = t }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
-                LabeledField {
+                SuggestionField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
                     text: editBeanType
+                    suggestions: MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand)
                     onTextEdited: function(t) { editBeanType = t }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 LabeledField {
@@ -354,26 +358,32 @@ Page {
                     onValueChanged: function(v) { editRoastLevel = v }
                 }
 
-                LabeledField {
+                SuggestionField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.grinder", "Grinder")
                     text: editGrinderModel
+                    suggestions: MainController.shotHistory.getDistinctGrinders()
                     onTextEdited: function(t) { editGrinderModel = t }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
-                LabeledField {
+                SuggestionField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.setting", "Setting")
                     text: editGrinderSetting
+                    suggestions: MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel)
                     onTextEdited: function(t) { editGrinderSetting = t }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 // === ROW 3: Barista, Preset, Shot Date ===
-                LabeledField {
+                SuggestionField {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: editBarista
+                    suggestions: MainController.shotHistory.getDistinctBaristas()
                     onTextEdited: function(t) { editBarista = t }
+                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 // Preset (read-only display)
