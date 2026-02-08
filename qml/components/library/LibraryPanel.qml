@@ -158,33 +158,18 @@ Rectangle {
 
             // Add button with dropdown
             Rectangle {
-                Layout.fillWidth: true
+                width: Theme.scaled(30)
                 height: Theme.scaled(30)
                 radius: Theme.scaled(4)
-                color: addMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                color: addMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
+                border.color: Theme.primaryColor
+                border.width: 1
 
-                RowLayout {
+                Image {
                     anchors.centerIn: parent
-                    spacing: Theme.scaled(4)
-
-                    Text {
-                        text: "+"
-                        color: "white"
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(14)
-                        font.bold: true
-                    }
-                    Text {
-                        text: "Add"
-                        color: "white"
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                    }
-                    Text {
-                        text: "\u25BE"
-                        color: "white"
-                        font.pixelSize: Theme.scaled(10)
-                    }
+                    source: "qrc:/icons/plus.svg"
+                    sourceSize.width: Theme.scaled(16)
+                    sourceSize.height: Theme.scaled(16)
                 }
 
                 MouseArea {

@@ -25,12 +25,15 @@ Rectangle {
             return Theme.scaled(120)
         }
         if (entryType === "zone") {
-            // Height matches aspect ratio: scale by width, derive height
-            var refW = isBarZone ? Theme.scaled(600) : Theme.scaled(800)
+            if (isBarZone) {
+                // Bar zones use natural implicit width, just need bar height
+                return Theme.bottomBarHeight + Theme.scaled(8)
+            }
+            // Center zones: scale by width, derive height from aspect ratio
+            var refW = Theme.scaled(800)
             var availW = (width > 0 ? width : 100) - Theme.scaled(8)
             var s = Math.min(1.0, availW / refW)
-            var contentH = isBarZone ? Theme.bottomBarHeight : Theme.scaled(120)
-            return contentH * s + Theme.scaled(8)
+            return Theme.scaled(120) * s + Theme.scaled(8)
         }
         if (entryType === "layout") {
             return Theme.scaled(160)
@@ -284,7 +287,6 @@ Rectangle {
             LayoutComponents.LayoutBarZone {
                 id: zonePreviewBar
                 visible: card.isBarZone
-                width: Theme.scaled(600)
                 anchors.centerIn: parent
                 zoneName: card.entryZoneName
                 items: card.entryZoneItems
