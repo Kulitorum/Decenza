@@ -492,6 +492,14 @@ add_custom_target(increment_version_code ALL
         -DMANIFEST_FILE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml
         -DVERSION_STRING=${PROJECT_VERSION}
         -DCMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -DVERSION_HEADER=${VERSION_HEADER}
+        -DVERSION_TEMPLATE=${CMAKE_SOURCE_DIR}/src/version.h.in
+        -DPROJECT_VERSION=${PROJECT_VERSION}
+        -DPROJECT_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        -DPROJECT_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        -DPROJECT_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+        -DISS_TEMPLATE=${CMAKE_SOURCE_DIR}/installer/version.iss.in
+        -DISS_OUTPUT=${CMAKE_SOURCE_DIR}/installer/version.iss
         -P ${CMAKE_SOURCE_DIR}/cmake/IncrementVersionCode.cmake
     COMMENT "Incrementing version code..."
 )
