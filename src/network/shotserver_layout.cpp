@@ -1516,6 +1516,28 @@ QString ShotServer::generateLayoutPage() const
             pointer-events: none;
         }
         .lib-toast.show { opacity: 1; }
+        .lib-spinner-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 0.8rem;
+            border-radius: 8px;
+        }
+        .lib-spinner-overlay.active { display: flex; }
+        .lib-spinner {
+            width: 32px; height: 32px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .lib-spinner-text { color: #fff; font-size: 0.8rem; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5"></script>
 </head>
@@ -1682,7 +1704,8 @@ QString ShotServer::generateLayoutPage() const
     </div>
 
     <!-- Library Panel (right sidebar) -->
-    <div class="library-panel" id="libraryPanel">
+    <div class="library-panel" id="libraryPanel" style="position:relative">
+        <div class="lib-spinner-overlay" id="libSpinner"><div class="lib-spinner"></div><div class="lib-spinner-text" id="libSpinnerText">Loading...</div></div>
         <div class="lib-tabs">
             <button class="lib-tab active" id="libTabLocal" onclick="switchLibTab('local')">My Library</button>
             <button class="lib-tab" id="libTabCommunity" onclick="switchLibTab('community')">Community</button>
@@ -2966,7 +2989,8 @@ QString ShotServer::generateLayoutPage() const
         html += '</div>';
         return html;
     }
-
+)HTML";
+    html += R"HTML(
     function renderLocalEntries() {
         var el = document.getElementById('libLocalEntries');
         if (!libLocalData.length) {
@@ -3077,9 +3101,10 @@ QString ShotServer::generateLayoutPage() const
         if (type) url += '&type=' + encodeURIComponent(type);
         if (search) url += '&search=' + encodeURIComponent(search);
 
-        document.getElementById('libCommunityEntries').innerHTML = '<div class="lib-empty">Loading...</div>';
+        showLibSpinner('Browsing community...');
 
         fetch(url).then(function(r){return r.json()}).then(function(data) {
+            hideLibSpinner();
             if (data.error) {
                 document.getElementById('libCommunityEntries').innerHTML = '<div class="lib-empty">' + escapeHtml(data.error) + '</div>';
                 return;
@@ -3088,6 +3113,7 @@ QString ShotServer::generateLayoutPage() const
             commTotal = data.total || 0;
             renderCommunityEntries();
         }).catch(function() {
+            hideLibSpinner();
             document.getElementById('libCommunityEntries').innerHTML = '<div class="lib-empty">Failed to load community entries.</div>';
         });
     }
@@ -3142,7 +3168,7 @@ QString ShotServer::generateLayoutPage() const
         }
         if (!entry) return;
         var serverId = entry.serverId || entry.id;
-        showLibToast('Downloading...');
+        showLibSpinner('Downloading...');
         apiPost('/api/community/download', {serverId: serverId}, function(r) {
             if (r.success) { showLibToast('Downloaded to My Library'); loadLibrary(); }
             else showLibToast(r.error || 'Download failed');
@@ -3156,7 +3182,7 @@ QString ShotServer::generateLayoutPage() const
             return;
         }
         var zone = selectedChip ? selectedChip.zone : '';
-        showLibToast('Downloading...');
+        showLibSpinner('Downloading & applying...');
         apiPost('/api/community/download', {serverId: serverId}, function(r) {
             if (r.success && r.localEntryId) {
                 var localId = r.localEntryId;
@@ -3164,7 +3190,7 @@ QString ShotServer::generateLayoutPage() const
                     if (r2.success) { showLibToast('Applied!'); loadLayout(); }
                     else showLibToast(r2.error || 'Failed to apply');
                 });
-                loadLibrary(); // Refresh list in background, don't block apply
+                loadLibrary();
             } else showLibToast(r.error || 'Download failed');
         });
     }
@@ -3172,14 +3198,23 @@ QString ShotServer::generateLayoutPage() const
     function uploadToComm() {
         if (!libSelectedId) return;
         if (!confirm('Share this entry to the community?')) return;
-        showLibToast('Uploading...');
+        showLibSpinner('Uploading...');
         apiPost('/api/community/upload', {entryId: libSelectedId}, function(r) {
             if (r.success) showLibToast('Shared to community!');
             else showLibToast(r.error || 'Upload failed');
         });
     }
 
+    function showLibSpinner(msg) {
+        document.getElementById('libSpinnerText').textContent = msg || 'Loading...';
+        document.getElementById('libSpinner').classList.add('active');
+    }
+    function hideLibSpinner() {
+        document.getElementById('libSpinner').classList.remove('active');
+    }
+
     function showLibToast(msg) {
+        hideLibSpinner();
         var el = document.getElementById('libToast');
         el.textContent = msg;
         el.classList.add('show');

@@ -625,15 +625,6 @@ void DE1Device::parseShotSample(const QByteArray& data) {
     m_headTemp = sample.headTemp;
     m_steamTemp = sample.steamTemp;
 
-    // Log steam temp periodically for debugging
-    static int steamLogCounter = 0;
-    if (++steamLogCounter % 20 == 0) {  // Every ~4 seconds (samples come at ~5Hz)
-        qDebug() << "[steam] BLE spec:" << (newSpec ? "new" : "old")
-                 << "size:" << data.size()
-                 << "raw_byte18:" << (data.size() > 18 ? d[18] : 0)
-                 << "sample.steamTemp:" << sample.steamTemp
-                 << "m_steamTemp:" << m_steamTemp;
-    }
 
     emit shotSampleReceived(sample);
 }

@@ -201,18 +201,20 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
         // iOS doesn't download from GitHub - updates come from App Store
     }
 
-    // Check if update is available using display version comparison
-    // On iOS/macOS, update can be available even without a direct download URL
+    // Check if update is available using display version comparison,
+    // falling back to build number if versions are equal
+    bool newer = isNewerVersion(m_latestVersion, currentVersion());
+    if (!newer && !isNewerVersion(currentVersion(), m_latestVersion) && m_latestBuildNumber > 0) {
+        // Same display version — compare build numbers
+        newer = m_latestBuildNumber > currentVersionCode();
+    }
     bool wasAvailable = m_updateAvailable;
 #if defined(Q_OS_IOS)
-    // iOS: just check version, user updates via App Store
-    m_updateAvailable = isNewerVersion(m_latestVersion, currentVersion());
+    m_updateAvailable = newer;
 #elif defined(Q_OS_ANDROID)
-    // Android: need APK to be available
-    m_updateAvailable = isNewerVersion(m_latestVersion, currentVersion()) && !m_downloadUrl.isEmpty();
+    m_updateAvailable = newer && !m_downloadUrl.isEmpty();
 #else
-    // macOS/other: update available even if no direct download (user can visit release page)
-    m_updateAvailable = isNewerVersion(m_latestVersion, currentVersion());
+    m_updateAvailable = newer;
 #endif
 
     qDebug() << "UpdateChecker: Current version:" << currentVersion()

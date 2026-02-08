@@ -564,13 +564,27 @@ git log v1.1.9..HEAD --oneline
 git log <previous-tag>..HEAD --oneline
 ```
 
-#### Step 3: Create release with comprehensive notes
+#### Step 3: Get the build number
+After building in Qt Creator, read the current build number:
+```bash
+cat versioncode.txt
+```
+This number **must** be included in the release notes for the auto-update system to work.
+
+#### Step 4: Create release with comprehensive notes
+**CRITICAL**: Always include `Build: XXXX` in the release notes (where XXXX is from `versioncode.txt`). The in-app auto-updater uses this to detect new builds — even when the display version hasn't changed. Without it, users won't get update notifications.
+
+For beta/prerelease builds, add `--prerelease` flag. Users with "Beta updates" enabled in Settings will get these.
+
 ```bash
 cd /c/CODE/de1-qt
 gh release create vX.Y.Z \
   --title "Decenza DE1 vX.Y.Z" \
+  --prerelease \
   --notes "$(cat <<'EOF'
 ## Changes
+
+Build: XXXX
 
 ### New Features
 - Feature 1 (from commit messages)
@@ -579,9 +593,6 @@ gh release create vX.Y.Z \
 ### Bug Fixes
 - Fix 1
 - Fix 2
-
-### Other
-- Other change 1
 
 ## Installation
 
@@ -602,9 +613,18 @@ EOF
 )"
 ```
 
+### Auto-Update System
+- **Check interval**: Every 60 minutes (configurable in Settings → Updates)
+- **Version detection**: Compares display version (`X.Y.Z`), then falls back to build number if versions are equal
+- **Build number source**: Parsed from release notes using pattern `Build: XXXX` (or `Build XXXX`)
+- **Beta channel**: Users opt-in via Settings → Updates → "Beta updates". Prereleases are only shown to opted-in users.
+- **Platforms**: Android auto-downloads APK; iOS directs to App Store; desktop shows release page
+
 ### Notes
 - **Always review `git log <prev-release>..HEAD`** to include all changes in release notes
+- **Always include `Build: XXXX`** in release notes — the auto-updater needs it
 - Always include direct APK link in release notes (old browsers can't see Assets section)
+- Remove `--prerelease` flag for stable releases
 - APK files are for direct distribution (sideloading)
 - AAB files are only for Google Play Store uploads
 - Users cannot install AAB files directly
