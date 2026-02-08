@@ -17,6 +17,7 @@ Item {
             case "temperature":
             case "waterLevel":
             case "connectionStatus":
+            case "steamTemperature":
             case "scaleWeight":
             case "weather":
                 return true

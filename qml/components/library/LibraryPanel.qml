@@ -16,6 +16,20 @@ Rectangle {
     property int displayMode: 0  // 0=full, 1=compact
     property string activeTab: "local"  // "local", "community"
 
+    // Type of the currently selected entry ("item", "zone", "layout", or "")
+    readonly property string selectedEntryType: {
+        var id = WidgetLibrary.selectedEntryId
+        if (!id) return ""
+        var entry = WidgetLibrary.getEntry(id)
+        if (entry && entry.type) return entry.type
+        if (activeTab !== "community") return ""
+        var entries = LibrarySharing.communityEntries
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].id === id) return entries[i].type || ""
+        }
+        return ""
+    }
+
     // Whether the selected entry can be deleted
     readonly property bool canDeleteSelected: {
         if (WidgetLibrary.selectedEntryId === "") return false
@@ -258,7 +272,7 @@ Rectangle {
                 border.width: 1
                 opacity: applyEnabled ? 1.0 : 0.4
 
-                property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && selectedZoneName !== ""
+                property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && (selectedEntryType === "layout" || selectedZoneName !== "")
 
                 Image {
                     anchors.centerIn: parent
@@ -429,11 +443,15 @@ Rectangle {
 
     function applySelected() {
         var entryId = WidgetLibrary.selectedEntryId
-        if (!entryId || !selectedZoneName) return
+        if (!entryId) return
 
         // Local entry - apply directly
         var entry = WidgetLibrary.getEntry(entryId)
         if (entry && entry.type) {
+            if (entry.type !== "layout" && !selectedZoneName) {
+                showToast("Select a zone to apply to", Theme.warningColor)
+                return
+            }
             applyEntry(entryId, entry.type, selectedZoneName)
             return
         }
@@ -448,6 +466,10 @@ Rectangle {
             }
         }
         if (!type) return
+        if (type !== "layout" && !selectedZoneName) {
+            showToast("Select a zone to apply to", Theme.warningColor)
+            return
+        }
 
         pendingApplyZone = selectedZoneName
         showToast("Downloading...", Theme.primaryColor)
