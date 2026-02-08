@@ -321,8 +321,10 @@ KeyboardAwareContainer {
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
-                // Refill kit is active if detected OR forced on via override
-                property bool refillKitActive: DE1Device.refillKitDetected === 1 || Settings.refillKitOverride === 1
+                // Refill kit is active if: forced ON (1), or auto-detect (2) AND detected
+                // NOT active if: forced OFF (0), or auto-detect (2) AND not detected
+                property bool refillKitActive: Settings.refillKitOverride === 1 ||
+                                                (Settings.refillKitOverride === 2 && DE1Device.refillKitDetected === 1)
 
                 ColumnLayout {
                     id: waterLevelContent
@@ -440,13 +442,21 @@ KeyboardAwareContainer {
                 }
             }
 
-            // Water Refill Threshold (only when no refill kit - manual refill only)
+            // Water Refill Threshold (only when refill kit is not active - manual refill only)
             Rectangle {
+                id: waterRefillThresholdCard
                 Layout.fillWidth: true
                 implicitHeight: refillContent.implicitHeight + Theme.scaled(30)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: !(DE1Device.refillKitDetected === 1 || Settings.refillKitOverride === 1)
+                // Show threshold controls when refill kit is NOT active (respects force-off override)
+                visible: {
+                    var override = Settings.refillKitOverride
+                    var detected = DE1Device.refillKitDetected === 1
+                    // Hide if: forced ON (1), or auto-detect (2) AND detected
+                    // Show if: forced OFF (0), or auto-detect (2) AND not detected
+                    return override === 0 || (override === 2 && !detected)
+                }
 
                 ColumnLayout {
                     id: refillContent
