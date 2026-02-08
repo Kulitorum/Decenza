@@ -14,10 +14,11 @@ Rectangle {
     property bool showBadge: true
 
     width: parent ? parent.width : 100
+    visible: !(displayMode === 1 && entryType !== "item")
+
     height: {
         if (displayMode === 1) {
-            if (entryType === "item") return Theme.bottomBarHeight
-            return Theme.scaled(32)
+            return Theme.bottomBarHeight
         }
         // Full preview mode
         if (entryType === "item") {
