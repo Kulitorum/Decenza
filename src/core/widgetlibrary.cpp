@@ -390,6 +390,14 @@ bool WidgetLibrary::hasThumbnail(const QString& entryId) const
     return QFile::exists(thumbnailPath(entryId));
 }
 
+void WidgetLibrary::triggerThumbnailCapture(const QString& entryId)
+{
+    if (entryId.isEmpty()) return;
+    QVariantMap entry = getEntry(entryId);
+    if (entry.isEmpty()) return;
+    emit requestThumbnailCapture(entryId);
+}
+
 // --- Tag extraction ---
 
 QStringList WidgetLibrary::extractTags(const QVariantMap& entryData) const

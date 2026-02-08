@@ -64,6 +64,9 @@ public:
     Q_INVOKABLE QString thumbnailPath(const QString& entryId) const;
     Q_INVOKABLE bool hasThumbnail(const QString& entryId) const;
 
+    /// Request QML to capture a thumbnail for the given entry (async, fire-and-forget)
+    Q_INVOKABLE void triggerThumbnailCapture(const QString& entryId);
+
     // Tag extraction from entry data
     Q_INVOKABLE QStringList extractTags(const QVariantMap& entryData) const;
 
@@ -75,6 +78,7 @@ signals:
     void selectedEntryIdChanged();
     void entryAdded(const QString& entryId);
     void entryRemoved(const QString& entryId);
+    void requestThumbnailCapture(const QString& entryId);
 
 private:
     QString libraryPath() const;

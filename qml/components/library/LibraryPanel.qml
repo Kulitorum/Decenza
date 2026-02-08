@@ -477,6 +477,37 @@ Rectangle {
         }
     }
 
+    // Timer for local-only thumbnail capture (triggered by C++ signal, e.g. from web editor)
+    Timer {
+        id: localCaptureTimer
+        interval: 200
+        repeat: false
+        property string captureEntryId: ""
+        onTriggered: {
+            thumbCardFull.grabToImage(function(fullResult) {
+                WidgetLibrary.saveThumbnail(captureEntryId, fullResult.image)
+                thumbContainer.visible = false
+            }, Qt.size(Theme.scaled(280), thumbCardFull.height))
+        }
+    }
+
+    // Handle thumbnail capture requests from C++ (e.g. when web editor saves to library)
+    Connections {
+        target: WidgetLibrary
+        function onRequestThumbnailCapture(entryId) {
+            var entryData = WidgetLibrary.getEntryData(entryId)
+            if (!entryData || !entryData.type) return
+
+            thumbCardFull.entryData = entryData
+            thumbCardCompact.entryData = entryData
+            thumbContainer.z = -1
+            thumbContainer.visible = true
+
+            localCaptureTimer.captureEntryId = entryId
+            localCaptureTimer.start()
+        }
+    }
+
     // Track pending apply-after-download
     property string pendingApplyZone: ""
 
