@@ -11,6 +11,7 @@ extern "C" {
 class DE1Device;
 class MachineState;
 class Settings;
+class MainController;
 
 class MqttClient : public QObject {
     Q_OBJECT
@@ -30,10 +31,16 @@ public:
     int reconnectAttempts() const { return m_reconnectAttempts; }
     QString currentProfile() const { return m_currentProfile; }
     void setCurrentProfile(const QString& profile);
+    void setCurrentProfileFilename(const QString& filename);
+    void setMainController(MainController* controller);
 
     Q_INVOKABLE void connectToBroker();
     Q_INVOKABLE void disconnectFromBroker();
     Q_INVOKABLE void publishDiscovery();
+
+public slots:
+    void onScaleConnectedChanged(bool connected);
+    void onSteamSettingsChanged();
 
 signals:
     void connectedChanged();
@@ -42,6 +49,8 @@ signals:
     void commandReceived(const QString& command);
     void profileSelectRequested(const QString& profileName);
     void currentProfileChanged();
+    void steamOnRequested();
+    void steamOffRequested();
 
     // Internal signals for thread-safe callback handling
     void internalConnected();
@@ -95,6 +104,7 @@ private:
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
     Settings* m_settings = nullptr;
+    MainController* m_mainController = nullptr;
 
     QTimer m_publishTimer;
     QTimer m_reconnectTimer;
@@ -109,6 +119,9 @@ private:
     QString m_lastPublishedPhase;
     QString m_lastPublishedProfile;
     QString m_currentProfile;
+    QString m_currentProfileFilename;
+    QString m_lastPublishedSteamMode;
+    bool m_lastPublishedScaleConnected = false;
     QString m_clientId;
 
     mutable QMutex m_mutex;

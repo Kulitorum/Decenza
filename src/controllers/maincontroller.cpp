@@ -185,6 +185,9 @@ MainController::MainController(Settings* settings, DE1Device* device,
     // Create MQTT client for home automation
     m_mqttClient = new MqttClient(m_device, m_machineState, m_settings, this);
 
+    // Pass MainController reference for shot history access
+    m_mqttClient->setMainController(this);
+
     // Emit remoteSleepRequested when sleep command received via MQTT
     connect(m_mqttClient, &MqttClient::commandReceived, this, [this](const QString& command) {
         if (command == "sleep") {
@@ -202,8 +205,24 @@ MainController::MainController(Settings* settings, DE1Device* device,
     connect(this, &MainController::currentProfileChanged, this, [this]() {
         if (m_mqttClient) {
             m_mqttClient->setCurrentProfile(m_currentProfile.title());
+            // Settings::currentProfile() stores the filename (set in loadProfile)
+            if (m_settings) {
+                m_mqttClient->setCurrentProfileFilename(m_settings->currentProfile());
+            }
         }
     });
+
+    // Steam on/off commands
+    connect(m_mqttClient, &MqttClient::steamOnRequested, this, [this]() {
+        startSteamHeating();
+    });
+    connect(m_mqttClient, &MqttClient::steamOffRequested, this, [this]() {
+        turnOffSteamHeater();
+    });
+
+    // Steam settings changes -> republish state
+    connect(m_settings, &Settings::steamDisabledChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
+    connect(m_settings, &Settings::keepSteamHeaterOnChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
 
     // Auto-connect MQTT if enabled
     if (m_settings && m_settings->mqttEnabled() && !m_settings->mqttBrokerHost().isEmpty()) {

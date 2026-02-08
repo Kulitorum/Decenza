@@ -2,6 +2,7 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../core/settings.h"
+#include "../controllers/maincontroller.h"
 #include "version.h"
 
 #include <QJsonDocument>
@@ -430,6 +431,20 @@ void MqttClient::handleCommand(const QString& command)
             qDebug() << "MqttClient: Sleep command executed";
         }
         emit commandReceived("sleep");
+    } else if (command == "steam_on") {
+        emit steamOnRequested();
+        emit commandReceived("steam_on");
+        qDebug() << "MqttClient: Steam on command executed";
+    } else if (command == "steam_off") {
+        emit steamOffRequested();
+        emit commandReceived("steam_off");
+        qDebug() << "MqttClient: Steam off command executed";
+    } else if (command.startsWith("profile_filename ")) {
+        QString filename = command.mid(QString("profile_filename ").length()).trimmed();
+        if (!filename.isEmpty()) {
+            emit profileSelectRequested(filename);
+            qDebug() << "MqttClient: Profile filename select requested:" << filename;
+        }
     } else {
         qWarning() << "MqttClient: Unknown command:" << command;
     }
@@ -448,6 +463,24 @@ void MqttClient::setCurrentProfile(const QString& profile)
             qDebug() << "MqttClient: Published profile change:" << profile;
         }
     }
+}
+
+void MqttClient::setCurrentProfileFilename(const QString& filename)
+{
+    if (m_currentProfileFilename != filename) {
+        m_currentProfileFilename = filename;
+
+        // Publish filename change
+        if (isConnected() && !filename.isEmpty()) {
+            publish(topicPath("profile_filename"), filename, true);
+            qDebug() << "MqttClient: Published profile filename change:" << filename;
+        }
+    }
+}
+
+void MqttClient::setMainController(MainController* controller)
+{
+    m_mainController = controller;
 }
 
 void MqttClient::attemptReconnect()
@@ -537,6 +570,23 @@ void MqttClient::onWaterLevelChanged()
     publish(topicPath("water_level_ml"), QString::number(m_device->waterLevelMl()), true);
 }
 
+void MqttClient::onScaleConnectedChanged(bool connected)
+{
+    if (!isConnected()) return;
+
+    if (connected != m_lastPublishedScaleConnected) {
+        publish(topicPath("scale_connected"), connected ? "true" : "false", true);
+        m_lastPublishedScaleConnected = connected;
+        qDebug() << "MqttClient: Published scale connected:" << connected;
+    }
+}
+
+void MqttClient::onSteamSettingsChanged()
+{
+    // Trigger state republish to update steam mode
+    publishState();
+}
+
 void MqttClient::publishState()
 {
     if (!isConnected()) return;
@@ -562,6 +612,28 @@ void MqttClient::publishState()
         m_lastPublishedProfile = m_currentProfile;
     }
 
+    // Profile filename
+    if (!m_currentProfileFilename.isEmpty()) {
+        publish(topicPath("profile_filename"), m_currentProfileFilename, true);
+    }
+
+    // Steam mode: derive from Settings
+    QString steamMode;
+    if (!m_device || m_device->stateString() == "Sleep") {
+        steamMode = "Off";
+    } else if (m_settings && m_settings->steamDisabled()) {
+        steamMode = "Off";
+    } else if (m_settings && !m_settings->keepSteamHeaterOn()) {
+        steamMode = "Off";
+    } else {
+        steamMode = "On";
+    }
+    if (steamMode != m_lastPublishedSteamMode) {
+        publish(topicPath("steam_mode"), steamMode, true);
+        publish(topicPath("steam_state"), steamMode != "Off" ? "true" : "false", true);
+        m_lastPublishedSteamMode = steamMode;
+    }
+
     publish(topicPath("substate"), substate, true);
 }
 
@@ -581,6 +653,12 @@ void MqttClient::publishTelemetry()
         publish(topicPath("weight"), QString::number(m_machineState->scaleWeight(), 'f', 1), true);
         publish(topicPath("shot_time"), QString::number(m_machineState->shotTime(), 'f', 1), true);
         publish(topicPath("target_weight"), QString::number(m_machineState->targetWeight(), 'f', 1), true);
+    }
+
+    // Espresso count from shot history
+    if (m_mainController && m_mainController->shotHistory()) {
+        publish(topicPath("espresso_count"),
+                QString::number(m_mainController->shotHistory()->totalShots()), true);
     }
 }
 
@@ -752,6 +830,75 @@ void MqttClient::publishHomeAssistantDiscovery()
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
         publishDiscoveryConfig("switch", "power", config);
+    }
+
+    // Scale connected (binary sensor)
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Scale Connected";
+        config["state_topic"] = baseTopic + "/scale_connected";
+        config["payload_on"] = "true";
+        config["payload_off"] = "false";
+        config["device_class"] = "connectivity";
+        config["icon"] = "mdi:scale";
+        config["unique_id"] = QString("de1_%1_scale_connected").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("binary_sensor", "scale_connected", config);
+    }
+
+    // Steam mode sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Steam Mode";
+        config["state_topic"] = baseTopic + "/steam_mode";
+        config["icon"] = "mdi:water-boiler";
+        config["unique_id"] = QString("de1_%1_steam_mode").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "steam_mode", config);
+    }
+
+    // Steam switch
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Steam";
+        config["command_topic"] = baseTopic + "/command";
+        config["state_topic"] = baseTopic + "/steam_state";
+        config["payload_on"] = "steam_on";
+        config["payload_off"] = "steam_off";
+        config["state_on"] = "true";
+        config["state_off"] = "false";
+        config["icon"] = "mdi:water-boiler";
+        config["unique_id"] = QString("de1_%1_steam").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("switch", "steam", config);
+    }
+
+    // Espresso count sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Espresso Count";
+        config["state_topic"] = baseTopic + "/espresso_count";
+        config["icon"] = "mdi:counter";
+        config["state_class"] = "total_increasing";
+        config["unique_id"] = QString("de1_%1_espresso_count").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "espresso_count", config);
+    }
+
+    // Profile filename sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Profile Filename";
+        config["state_topic"] = baseTopic + "/profile_filename";
+        config["icon"] = "mdi:file-document";
+        config["unique_id"] = QString("de1_%1_profile_filename").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "profile_filename", config);
     }
 
     m_discoveryPublished = true;
