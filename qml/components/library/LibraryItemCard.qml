@@ -9,15 +9,16 @@ Rectangle {
     property var entryData: ({})
     property int displayMode: 0  // 0=full preview, 1=compact list
     property bool isSelected: false
+    property bool showBadge: true
 
     width: parent ? parent.width : 100
     height: {
         if (displayMode === 1) {
-            if (entryType === "item" && !hasThumbnail) return Theme.bottomBarHeight
+            if (entryType === "item") return Theme.bottomBarHeight
             return Theme.scaled(32)
         }
         // Full preview mode
-        if (entryType === "item" && !hasThumbnail) {
+        if (entryType === "item") {
             return Theme.scaled(120)
         }
         return Theme.scaled(44)
@@ -108,6 +109,7 @@ Rectangle {
         // Type badge (small, top-left corner overlay)
         Rectangle {
             id: typeBadge
+            visible: card.showBadge
             z: 1
             anchors.top: parent.top
             anchors.left: parent.left
@@ -167,11 +169,11 @@ Rectangle {
                 }
             }
 
-            // Without emoji: centered text (matches CustomItem full mode)
+            // Without emoji: centered text (matches CustomItem full mode, auto-width)
             Text {
                 visible: !itemHasEmoji
                 anchors.centerIn: parent
-                width: parent.width - Theme.scaled(16)
+                width: Math.min(implicitWidth, parent.width - Theme.scaled(16))
                 text: resolveContent(itemContent)
                 textFormat: Text.RichText
                 color: (itemHasAction || itemBgColor !== "") ? "white" : Theme.textColor
@@ -247,11 +249,12 @@ Rectangle {
 
     // --- COMPACT LIST MODE (items) - matches CustomItem compact rendering ---
     Item {
-        visible: displayMode === 1 && entryType === "item" && !hasThumbnail
+        visible: displayMode === 1 && entryType === "item"
         anchors.fill: parent
 
         // Type badge overlay
         Rectangle {
+            visible: card.showBadge
             z: 1
             anchors.top: parent.top
             anchors.left: parent.left
@@ -274,9 +277,18 @@ Rectangle {
             }
         }
 
+        // Server thumbnail (community entries)
+        Image {
+            visible: hasThumbnail
+            anchors.fill: parent
+            anchors.margins: Theme.spacingSmall
+            source: thumbnailUrl
+            fillMode: Image.PreserveAspectFit
+        }
+
         // Item background (matches CustomItem compact mode)
         Rectangle {
-            visible: itemHasAction || itemBgColor !== ""
+            visible: !hasThumbnail && (itemHasAction || itemBgColor !== "")
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
@@ -286,6 +298,7 @@ Rectangle {
 
         // Centered content row (matches CustomItem compact mode)
         RowLayout {
+            visible: !hasThumbnail
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
@@ -311,7 +324,7 @@ Rectangle {
 
     // --- COMPACT LIST MODE (zones, layouts, thumbnails) ---
     RowLayout {
-        visible: displayMode === 1 && (entryType !== "item" || hasThumbnail)
+        visible: displayMode === 1 && entryType !== "item"
         anchors.fill: parent
         anchors.leftMargin: Theme.scaled(6)
         anchors.rightMargin: Theme.scaled(6)
@@ -319,6 +332,7 @@ Rectangle {
 
         // Type badge
         Rectangle {
+            visible: card.showBadge
             width: compactBadgeText.implicitWidth + Theme.scaled(6)
             height: Theme.scaled(14)
             radius: Theme.scaled(3)

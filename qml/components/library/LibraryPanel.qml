@@ -426,6 +426,7 @@ Rectangle {
             displayMode: 0
             entryData: ({})
             isSelected: false
+            showBadge: false
         }
 
         LibraryItemCard {
@@ -435,6 +436,7 @@ Rectangle {
             displayMode: 1
             entryData: ({})
             isSelected: false
+            showBadge: false
         }
     }
 

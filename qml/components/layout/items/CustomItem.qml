@@ -121,7 +121,8 @@ Item {
         var scaleOn = typeof ScaleDevice !== "undefined" && ScaleDevice.connected
         var flowScale = typeof ScaleDevice !== "undefined" && ScaleDevice.name === "Flow Scale"
         result = result.replace(/%CONNECTED%/g, machineOn ? "Online" : "Offline")
-        result = result.replace(/%CONNECTED_COLOR%/g, machineOn ? Theme.successColor : Theme.errorColor)
+        if (result.indexOf("%CONNECTED_COLOR%") >= 0)
+            result = result.replace(/%CONNECTED_COLOR%/g, machineOn ? Theme.successColor : Theme.errorColor)
         if (machineOn && scaleOn && !flowScale)
             result = result.replace(/%DEVICES%/g, "Machine + Scale")
         else if (machineOn && flowScale)
