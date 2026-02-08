@@ -2498,15 +2498,21 @@ QString Settings::defaultLayoutJson() const {
 }
 
 QJsonObject Settings::getLayoutObject() const {
+    if (m_layoutCacheValid)
+        return m_layoutCache;
+
     QString stored = m_settings.value("layout/configuration").toString();
+    QJsonObject layout;
     if (stored.isEmpty()) {
-        return QJsonDocument::fromJson(defaultLayoutJson().toUtf8()).object();
+        layout = QJsonDocument::fromJson(defaultLayoutJson().toUtf8()).object();
+    } else {
+        QJsonDocument doc = QJsonDocument::fromJson(stored.toUtf8());
+        if (doc.isNull() || !doc.isObject()) {
+            layout = QJsonDocument::fromJson(defaultLayoutJson().toUtf8()).object();
+        } else {
+            layout = doc.object();
+        }
     }
-    QJsonDocument doc = QJsonDocument::fromJson(stored.toUtf8());
-    if (doc.isNull() || !doc.isObject()) {
-        return QJsonDocument::fromJson(defaultLayoutJson().toUtf8()).object();
-    }
-    QJsonObject layout = doc.object();
 
     // Migration: ensure statusBar zone exists for configs created before this feature
     QJsonObject zones = layout["zones"].toObject();
@@ -2546,12 +2552,21 @@ QJsonObject Settings::getLayoutObject() const {
         const_cast<Settings*>(this)->saveLayoutObject(layout);
     }
 
-    return layout;
+    m_layoutCache = layout;
+    m_layoutJsonCache = QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
+    m_layoutCacheValid = true;
+    return m_layoutCache;
+}
+
+void Settings::invalidateLayoutCache() {
+    m_layoutCacheValid = false;
 }
 
 void Settings::saveLayoutObject(const QJsonObject& layout) {
-    m_settings.setValue("layout/configuration",
-                        QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact)));
+    m_layoutCache = layout;
+    m_layoutJsonCache = QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
+    m_layoutCacheValid = true;
+    m_settings.setValue("layout/configuration", m_layoutJsonCache);
     emit layoutConfigurationChanged();
 }
 
@@ -2581,12 +2596,13 @@ QString Settings::generateItemId(const QString& type) const {
 }
 
 QString Settings::layoutConfiguration() const {
-    // Use getLayoutObject() to ensure migrations are applied (e.g. statusBar zone)
-    QJsonObject layout = getLayoutObject();
-    return QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
+    // getLayoutObject() populates both caches (object + JSON string)
+    getLayoutObject();
+    return m_layoutJsonCache;
 }
 
 void Settings::setLayoutConfiguration(const QString& json) {
+    invalidateLayoutCache();
     m_settings.setValue("layout/configuration", json);
     emit layoutConfigurationChanged();
 }
@@ -2693,6 +2709,7 @@ void Settings::reorderItem(const QString& zoneName, int fromIndex, int toIndex) 
 }
 
 void Settings::resetLayoutToDefault() {
+    invalidateLayoutCache();
     m_settings.remove("layout/configuration");
     emit layoutConfigurationChanged();
 }

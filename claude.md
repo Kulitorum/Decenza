@@ -564,15 +564,18 @@ git log v1.1.9..HEAD --oneline
 git log <previous-tag>..HEAD --oneline
 ```
 
-#### Step 3: Get the build number
-After building in Qt Creator, read the current build number:
+#### Step 3: Get the build number from the APK
+**IMPORTANT**: Always extract the build number directly from the APK, NOT from `versioncode.txt`. The version code file is a shared counter across all platforms and may have been incremented by a Windows/macOS build after the Android build, causing a mismatch.
+
 ```bash
-cat versioncode.txt
+# Extract versionCode directly from the APK (always correct)
+/c/Users/Micro/AppData/Local/Android/Sdk/build-tools/36.1.0/aapt dump badging <path-to-apk> 2>/dev/null | grep -oP "versionCode='\K[0-9]+"
 ```
-This number **must** be included in the release notes for the auto-update system to work.
+
+This number **must** be included in the release notes for the auto-update system to work. If it doesn't match what's inside the APK, users will see false update notifications on every check.
 
 #### Step 4: Create release with comprehensive notes
-**CRITICAL**: Always include `Build: XXXX` in the release notes (where XXXX is from `versioncode.txt`). The in-app auto-updater uses this to detect new builds — even when the display version hasn't changed. Without it, users won't get update notifications.
+**CRITICAL**: Always include `Build: XXXX` in the release notes (where XXXX is from the APK, extracted in step 3). The in-app auto-updater uses this to detect new builds — even when the display version hasn't changed. Without it, users won't get update notifications.
 
 For beta/prerelease builds, add `--prerelease` flag. Users with "Beta updates" enabled in Settings will get these.
 

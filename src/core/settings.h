@@ -692,6 +692,10 @@ private:
     QString generateItemId(const QString& type) const;
 
     QSettings m_settings;
+    mutable QJsonObject m_layoutCache;
+    mutable QString m_layoutJsonCache;
+    mutable bool m_layoutCacheValid = false;
+    void invalidateLayoutCache();
     bool m_steamDisabled = false;  // Session-only, not persisted (for descaling)
     double m_temperatureOverride = 0;  // Session-only, for next shot
     bool m_hasTemperatureOverride = false;  // Session-only
