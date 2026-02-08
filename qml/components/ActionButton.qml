@@ -44,17 +44,10 @@ Button {
     implicitWidth: Theme.scaled(150)
     implicitHeight: Theme.scaled(120)
 
-    // Zero out Material style insets/padding so the background Rectangle
-    // fills the full implicitHeight (matches plain-Item custom buttons)
-    padding: 0
-    topInset: 0
-    bottomInset: 0
-    leftInset: 0
-    rightInset: 0
-
     contentItem: Column {
-        spacing: Theme.spacingSmall
+        spacing: Theme.scaled(10)
         anchors.centerIn: parent
+        anchors.verticalCenterOffset: Theme.scaled(4)
 
         Item {
             anchors.horizontalCenter: parent.horizontalCenter

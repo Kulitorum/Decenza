@@ -142,7 +142,17 @@ Item {
         var category = parts[0]
         var target = parts.slice(1).join(":")
 
-        if (category === "navigate") {
+        if (category === "togglePreset") {
+            // Walk parent chain to find IdlePage (same pattern as EspressoItem)
+            var p = root.parent
+            while (p) {
+                if (p.objectName === "idlePage") break
+                p = p.parent
+            }
+            if (p && typeof p.activePresetFunction !== "undefined") {
+                p.activePresetFunction = (p.activePresetFunction === target) ? "" : target
+            }
+        } else if (category === "navigate") {
             var pageMap = {
                 "settings": "SettingsPage.qml",
                 "history": "ShotHistoryPage.qml",
@@ -152,7 +162,11 @@ Item {
                 "descaling": "DescalingPage.qml",
                 "ai": "AISettingsPage.qml",
                 "visualizer": "VisualizerBrowserPage.qml",
-                "autofavorites": "AutoFavoritesPage.qml"
+                "autofavorites": "AutoFavoritesPage.qml",
+                "steam": "SteamPage.qml",
+                "hotwater": "HotWaterPage.qml",
+                "flush": "FlushPage.qml",
+                "beaninfo": "BeanInfoPage.qml"
             }
             var page = pageMap[target]
             if (page && typeof pageStack !== "undefined") {
@@ -162,6 +176,8 @@ Item {
             switch (target) {
                 case "sleep":
                     if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled) {
+                        if (typeof ScaleDevice !== "undefined" && ScaleDevice.connected)
+                            ScaleDevice.disableLcd()
                         DE1Device.goToSleep()
                         var win = Window.window
                         if (win && typeof win.goToScreensaver === "function")
