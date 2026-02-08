@@ -110,10 +110,10 @@ public:
     // Upload: Serializes current translations to JSON, uploads to S3
     // Download: Fetches translation JSON, loads into local translation map
     //
-    // Backend API (Cloudflare Worker + S3):
-    //   GET  /languages        - List available translations
-    //   GET  /languages/{code} - Download a translation file
-    //   GET  /upload-url?lang= - Get pre-signed S3 URL for upload
+    // Backend API (AWS):
+    //   GET  /v1/translations/languages        - List available translations
+    //   GET  /v1/translations/languages/{code} - Download a translation file
+    //   GET  /v1/translations/upload-url?lang= - Get pre-signed S3 URL for upload
     //
     Q_INVOKABLE void downloadLanguageList();
     Q_INVOKABLE void downloadLanguage(const QString& langCode);
@@ -287,10 +287,10 @@ private:
     // Helper to get provider for AI requests (uses batch override if active)
     QString getActiveProvider() const;
 
-    // Backend base URL for translation downloads
-    static constexpr const char* TRANSLATION_API_BASE = "https://translation-upload-api.decenza-api.workers.dev";
+    // Backend base URL for translation API
+    static constexpr const char* TRANSLATION_API_BASE = "https://api.decenza.coffee";
     // Endpoints used:
-    //   GET /upload-url         - returns pre-signed S3 URL for uploads
-    //   GET /languages          - returns list of available languages
-    //   GET /languages/{code}   - returns translation file for a language
+    //   GET /v1/translations/upload-url?lang=  - returns pre-signed S3 URL for uploads
+    //   GET /v1/translations/languages         - returns list of available languages
+    //   GET /v1/translations/languages/{code}  - returns translation file for a language
 };

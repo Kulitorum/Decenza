@@ -222,7 +222,7 @@ Popup {
         if (!text) return ""
         var result = text
         result = result.replace(/%TEMP%/g, "92.3")
-        result = result.replace(/%STEAM_TEMP%/g, "155.0")
+        result = result.replace(/%STEAM_TEMP%/g, "155")
         result = result.replace(/%PRESSURE%/g, "9.0")
         result = result.replace(/%FLOW%/g, "2.1")
         result = result.replace(/%WATER%/g, "78")

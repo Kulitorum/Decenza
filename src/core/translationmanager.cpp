@@ -561,7 +561,7 @@ void TranslationManager::downloadLanguageList()
     m_downloading = true;
     emit downloadingChanged();
 
-    QString url = QString("%1/languages").arg(TRANSLATION_API_BASE);
+    QString url = QString("%1/v1/translations/languages").arg(TRANSLATION_API_BASE);
     qDebug() << "Fetching language list from:" << url;
 
     QNetworkRequest request{QUrl(url)};
@@ -585,7 +585,7 @@ void TranslationManager::downloadLanguage(const QString& langCode)
     m_downloadingLangCode = langCode;
     emit downloadingChanged();
 
-    QString url = QString("%1/languages/%2").arg(TRANSLATION_API_BASE, langCode);
+    QString url = QString("%1/v1/translations/languages/%2").arg(TRANSLATION_API_BASE, langCode);
     qDebug() << "Fetching language file from:" << url;
 
     QNetworkRequest request{QUrl(url)};
@@ -614,7 +614,7 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
 
             // Schedule retry after delay
             QTimer::singleShot(RETRY_DELAY_MS, this, [this]() {
-                QString url = QString("%1/languages").arg(TRANSLATION_API_BASE);
+                QString url = QString("%1/v1/translations/languages").arg(TRANSLATION_API_BASE);
                 qDebug() << "Retrying language list from:" << url;
 
                 QNetworkRequest request{QUrl(url)};
@@ -706,7 +706,7 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
 
             // Schedule retry after delay (keep m_downloading true and m_downloadingLangCode set)
             QTimer::singleShot(RETRY_DELAY_MS, this, [this, langCode]() {
-                QString url = QString("%1/languages/%2").arg(TRANSLATION_API_BASE, langCode);
+                QString url = QString("%1/v1/translations/languages/%2").arg(TRANSLATION_API_BASE, langCode);
                 qDebug() << "Retrying download from:" << url;
 
                 QNetworkRequest request{QUrl(url)};
@@ -910,7 +910,7 @@ void TranslationManager::submitTranslation()
     emit uploadingChanged();
 
     // Request a pre-signed URL from the backend, passing the language code
-    QString uploadUrlEndpoint = QString("%1/upload-url?lang=%2").arg(TRANSLATION_API_BASE, m_currentLanguage);
+    QString uploadUrlEndpoint = QString("%1/v1/translations/upload-url?lang=%2").arg(TRANSLATION_API_BASE, m_currentLanguage);
     QNetworkRequest request{QUrl(uploadUrlEndpoint)};
     QNetworkReply* reply = m_networkManager->get(request);
 
@@ -940,7 +940,7 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
             // Schedule retry after delay
             QTimer::singleShot(RETRY_DELAY_MS, this, [this]() {
                 // Re-request the upload URL
-                QString uploadUrlEndpoint = QString("%1/upload-url?lang=%2")
+                QString uploadUrlEndpoint = QString("%1/v1/translations/upload-url?lang=%2")
                     .arg(TRANSLATION_API_BASE)
                     .arg(m_currentLanguage);
 
@@ -2147,7 +2147,7 @@ void TranslationManager::checkForLanguageUpdate()
     qDebug() << "Checking for language update:" << m_currentLanguage;
 
     // Fetch the latest version from server
-    QString url = QString("%1/languages/%2").arg(TRANSLATION_API_BASE, m_currentLanguage);
+    QString url = QString("%1/v1/translations/languages/%2").arg(TRANSLATION_API_BASE, m_currentLanguage);
     QNetworkRequest request{QUrl(url)};
     QNetworkReply* reply = m_networkManager->get(request);
 

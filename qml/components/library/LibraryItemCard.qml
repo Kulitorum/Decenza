@@ -11,7 +11,17 @@ Rectangle {
     property bool isSelected: false
 
     width: parent ? parent.width : 100
-    height: displayMode === 0 ? Theme.scaled(44) : Theme.scaled(32)
+    height: {
+        if (displayMode === 1) {
+            if (entryType === "item" && !hasThumbnail) return Theme.bottomBarHeight
+            return Theme.scaled(32)
+        }
+        // Full preview mode
+        if (entryType === "item" && !hasThumbnail) {
+            return Theme.scaled(120)
+        }
+        return Theme.scaled(44)
+    }
     radius: Theme.cardRadius
     color: isSelected ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
                       : Theme.backgroundColor
@@ -47,9 +57,9 @@ Rectangle {
     // Resolve variables with sample/live values
     function resolveContent(text) {
         if (!text) return ""
-        var result = text.replace(/<[^>]*>/g, "").trim()  // Strip HTML for preview
+        var result = text
         var vars = {
-            "%TEMP%": "93.2", "%STEAM_TEMP%": "155.0",
+            "%TEMP%": "93.2", "%STEAM_TEMP%": "155",
             "%PRESSURE%": "9.0", "%FLOW%": "2.1",
             "%WATER%": "78", "%WATER_ML%": "850",
             "%WEIGHT%": "36.2", "%SHOT_TIME%": "28.5",
@@ -126,32 +136,48 @@ Rectangle {
             fillMode: Image.PreserveAspectFit
         }
 
-        // Item preview - rendered like the real widget (local entries)
+        // Item preview - rendered like CustomItem full mode
         Rectangle {
             visible: entryType === "item" && !hasThumbnail
             anchors.fill: parent
-            radius: Theme.scaled(6)
-            color: itemBgColor || (itemHasAction ? "#555555" : "transparent")
+            radius: Theme.cardRadius
+            clip: true
+            color: itemBgColor || (itemHasAction ? "#555555" : (itemHasEmoji ? Theme.surfaceColor : "transparent"))
 
-            RowLayout {
+            // With emoji: icon above text (matches CustomItem full mode)
+            Column {
+                visible: itemHasEmoji
                 anchors.centerIn: parent
                 spacing: Theme.spacingSmall
 
                 Image {
-                    visible: itemHasEmoji
-                    source: visible ? Theme.emojiToImage(itemEmoji) : ""
-                    sourceSize.width: Theme.scaled(22)
-                    sourceSize.height: Theme.scaled(22)
-                    Layout.alignment: Qt.AlignVCenter
+                    source: Theme.emojiToImage(itemEmoji)
+                    sourceSize.width: Theme.scaled(48)
+                    sourceSize.height: Theme.scaled(48)
+                    anchors.horizontalCenter: parent.horizontalCenter
                 }
 
                 Text {
                     text: resolveContent(itemContent)
-                    color: (itemHasAction || itemHasEmoji || itemBgColor !== "") ? "white" : Theme.textColor
+                    textFormat: Text.RichText
+                    color: "white"
                     font: Theme.bodyFont
-                    elide: Text.ElideRight
-                    Layout.maximumWidth: card.width - Theme.scaled(50)
+                    horizontalAlignment: Text.AlignHCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
                 }
+            }
+
+            // Without emoji: centered text (matches CustomItem full mode)
+            Text {
+                visible: !itemHasEmoji
+                anchors.centerIn: parent
+                width: parent.width - Theme.scaled(16)
+                text: resolveContent(itemContent)
+                textFormat: Text.RichText
+                color: (itemHasAction || itemBgColor !== "") ? "white" : Theme.textColor
+                font: Theme.bodyFont
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
             }
         }
 
@@ -195,7 +221,8 @@ Rectangle {
                             text: {
                                 var t = modelData.type || "custom"
                                 if (t !== "custom") return getItemDisplayName(t)
-                                var plain = resolveContent(modelData.content || "")
+                                var raw = resolveContent(modelData.content || "")
+                                var plain = raw.replace(/<[^>]*>/g, "").trim()
                                 return plain.length > 10 ? plain.substring(0, 8) + ".." : (plain || "Custom")
                             }
                             color: "white"
@@ -218,9 +245,73 @@ Rectangle {
         }
     }
 
-    // --- COMPACT LIST MODE ---
+    // --- COMPACT LIST MODE (items) - matches CustomItem compact rendering ---
+    Item {
+        visible: displayMode === 1 && entryType === "item" && !hasThumbnail
+        anchors.fill: parent
+
+        // Type badge overlay
+        Rectangle {
+            z: 1
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.scaled(4)
+            anchors.topMargin: Theme.scaled(4)
+            width: compactItemBadgeText.implicitWidth + Theme.scaled(6)
+            height: Theme.scaled(14)
+            radius: Theme.scaled(3)
+            color: typeBadgeColor(entryType)
+            opacity: 0.8
+
+            Text {
+                id: compactItemBadgeText
+                anchors.centerIn: parent
+                text: typeBadgeLabel(entryType)
+                color: "white"
+                font.family: Theme.captionFont.family
+                font.pixelSize: Theme.scaled(8)
+                font.bold: true
+            }
+        }
+
+        // Item background (matches CustomItem compact mode)
+        Rectangle {
+            visible: itemHasAction || itemBgColor !== ""
+            anchors.fill: parent
+            anchors.topMargin: Theme.spacingSmall
+            anchors.bottomMargin: Theme.spacingSmall
+            color: itemBgColor || "#555555"
+            radius: Theme.cardRadius
+        }
+
+        // Centered content row (matches CustomItem compact mode)
+        RowLayout {
+            anchors.centerIn: parent
+            spacing: Theme.spacingSmall
+
+            Image {
+                visible: itemHasEmoji
+                source: visible ? Theme.emojiToImage(itemEmoji) : ""
+                sourceSize.width: Theme.scaled(28)
+                sourceSize.height: Theme.scaled(28)
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Text {
+                text: resolveContent(itemContent)
+                textFormat: Text.RichText
+                color: (itemHasAction || itemBgColor !== "") ? "white" : Theme.textColor
+                font: Theme.bodyFont
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                maximumLineCount: 1
+            }
+        }
+    }
+
+    // --- COMPACT LIST MODE (zones, layouts, thumbnails) ---
     RowLayout {
-        visible: displayMode === 1
+        visible: displayMode === 1 && (entryType !== "item" || hasThumbnail)
         anchors.fill: parent
         anchors.leftMargin: Theme.scaled(6)
         anchors.rightMargin: Theme.scaled(6)
@@ -245,21 +336,11 @@ Rectangle {
             }
         }
 
-        // Emoji preview (local entries only)
-        Image {
-            visible: entryType === "item" && itemHasEmoji && !hasThumbnail
-            source: visible ? Theme.emojiToImage(itemEmoji) : ""
-            sourceSize.width: Theme.scaled(18)
-            sourceSize.height: Theme.scaled(18)
-            Layout.alignment: Qt.AlignVCenter
-        }
-
         // Content preview
         Text {
             Layout.fillWidth: true
             text: {
                 if (hasThumbnail) return entryType
-                if (entryType === "item") return resolveContent(itemContent)
                 if (entryType === "zone") return entryZoneItems.length + " items"
                 return "Layout"
             }
