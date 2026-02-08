@@ -324,7 +324,7 @@ Item {
             id: fullText
             visible: !root.hasEmoji
             anchors.centerIn: parent
-            width: parent.width > 0 ? parent.width - (root.hasAction ? Theme.scaled(24) : 0) : implicitWidth
+            width: Math.max(0, parent.width - (root.hasAction ? Theme.scaled(24) : 0))
             text: root.resolvedText
             textFormat: Text.RichText
             color: Theme.textColor
