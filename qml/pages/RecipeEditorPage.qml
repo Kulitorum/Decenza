@@ -517,6 +517,42 @@ Page {
                                 color: Theme.textSecondaryColor
                                 horizontalAlignment: Text.AlignRight
                             }
+
+                            // Profile notes
+                            RecipeRow {
+                                label: TranslationManager.translate("recipeEditor.notes", "Notes")
+
+                                ScrollView {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Theme.scaled(60)
+
+                                    TextArea {
+                                        id: recipeNotesField
+                                        text: profile ? (profile.profile_notes || "") : ""
+                                        font: Theme.bodyFont
+                                        color: Theme.textColor
+                                        placeholderText: TranslationManager.translate("recipeEditor.notesPlaceholder", "Profile description (used by AI analysis)")
+                                        placeholderTextColor: Theme.textSecondaryColor
+                                        wrapMode: TextArea.Wrap
+                                        leftPadding: Theme.scaled(12)
+                                        rightPadding: Theme.scaled(12)
+                                        topPadding: Theme.scaled(10)
+                                        bottomPadding: Theme.scaled(10)
+                                        background: Rectangle {
+                                            color: Theme.backgroundColor
+                                            radius: Theme.scaled(4)
+                                            border.color: recipeNotesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
+                                            border.width: 1
+                                        }
+                                        onEditingFinished: {
+                                            if (profile) {
+                                                profile.profile_notes = text
+                                                MainController.uploadProfile(profile)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // === Fill Phase ===

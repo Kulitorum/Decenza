@@ -24,6 +24,7 @@ struct HistoryShotSummary {
     QString beanType;
     int enjoyment = 0;
     bool hasVisualizerUpload = false;
+    QString beverageType;
 };
 
 // Phase marker for shot display
@@ -47,7 +48,9 @@ struct ShotRecord {
     double drinkTds = 0;
     double drinkEy = 0;
     QString espressoNotes;
+    QString beanNotes;
     QString barista;
+    QString profileNotes;
     QString visualizerId;
     QString visualizerUrl;
 
@@ -217,6 +220,9 @@ private:
                                           const QVariantMap& filter);
     // Helper to apply smart sorting for grinder settings
     void sortGrinderSettings(QStringList& settings);
+
+    // Backfill beverage_type from profile_json for existing rows
+    void backfillBeverageType();
 
     // Helper for converting QVector<QPointF> to JSON object with t/v arrays
     static QJsonObject pointsToJsonObject(const QVector<QPointF>& points);

@@ -64,7 +64,7 @@ public:
      * Add new shot context to existing conversation (for multi-shot dialing)
      * This appends shot data as a new user message without clearing history
      */
-    Q_INVOKABLE void addShotContext(const QString& shotSummary);
+    Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& beverageType = "espresso");
 
     /**
      * Save conversation history to persistent storage

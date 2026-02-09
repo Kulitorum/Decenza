@@ -401,6 +401,51 @@ Page {
                 }
             }
 
+            // Profile notes
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
+
+                Text {
+                    text: TranslationManager.translate("profileEditor.notes", "Notes")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.preferredWidth: Theme.scaled(80)
+                    Layout.alignment: Qt.AlignTop
+                }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(60)
+
+                    TextArea {
+                        id: profileNotesField
+                        text: profile ? (profile.profile_notes || "") : ""
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        placeholderText: TranslationManager.translate("profileEditor.notesPlaceholder", "Profile description (used by AI analysis)")
+                        placeholderTextColor: Theme.textSecondaryColor
+                        wrapMode: TextArea.Wrap
+                        leftPadding: Theme.scaled(12)
+                        rightPadding: Theme.scaled(12)
+                        topPadding: Theme.scaled(10)
+                        bottomPadding: Theme.scaled(10)
+                        background: Rectangle {
+                            color: Theme.backgroundColor
+                            radius: Theme.scaled(4)
+                            border.color: profileNotesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
+                            border.width: 1
+                        }
+                        onEditingFinished: {
+                            if (profile && text !== (profile.profile_notes || "")) {
+                                profile.profile_notes = text
+                                uploadProfile()
+                            }
+                        }
+                    }
+                }
+            }
+
             // Stop at weight/volume toggle
             RowLayout {
                 Layout.fillWidth: true

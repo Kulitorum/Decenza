@@ -46,6 +46,7 @@ Page {
             editDrinkEy = editShotData.drinkEy || 0
             editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
             editNotes = editShotData.espressoNotes || ""
+            editBeverageType = editShotData.beverageType || "espresso"
         }
     }
 
@@ -63,6 +64,7 @@ Page {
     property double editDrinkEy: 0
     property int editEnjoyment: 0  // 0 = unrated
     property string editNotes: ""
+    property string editBeverageType: "espresso"
 
     // Track if any edits were made
     property bool hasUnsavedChanges: isEditMode && (
@@ -78,7 +80,8 @@ Page {
         editDrinkTds !== (editShotData.drinkTds || 0) ||
         editDrinkEy !== (editShotData.drinkEy || 0) ||
         editEnjoyment !== (editShotData.enjoyment ?? 0) ||
-        editNotes !== (editShotData.espressoNotes || "")
+        editNotes !== (editShotData.espressoNotes || "") ||
+        editBeverageType !== (editShotData.beverageType || "espresso")
     )
 
     // Save edited shot back to history
@@ -97,7 +100,8 @@ Page {
             "drinkTds": editDrinkTds,
             "drinkEy": editDrinkEy,
             "enjoyment": editEnjoyment,
-            "espressoNotes": editNotes
+            "espressoNotes": editNotes,
+            "beverageType": editBeverageType
         }
         MainController.shotHistory.updateShotMetadata(editShotId, metadata)
 
@@ -376,9 +380,18 @@ Page {
                     onInputFocused: function(field) { focusedField = field }
                 }
 
-                // === ROW 3: Barista, Preset, Shot Date ===
+                // === ROW 3: Beverage type, Barista, Preset, Shot Date ===
+                LabeledComboBox {
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("postshotreview.label.beveragetype", "Beverage type")
+                    model: ["espresso", "filter", "pourover", "tea_portafilter", "tea", "calibrate", "cleaning", "descale", "manual"]
+                    currentValue: editBeverageType
+                    onValueChanged: function(v) { editBeverageType = v }
+                }
+
                 SuggestionField {
                     Layout.fillWidth: true
+                    Layout.columnSpan: 2
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: editBarista
                     suggestions: MainController.shotHistory.getDistinctBaristas()
@@ -1369,10 +1382,20 @@ Page {
 
                                 // Use ask() for new conversation, followUp() for existing
                                 if (!conversation.hasHistory) {
-                                    var systemPrompt = "You are an expert espresso consultant helping a user dial in their shots. " +
-                                        "The user has a Decent Espresso machine. " +
-                                        "Provide specific, actionable advice. Focus on one variable at a time. " +
-                                        "Follow James Hoffmann's methodology for dialing in espresso."
+                                    var bevType = (editBeverageType || "espresso").toLowerCase()
+                                    var isFilter = bevType === "filter" || bevType === "pourover"
+                                    var systemPrompt = isFilter
+                                        ? "You are an expert filter coffee consultant helping a user optimise brews made on a Decent DE1 profiling machine over multiple attempts. " +
+                                          "Key principles: Taste is king — numbers serve taste, not the other way around. " +
+                                          "Profile intent is the reference frame — evaluate actual vs. what the profile intended, not pour-over or drip norms. " +
+                                          "DE1 filter uses low pressure (1-3 bar), high flow, and long ratios (1:10-1:17) — these are all intentional, not problems. " +
+                                          "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. " +
+                                          "Provide specific, actionable advice. Focus on one variable at a time."
+                                        : "You are an expert espresso consultant helping a user dial in their shots. " +
+                                          "The user has a Decent Espresso machine. " +
+                                          "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. " +
+                                          "Provide specific, actionable advice. Focus on one variable at a time. " +
+                                          "Follow James Hoffmann's methodology for dialing in espresso."
                                     conversation.ask(systemPrompt, message)
                                 } else {
                                     conversation.followUp(message)

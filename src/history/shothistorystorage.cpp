@@ -99,6 +99,7 @@ bool ShotHistoryStorage::createTables()
 
             profile_name TEXT NOT NULL,
             profile_json TEXT,
+            beverage_type TEXT DEFAULT 'espresso',
 
             duration_seconds REAL NOT NULL,
             final_weight REAL,
@@ -114,7 +115,9 @@ bool ShotHistoryStorage::createTables()
             drink_ey REAL,
             enjoyment INTEGER,
             espresso_notes TEXT,
+            bean_notes TEXT,
             barista TEXT,
+            profile_notes TEXT,
 
             visualizer_id TEXT,
             visualizer_url TEXT,
@@ -315,6 +318,23 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 5;
     }
 
+    // Migration 6: Add beverage_type column and backfill from profile_json
+    if (currentVersion < 6) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 6 (beverage_type)";
+
+        if (!hasColumn("shots", "beverage_type"))
+            query.exec("ALTER TABLE shots ADD COLUMN beverage_type TEXT DEFAULT 'espresso'");
+        if (!hasColumn("shots", "bean_notes"))
+            query.exec("ALTER TABLE shots ADD COLUMN bean_notes TEXT");
+        if (!hasColumn("shots", "profile_notes"))
+            query.exec("ALTER TABLE shots ADD COLUMN profile_notes TEXT");
+
+        backfillBeverageType();
+
+        query.exec("UPDATE schema_version SET version = 6");
+        currentVersion = 6;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -432,20 +452,20 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     // Insert main shot record
     query.prepare(R"(
         INSERT INTO shots (
-            uuid, timestamp, profile_name, profile_json,
+            uuid, timestamp, profile_name, profile_json, beverage_type,
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_date, roast_level,
             grinder_model, grinder_setting,
-            drink_tds, drink_ey, enjoyment, espresso_notes, barista,
-            debug_log,
+            drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
+            profile_notes, debug_log,
             temperature_override, yield_override
         ) VALUES (
-            :uuid, :timestamp, :profile_name, :profile_json,
+            :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_date, :roast_level,
             :grinder_model, :grinder_setting,
-            :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :barista,
-            :debug_log,
+            :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
+            :profile_notes, :debug_log,
             :temperature_override, :yield_override
         )
     )");
@@ -454,6 +474,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     query.bindValue(":timestamp", timestamp);
     query.bindValue(":profile_name", profileName);
     query.bindValue(":profile_json", profileJson);
+    query.bindValue(":beverage_type", profile ? profile->beverageType() : QStringLiteral("espresso"));
     query.bindValue(":duration", duration);
     query.bindValue(":final_weight", finalWeight);
     query.bindValue(":dose_weight", doseWeight);
@@ -467,7 +488,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     query.bindValue(":drink_ey", metadata.drinkEy);
     query.bindValue(":enjoyment", metadata.espressoEnjoyment);
     query.bindValue(":espresso_notes", metadata.espressoNotes);
+    query.bindValue(":bean_notes", QString());  // Not in ShotMetadata yet
     query.bindValue(":barista", metadata.barista);
+    query.bindValue(":profile_notes", profile ? profile->profileNotes() : QString());
     query.bindValue(":debug_log", debugLog);
 
     // Bind override values (always have values - user override or profile default)
@@ -704,7 +727,7 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
             SELECT id, uuid, timestamp, profile_name, duration_seconds,
                    final_weight, dose_weight, bean_brand, bean_type,
                    enjoyment, visualizer_id, grinder_setting,
-                   temperature_override, yield_override
+                   temperature_override, yield_override, beverage_type
             FROM shots
             WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
             %2
@@ -717,7 +740,7 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
             SELECT id, uuid, timestamp, profile_name, duration_seconds,
                    final_weight, dose_weight, bean_brand, bean_type,
                    enjoyment, visualizer_id, grinder_setting,
-                   temperature_override, yield_override
+                   temperature_override, yield_override, beverage_type
             FROM shots
             %1
             ORDER BY timestamp DESC
@@ -758,6 +781,7 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         shot["grinderSetting"] = query.value(11).toString();
         shot["temperatureOverride"] = query.value(12).toDouble();  // 0.0 for NULL
         shot["yieldOverride"] = query.value(13).toDouble();  // 0.0 for NULL
+        shot["beverageType"] = query.value(14).toString();
 
         // Format date for display
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
@@ -790,6 +814,7 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["beanType"] = record.summary.beanType;
     result["enjoyment"] = record.summary.enjoyment;
     result["hasVisualizerUpload"] = record.summary.hasVisualizerUpload;
+    result["beverageType"] = record.summary.beverageType;
 
     // Full metadata
     result["roastDate"] = record.roastDate;
@@ -799,7 +824,9 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["drinkTds"] = record.drinkTds;
     result["drinkEy"] = record.drinkEy;
     result["espressoNotes"] = record.espressoNotes;
+    result["beanNotes"] = record.beanNotes;
     result["barista"] = record.barista;
+    result["profileNotes"] = record.profileNotes;
     result["visualizerId"] = record.visualizerId;
     result["visualizerUrl"] = record.visualizerUrl;
     result["debugLog"] = record.debugLog;
@@ -865,9 +892,9 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
                duration_seconds, final_weight, dose_weight,
                bean_brand, bean_type, roast_date, roast_level,
                grinder_model, grinder_setting,
-               drink_tds, drink_ey, enjoyment, espresso_notes, barista,
-               visualizer_id, visualizer_url, debug_log,
-               temperature_override, yield_override
+               drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
+               profile_notes, visualizer_id, visualizer_url, debug_log,
+               temperature_override, yield_override, beverage_type
         FROM shots WHERE id = ?
     )");
     query.bindValue(0, shotId);
@@ -895,14 +922,17 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
     record.drinkEy = query.value(15).toDouble();
     record.summary.enjoyment = query.value(16).toInt();
     record.espressoNotes = query.value(17).toString();
-    record.barista = query.value(18).toString();
-    record.visualizerId = query.value(19).toString();
-    record.visualizerUrl = query.value(20).toString();
-    record.debugLog = query.value(21).toString();
+    record.beanNotes = query.value(18).toString();
+    record.barista = query.value(19).toString();
+    record.profileNotes = query.value(20).toString();
+    record.visualizerId = query.value(21).toString();
+    record.visualizerUrl = query.value(22).toString();
+    record.debugLog = query.value(23).toString();
 
     // Load overrides (always have values, default to 0 if database has NULL for old records)
-    record.temperatureOverride = query.value(22).toDouble();  // toDouble() returns 0.0 for NULL
-    record.yieldOverride = query.value(23).toDouble();  // toDouble() returns 0.0 for NULL
+    record.temperatureOverride = query.value(24).toDouble();  // toDouble() returns 0.0 for NULL
+    record.yieldOverride = query.value(25).toDouble();  // toDouble() returns 0.0 for NULL
+    record.summary.beverageType = query.value(26).toString();
 
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
@@ -984,6 +1014,7 @@ bool ShotHistoryStorage::updateShotMetadata(qint64 shotId, const QVariantMap& me
             barista = :barista,
             dose_weight = :dose_weight,
             final_weight = :final_weight,
+            beverage_type = :beverage_type,
             updated_at = strftime('%s', 'now')
         WHERE id = :id
     )");
@@ -1001,6 +1032,7 @@ bool ShotHistoryStorage::updateShotMetadata(qint64 shotId, const QVariantMap& me
     query.bindValue(":barista", metadata.value("barista").toString());
     query.bindValue(":dose_weight", metadata.value("doseWeight").toDouble());
     query.bindValue(":final_weight", metadata.value("finalWeight").toDouble());
+    query.bindValue(":beverage_type", metadata.value("beverageType", "espresso").toString());
     query.bindValue(":id", shotId);
 
     if (!query.exec()) {
@@ -1523,20 +1555,21 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
         // Insert shot
         QSqlQuery insert(m_db);
         insert.prepare(R"(
-            INSERT INTO shots (uuid, timestamp, profile_name, profile_json,
+            INSERT INTO shots (uuid, timestamp, profile_name, profile_json, beverage_type,
                 duration_seconds, final_weight, dose_weight,
                 bean_brand, bean_type, roast_date, roast_level,
                 grinder_model, grinder_setting, drink_tds, drink_ey,
-                enjoyment, espresso_notes, barista,
-                visualizer_id, visualizer_url, debug_log,
+                enjoyment, espresso_notes, bean_notes, barista,
+                profile_notes, visualizer_id, visualizer_url, debug_log,
                 temperature_override, yield_override)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         )");
 
         insert.addBindValue(uuid);
         insert.addBindValue(srcShots.value("timestamp"));
         insert.addBindValue(srcShots.value("profile_name"));
         insert.addBindValue(srcShots.value("profile_json"));
+        insert.addBindValue(srcShots.value("beverage_type"));
         insert.addBindValue(srcShots.value("duration_seconds"));
         insert.addBindValue(srcShots.value("final_weight"));
         insert.addBindValue(srcShots.value("dose_weight"));
@@ -1550,7 +1583,9 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
         insert.addBindValue(srcShots.value("drink_ey"));
         insert.addBindValue(srcShots.value("enjoyment"));
         insert.addBindValue(srcShots.value("espresso_notes"));
+        insert.addBindValue(srcShots.value("bean_notes"));
         insert.addBindValue(srcShots.value("barista"));
+        insert.addBindValue(srcShots.value("profile_notes"));
         insert.addBindValue(srcShots.value("visualizer_id"));
         insert.addBindValue(srcShots.value("visualizer_url"));
         insert.addBindValue(srcShots.value("debug_log"));
@@ -1608,6 +1643,9 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
 
     m_db.commit();
 
+    // Backfill beverage_type from profile_json for imported shots from old DBs
+    backfillBeverageType();
+
     // Clean up source connection
     srcDb.close();
     QSqlDatabase::removeDatabase("import_connection");
@@ -1661,20 +1699,20 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     // Insert main shot record
     query.prepare(R"(
         INSERT INTO shots (
-            uuid, timestamp, profile_name, profile_json,
+            uuid, timestamp, profile_name, profile_json, beverage_type,
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_date, roast_level,
             grinder_model, grinder_setting,
-            drink_tds, drink_ey, enjoyment, espresso_notes, barista,
-            debug_log,
+            drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
+            profile_notes, debug_log,
             temperature_override, yield_override
         ) VALUES (
-            :uuid, :timestamp, :profile_name, :profile_json,
+            :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_date, :roast_level,
             :grinder_model, :grinder_setting,
-            :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :barista,
-            :debug_log,
+            :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
+            :profile_notes, :debug_log,
             :temperature_override, :yield_override
         )
     )");
@@ -1683,6 +1721,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":timestamp", record.summary.timestamp);
     query.bindValue(":profile_name", record.summary.profileName);
     query.bindValue(":profile_json", record.profileJson);
+    query.bindValue(":beverage_type", record.summary.beverageType.isEmpty() ? QStringLiteral("espresso") : record.summary.beverageType);
     query.bindValue(":duration", record.summary.duration);
     query.bindValue(":final_weight", record.summary.finalWeight);
     query.bindValue(":dose_weight", record.summary.doseWeight);
@@ -1696,7 +1735,9 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":drink_ey", record.drinkEy);
     query.bindValue(":enjoyment", record.summary.enjoyment);
     query.bindValue(":espresso_notes", record.espressoNotes);
+    query.bindValue(":bean_notes", record.beanNotes);
     query.bindValue(":barista", record.barista);
+    query.bindValue(":profile_notes", record.profileNotes);
     query.bindValue(":debug_log", QString());  // No debug log for imported shots
 
     // Bind overrides (always have values - user override or profile default)
@@ -1852,6 +1893,34 @@ void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)
             return QString::localeAwareCompare(a, b) < 0;
         });
     }
+}
+
+void ShotHistoryStorage::backfillBeverageType()
+{
+    QSqlQuery query(m_db);
+    query.exec("SELECT id, profile_json FROM shots WHERE beverage_type = 'espresso' AND profile_json IS NOT NULL AND profile_json != ''");
+
+    int updated = 0;
+    while (query.next()) {
+        qint64 id = query.value(0).toLongLong();
+        QString profileJson = query.value(1).toString();
+
+        QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8());
+        if (doc.isNull()) continue;
+
+        QString type = doc.object().value("beverage_type").toString();
+        if (!type.isEmpty() && type != "espresso") {
+            QSqlQuery update(m_db);
+            update.prepare("UPDATE shots SET beverage_type = ? WHERE id = ?");
+            update.bindValue(0, type);
+            update.bindValue(1, id);
+            update.exec();
+            updated++;
+        }
+    }
+
+    if (updated > 0)
+        qDebug() << "ShotHistoryStorage: Backfilled beverage_type for" << updated << "shots";
 }
 
 void ShotHistoryStorage::refreshTotalShots()

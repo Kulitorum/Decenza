@@ -185,13 +185,24 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
         return;
     }
 
+    // Check beverage type — only espresso, filter, and pourover are supported
+    if (profile) {
+        QString bevType = profile->beverageType().toLower();
+        if (bevType != "espresso" && bevType != "filter" && bevType != "pourover" && !bevType.isEmpty()) {
+            m_lastError = QString("AI analysis isn't available for %1 profiles yet — only espresso and filter are supported for now. Sorry about that!")
+                .arg(profile->beverageType());
+            emit errorOccurred(m_lastError);
+            return;
+        }
+    }
+
     // Build metadata and summarize shot
     ShotMetadata metadata = buildMetadata(beanBrand, beanType, roastDate, roastLevel,
                                           grinderModel, grinderSetting, enjoymentScore, tastingNotes);
     ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
 
-    // Build prompts
-    QString systemPrompt = ShotSummarizer::systemPrompt();
+    // Build prompts (select system prompt based on beverage type)
+    QString systemPrompt = ShotSummarizer::systemPrompt(summary.beverageType);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
     // Use conversation to track history for follow-ups
@@ -209,6 +220,15 @@ QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
         return "Error: No shot data available";
     }
 
+    // Check beverage type — only espresso, filter, and pourover are supported
+    if (profile) {
+        QString bevType = profile->beverageType().toLower();
+        if (bevType != "espresso" && bevType != "filter" && bevType != "pourover" && !bevType.isEmpty()) {
+            return QString("AI analysis isn't available for %1 profiles yet — only espresso and filter are supported for now. Sorry about that!")
+                .arg(profile->beverageType());
+        }
+    }
+
     // Extract metadata from QVariantMap
     ShotMetadata metadata = buildMetadata(
         metadataMap.value("beanBrand").toString(),
@@ -221,7 +241,7 @@ QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
         metadataMap.value("tastingNotes").toString());
     ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
 
-    QString systemPrompt = ShotSummarizer::systemPrompt();
+    QString systemPrompt = ShotSummarizer::systemPrompt(summary.beverageType);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
     return systemPrompt + "\n\n---\n\n" + userPrompt +
@@ -260,6 +280,8 @@ QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
 
     // Shot summary
     out << "## Shot Summary\n\n";
+    QString beverageType = shotData.value("beverageType", "espresso").toString();
+    out << "- **Beverage type**: " << beverageType << "\n";
     out << "- **Profile**: " << shotData.value("profileName", "Unknown").toString() << "\n";
 
     double doseWeight = shotData.value("doseWeight", 0.0).toDouble();
@@ -290,6 +312,12 @@ QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
         if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
         out << "\n";
     }
+    QString beanNotes = shotData.value("beanNotes").toString();
+    if (!beanNotes.isEmpty())
+        out << "- **Bean notes**: " << beanNotes << "\n";
+    QString profileNotes = shotData.value("profileNotes").toString();
+    if (!profileNotes.isEmpty())
+        out << "- **Profile notes**: " << profileNotes << "\n";
     out << "\n";
 
     // Extract curve data for analysis

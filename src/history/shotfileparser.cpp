@@ -51,6 +51,9 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
     QVector<double> resistance = parseTclList(extractValue(content, "espresso_resistance"));
     QVector<double> waterDispensed = parseTclList(extractValue(content, "espresso_water_dispensed"));
 
+    // Scale-based flow rate (g/s) - important for visualizer and weight-flow graphs
+    QVector<double> flowWeight = parseTclList(extractValue(content, "espresso_flow_weight"));
+
     // Convert to point vectors
     result.record.pressure = toPointVector(elapsed, pressure);
     result.record.flow = toPointVector(elapsed, flow);
@@ -65,6 +68,8 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
         result.record.resistance = toPointVector(elapsed, resistance);
     if (!waterDispensed.isEmpty())
         result.record.waterDispensed = toPointVector(elapsed, waterDispensed);
+    if (!flowWeight.isEmpty())
+        result.record.weightFlowRate = toPointVector(elapsed, flowWeight);
 
     // Duration from last elapsed time
     result.record.summary.duration = elapsed.isEmpty() ? 0 : elapsed.last();
@@ -88,6 +93,9 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
         result.record.barista = settings.value("my_name", settings.value("drinker_name")).toString();
         result.record.summary.doseWeight = settings.value("grinder_dose_weight").toDouble();
         result.record.summary.finalWeight = settings.value("drink_weight").toDouble();
+        result.record.summary.beverageType = settings.value("beverage_type", "espresso").toString();
+        result.record.beanNotes = settings.value("bean_notes").toString();
+        result.record.profileNotes = settings.value("profile_notes").toString();
     }
 
     // If final weight is 0 but we have weight data, use the last weight value

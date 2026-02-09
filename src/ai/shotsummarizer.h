@@ -49,6 +49,7 @@ struct ShotSummary {
     QString profileType;
     QString profileNotes;   // Author's description of profile intent/design
     QString profileAuthor;
+    QString beverageType;   // "espresso", "filter", etc.
 
     // Overall metrics
     double totalDuration = 0;
@@ -108,8 +109,10 @@ public:
     // Generate text prompt from summary
     QString buildUserPrompt(const ShotSummary& summary) const;
 
-    // Get the system prompt (James Hoffmann methodology)
-    static QString systemPrompt();
+    // Get the system prompt based on beverage type
+    static QString systemPrompt(const QString& beverageType = "espresso");
+    static QString espressoSystemPrompt();
+    static QString filterSystemPrompt();
 
 private:
     // Helper methods
