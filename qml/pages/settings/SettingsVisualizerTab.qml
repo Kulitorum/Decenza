@@ -417,16 +417,12 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    Item { Layout.fillWidth: true }
-
-                    ValueInput {
+                    RatingInput {
                         id: defaultRatingInput
+                        Layout.preferredWidth: parent.width * 0.5
+                        height: Theme.scaled(40)
+                        compact: true
                         value: Settings.defaultShotRating
-                        from: 0
-                        to: 100
-                        stepSize: 1
-                        suffix: " %"
-                        valueColor: Theme.primaryColor
                         accessibleName: TranslationManager.translate("settings.visualizer.defaultRating", "Default Shot Rating")
 
                         onValueModified: function(newValue) {
