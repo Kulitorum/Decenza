@@ -439,12 +439,6 @@ void MqttClient::handleCommand(const QString& command)
         emit steamOffRequested();
         emit commandReceived("steam_off");
         qDebug() << "MqttClient: Steam off command executed";
-    } else if (command.startsWith("profile_filename ")) {
-        QString filename = command.mid(QString("profile_filename ").length()).trimmed();
-        if (!filename.isEmpty()) {
-            emit profileSelectRequested(filename);
-            qDebug() << "MqttClient: Profile filename select requested:" << filename;
-        }
     } else {
         qWarning() << "MqttClient: Unknown command:" << command;
     }
@@ -619,11 +613,11 @@ void MqttClient::publishState()
 
     // Steam mode: derive from Settings
     QString steamMode;
-    if (!m_device || m_device->stateString() == "Sleep") {
+    if (!m_device || !m_settings || m_device->stateString() == "Sleep") {
         steamMode = "Off";
-    } else if (m_settings && m_settings->steamDisabled()) {
+    } else if (m_settings->steamDisabled()) {
         steamMode = "Off";
-    } else if (m_settings && !m_settings->keepSteamHeaterOn()) {
+    } else if (!m_settings->keepSteamHeaterOn()) {
         steamMode = "Off";
     } else {
         steamMode = "On";
