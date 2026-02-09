@@ -197,6 +197,9 @@ Also: Steaming, HotWater, Flushing
 
 ## Conventions
 
+### Design Principles
+- **Never use timers as guards/workarounds.** Timers are fragile heuristics that break on slow devices and hide the real problem. Use event-based flags and conditions instead. For example, "suppress X until Y has happened" should be a boolean cleared by the Y event, not a timer. Only use timers for genuinely periodic tasks (polling, animation, heartbeats).
+
 ### C++
 - Classes: `PascalCase`
 - Methods/variables: `camelCase`

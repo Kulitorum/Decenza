@@ -255,24 +255,6 @@ int main(int argc, char *argv[])
     // Crash reporter for sending crash reports to api.decenza.coffee
     CrashReporter crashReporter;
 
-    // FlowScale fallback timer - notify after 30 seconds if no physical scale found
-    QTimer flowScaleFallbackTimer;
-    flowScaleFallbackTimer.setSingleShot(true);
-    flowScaleFallbackTimer.setInterval(30000);  // 30 seconds
-    QObject::connect(&flowScaleFallbackTimer, &QTimer::timeout,
-                     [&physicalScale, &bleManager]() {
-        if (!physicalScale || !physicalScale->isConnected()) {
-            // No physical scale found - FlowScale is already active, just notify UI
-            emit bleManager.flowScaleFallback();
-        }
-    });
-    // Start timer only when scanning actually begins (after first-run dialog)
-    QObject::connect(&bleManager, &BLEManager::scanStarted, &flowScaleFallbackTimer, [&flowScaleFallbackTimer]() {
-        if (!flowScaleFallbackTimer.isActive()) {
-            flowScaleFallbackTimer.start();
-        }
-    });
-
     checkpoint("Pre-QML setup done");
 
     // Set up QML engine
@@ -281,11 +263,13 @@ int main(int argc, char *argv[])
 
     // Auto-connect when DE1 is discovered
     QObject::connect(&bleManager, &BLEManager::de1Discovered,
-                     &de1Device, [&de1Device, &bleManager](const QBluetoothDeviceInfo& device) {
+                     &de1Device, [&de1Device, &bleManager, &physicalScale](const QBluetoothDeviceInfo& device) {
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
-            // Stop scanning when we start connecting to DE1
-            bleManager.stopScan();
             de1Device.connectToDevice(device);
+            // Only stop scan if we're not still looking for a scale
+            if (!bleManager.hasSavedScale() || (physicalScale && physicalScale->isConnected())) {
+                bleManager.stopScan();
+            }
         }
     });
 
@@ -295,14 +279,16 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &flowScaleFallbackTimer, &timingController](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device](const QBluetoothDeviceInfo& device, const QString& type) {
         // Don't connect if we already have a connected scale
         if (physicalScale && physicalScale->isConnected()) {
             return;
         }
 
-        // Stop scanning when we start connecting to a scale
-        bleManager.stopScan();
+        // Only stop scan if DE1 is already connected/connecting
+        if (de1Device.isConnected() || de1Device.isConnecting()) {
+            bleManager.stopScan();
+        }
 
         // If we already have a scale object, check if it's the same type
         if (physicalScale) {
@@ -315,7 +301,6 @@ int main(int argc, char *argv[])
                 bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference
                 physicalScale.reset();  // Now safe to delete old scale
             } else {
-                flowScaleFallbackTimer.stop();  // Stop timer - we found a scale
                 // Re-wire to use physical scale
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
@@ -331,9 +316,6 @@ int main(int argc, char *argv[])
             qWarning() << "Failed to create scale for type:" << type;
             return;
         }
-
-        // Stop the FlowScale fallback timer since we found a physical scale
-        flowScaleFallbackTimer.stop();
 
         // Save scale address for future direct wake connections
         // Use getDeviceIdentifier to handle iOS (uses UUID) vs other platforms (uses MAC address)
@@ -694,11 +676,19 @@ int main(int argc, char *argv[])
 
     // Turn off scale LCD when DE1 sleeps, wake when DE1 wakes (like de1app's decentscale_off plugin)
     // Uses disableLcd() instead of sleep() to keep BLE connected - no reconnection needed on wake
+    // de1EverAwake: suppress Sleep reaction on initial connect (DE1's default state is Sleep,
+    // so MachineState transitions Disconnected→Sleep before the real state arrives)
+    bool de1EverAwake = false;
     QObject::connect(&machineState, &MachineState::phaseChanged,
-                     [&physicalScale, &machineState]() {
+                     [&physicalScale, &machineState, &de1EverAwake]() {
         auto phase = machineState.phase();
+        if (phase != MachineState::Phase::Sleep && phase != MachineState::Phase::Disconnected) {
+            de1EverAwake = true;
+        } else if (phase == MachineState::Phase::Disconnected) {
+            de1EverAwake = false;
+        }
         if (phase == MachineState::Phase::Sleep) {
-            if (physicalScale && physicalScale->isConnected()) {
+            if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
                 qDebug() << "DE1 going to sleep - disabling scale LCD";
                 physicalScale->disableLcd();
             }

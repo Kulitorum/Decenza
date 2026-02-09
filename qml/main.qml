@@ -253,7 +253,8 @@ ApplicationWindow {
     // Flag to prevent premature UI display
     property bool appInitialized: false
 
-    // Suppress screensaver on startup — machine may already be in Sleep when we connect
+    // Suppress screensaver until DE1 has been awake at least once since connecting
+    // (on connect, MachineState sees default Sleep state before real state arrives)
     property bool startupGracePeriod: true
 
     // Suppress screensaver during shutdown — we send DE1 to sleep which triggers Sleep phase
@@ -432,15 +433,8 @@ ApplicationWindow {
         // Mark app as initialized
         root.appInitialized = true
 
-        // Clear startup grace period after 20s — until then, ignore Sleep phase
-        // to avoid briefly flashing the screensaver when connecting to an already-sleeping machine
-        startupGraceTimer.start()
-    }
-
-    Timer {
-        id: startupGraceTimer
-        interval: 10000
-        onTriggered: root.startupGracePeriod = false
+        // startupGracePeriod is cleared by the phaseChanged handler when the
+        // machine first reaches a non-Sleep state (no timer needed)
     }
 
     function updateScale() {
@@ -1672,6 +1666,16 @@ ApplicationWindow {
                           root.previousPhase === MachineStateType.Phase.Ready ||
                           root.previousPhase === MachineStateType.Phase.Heating)
 
+            // Suppress Sleep reactions until DE1 has been awake at least once.
+            // On connect, MachineState sees default Sleep state before real state arrives.
+            // Reset on disconnect so reconnections are also protected.
+            if (phase === MachineStateType.Phase.Disconnected) {
+                root.startupGracePeriod = true
+            } else if (root.startupGracePeriod &&
+                       phase !== MachineStateType.Phase.Sleep) {
+                root.startupGracePeriod = false
+            }
+
             // Apply settings when entering operations (to handle GHC-initiated starts)
             if (phase === MachineStateType.Phase.Steaming && wasIdle) {
                 // Start steam heating when entering steam (from GHC button)
@@ -1733,9 +1737,8 @@ ApplicationWindow {
                 // Could navigate to a cleaning page in the future
             } else if (phase === MachineStateType.Phase.Sleep) {
                 // Machine was put to sleep (e.g. via GHC stop button hold) - show screensaver
-                // Like de1app: navigates to saver page and disables scale LCD on sleep state
-                // Skip during startup grace period to avoid flashing screensaver when
-                // connecting to a machine that's already asleep
+                // Skip if machine has never been awake since connecting (initial connect reports
+                // Sleep before the wake command takes effect)
                 if (!screensaverActive && !root.startupGracePeriod && !root.shuttingDown) {
                     console.log("Machine entered Sleep - showing screensaver")
                     if (ScaleDevice && ScaleDevice.connected) {

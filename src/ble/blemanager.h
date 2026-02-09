@@ -102,7 +102,6 @@ private slots:
     void onScanError(QBluetoothDeviceDiscoveryAgent::Error error);
     void onScaleConnectedChanged();
     void onScaleConnectionTimeout();
-    void onScaleReconnectTimeout();
 
 private:
     bool isDE1Device(const QBluetoothDeviceInfo& device) const;
@@ -119,16 +118,14 @@ private:
     bool m_scaleConnectionFailed = false;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
-    QTimer* m_scaleReconnectTimer = nullptr;  // Periodic reconnect when scale disconnects
 
     // Saved scale for direct wake connection
     QString m_savedScaleAddress;
     QString m_savedScaleType;
     QString m_savedScaleName;
 
-    // Scale reconnect failure tracking
-    int m_scaleReconnectFailures = 0;
-    static constexpr int MaxScaleReconnectAttempts = 3;
+    // Prevents showing "No Scale Found" dialog more than once per session
+    bool m_flowScaleFallbackEmitted = false;
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;
