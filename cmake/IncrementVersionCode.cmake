@@ -35,16 +35,4 @@ endif()
 if(DEFINED ISS_TEMPLATE AND DEFINED ISS_OUTPUT)
     configure_file("${ISS_TEMPLATE}" "${ISS_OUTPUT}" @ONLY)
 endif()
-
-# Create git tag for this version code
-find_program(GIT_EXECUTABLE git)
-if(GIT_EXECUTABLE)
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} tag -f "build-${VERSION_CODE}"
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_QUIET
-        ERROR_QUIET
-    )
-endif()
-
 message(STATUS "Version: ${VERSION_STRING} (code: ${VERSION_CODE})")

@@ -672,9 +672,6 @@ Each operation page (Steam, HotWater, Flush) has:
 
 ## Git Workflow
 
-- **IMPORTANT**: Always push with tags: `git push && git push --tags`
-- Version codes auto-increment and create `build-N` tags
-- Tags allow users to reference exact builds by version code
 - **Version codes are global** across all platforms (Android, iOS, Desktop) - a build on any platform increments the shared counter in `versioncode.txt`
 - **IMPORTANT**: Always include version files in every commit if they've changed: `versioncode.txt`, `android/AndroidManifest.xml`, `installer/version.iss`. Never leave these unstaged.
 
