@@ -130,6 +130,8 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         QUrl url("http://localhost" + path);
         QUrlQuery query(url);
         QString type = query.queryItemValue("type");
+        QString variable = query.queryItemValue("variable");
+        QString action = query.queryItemValue("action");
         QString search = query.queryItemValue("search");
         QString sort = query.queryItemValue("sort", QUrl::FullyDecoded);
         int page = query.queryItemValue("page").toInt();
@@ -172,7 +174,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             delete errorConn;
         });
 
-        m_librarySharing->browseCommunity(type, QString(), QString(), search, sort, page);
+        m_librarySharing->browseCommunity(type, variable, action, search, sort, page);
         return;
     }
 
@@ -255,120 +257,6 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         m_settings->setZoneYOffset(zone, offset);
         sendJson(socket, R"({"success":true})");
     }
-    else if (path == "/api/layout/ai") {
-        if (!m_aiManager) {
-            sendJson(socket, R"({"error":"AI manager not available"})");
-            return;
-        }
-        if (!m_aiManager->isConfigured()) {
-            sendJson(socket, R"({"error":"No AI provider configured. Go to Settings \u2192 AI on the machine to set up a provider."})");
-            return;
-        }
-        if (m_aiManager->isAnalyzing()) {
-            sendJson(socket, R"({"error":"AI is already processing a request. Please wait."})");
-            return;
-        }
-        QString userPrompt = obj["prompt"].toString();
-        if (userPrompt.isEmpty()) {
-            sendJson(socket, R"({"error":"Missing prompt"})");
-            return;
-        }
-
-        // Build system prompt with layout context
-        QString currentLayout = m_settings ? m_settings->layoutConfiguration() : "{}";
-        QString systemPrompt = QStringLiteral(
-            "You are a layout designer for the Decenza DE1 espresso machine controller app. "
-            "The app has a customizable layout with these zones:\n"
-            "- statusBar: Top status bar visible on ALL pages (compact horizontal bar)\n"
-            "- topLeft / topRight: Top bar of home screen (compact)\n"
-            "- centerStatus: Status readouts area (large widgets)\n"
-            "- centerTop: Main action buttons area (large buttons)\n"
-            "- centerMiddle: Info display area (large widgets)\n"
-            "- bottomLeft / bottomRight: Bottom bar of home screen (compact)\n\n"
-            "Available widget types:\n"
-            "- espresso: Espresso button (with profile presets)\n"
-            "- steam: Steam button (with pitcher presets)\n"
-            "- hotwater: Hot water button (with vessel presets)\n"
-            "- flush: Flush button (with flush presets)\n"
-            "- beans: Bean presets button\n"
-            "- history: Shot history navigation\n"
-            "- autofavorites: Auto-favorites navigation\n"
-            "- sleep: Put machine to sleep\n"
-            "- settings: Navigate to settings\n"
-            "- temperature: Group head temperature (tap to tare scale)\n"
-            "- steamTemperature: Steam boiler temperature\n"
-            "- waterLevel: Water tank level (ml or %)\n"
-            "- connectionStatus: Machine online/offline indicator\n"
-            "- scaleWeight: Scale weight with tare/ratio (tap=tare, double-tap=ratio)\n"
-            "- shotPlan: Shot plan summary (profile, dose, yield)\n"
-            "- pageTitle: Current page name (for status bar)\n"
-            "- spacer: Flexible empty space (fills available width)\n"
-            "- separator: Thin vertical line divider\n"
-            "- text: Custom text with variable substitution (%TEMP%, %STEAM_TEMP%, %WEIGHT%, %PROFILE%, %TIME%, etc.)\n"
-            "- weather: Weather display\n\n"
-            "Each item needs a unique 'id' (format: typename + number, e.g. 'espresso1', 'temp_sb1').\n"
-            "The 'offsets' object can have vertical offsets for center zones (e.g. centerStatus: -65).\n\n"
-            "Current layout:\n%1\n\n"
-            "Respond with ONLY the complete layout JSON (no markdown, no explanation). "
-            "The JSON must have 'version':1, 'zones' object with all zone arrays, and optional 'offsets' object."
-        ).arg(currentLayout);
-
-        // Store socket for async response
-        m_pendingAiSocket = socket;
-
-        // Connect to AI signals (one-shot)
-        auto onResult = [this](const QString& recommendation) {
-            if (!m_pendingAiSocket) return;
-
-            // Try to parse as JSON to validate
-            QJsonDocument doc = QJsonDocument::fromJson(recommendation.toUtf8());
-            if (doc.isObject() && doc.object().contains("zones")) {
-                // Valid layout JSON - apply it
-                if (m_settings) {
-                    m_settings->setLayoutConfiguration(recommendation);
-                }
-                QJsonObject response;
-                response["success"] = true;
-                response["layout"] = doc.object();
-                sendJson(m_pendingAiSocket, QJsonDocument(response).toJson(QJsonDocument::Compact));
-            } else {
-                // AI returned text, not valid JSON - send as suggestion
-                QJsonObject response;
-                response["success"] = false;
-                response["message"] = recommendation;
-                sendJson(m_pendingAiSocket, QJsonDocument(response).toJson(QJsonDocument::Compact));
-            }
-            m_pendingAiSocket = nullptr;
-        };
-
-        auto onError = [this](const QString& error) {
-            if (!m_pendingAiSocket) return;
-            QJsonObject response;
-            response["error"] = error;
-            sendJson(m_pendingAiSocket, QJsonDocument(response).toJson(QJsonDocument::Compact));
-            m_pendingAiSocket = nullptr;
-        };
-
-        // One-shot connections
-        QMetaObject::Connection* resultConn = new QMetaObject::Connection();
-        QMetaObject::Connection* errorConn = new QMetaObject::Connection();
-        *resultConn = connect(m_aiManager, &AIManager::recommendationReceived, this, [=](const QString& r) {
-            onResult(r);
-            disconnect(*resultConn);
-            disconnect(*errorConn);
-            delete resultConn;
-            delete errorConn;
-        });
-        *errorConn = connect(m_aiManager, &AIManager::errorOccurred, this, [=](const QString& e) {
-            onError(e);
-            disconnect(*resultConn);
-            disconnect(*errorConn);
-            delete resultConn;
-            delete errorConn;
-        });
-
-        m_aiManager->analyze(systemPrompt, userPrompt);
-    }
     // ========== Library API (local, synchronous) ==========
 
     else if (method == "POST" && path == "/api/library/save-item") {
@@ -386,6 +274,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendJson(socket, R"({"error":"Failed to save item"})");
             return;
         }
+        // Thumbnail capture is automatic via entryAdded signal
         QJsonObject resp;
         resp["success"] = true;
         resp["entryId"] = entryId;
@@ -406,6 +295,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendJson(socket, R"({"error":"Failed to save zone"})");
             return;
         }
+        // Thumbnail capture is automatic via entryAdded signal
         QJsonObject resp;
         resp["success"] = true;
         resp["entryId"] = entryId;
@@ -421,6 +311,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendJson(socket, R"({"error":"Failed to save layout"})");
             return;
         }
+        // Thumbnail capture is automatic via entryAdded signal
         QJsonObject resp;
         resp["success"] = true;
         resp["entryId"] = entryId;
@@ -560,7 +451,15 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             delete failConn;
         });
 
-        m_librarySharing->uploadEntry(entryId);
+        // Load local thumbnails if available (generated by QML on save)
+        QImage thumbnail, thumbnailCompact;
+        if (m_widgetLibrary && m_widgetLibrary->hasThumbnail(entryId)) {
+            thumbnail.load(m_widgetLibrary->thumbnailPath(entryId));
+        }
+        if (m_widgetLibrary && m_widgetLibrary->hasThumbnailCompact(entryId)) {
+            thumbnailCompact.load(m_widgetLibrary->thumbnailCompactPath(entryId));
+        }
+        m_librarySharing->uploadEntryWithThumbnails(entryId, thumbnail, thumbnailCompact);
     }
     else if (method == "POST" && path == "/api/community/delete") {
         if (!m_librarySharing) {
@@ -775,61 +674,6 @@ QString ShotServer::generateLayoutPage() const
             font-size: 0.8rem;
         }
         .reset-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-        /* AI dialog */
-        .ai-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.6);
-            z-index: 100;
-            align-items: center;
-            justify-content: center;
-        }
-        .ai-overlay.open { display: flex; }
-)HTML";
-
-    // Part 2b: AI dialog and remaining CSS
-    html += R"HTML(
-        .ai-dialog {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            width: min(90vw, 540px);
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        .ai-dialog h3 { color: var(--accent); margin: 0 0 1rem; font-size: 1rem; }
-        .ai-prompt {
-            width: 100%;
-            min-height: 80px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 0.875rem;
-            padding: 0.75rem;
-            resize: vertical;
-            box-sizing: border-box;
-        }
-        .ai-prompt:focus { border-color: var(--accent); outline: none; }
-        .ai-result {
-            margin-top: 0.75rem;
-            padding: 0.75rem;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 0.85rem;
-            color: var(--text);
-            white-space: pre-wrap;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        .ai-result.error { border-color: #f85149; color: #f85149; }
-        .ai-result.success { border-color: var(--accent); }
-        .ai-loading { color: var(--text-secondary); font-style: italic; }
-        .ai-btns { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.75rem; }
 
         /* Text editor panel */
         .editor-card {
@@ -1307,18 +1151,6 @@ QString ShotServer::generateLayoutPage() const
         .action-dialog-item:hover { background: var(--surface-hover); }
         .action-dialog-item.selected { background: var(--accent); color: #000; }
 
-        /* Convert button & chip styling */
-        .convert-btn {
-            background: none;
-            border: 1px solid orange;
-            color: orange;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.75rem;
-            margin-left: 0.5rem;
-        }
-        .convert-btn:hover { background: rgba(255,165,0,0.1); }
         .chip-emoji { margin-right: 2px; font-size: 0.8rem; }
         .chip-emoji img { width: 14px; height: 14px; vertical-align: middle; filter: brightness(0) invert(1); }
 
@@ -1376,10 +1208,76 @@ QString ShotServer::generateLayoutPage() const
         .lib-tab:hover:not(.active) { background: var(--surface-hover); }
         .lib-actions {
             display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-bottom: 0.75rem;
+            align-items: center;
         }
+        .lib-icon-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+            padding: 0;
+            position: relative;
+        }
+        .lib-icon-btn svg { width: 16px; height: 16px; }
+        .lib-icon-btn { color: var(--text-secondary); }
+        .lib-icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .lib-icon-btn.accent { border-color: var(--accent); color: var(--accent); }
+        .lib-icon-btn.danger:hover { border-color: #ff4444; color: #ff4444; }
+        .lib-icon-btn:disabled { opacity: 0.4; cursor: default; }
+        .lib-icon-btn:disabled:hover { border-color: var(--border); color: var(--text-secondary); }
+        .lib-display-toggle {
+            width: 28px; height: 28px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background: transparent;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+            padding: 0;
+        }
+        .lib-display-toggle.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .lib-save-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px;
+            z-index: 100;
+            min-width: 140px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: none;
+        }
+        .lib-save-dropdown.open { display: block; }
+        .lib-save-option {
+            padding: 0.4rem 0.6rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            color: var(--text);
+            transition: background 0.1s;
+        }
+        .lib-save-option:hover { background: rgba(78,133,244,0.12); }
+        .lib-save-option.disabled { opacity: 0.4; cursor: default; }
+        .lib-save-option.disabled:hover { background: transparent; }
         .lib-action-btn {
             padding: 0.35rem 0.6rem;
             border-radius: 6px;
@@ -1407,9 +1305,28 @@ QString ShotServer::generateLayoutPage() const
             padding: 0.6rem;
             cursor: pointer;
             transition: all 0.15s;
+            position: relative;
         }
         .lib-entry:hover { border-color: var(--accent); }
         .lib-entry.selected { border: 2px solid var(--accent); }
+        .lib-entry.compact {
+            padding: 0.3rem 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .lib-entry.compact .lib-entry-visual {
+            min-height: 24px;
+            padding: 0.2rem 0.4rem;
+            flex: 1;
+        }
+        .lib-entry.compact .lib-entry-visual img.lib-thumb {
+            max-height: 32px;
+        }
+        .lib-entry.compact .lib-type-overlay {
+            position: static;
+            flex-shrink: 0;
+        }
         .lib-entry-visual {
             border-radius: 6px;
             padding: 0.4rem 0.6rem;
@@ -1422,7 +1339,7 @@ QString ShotServer::generateLayoutPage() const
         }
         .lib-entry-visual img.lib-thumb {
             width: 100%;
-            height: 48px;
+            max-height: 120px;
             object-fit: contain;
             border-radius: 4px;
         }
@@ -1553,7 +1470,6 @@ QString ShotServer::generateLayoutPage() const
                 <h1>Layout Editor</h1>
             </div>
             <div class="header-right">
-                <button class="reset-btn" onclick="openAiDialog()" style="border-color:var(--accent);color:var(--accent)">&#10024; Ask AI</button>
                 <button class="reset-btn" onclick="resetLayout()">Reset to Default</button>
 )HTML";
     html += generateMenuHtml();
@@ -1565,19 +1481,6 @@ QString ShotServer::generateLayoutPage() const
 
     // Part 4: Main content
     html += R"HTML(
-    <!-- AI Dialog -->
-    <div class="ai-overlay" id="aiOverlay" onclick="if(event.target===this)closeAiDialog()">
-        <div class="ai-dialog">
-            <h3>&#10024; Ask AI to Design Your Layout</h3>
-            <textarea class="ai-prompt" id="aiPrompt" placeholder="Describe what you want, e.g.&#10;&#10;&bull; Add steam temperature to the status bar&#10;&bull; Minimalist layout with just espresso and steam&#10;&bull; Put the clock in the top right corner&#10;&bull; Move settings to the status bar"></textarea>
-            <div id="aiResultArea"></div>
-            <div class="ai-btns">
-                <button class="btn btn-cancel" onclick="closeAiDialog()">Close</button>
-                <button class="btn btn-save" id="aiSendBtn" onclick="sendAiPrompt()">Generate</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Action Picker Overlay -->
     <div class="action-overlay" id="actionOverlay" onclick="if(event.target===this)closeActionPicker()">
         <div class="action-dialog">
@@ -1612,8 +1515,8 @@ QString ShotServer::generateLayoutPage() const
                         <div class="section-label">Content</div>
                         <div contenteditable="true" id="wysiwygEditor" class="wysiwyg-editor"></div>
                         <div class="toolbar" style="margin-top:0.375rem">
-                            <button class="tool-btn" onclick="execBold()" title="Bold"><b>B</b></button>
-                            <button class="tool-btn" onclick="execItalic()" title="Italic"><i>I</i></button>
+                            <button class="tool-btn" id="btnBold" onclick="execBold()" title="Bold"><b>B</b></button>
+                            <button class="tool-btn" id="btnItalic" onclick="execItalic()" title="Italic"><i>I</i></button>
                             <div class="tool-sep"></div>
                             <button class="tool-btn" onclick="execFontSize(12)" title="Small">S</button>
                             <button class="tool-btn" onclick="execFontSize(18)" title="Medium">M</button>
@@ -1623,6 +1526,8 @@ QString ShotServer::generateLayoutPage() const
                             <button class="tool-btn" id="alignLeft" onclick="setAlign('left')" title="Left">&#9664;</button>
                             <button class="tool-btn active" id="alignCenter" onclick="setAlign('center')" title="Center">&#9679;</button>
                             <button class="tool-btn" id="alignRight" onclick="setAlign('right')" title="Right">&#9654;</button>
+                            <div class="tool-sep"></div>
+                            <button class="tool-btn" onclick="execClearFormat()" title="Clear Formatting">&#10005;</button>
                         </div>
                     </div>
                     <div class="editor-preview-col">
@@ -1695,7 +1600,6 @@ QString ShotServer::generateLayoutPage() const
 
                 <!-- ROW 4: Buttons -->
                 <div class="editor-buttons">
-                    <button class="btn btn-cancel" style="border-color:var(--accent);color:var(--accent)" onclick="openAiDialog()">&#10024; Ask AI</button>
                     <div style="flex:1"></div>
                     <button class="btn btn-cancel" onclick="closeEditor()">Done</button>
                 </div>
@@ -1714,15 +1618,29 @@ QString ShotServer::generateLayoutPage() const
         <!-- Local library content -->
         <div id="libLocalContent">
             <div class="lib-actions">
-                <button class="lib-action-btn" onclick="saveToLibrary('item')" title="Save selected widget">+ Item</button>
-                <button class="lib-action-btn" onclick="saveToLibrary('zone')" title="Save entire zone">+ Zone</button>
-                <button class="lib-action-btn" onclick="saveToLibrary('layout')" title="Save entire layout">+ Layout</button>
-                <button class="lib-action-btn accent" id="libApplyBtn" onclick="applyFromLibrary()" disabled title="Apply selected entry">Apply</button>
-                <button class="lib-action-btn" id="libUploadBtn" onclick="uploadToComm()" disabled title="Share to community">Share</button>
-                <button class="lib-action-btn" id="libDeleteBtn" onclick="deleteFromLibrary()" disabled style="color:#ff4444;border-color:#ff4444" title="Delete selected entry">Delete</button>
+                <button class="lib-icon-btn" id="libSaveBtn" onclick="toggleSaveMenu(event)" title="Save to library">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <div class="lib-save-dropdown" id="libSaveMenu">
+                        <div class="lib-save-option" id="saveItemOpt" onclick="event.stopPropagation();closeSaveMenu();saveToLibrary('item')">Save Item</div>
+                        <div class="lib-save-option" id="saveZoneOpt" onclick="event.stopPropagation();closeSaveMenu();saveToLibrary('zone')">Save Zone</div>
+                        <div class="lib-save-option" onclick="event.stopPropagation();closeSaveMenu();saveToLibrary('layout')">Save Layout</div>
+                    </div>
+                </button>
+                <button class="lib-icon-btn accent" id="libApplyBtn" onclick="applyFromLibrary()" disabled title="Apply selected entry">
+                    <svg viewBox="0 0 24 24" fill="none"><g transform="translate(24,0) scale(-1,1)"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.293 4.293a1 1 0 011.414 0l7 7a1 1 0 010 1.414l-7 7a1 1 0 01-1.414-1.414L17.586 13H4a1 1 0 110-2h13.586l-5.293-5.293a1 1 0 010-1.414z" fill="currentColor"/></g></svg>
+                </button>
+                <button class="lib-icon-btn" id="libUploadBtn" onclick="uploadToComm()" disabled title="Share to community">
+                    <svg viewBox="0 0 24 24" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="M8 10a4 4 0 118 0v1h1a3.5 3.5 0 010 7h-1a1 1 0 110-2h1a1.5 1.5 0 000-3H8V10zm7.707 3.293l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L11 13.414V19a1 1 0 102 0v-5.586l1.293 1.293a1 1 0 001.414-1.414z" fill="currentColor"/></svg>
+                </button>
+                <button class="lib-icon-btn danger" id="libDeleteBtn" onclick="deleteFromLibrary()" disabled title="Delete selected entry">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                </button>
+                <span style="flex:1"></span>
+                <button class="lib-display-toggle active" id="libModeFull" onclick="setLibDisplayMode(0)" title="Full preview">&#x25A3;</button>
+                <button class="lib-display-toggle" id="libModeCompact" onclick="setLibDisplayMode(1)" title="Compact list">&#x2630;</button>
             </div>
             <div class="lib-entries" id="libLocalEntries">
-                <div class="lib-empty">No saved entries yet.<br>Select a widget and click "+ Item" to save it.</div>
+                <div class="lib-empty">No saved entries yet.<br>Select a widget and click <b>+</b> to save it.</div>
             </div>
         </div>
 
@@ -1738,6 +1656,37 @@ QString ShotServer::generateLayoutPage() const
                     <option value="item">Items</option>
                     <option value="zone">Zones</option>
                     <option value="layout">Layouts</option>
+                </select>
+                <select class="lib-filter-select" id="commVariableFilter" onchange="browseCommunity()">
+                    <option value="">Any variable</option>
+                    <option value="%TEMP%">%TEMP%</option>
+                    <option value="%STEAM_TEMP%">%STEAM_TEMP%</option>
+                    <option value="%PRESSURE%">%PRESSURE%</option>
+                    <option value="%FLOW%">%FLOW%</option>
+                    <option value="%WEIGHT%">%WEIGHT%</option>
+                    <option value="%WATER%">%WATER%</option>
+                    <option value="%SHOT_TIME%">%SHOT_TIME%</option>
+                    <option value="%PROFILE%">%PROFILE%</option>
+                    <option value="%STATE%">%STATE%</option>
+                    <option value="%TIME%">%TIME%</option>
+                    <option value="%DATE%">%DATE%</option>
+                    <option value="%RATIO%">%RATIO%</option>
+                    <option value="%DOSE%">%DOSE%</option>
+                    <option value="%TARGET_WEIGHT%">%TARGET_WEIGHT%</option>
+                </select>
+                <select class="lib-filter-select" id="commActionFilter" onchange="browseCommunity()">
+                    <option value="">Any action</option>
+                    <option value="navigate:settings">Settings</option>
+                    <option value="navigate:history">History</option>
+                    <option value="navigate:profiles">Profiles</option>
+                    <option value="navigate:autofavorites">Favorites</option>
+                    <option value="command:sleep">Sleep</option>
+                    <option value="command:startEspresso">Start Espresso</option>
+                    <option value="command:startSteam">Start Steam</option>
+                    <option value="command:startHotWater">Start Hot Water</option>
+                    <option value="command:startFlush">Start Flush</option>
+                    <option value="command:tare">Tare Scale</option>
+                    <option value="command:quit">Quit</option>
                 </select>
                 <input class="lib-filter-input" id="commSearchInput" type="text" placeholder="Search..."
                        onkeydown="if(event.key==='Enter')browseCommunity()">
@@ -1880,12 +1829,150 @@ QString ShotServer::generateLayoutPage() const
 
     var EMOJI_CATEGORIES = [
         {name:"Decenza",isSvg:true},
-        {name:"Symbols",emoji:["✅","❌","❗","❓","⚠️","🚫","⭐","✨","💡","🔋","🔌","🔔","🔒","🔓","🔑","🔄","🔴","🟠","🟡","🟢","🔵","🟣","⚫","⚪","❤️","🧡","💛","💚","💙","💜","🖤","⬆️","⬇️","➡️","⬅️","➕","➖","▶️","⏸️","⏹️","🔅","🔆"]},
-        {name:"Food",emoji:["☕","🫖","🍵","🧋","🥤","🍺","🍷","🍸","🥃","🥛","🧊","🍇","🍊","🍎","🍒","🥑","🍞","🍔","🍕","🍳","🍱","🍜","🍦","🍩","🎂","🍫","🍴","🥄"]},
-        {name:"Objects",emoji:["🔧","⚙️","🛠️","🔨","⚖️","🔗","🧪","💻","📱","📷","💡","⌚","⏰","⏱️","📝","📈","📉","📊","🎵","🎧","🏆","🎯","💎"]},
-        {name:"Nature",emoji:["☀️","⛅","☁️","❄️","🌈","🌡️","⚡","💧","🔥","🌙","🌍","🌱","💐","🌹","🍁","🐶","🐱"]},
-        {name:"Smileys",emoji:["😀","😄","😊","😍","😎","🤔","😴","🤯","😱","👍","👎","👏","🙏","💪","👀","💯","💥"]},
-        {name:"Activity",emoji:["⚽","🏀","🎾","🏆","🥇","🎉","🎊","🎁","🎯","🎲","🎨","🎮"]}
+        {name:"Symbols",emoji:[
+            "✅","❌","❗","❓","⚠️","🚫","⛔","🔞",
+            "⭐","✨","💡","🔋","🔌","🚨","🔔","🔕",
+            "🔒","🔓","🔑","🗝️","🔄","♻️",
+            "🔴","🟠","🟡","🟢","🔵","🟣","🟤","⚫","⚪",
+            "🟥","🟧","🟨","🟩","🟦","🟪","🟫","⬛","⬜",
+            "🔶","🔷","🔸","🔹","🔺","🔻","💠","🔘",
+            "❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎",
+            "💔","❣️","💕","💖","💗","💓","💞","💘","💝",
+            "⬆️","⬇️","➡️","⬅️","↗️","↘️","↙️","↖️",
+            "↩️","↪️","🔃","🔄",
+            "➕","➖","✖️","➗","♾️",
+            "‼️","⁉️",
+            "▶️","⏸️","⏹️","⏺️","⏯️","⏭️","⏮️",
+            "🔀","🔁","🔂","🔅","🔆",
+            "🌟","🌠","💫","🎇","🎆",
+            "♈","♉","♊","♋","♌","♍",
+            "♎","♏","♐","♑","♒","♓"
+        ]},
+        {name:"Food",emoji:[
+            "☕","🫖","🍵","🧋","🧉",
+            "🥤","🍺","🍻","🍷","🍸",
+            "🍹","🍾","🥂","🥃","🧃",
+            "🥛","🍼","🧊",
+            "🍇","🍈","🍉","🍊","🍋","🍌","🍍","🥭",
+            "🍎","🍏","🍐","🍑","🍒","🍓","🫐","🥝","🍅","🥥",
+            "🥑","🍆","🥔","🥕","🌽","🌶️","🥒","🥬","🥦",
+            "🧄","🧅","🥜","🌰","🍄",
+            "🍞","🥐","🥖","🥨","🥞","🧇","🧀",
+            "🍖","🍗","🥩","🥓",
+            "🍔","🍟","🍕","🌭","🥪","🌮","🌯","🥙",
+            "🍳","🥘","🍲","🥣","🥗","🍿",
+            "🍱","🍜","🍝","🍣","🍤","🍡","🥟","🥠",
+            "🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🥧",
+            "🍫","🍬","🍭","🍮","🍯",
+            "🍴","🥄","🔪","🍽️","🥢"
+        ]},
+        {name:"Objects",emoji:[
+            "🔧","🔩","⚙️","🛠️","⛏️","🔨","🪓","🪚","🪛",
+            "⚖️","🔗","⛓️","🧲","🧰","🪜",
+            "🧪","🧫","🧬","🔬","🔭","📡",
+            "💻","🖥️","🖨️","⌨️","🖱️","💾","💿","📀",
+            "📱","📲","☎️","📞",
+            "📷","📸","📹","🎥","📽️","🎬","📺","📻",
+            "💡","🔦","🕯️",
+            "⌚","⏰","⏱️","⏲️","🕰️","⌛","⏳",
+            "💰","🪙","💳","💵","💸",
+            "✉️","📨","📩","📦","📬",
+            "📝","📋","📅","📆",
+            "📈","📉","📊","📌","📏","📐","✂️","💼",
+            "📔","📕","📖","📗","📘","📙","📚","📓","📰",
+            "🎵","🎶","🎧","🎤","🎹","🎷","🎸","🎺","🎻","🥁",
+            "💉","💊","🩹","🩺",
+            "🚪","🪞","🪟","🛏️","🛋️","🚿","🛁",
+            "🧹","🧴","🧼","🧷",
+            "🎈","🎁","🏆","🏅","🎗️","🎟️","🎫",
+            "🔮","🎰","🧩","🧸",
+            "💎","🪄"
+        ]},
+        {name:"Nature",emoji:[
+            "☀️","🌤️","⛅","🌥️","☁️",
+            "🌦️","🌧️","⛈️","🌩️","🌨️",
+            "🌫️","🌁","🌀",
+            "❄️","☃️","⛄","🌬️","💨","🌪️",
+            "🌈","☂️","🌂","☔","⛱️",
+            "🌡️","⚡",
+            "💧","💦","🌊","🔥","☄️",
+            "🌙","🌚","🌛","🌜","🌝","🌞",
+            "🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘",
+            "🌌","🌍","🌎","🌏","🌋",
+            "🌱","🪴","🌲","🌳","🌴","🌵","🍀","☘️","🌾",
+            "💐","🌸","🌷","🌹","🌺","🌻","🌼","🥀",
+            "🍁","🍂","🍃",
+            "🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼",
+            "🐨","🐯","🦁","🐮","🐷","🐸","🐵",
+            "🙈","🙉","🙊",
+            "🐔","🐧","🐦","🦅","🦉","🐺",
+            "🐴","🦄","🐝","🦋","🐌","🐞","🐜",
+            "🐢","🐍","🐙","🐬","🐳","🦈",
+            "🐘","🦒","🐪","🐄","🐑","🐕","🐈",
+            "🐾"
+        ]},
+        {name:"Smileys",emoji:[
+            "😀","😃","😄","😁","😆","😅","😂","🤣","🥲",
+            "😊","😇","🙂","🙃",
+            "😉","😍","🥰","😘","😗","☺️","😚","😙","🤩",
+            "😋","😛","😜","🤪","😝","🤑",
+            "🤗","🤭","🤫","🤔",
+            "🤐","🤨","😐","😑","😶","😏","😒","🙄","😬","🤥",
+            "😌","😔","😪","🤤","😴",
+            "😷","🤒","🤕","🤢","🤮","🤧","🥵","🥶","🥴","😵","🤯",
+            "😕","😟","🙁","☹️","😮","😯","😲","😳",
+            "🥺","😦","😧","😨","😰","😥","😢","😭",
+            "😱","😖","😣","😩","🥱",
+            "😤","😡","😠","🤬",
+            "😈","👿","💀","☠️","💩","🤡","👻","👽","👾","🤖",
+            "😺","😸","😹","😻","😼","😽","🙀","😿","😾",
+            "🙈","🙉","🙊",
+            "💯","💢","💥","💫","💤","💬","💭","🗯️"
+        ]},
+        {name:"People",emoji:[
+            "👋","🤚","🖐️","✋","🖖",
+            "👌","🤌","🤏","✌️","🤞","🤟","🤘","🤙",
+            "👈","👉","👆","🖕","👇","☝️",
+            "👍","👎","✊","👊","🤛","🤜",
+            "👏","🙌","👐","🤲","🤝","🙏",
+            "✍️","💅","🤳",
+            "💪","🦵","🦶",
+            "👂","👃","🧠","🦷",
+            "👀","👁️","👅","👄",
+            "👶","👦","👧","👨","👩","👴","👵",
+            "👓","🕶️","🥽","👔","👕","👖",
+            "👗","👘","👟","👞","👠","👢",
+            "👑","👒","🎩","🎓","🧢","⛑️",
+            "💍","💎","💄"
+        ]},
+        {name:"Travel",emoji:[
+            "🚗","🚕","🚙","🚌","🏎️","🚓","🚑","🚒",
+            "🚚","🚛","🚜","🏍️","🛵","🚲","🛴","🛹",
+            "✈️","🛫","🛬","🪂","🚁","🚀","🛸",
+            "⛵","🚤","🛳️","🚢",
+            "🚨","🚥","🚦","🛑","🚧","⛽",
+            "🏠","🏡","🏢","🏣","🏥","🏦","🏨",
+            "🏪","🏫","🏬","🏭","🏯","🏰",
+            "🗼","🗽","⛪","🕌","🕍",
+            "⛲","🎠","🎡","🎢",
+            "🏖️","🏕️","🏜️",
+            "🌅","🌄","🏙️","🌆","🌇","🌉","🌁",
+            "🗺️","🧭"
+        ]},
+        {name:"Activity",emoji:[
+            "⚽","🏀","🏈","⚾","🎾","🏐","🏉",
+            "🎱","🏓","🏸","🏒","🏑","🏏",
+            "⛳","🏹","🎣","🥊","🥋","🎽",
+            "🛷","⛸️","🥌","🎿",
+            "🏆","🥇","🥈","🥉","🏅",
+            "🎃","🎄","🎆","🎇","🧨",
+            "🎈","🎉","🎊","🎋","🎍",
+            "🎎","🎏","🎐","🎑",
+            "🎀","🎁","🎗️","🎟️","🎫",
+            "🎯","🎰","🎲","♟️","🧩","🧸",
+            "🎭","🎨","🖼️","🧵","🧶",
+            "🎮","🕹️"
+        ]}
     ];
 
     var ZONES = [
@@ -1925,25 +2012,31 @@ QString ShotServer::generateLayoutPage() const
     };
 
     var ACTIONS = [
-        {id:"",label:"None"},
-        {id:"navigate:settings",label:"Go to Settings"},
-        {id:"navigate:history",label:"Go to History"},
-        {id:"navigate:profiles",label:"Go to Profiles"},
-        {id:"navigate:profileEditor",label:"Go to Profile Editor"},
-        {id:"navigate:recipes",label:"Go to Recipes"},
-        {id:"navigate:descaling",label:"Go to Descaling"},
-        {id:"navigate:ai",label:"Go to AI Settings"},
-        {id:"navigate:visualizer",label:"Go to Visualizer"},
-        {id:"navigate:autofavorites",label:"Go to Auto-Favorites"},
-        {id:"command:sleep",label:"Sleep"},
-        {id:"command:startEspresso",label:"Start Espresso"},
-        {id:"command:startSteam",label:"Start Steam"},
-        {id:"command:startHotWater",label:"Start Hot Water"},
-        {id:"command:startFlush",label:"Start Flush"},
-        {id:"command:idle",label:"Stop (Idle)"},
-        {id:"command:tare",label:"Tare Scale"},
-        {id:"command:quit",label:"Quit App"}
+        {id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]},
+        {id:"navigate:settings",label:"Go to Settings",contexts:["idle","all"]},
+        {id:"navigate:history",label:"Go to History",contexts:["idle","all"]},
+        {id:"navigate:profiles",label:"Go to Profiles",contexts:["idle","all"]},
+        {id:"navigate:profileEditor",label:"Go to Profile Editor",contexts:["idle","all"]},
+        {id:"navigate:recipes",label:"Go to Recipes",contexts:["idle","all"]},
+        {id:"navigate:descaling",label:"Go to Descaling",contexts:["idle","all"]},
+        {id:"navigate:ai",label:"Go to AI Settings",contexts:["idle","all"]},
+        {id:"navigate:visualizer",label:"Go to Visualizer",contexts:["idle","all"]},
+        {id:"navigate:autofavorites",label:"Go to Favorites",contexts:["idle","all"]},
+        {id:"command:sleep",label:"Sleep",contexts:["idle"]},
+        {id:"command:startEspresso",label:"Start Espresso",contexts:["idle"]},
+        {id:"command:startSteam",label:"Start Steam",contexts:["idle"]},
+        {id:"command:startHotWater",label:"Start Hot Water",contexts:["idle"]},
+        {id:"command:startFlush",label:"Start Flush",contexts:["idle"]},
+        {id:"command:idle",label:"Stop (Idle)",contexts:["idle","espresso","steam","hotwater","flush"]},
+        {id:"command:tare",label:"Tare Scale",contexts:["idle","espresso","all"]},
+        {id:"command:quit",label:"Quit App",contexts:["idle"]}
     ];
+    var PAGE_CONTEXT = "idle";
+    function getFilteredActions() {
+        return ACTIONS.filter(function(a) {
+            return a.contexts.indexOf(PAGE_CONTEXT) >= 0 || a.contexts.indexOf("all") >= 0;
+        });
+    }
 )HTML";
     html += R"HTML(
     function loadLayout() {
@@ -2051,9 +2144,6 @@ QString ShotServer::generateLayoutPage() const
                 }
                 if (isSel) {
                     html += '<span class="chip-remove" onclick="event.stopPropagation();removeItem(\'' + item.id + '\',\'' + zone.key + '\')">&times;</span>';
-                    if (item.type !== "custom" && item.type !== "spacer" && item.type !== "separator") {
-                        html += '<span class="convert-btn" onclick="event.stopPropagation();convertToCustom(\'' + item.id + '\',\'' + zone.key + '\')">&#8594; Custom</span>';
-                    }
                 }
                 html += '</span>';
             }
@@ -2102,15 +2192,6 @@ QString ShotServer::generateLayoutPage() const
             }
         }
         renderZones();
-    }
-
-    function convertToCustom(itemId, zone) {
-        apiPost("/api/layout/item", {itemId: itemId, key: "type", value: "custom"}, function() {
-            itemPropsCache[itemId] = null;
-            selectedChip = {id: itemId, zone: zone};
-            loadLayout();
-            openEditor(itemId, zone);
-        });
     }
 
     function toggleAddMenu(btn) {
@@ -2193,6 +2274,19 @@ QString ShotServer::generateLayoutPage() const
     wysiwygEl.addEventListener("mouseup", saveSelection);
     wysiwygEl.addEventListener("keyup", saveSelection);
     wysiwygEl.addEventListener("blur", saveSelection);
+
+    // Format state feedback: highlight bold/italic buttons when active
+    function updateFormatState() {
+        var b = document.getElementById("btnBold");
+        var i = document.getElementById("btnItalic");
+        if (b) b.classList.toggle("active", document.queryCommandState("bold"));
+        if (i) i.classList.toggle("active", document.queryCommandState("italic"));
+    }
+    wysiwygEl.addEventListener("keyup", updateFormatState);
+    wysiwygEl.addEventListener("mouseup", updateFormatState);
+    document.addEventListener("selectionchange", function() {
+        if (editingItem) updateFormatState();
+    });
 )HTML";
     html += R"HTML(
     // ---- Segment model (portable rich text format) ----
@@ -2290,6 +2384,28 @@ QString ShotServer::generateLayoutPage() const
     }
 )HTML";
     html += R"HTML(
+    // Detect malformed HTML (tags inside attribute values) and strip to plain text
+    function sanitizeHtml(html) {
+        if (!html || html.indexOf("<") < 0) return html;
+        var inTag = false, inQuote = false;
+        for (var i = 0; i < html.length; i++) {
+            var ch = html[i];
+            if (inQuote) {
+                if (ch === '"') inQuote = false;
+                else if (ch === '<') {
+                    console.warn("Malformed HTML detected, stripping tags");
+                    return html.replace(/<[^>]*>/g, "");
+                }
+            } else if (inTag) {
+                if (ch === '"') inQuote = true;
+                else if (ch === '>') inTag = false;
+            } else {
+                if (ch === '<') inTag = true;
+            }
+        }
+        return html;
+    }
+
     function openEditor(itemId, zone) {
         // Flush any pending auto-save from previously edited item
         if (editingItem && autoSaveTimer) {
@@ -2305,7 +2421,7 @@ QString ShotServer::generateLayoutPage() const
                 if (props.segments && props.segments.length > 0) {
                     wysiwygEl.innerHTML = segmentsToHtml(props.segments);
                 } else {
-                    wysiwygEl.innerHTML = props.content || "Text";
+                    wysiwygEl.innerHTML = sanitizeHtml(props.content || "Text");
                 }
                 currentAlign = props.align || "center";
                 currentAction = props.action || "";
@@ -2367,6 +2483,7 @@ QString ShotServer::generateLayoutPage() const
         restoreSelection();
         document.execCommand("bold", false, null);
         saveSelection();
+        updateFormatState();
         updatePreview();
         autoSave();
     }
@@ -2375,6 +2492,32 @@ QString ShotServer::generateLayoutPage() const
         restoreSelection();
         document.execCommand("italic", false, null);
         saveSelection();
+        updateFormatState();
+        updatePreview();
+        autoSave();
+    }
+
+    function execClearFormat() {
+        restoreSelection();
+        document.execCommand("removeFormat", false, null);
+        // removeFormat doesn't strip <span style="font-size:..."> — clean those up
+        var sel = window.getSelection();
+        if (sel.rangeCount && !sel.isCollapsed) {
+            var range = sel.getRangeAt(0);
+            var spans = wysiwygEl.querySelectorAll('span[style]');
+            for (var i = spans.length - 1; i >= 0; i--) {
+                if (range.intersectsNode(spans[i])) {
+                    spans[i].style.fontSize = "";
+                    spans[i].style.color = "";
+                    if (!spans[i].style.cssText.trim()) {
+                        while (spans[i].firstChild) spans[i].parentNode.insertBefore(spans[i].firstChild, spans[i]);
+                        spans[i].parentNode.removeChild(spans[i]);
+                    }
+                }
+            }
+        }
+        saveSelection();
+        updateFormatState();
         updatePreview();
         autoSave();
     }
@@ -2598,9 +2741,10 @@ QString ShotServer::generateLayoutPage() const
         var titles = {click: "Tap Action", longpress: "Long Press Action", doubleclick: "Double-Click Action"};
         document.getElementById("actionPickerTitle").textContent = titles[gesture] || "Action";
         var currentVal = gesture === "click" ? currentAction : gesture === "longpress" ? currentLongPressAction : currentDoubleclickAction;
+        var filtered = getFilteredActions();
         var html = "";
-        for (var i = 0; i < ACTIONS.length; i++) {
-            var a = ACTIONS[i];
+        for (var i = 0; i < filtered.length; i++) {
+            var a = filtered[i];
             var cls = "action-dialog-item" + (currentVal === a.id ? " selected" : "");
             html += '<div class="' + cls + '" onclick="pickAction(\'' + a.id + '\')">' + a.label + '</div>';
         }
@@ -2755,7 +2899,7 @@ QString ShotServer::generateLayoutPage() const
         var hh = String(now.getHours()).padStart(2,"0");
         var mm = String(now.getMinutes()).padStart(2,"0");
         return t
-            .replace(/%TEMP%/g,"92.3").replace(/%STEAM_TEMP%/g,"155.0")
+            .replace(/%TEMP%/g,"92.3").replace(/%STEAM_TEMP%/g,"155\u00B0")
             .replace(/%PRESSURE%/g,"9.0").replace(/%FLOW%/g,"2.1")
             .replace(/%WATER%/g,"78").replace(/%WATER_ML%/g,"850")
             .replace(/%STATE%/g,"Idle").replace(/%WEIGHT%/g,"36.2")
@@ -2783,53 +2927,7 @@ QString ShotServer::generateLayoutPage() const
     }
 )HTML";
 
-    // Part 5c: Layout editor JS - AI dialog
     html += R"HTML(
-    // ---- AI Dialog ----
-
-    function openAiDialog() {
-        document.getElementById("aiOverlay").classList.add("open");
-        document.getElementById("aiPrompt").focus();
-        document.getElementById("aiResultArea").innerHTML = "";
-    }
-
-    function closeAiDialog() {
-        document.getElementById("aiOverlay").classList.remove("open");
-    }
-
-    function sendAiPrompt() {
-        var prompt = document.getElementById("aiPrompt").value.trim();
-        if (!prompt) return;
-        var btn = document.getElementById("aiSendBtn");
-        btn.disabled = true;
-        btn.textContent = "Thinking...";
-        document.getElementById("aiResultArea").innerHTML = '<div class="ai-result ai-loading">AI is generating your layout...</div>';
-
-        fetch("/api/layout/ai", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({prompt: prompt})
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            btn.disabled = false;
-            btn.textContent = "Generate";
-            if (data.error) {
-                document.getElementById("aiResultArea").innerHTML = '<div class="ai-result error">' + escapeHtml(data.error) + '</div>';
-            } else if (data.success) {
-                document.getElementById("aiResultArea").innerHTML = '<div class="ai-result success">Layout applied successfully!</div>';
-                loadLayout();
-            } else if (data.message) {
-                document.getElementById("aiResultArea").innerHTML = '<div class="ai-result">' + escapeHtml(data.message) + '</div>';
-            }
-        })
-        .catch(function(err) {
-            btn.disabled = false;
-            btn.textContent = "Generate";
-            document.getElementById("aiResultArea").innerHTML = '<div class="ai-result error">Request failed: ' + escapeHtml(err.message) + '</div>';
-        });
-    }
-
     function escapeHtml(str) {
         if (!str) return '';
         var div = document.createElement("div");
@@ -2842,8 +2940,35 @@ QString ShotServer::generateLayoutPage() const
     var libLocalData = [];
     var libCommunityData = [];
     var libSelectedId = null;
+    var libDisplayMode = 0; // 0=full, 1=compact
     var commPage = 1;
     var commTotal = 0;
+
+    function setLibDisplayMode(mode) {
+        libDisplayMode = mode;
+        document.getElementById('libModeFull').classList.toggle('active', mode === 0);
+        document.getElementById('libModeCompact').classList.toggle('active', mode === 1);
+        if (libCurrentTab === 'local') renderLocalEntries();
+        else renderCommunityEntries();
+    }
+
+    function toggleSaveMenu(e) {
+        e.stopPropagation();
+        var menu = document.getElementById('libSaveMenu');
+        var isOpen = menu.classList.contains('open');
+        menu.classList.toggle('open', !isOpen);
+        if (!isOpen) {
+            // Update disabled state of options
+            var hasItem = selectedChip && selectedChip.id;
+            var hasZone = selectedChip && selectedChip.zone;
+            document.getElementById('saveItemOpt').classList.toggle('disabled', !hasItem);
+            document.getElementById('saveZoneOpt').classList.toggle('disabled', !hasZone);
+            document.getElementById('saveItemOpt').onclick = hasItem ? function(e){e.stopPropagation();closeSaveMenu();saveToLibrary('item');} : function(e){e.stopPropagation();};
+            document.getElementById('saveZoneOpt').onclick = hasZone ? function(e){e.stopPropagation();closeSaveMenu();saveToLibrary('zone');} : function(e){e.stopPropagation();};
+        }
+    }
+    function closeSaveMenu() { document.getElementById('libSaveMenu').classList.remove('open'); }
+    document.addEventListener('click', function() { closeSaveMenu(); });
 
     function switchLibTab(tab) {
         libCurrentTab = tab;
@@ -2865,7 +2990,7 @@ QString ShotServer::generateLayoutPage() const
     }
 
     var SAMPLE_VARS = {
-        "%TEMP%":"93.2","%STEAM_TEMP%":"155.0","%PRESSURE%":"9.0","%FLOW%":"2.1",
+        "%TEMP%":"93.2","%STEAM_TEMP%":"155\u00B0","%PRESSURE%":"9.0","%FLOW%":"2.1",
         "%WATER%":"78","%WATER_ML%":"850","%WEIGHT%":"36.2","%SHOT_TIME%":"28.5",
         "%TARGET_WEIGHT%":"36.0","%VOLUME%":"42","%PROFILE%":"Profile","%STATE%":"Idle",
         "%TARGET_TEMP%":"93.0","%SCALE%":"Scale","%RATIO%":"2.0","%DOSE%":"18.0",
@@ -2954,35 +3079,57 @@ QString ShotServer::generateLayoutPage() const
     }
 
     function renderEntryCard(entry, id, isLocal) {
+        var compact = libDisplayMode === 1;
         var sel = id === libSelectedId ? ' selected' : '';
+        var compactCls = compact ? ' compact' : '';
         var onclick = isLocal ? "selectLibEntry('" + id + "')" : "selectCommEntry('" + id + "')";
-        var html = '<div class="lib-entry' + sel + '" onclick="' + onclick + '">';
+        var html = '<div class="lib-entry' + sel + compactCls + '" onclick="' + onclick + '">';
 
         // Type badge overlay
         html += '<span class="lib-type-overlay ' + (entry.type||'') + '">' + (entry.type||'?') + '</span>';
 
-        // Check for server thumbnail (community)
-        var thumbUrl = entry.thumbnailFullUrl || '';
+        // Choose thumbnail URL based on display mode
+        var thumbUrl = compact
+            ? (entry.thumbnailCompactUrl || entry.thumbnailFullUrl || '')
+            : (entry.thumbnailFullUrl || '');
+
         if (thumbUrl) {
             html += '<div class="lib-entry-visual" style="background:var(--bg);justify-content:center">';
             html += '<img class="lib-thumb" src="' + thumbUrl + '">';
             html += '</div>';
         } else if (isLocal) {
-            // Check for local thumbnail
-            html += '<img class="lib-thumb" src="/api/library/thumbnail?id=' + id + '" style="display:none" onload="this.style.display=\'\';this.nextElementSibling.style.display=\'none\'">';
+            // Check for local thumbnail (hidden until loaded, then hides fallback)
+            html += '<div class="lib-entry-visual" style="background:var(--bg);justify-content:center;display:none">';
+            html += '<img class="lib-thumb" src="/api/library/thumbnail?id=' + encodeURIComponent(id) + '" onload="var p=this.parentElement;p.style.display=\'\';if(p.nextElementSibling)p.nextElementSibling.style.display=\'none\'">';
+            html += '</div>';
         }
 
-        // Visual preview (shown if no thumbnail, or as fallback)
-        var showFallback = !thumbUrl;
-        if (showFallback && entry.data) {
+        // Visual preview (shown if no thumbnail, or as fallback when thumbnail fails to load)
+        if (entry.data) {
             var fallbackId = 'lf_' + id.replace(/[^a-zA-Z0-9]/g,'_');
             var wrap = isLocal ? ' id="' + fallbackId + '"' : '';
-            if (entry.type === 'item' && entry.data.item) {
-                html += '<div' + wrap + '>' + renderItemVisual(entry.data.item) + '</div>';
-            } else if (entry.type === 'zone' && entry.data.items) {
-                html += '<div' + wrap + '>' + renderZoneVisual(entry.data) + '</div>';
-            } else if (entry.type === 'layout') {
-                html += '<div' + wrap + '>' + renderLayoutVisual(entry.data) + '</div>';
+            if (compact) {
+                // Compact mode: show type name and brief summary
+                var summary = '';
+                if (entry.type === 'item' && entry.data.item) {
+                    var it = entry.data.item;
+                    summary = resolveVars(it.content || it.type || 'Item');
+                } else if (entry.type === 'zone' && entry.data.items) {
+                    summary = (entry.data.items.length) + ' items';
+                } else if (entry.type === 'layout') {
+                    var lz = (entry.data.layout||{}).zones||{};
+                    var cnt = 0; for (var zk in lz) cnt += lz[zk].length;
+                    summary = cnt + ' widgets';
+                }
+                html += '<div' + wrap + ' style="flex:1;font-size:0.8rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(summary) + '</div>';
+            } else {
+                if (entry.type === 'item' && entry.data.item) {
+                    html += '<div' + wrap + '>' + renderItemVisual(entry.data.item) + '</div>';
+                } else if (entry.type === 'zone' && entry.data.items) {
+                    html += '<div' + wrap + '>' + renderZoneVisual(entry.data) + '</div>';
+                } else if (entry.type === 'layout') {
+                    html += '<div' + wrap + '>' + renderLayoutVisual(entry.data) + '</div>';
+                }
             }
         }
 
@@ -2994,7 +3141,7 @@ QString ShotServer::generateLayoutPage() const
     function renderLocalEntries() {
         var el = document.getElementById('libLocalEntries');
         if (!libLocalData.length) {
-            el.innerHTML = '<div class="lib-empty">No saved entries yet.<br>Select a widget and click "+ Item" to save it.</div>';
+            el.innerHTML = '<div class="lib-empty">No saved entries yet.<br>Select a widget and click <b>+</b> to save it.</div>';
             return;
         }
         var html = '';
@@ -3092,14 +3239,23 @@ QString ShotServer::generateLayoutPage() const
     }
 
     // Community
-    function browseCommunity() {
-        commPage = 1;
+    function buildCommunityUrl(page) {
         var type = document.getElementById('commTypeFilter').value;
+        var variable = document.getElementById('commVariableFilter').value;
+        var action = document.getElementById('commActionFilter').value;
         var search = document.getElementById('commSearchInput').value;
         var sort = document.getElementById('commSortFilter').value;
-        var url = '/api/community/browse?page=' + commPage + '&sort=' + encodeURIComponent(sort);
+        var url = '/api/community/browse?page=' + page + '&sort=' + encodeURIComponent(sort);
         if (type) url += '&type=' + encodeURIComponent(type);
+        if (variable) url += '&variable=' + encodeURIComponent(variable);
+        if (action) url += '&action=' + encodeURIComponent(action);
         if (search) url += '&search=' + encodeURIComponent(search);
+        return url;
+    }
+
+    function browseCommunity() {
+        commPage = 1;
+        var url = buildCommunityUrl(commPage);
 
         showLibSpinner('Browsing community...');
 
@@ -3120,12 +3276,7 @@ QString ShotServer::generateLayoutPage() const
 
     function loadMoreCommunity() {
         commPage++;
-        var type = document.getElementById('commTypeFilter').value;
-        var search = document.getElementById('commSearchInput').value;
-        var sort = document.getElementById('commSortFilter').value;
-        var url = '/api/community/browse?page=' + commPage + '&sort=' + encodeURIComponent(sort);
-        if (type) url += '&type=' + encodeURIComponent(type);
-        if (search) url += '&search=' + encodeURIComponent(search);
+        var url = buildCommunityUrl(commPage);
 
         fetch(url).then(function(r){return r.json()}).then(function(data) {
             if (data.entries) {

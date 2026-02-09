@@ -25,7 +25,6 @@ Rectangle {
     signal moveUp()
     signal moveDown()
     signal editCustomRequested(string itemId, string zoneName)
-    signal convertToCustomRequested(string itemId, string itemType)
 
     Layout.fillWidth: true
     implicitHeight: zoneContent.implicitHeight + Theme.scaled(20)
@@ -188,20 +187,6 @@ Rectangle {
                                 anchors.fill: parent
                                 anchors.margins: -Theme.scaled(4)
                                 onClicked: root.moveRight(modelData.id)
-                            }
-                        }
-
-                        // Convert to Custom button (only for convertible types when selected)
-                        Text {
-                            visible: itemChip.isSelected && root.isConvertibleType(modelData.type)
-                            text: "\u21C4"
-                            color: "orange"
-                            font.pixelSize: Theme.scaled(20)
-                            font.bold: true
-                            MouseArea {
-                                anchors.fill: parent
-                                anchors.margins: -Theme.scaled(4)
-                                onClicked: root.convertToCustomRequested(modelData.id, modelData.type)
                             }
                         }
 
@@ -435,24 +420,4 @@ Rectangle {
         return names[type] || type
     }
 
-    function isConvertibleType(type) {
-        var convertible = ["settings", "history", "autofavorites", "sleep", "quit",
-                           "temperature", "waterLevel", "connectionStatus", "scaleWeight"]
-        return convertible.indexOf(type) >= 0
-    }
-
-    function getConversionMapping(type) {
-        var mappings = {
-            "settings":         { emoji: "qrc:/icons/settings.svg",    content: "Settings",     action: "navigate:settings" },
-            "history":          { emoji: "qrc:/icons/history.svg",     content: "History",      action: "navigate:history" },
-            "autofavorites":    { emoji: "qrc:/icons/star.svg",        content: "Favorites",    action: "navigate:autofavorites" },
-            "sleep":            { emoji: "qrc:/icons/sleep.svg",       content: "Sleep",        action: "command:sleep" },
-            "quit":             { emoji: "qrc:/icons/quit.svg",        content: "Quit",         action: "command:quit" },
-            "temperature":      { emoji: "qrc:/icons/temperature.svg", content: "%TEMP%\u00B0C", action: "" },
-            "waterLevel":       { emoji: "qrc:/icons/water.svg",       content: "%WATER%%",     action: "" },
-            "connectionStatus": { emoji: "qrc:/icons/bluetooth.svg",   content: "%CONNECTED%",  action: "" },
-            "scaleWeight":      { emoji: "",                           content: "%WEIGHT%g",    action: "" }
-        }
-        return mappings[type] || { emoji: "", content: type, action: "" }
-    }
 }

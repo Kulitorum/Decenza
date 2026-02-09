@@ -19,7 +19,6 @@ Popup {
     property string textDoubleclickAction: ""
     property string textEmoji: ""
     property string textBackgroundColor: ""
-    property bool aiPending: false
     property bool showEmojiPicker: false
 
     signal saved()
@@ -43,7 +42,6 @@ Popup {
     }
 
     onClosed: {
-        aiPending = false
         showEmojiPicker = false
     }
 
@@ -79,7 +77,6 @@ Popup {
         textDoubleclickAction = props.doubleclickAction || ""
         textEmoji = props.emoji || ""
         textBackgroundColor = props.backgroundColor || ""
-        aiPending = false
         showEmojiPicker = false
 
         // Load segments if available, otherwise fall back to HTML content
@@ -130,99 +127,12 @@ Popup {
         contentInput.forceActiveFocus()
     }
 
-    // AI Advice: listen for response while this popup is open
-    Connections {
-        target: MainController.aiManager || null
-        enabled: popup.aiPending
-        function onRecommendationReceived(recommendation) {
-            if (!popup.aiPending) return
-            popup.aiPending = false
-            // Strip markdown code fences if the AI wrapped the output
-            var html = recommendation.trim()
-            if (html.startsWith("```")) {
-                html = html.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim()
-            }
-            contentInput.text = html
-        }
-        function onErrorOccurred(error) {
-            if (!popup.aiPending) return
-            popup.aiPending = false
-        }
-    }
-
-    function requestAiAdvice() {
-        if (!MainController.aiManager || !MainController.aiManager.isConfigured) return
-        if (MainController.aiManager.isAnalyzing) return
-
-        var userText = contentInput.text.trim()
-        if (!userText) return
-
-        var systemPrompt =
-            "You are an HTML generator for a text widget in a Decent Espresso machine controller app. " +
-            "The widget renders a subset of HTML 4 (no CSS classes, no <div>, no JavaScript). " +
-            "Supported tags: <b>, <i>, <u>, <span style=\"...\">, <br>. " +
-            "Supported inline styles: color (named or hex), font-size (in px), font-weight. " +
-            "Example: <span style=\"color:#e94560; font-size:48px; font-weight:bold\">Text</span>\n\n" +
-
-            "The widget supports live variables that are replaced with real-time machine data. " +
-            "Available variables (wrap in percent signs):\n" +
-            "  %TEMP% - Group head temperature in °C (e.g. 92.3)\n" +
-            "  %STEAM_TEMP% - Steam heater temperature in °C (e.g. 155.0)\n" +
-            "  %PRESSURE% - Group pressure in bar (e.g. 9.0)\n" +
-            "  %FLOW% - Water flow rate in ml/s (e.g. 2.1)\n" +
-            "  %WATER% - Water tank level in % (e.g. 78)\n" +
-            "  %WATER_ML% - Water tank level in ml (e.g. 850)\n" +
-            "  %WEIGHT% - Current scale weight in g (e.g. 36.2)\n" +
-            "  %SHOT_TIME% - Elapsed shot time in seconds (e.g. 28.5)\n" +
-            "  %TARGET_WEIGHT% - Stop-at-weight target in g (e.g. 36.0)\n" +
-            "  %VOLUME% - Cumulative volume poured in ml (e.g. 42)\n" +
-            "  %PROFILE% - Active profile name (e.g. Adaptive v2)\n" +
-            "  %STATE% - Current machine state (e.g. Idle, Pouring, Steaming)\n" +
-            "  %TARGET_TEMP% - Profile target temperature in °C (e.g. 93.0)\n" +
-            "  %SCALE% - Connected scale device name (e.g. Lunar)\n" +
-            "  %TIME% - Current time HH:MM (e.g. 14:30)\n" +
-            "  %DATE% - Current date YYYY-MM-DD (e.g. 2025-01-15)\n" +
-            "  %RATIO% - Brew ratio (e.g. 2.0)\n" +
-            "  %DOSE% - Dose weight in g (e.g. 18.0)\n" +
-            "  %CONNECTED% - Machine connection status: 'Online' or 'Offline'\n" +
-            "  %CONNECTED_COLOR% - Color for connection status (green when online, red when offline). Use inside style attributes: style=\"color:%CONNECTED_COLOR%\"\n" +
-            "  %DEVICES% - Connected devices description: 'Machine', 'Machine + Scale', or 'Machine + Simulated Scale'\n\n" +
-
-            "Use <br> for line breaks. Variables can be placed inside tags: <b>%TEMP%</b> renders temperature in bold. " +
-            "Multiple styles can be combined in one span: <span style=\"color:red; font-size:28px\">text</span>. " +
-            "Tags can be nested: <b><span style=\"color:#e94560\">bold red</span></b>.\n\n" +
-
-            "RULES:\n" +
-            "- Output ONLY the raw HTML content. No markdown, no code fences, no explanation.\n" +
-            "- Do not use <html>, <head>, <body>, <div>, <p>, or <table> tags.\n" +
-            "- Do not use CSS classes or external stylesheets.\n" +
-            "- Keep it concise — this renders in a small widget on a touchscreen.\n" +
-            "- Use appropriate font sizes: 11-12px for labels, 18px for normal, 28-48px for large readouts.\n" +
-            "- Use colors that look good on a dark background (the app has a dark theme)."
-
-        var userPrompt
-        // Detect if the content already contains HTML
-        var hasHtml = /<[a-z][\s\S]*>/i.test(userText) || /%[A-Z_]+%/.test(userText)
-        if (hasHtml) {
-            userPrompt = "Here is the current HTML content of my text widget:\n\n" +
-                         userText + "\n\n" +
-                         "Please modify it according to this request. If the request is unclear, " +
-                         "interpret it as a modification to the existing content. " +
-                         "Output only the updated HTML."
-        } else {
-            userPrompt = userText
-        }
-
-        popup.aiPending = true
-        MainController.aiManager.analyze(systemPrompt, userPrompt)
-    }
-
     // Variable substitution for preview
     function substitutePreview(text) {
         if (!text) return ""
         var result = text
         result = result.replace(/%TEMP%/g, "92.3")
-        result = result.replace(/%STEAM_TEMP%/g, "155")
+        result = result.replace(/%STEAM_TEMP%/g, "155\u00B0")
         result = result.replace(/%PRESSURE%/g, "9.0")
         result = result.replace(/%FLOW%/g, "2.1")
         result = result.replace(/%WATER%/g, "78")
@@ -975,53 +885,6 @@ Popup {
                 spacing: Theme.scaled(4)
 
                 Item { Layout.fillWidth: true }
-
-                // AI Advice
-                Rectangle {
-                    visible: MainController.aiManager
-                    Layout.preferredWidth: aiRow.implicitWidth + Theme.scaled(16)
-                    height: Theme.scaled(28)
-                    radius: Theme.scaled(6)
-                    opacity: MainController.aiManager && MainController.aiManager.isConfigured
-                             && contentInput.text.trim().length > 0 && !popup.aiPending ? 1.0 : 0.5
-                    color: {
-                        if (popup.aiPending)
-                            return Theme.primaryColor
-                        if (aiMa.pressed)
-                            return Qt.darker(Theme.surfaceColor, 1.2)
-                        return Theme.surfaceColor
-                    }
-                    border.color: Theme.primaryColor; border.width: 1
-
-                    Row {
-                        id: aiRow
-                        anchors.centerIn: parent
-                        spacing: Theme.scaled(4)
-
-                        Image {
-                            source: "qrc:/icons/sparkle.svg"
-                            width: Theme.scaled(14)
-                            height: Theme.scaled(14)
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: status === Image.Ready
-                        }
-
-                        Text {
-                            text: popup.aiPending ? "Working..." : "Ask AI"
-                            color: popup.aiPending ? "white" : Theme.primaryColor
-                            font: Theme.captionFont
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-
-                    MouseArea {
-                        id: aiMa
-                        anchors.fill: parent
-                        enabled: MainController.aiManager && MainController.aiManager.isConfigured
-                                 && contentInput.text.trim().length > 0 && !popup.aiPending
-                        onClicked: popup.requestAiAdvice()
-                    }
-                }
 
                 // Cancel
                 Rectangle {

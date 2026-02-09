@@ -142,7 +142,6 @@ private:
     AIManager* m_aiManager = nullptr;
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
-    QTcpSocket* m_pendingAiSocket = nullptr;  // Socket waiting for AI response
     QTcpSocket* m_pendingLibrarySocket = nullptr;  // Socket waiting for community response
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;

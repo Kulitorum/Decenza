@@ -16,6 +16,11 @@ Rectangle {
     property int displayMode: 0  // 0=full, 1=compact
     property string activeTab: "local"  // "local", "community"
 
+    // Type filters (all on by default)
+    property bool showItems: true
+    property bool showZones: true
+    property bool showLayouts: true
+
     // Type of the currently selected entry ("item", "zone", "layout", or "")
     readonly property string selectedEntryType: {
         var id = WidgetLibrary.selectedEntryId
@@ -356,6 +361,56 @@ Rectangle {
                     onClicked: captureAndUpload()
                 }
             }
+
+            Item { Layout.fillWidth: true }
+
+            // Type filter: Items
+            Rectangle {
+                width: Theme.scaled(30); height: Theme.scaled(30)
+                radius: Theme.scaled(4)
+                color: showItems ? Theme.primaryColor : "transparent"
+                border.color: showItems ? Theme.primaryColor : Theme.borderColor
+                border.width: 1
+                Text {
+                    anchors.centerIn: parent; text: "I"
+                    color: showItems ? "white" : Theme.textSecondaryColor
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.scaled(12); font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: showItems = !showItems }
+            }
+
+            // Type filter: Zones
+            Rectangle {
+                width: Theme.scaled(30); height: Theme.scaled(30)
+                radius: Theme.scaled(4)
+                color: showZones ? Theme.primaryColor : "transparent"
+                border.color: showZones ? Theme.primaryColor : Theme.borderColor
+                border.width: 1
+                Text {
+                    anchors.centerIn: parent; text: "Z"
+                    color: showZones ? "white" : Theme.textSecondaryColor
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.scaled(12); font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: showZones = !showZones }
+            }
+
+            // Type filter: Layouts
+            Rectangle {
+                width: Theme.scaled(30); height: Theme.scaled(30)
+                radius: Theme.scaled(4)
+                color: showLayouts ? Theme.primaryColor : "transparent"
+                border.color: showLayouts ? Theme.primaryColor : Theme.borderColor
+                border.width: 1
+                Text {
+                    anchors.centerIn: parent; text: "L"
+                    color: showLayouts ? "white" : Theme.textSecondaryColor
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.scaled(12); font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: showLayouts = !showLayouts }
+            }
         }
 
         // Library entries list
@@ -368,9 +423,19 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
 
             model: {
-                if (activeTab === "local") return WidgetLibrary.entries
-                if (activeTab === "community") return LibrarySharing.communityEntries
-                return []
+                var entries = activeTab === "local" ? WidgetLibrary.entries
+                            : activeTab === "community" ? LibrarySharing.communityEntries
+                            : []
+                if (showItems && showZones && showLayouts) return entries
+                var result = []
+                for (var i = 0; i < entries.length; i++) {
+                    var t = entries[i].type || ""
+                    if ((t === "item" && showItems) ||
+                        (t === "zone" && showZones) ||
+                        (t === "layout" && showLayouts))
+                        result.push(entries[i])
+                }
+                return result
             }
 
             delegate: LibraryItemCard {
@@ -447,6 +512,7 @@ Rectangle {
             entryData: ({})
             isSelected: false
             showBadge: false
+            livePreview: true
         }
 
         LibraryItemCard {
@@ -457,10 +523,11 @@ Rectangle {
             entryData: ({})
             isSelected: false
             showBadge: false
+            livePreview: true
         }
     }
 
-    // Timer to allow thumbnail components to fully render before capture
+    // Timer to allow thumbnail components to fully render before capture (community upload)
     Timer {
         id: captureTimer
         interval: 200
@@ -470,11 +537,55 @@ Rectangle {
             thumbCardFull.grabToImage(function(fullResult) {
                 thumbCardCompact.grabToImage(function(compactResult) {
                     thumbContainer.visible = false
+                    // Save locally as well (caches for web editor + library panel)
+                    WidgetLibrary.saveThumbnail(captureEntryId, fullResult.image)
+                    WidgetLibrary.saveThumbnailCompact(captureEntryId, compactResult.image)
                     LibrarySharing.uploadEntryWithThumbnails(captureEntryId,
                         fullResult.image, compactResult.image)
                 }, Qt.size(Theme.scaled(280), thumbCardCompact.height))
             }, Qt.size(Theme.scaled(280), thumbCardFull.height))
         }
+    }
+
+    // Timer for local thumbnail capture (full + compact)
+    Timer {
+        id: localCaptureTimer
+        interval: 200
+        repeat: false
+        property string captureEntryId: ""
+        onTriggered: {
+            thumbCardFull.grabToImage(function(fullResult) {
+                WidgetLibrary.saveThumbnail(captureEntryId, fullResult.image)
+                thumbCardCompact.grabToImage(function(compactResult) {
+                    WidgetLibrary.saveThumbnailCompact(captureEntryId, compactResult.image)
+                    thumbContainer.visible = false
+                }, Qt.size(Theme.scaled(280), thumbCardCompact.height))
+            }, Qt.size(Theme.scaled(280), thumbCardFull.height))
+        }
+    }
+
+    // Auto-capture thumbnails when entries are added or re-capture is requested
+    Connections {
+        target: WidgetLibrary
+        function onEntryAdded(entryId) {
+            triggerLocalCapture(entryId)
+        }
+        function onRequestThumbnailCapture(entryId) {
+            triggerLocalCapture(entryId)
+        }
+    }
+
+    function triggerLocalCapture(entryId) {
+        var data = WidgetLibrary.getEntryData(entryId)
+        if (!data || !data.type) return
+
+        thumbCardFull.entryData = data
+        thumbCardCompact.entryData = data
+        thumbContainer.z = -1
+        thumbContainer.visible = true
+
+        localCaptureTimer.captureEntryId = entryId
+        localCaptureTimer.start()
     }
 
     // Track pending apply-after-download

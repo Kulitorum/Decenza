@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import DecenzaDE1
 import "../layout" as LayoutComponents
 import "../layout/items" as LayoutItems
@@ -12,6 +13,7 @@ Rectangle {
     property int displayMode: 0  // 0=full preview, 1=compact list
     property bool isSelected: false
     property bool showBadge: true
+    property bool livePreview: false  // When true, always render live (for thumbnail capture)
 
     width: parent ? parent.width : 100
     visible: !(displayMode === 1 && entryType !== "item")
@@ -46,10 +48,33 @@ Rectangle {
     border.color: isSelected ? Theme.primaryColor : Theme.borderColor
     border.width: isSelected ? 2 : 1
 
-    // Thumbnail URLs from server (community entries)
+    // Server thumbnail URLs (community entries)
     readonly property string thumbnailFullUrl: entryData.thumbnailFullUrl || ""
     readonly property string thumbnailCompactUrl: entryData.thumbnailCompactUrl || ""
-    readonly property string thumbnailUrl: displayMode === 0 ? thumbnailFullUrl : thumbnailCompactUrl
+    readonly property string serverThumbnailUrl: displayMode === 0 ? thumbnailFullUrl : thumbnailCompactUrl
+
+    // Local thumbnail (captured on save, avoids live rendering)
+    property int _thumbVersion: 0
+    Connections {
+        target: WidgetLibrary
+        function onThumbnailSaved(savedId) {
+            if (savedId === (entryData.id || "")) _thumbVersion++
+        }
+    }
+    readonly property string localThumbnailSource: {
+        void(_thumbVersion)
+        if (livePreview) return ""
+        var id = entryData.id || ""
+        if (id === "") return ""
+        if (displayMode === 1 && WidgetLibrary.hasThumbnailCompact(id))
+            return "file:///" + WidgetLibrary.thumbnailCompactPath(id) + "?v=" + _thumbVersion
+        if (WidgetLibrary.hasThumbnail(id))
+            return "file:///" + WidgetLibrary.thumbnailPath(id) + "?v=" + _thumbVersion
+        return ""
+    }
+
+    // Combined: server > local > none
+    readonly property string thumbnailUrl: serverThumbnailUrl !== "" ? serverThumbnailUrl : localThumbnailSource
     readonly property bool hasThumbnail: thumbnailUrl !== ""
 
     // Entry data helpers
@@ -181,7 +206,7 @@ Rectangle {
         if (!text) return ""
         var result = text
         var vars = {
-            "%TEMP%": "93.2", "%STEAM_TEMP%": "155",
+            "%TEMP%": "93.2", "%STEAM_TEMP%": "155\u00B0",
             "%PRESSURE%": "9.0", "%FLOW%": "2.1",
             "%WATER%": "78", "%WATER_ML%": "850",
             "%WEIGHT%": "36.2", "%SHOT_TIME%": "28.5",
@@ -257,168 +282,169 @@ Rectangle {
             anchors.fill: parent
             source: thumbnailUrl
             fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            sourceSize.width: width * Screen.devicePixelRatio
+            sourceSize.height: height * Screen.devicePixelRatio
         }
 
-        // Item preview using actual idle page CustomItem rendering
-        LayoutItems.CustomItem {
-            visible: entryType === "item" && !hasThumbnail
+        // Item preview — only instantiated when needed (no thumbnail, or livePreview for capture)
+        Loader {
+            active: entryType === "item" && (livePreview || !hasThumbnail)
             anchors.fill: parent
-            isCompact: false
-            modelData: card.previewModelData
-        }
-
-        // Zone preview using actual idle page zone rendering (scaled to fit)
-        Item {
-            visible: entryType === "zone" && !hasThumbnail
-            anchors.fill: parent
-            clip: true
-
-            LayoutComponents.LayoutCenterZone {
-                id: zonePreviewCenter
-                visible: !card.isBarZone
-                width: Theme.scaled(800)
-                anchors.centerIn: parent
-                zoneName: card.entryZoneName || "centerTop"
-                items: card.entryZoneItems
-                scale: Math.min(parent.width / Math.max(1, width), 1.0)
-                transformOrigin: Item.Center
-            }
-
-            LayoutComponents.LayoutBarZone {
-                id: zonePreviewBar
-                visible: card.isBarZone
-                anchors.centerIn: parent
-                zoneName: card.entryZoneName
-                items: card.entryZoneItems
-                scale: Math.min(parent.width / Math.max(1, implicitWidth), 1.0)
-                transformOrigin: Item.Center
-            }
-        }
-
-        // Layout preview - full idle page structure (scaled to fit)
-        Item {
-            visible: entryType === "layout" && !hasThumbnail
-            anchors.fill: parent
-            clip: true
-
-            // Render at reference size matching idle page proportions, then scale
-            Item {
-                id: layoutPreviewContent
-                width: Theme.scaled(800)
-                height: Theme.scaled(480)
-                anchors.centerIn: parent
-                scale: Math.min(parent.width / Math.max(1, width),
-                               parent.height / Math.max(1, height))
-                transformOrigin: Item.Center
-
-                // Background
-                Rectangle {
-                    anchors.fill: parent
-                    color: Theme.backgroundColor
+            sourceComponent: Component {
+                LayoutItems.CustomItem {
+                    isCompact: false
+                    modelData: card.previewModelData
                 }
+            }
+        }
 
-                // Status bar (top-most)
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: Theme.statusBarHeight
-                    color: Theme.surfaceColor
-                    visible: card.layoutStatusBarItems.length > 0
+        // Zone preview — only instantiated when needed
+        Loader {
+            active: entryType === "zone" && (livePreview || !hasThumbnail)
+            anchors.fill: parent
+            sourceComponent: Component {
+                Item {
+                    clip: true
+                    LayoutComponents.LayoutCenterZone {
+                        visible: !card.isBarZone
+                        width: Theme.scaled(800)
+                        anchors.centerIn: parent
+                        zoneName: card.entryZoneName || "centerTop"
+                        items: card.entryZoneItems
+                        scale: Math.min(parent.width / Math.max(1, width), 1.0)
+                        transformOrigin: Item.Center
+                    }
+                    LayoutComponents.LayoutBarZone {
+                        visible: card.isBarZone
+                        anchors.centerIn: parent
+                        zoneName: card.entryZoneName
+                        items: card.entryZoneItems
+                        scale: Math.min(parent.width / Math.max(1, implicitWidth), 1.0)
+                        transformOrigin: Item.Center
+                    }
+                }
+            }
+        }
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.scaled(4)
-                        anchors.rightMargin: Theme.scaled(4)
-                        spacing: Theme.spacingMedium
+        // Layout preview — only instantiated when needed (heaviest component)
+        Loader {
+            active: entryType === "layout" && (livePreview || !hasThumbnail)
+            anchors.fill: parent
+            sourceComponent: Component {
+                Item {
+                    clip: true
+                    Item {
+                        width: Theme.scaled(800)
+                        height: Theme.scaled(480)
+                        anchors.centerIn: parent
+                        scale: Math.min(parent.width / Math.max(1, width),
+                                       parent.height / Math.max(1, height))
+                        transformOrigin: Item.Center
 
-                        Repeater {
-                            model: card.layoutStatusBarItems
-                            delegate: LayoutComponents.LayoutItemDelegate {
-                                zoneName: "statusBar"
-                                Layout.fillWidth: modelData.type === "spacer"
+                        Rectangle {
+                            anchors.fill: parent
+                            color: Theme.backgroundColor
+                        }
+
+                        Rectangle {
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: Theme.statusBarHeight
+                            color: Theme.surfaceColor
+                            visible: card.layoutStatusBarItems.length > 0
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.scaled(4)
+                                anchors.rightMargin: Theme.scaled(4)
+                                spacing: Theme.spacingMedium
+
+                                Repeater {
+                                    model: card.layoutStatusBarItems
+                                    delegate: LayoutComponents.LayoutItemDelegate {
+                                        zoneName: "statusBar"
+                                        Layout.fillWidth: modelData.type === "spacer"
+                                    }
+                                }
                             }
                         }
-                    }
-                }
 
-                // Top bar
-                RowLayout {
-                    anchors.top: parent.top
-                    anchors.topMargin: (card.layoutStatusBarItems.length > 0
-                        ? Theme.statusBarHeight : 0) + Theme.scaled(8)
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: Theme.scaled(8)
-                    anchors.rightMargin: Theme.scaled(8)
-                    spacing: Theme.scaled(20)
+                        RowLayout {
+                            anchors.top: parent.top
+                            anchors.topMargin: (card.layoutStatusBarItems.length > 0
+                                ? Theme.statusBarHeight : 0) + Theme.scaled(8)
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: Theme.scaled(8)
+                            anchors.rightMargin: Theme.scaled(8)
+                            spacing: Theme.scaled(20)
 
-                    LayoutComponents.LayoutBarZone {
-                        zoneName: "topLeft"
-                        items: card.layoutTopLeftItems
-                    }
-                    Item { Layout.fillWidth: true }
-                    LayoutComponents.LayoutBarZone {
-                        zoneName: "topRight"
-                        items: card.layoutTopRightItems
-                    }
-                }
-
-                // Center zones
-                ColumnLayout {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.verticalCenterOffset: Theme.scaled(20)
-                    anchors.leftMargin: Theme.scaled(8)
-                    anchors.rightMargin: Theme.scaled(8)
-                    spacing: Theme.scaled(10)
-
-                    LayoutComponents.LayoutCenterZone {
-                        Layout.fillWidth: true
-                        zoneName: "centerStatus"
-                        items: card.layoutCenterStatusItems
-                        visible: card.layoutCenterStatusItems.length > 0
-                    }
-
-                    LayoutComponents.LayoutCenterZone {
-                        Layout.fillWidth: true
-                        zoneName: "centerTop"
-                        items: card.layoutCenterTopItems
-                    }
-
-                    LayoutComponents.LayoutCenterZone {
-                        Layout.fillWidth: true
-                        zoneName: "centerMiddle"
-                        items: card.layoutCenterMiddleItems
-                        visible: card.layoutCenterMiddleItems.length > 0
-                    }
-                }
-
-                // Bottom bar
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: Theme.bottomBarHeight
-                    color: Theme.surfaceColor
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingMedium
-                        anchors.rightMargin: Theme.spacingMedium
-                        spacing: Theme.spacingMedium
-
-                        LayoutComponents.LayoutBarZone {
-                            zoneName: "bottomLeft"
-                            items: card.layoutBottomLeftItems
-                            Layout.fillHeight: true
+                            LayoutComponents.LayoutBarZone {
+                                zoneName: "topLeft"
+                                items: card.layoutTopLeftItems
+                            }
+                            Item { Layout.fillWidth: true }
+                            LayoutComponents.LayoutBarZone {
+                                zoneName: "topRight"
+                                items: card.layoutTopRightItems
+                            }
                         }
-                        Item { Layout.fillWidth: true }
-                        LayoutComponents.LayoutBarZone {
-                            zoneName: "bottomRight"
-                            items: card.layoutBottomRightItems
-                            Layout.fillHeight: true
+
+                        ColumnLayout {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.verticalCenterOffset: Theme.scaled(20)
+                            anchors.leftMargin: Theme.scaled(8)
+                            anchors.rightMargin: Theme.scaled(8)
+                            spacing: Theme.scaled(10)
+
+                            LayoutComponents.LayoutCenterZone {
+                                Layout.fillWidth: true
+                                zoneName: "centerStatus"
+                                items: card.layoutCenterStatusItems
+                                visible: card.layoutCenterStatusItems.length > 0
+                            }
+                            LayoutComponents.LayoutCenterZone {
+                                Layout.fillWidth: true
+                                zoneName: "centerTop"
+                                items: card.layoutCenterTopItems
+                            }
+                            LayoutComponents.LayoutCenterZone {
+                                Layout.fillWidth: true
+                                zoneName: "centerMiddle"
+                                items: card.layoutCenterMiddleItems
+                                visible: card.layoutCenterMiddleItems.length > 0
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: Theme.bottomBarHeight
+                            color: Theme.surfaceColor
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.spacingMedium
+                                anchors.rightMargin: Theme.spacingMedium
+                                spacing: Theme.spacingMedium
+
+                                LayoutComponents.LayoutBarZone {
+                                    zoneName: "bottomLeft"
+                                    items: card.layoutBottomLeftItems
+                                    Layout.fillHeight: true
+                                }
+                                Item { Layout.fillWidth: true }
+                                LayoutComponents.LayoutBarZone {
+                                    zoneName: "bottomRight"
+                                    items: card.layoutBottomRightItems
+                                    Layout.fillHeight: true
+                                }
+                            }
                         }
                     }
                 }
@@ -463,14 +489,21 @@ Rectangle {
             anchors.margins: Theme.spacingSmall
             source: thumbnailUrl
             fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            sourceSize.width: width * Screen.devicePixelRatio
+            sourceSize.height: height * Screen.devicePixelRatio
         }
 
-        // Item preview using actual idle page CustomItem compact rendering
-        LayoutItems.CustomItem {
-            visible: !hasThumbnail
+        // Item preview — only instantiated when no thumbnail
+        Loader {
+            active: livePreview || !hasThumbnail
             anchors.fill: parent
-            isCompact: true
-            modelData: card.previewModelData
+            sourceComponent: Component {
+                LayoutItems.CustomItem {
+                    isCompact: true
+                    modelData: card.previewModelData
+                }
+            }
         }
     }
 

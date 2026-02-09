@@ -98,7 +98,7 @@ Item {
         var result = sanitizeHtml(text)
         // Machine
         result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" ? DE1Device.temperature.toFixed(1) : "—")
-        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? DE1Device.steamTemperature.toFixed(0) : "—")
+        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? DE1Device.steamTemperature.toFixed(0) + "\u00B0" : "—")
         result = result.replace(/%PRESSURE%/g, typeof DE1Device !== "undefined" ? DE1Device.pressure.toFixed(1) : "—")
         result = result.replace(/%FLOW%/g, typeof DE1Device !== "undefined" ? DE1Device.flow.toFixed(1) : "—")
         result = result.replace(/%WATER%/g, typeof DE1Device !== "undefined" ? DE1Device.waterLevel.toFixed(0) : "—")

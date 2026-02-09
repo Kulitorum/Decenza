@@ -13,42 +13,25 @@ Item {
     property string filterType: ""
     property string filterVariable: ""
     property string filterAction: ""
-    property string searchText: ""
     property string sortBy: "newest"
     property int currentPage: 1
 
-    Component.onCompleted: refreshResults()
+    // Selection
+    property string selectedEntryId: ""
+
+    Component.onCompleted: {
+        root.currentPageTitle = "Community"
+        refreshResults()
+    }
+    StackView.onActivated: root.currentPageTitle = "Community"
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.scaled(12)
+        anchors.topMargin: Theme.pageTopMargin
+        anchors.leftMargin: Theme.scaled(12)
+        anchors.rightMargin: Theme.scaled(12)
+        anchors.bottomMargin: Theme.bottomBarHeight
         spacing: Theme.spacingMedium
-
-        // Header with back button
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
-
-            AccessibleButton {
-                text: "\u2190 Back"
-                accessibleName: "Back to settings"
-                onClicked: pageStack.pop()
-            }
-
-            Text {
-                text: "Community Library"
-                color: Theme.textColor
-                font: Theme.titleFont
-                Layout.fillWidth: true
-            }
-
-            Text {
-                visible: LibrarySharing.totalCommunityResults > 0
-                text: LibrarySharing.totalCommunityResults + " entries"
-                color: Theme.textSecondaryColor
-                font: Theme.captionFont
-            }
-        }
 
         // Filter bar
         RowLayout {
@@ -56,7 +39,7 @@ Item {
             spacing: Theme.scaled(8)
 
             // Type filter
-            ComboBox {
+            StyledComboBox {
                 id: typeFilter
                 Layout.preferredWidth: Theme.scaled(120)
                 model: ["All Types", "Items", "Zones", "Layouts"]
@@ -68,51 +51,62 @@ Item {
             }
 
             // Variable filter
-            ComboBox {
+            StyledComboBox {
                 id: variableFilter
-                Layout.preferredWidth: Theme.scaled(140)
-                model: ["Any Variable", "%TEMP%", "%STEAM_TEMP%", "%PRESSURE%",
-                        "%FLOW%", "%WEIGHT%", "%WATER%", "%SHOT_TIME%",
-                        "%PROFILE%", "%STATE%", "%TIME%", "%DATE%",
-                        "%RATIO%", "%DOSE%", "%TARGET_WEIGHT%"]
+                Layout.fillWidth: true
+                model: ["Any Variable", "Group Head Temp", "Steam Temp", "Pressure",
+                        "Flow Rate", "Weight", "Water Level", "Shot Time",
+                        "Profile", "Machine State", "Time", "Date",
+                        "Ratio", "Dose", "Target Weight"]
                 onCurrentIndexChanged: {
-                    filterVariable = currentIndex > 0 ? currentText : ""
+                    var vars = ["", "%TEMP%", "%STEAM_TEMP%", "%PRESSURE%",
+                                "%FLOW%", "%WEIGHT%", "%WATER%", "%SHOT_TIME%",
+                                "%PROFILE%", "%STATE%", "%TIME%", "%DATE%",
+                                "%RATIO%", "%DOSE%", "%TARGET_WEIGHT%"]
+                    filterVariable = vars[currentIndex]
                     refreshResults()
                 }
             }
 
             // Action filter
-            ComboBox {
+            StyledComboBox {
                 id: actionFilter
-                Layout.preferredWidth: Theme.scaled(140)
-                model: ["Any Action", "navigate:settings", "navigate:history",
-                        "navigate:autofavorites", "navigate:steam",
-                        "navigate:hotwater", "navigate:flush",
-                        "command:sleep", "command:quit", "command:tare",
-                        "command:startEspresso", "command:stop"]
+                Layout.fillWidth: true
+                model: ["Any Action",
+                        "Go to Settings", "Go to History", "Go to Profiles",
+                        "Go to Profile Editor", "Go to Recipes", "Go to Descaling",
+                        "Go to AI", "Go to Visualizer", "Go to Favorites",
+                        "Go to Steam", "Go to Hot Water", "Go to Flush",
+                        "Go to Bean Info",
+                        "Sleep", "Start Espresso", "Start Steam",
+                        "Start Hot Water", "Start Flush", "Stop",
+                        "Tare Scale", "Quit App",
+                        "Toggle Espresso", "Toggle Steam",
+                        "Toggle Hot Water", "Toggle Flush", "Toggle Beans"]
                 onCurrentIndexChanged: {
-                    filterAction = currentIndex > 0 ? currentText : ""
+                    var actions = ["",
+                        "navigate:settings", "navigate:history", "navigate:profiles",
+                        "navigate:profileEditor", "navigate:recipes", "navigate:descaling",
+                        "navigate:ai", "navigate:visualizer", "navigate:autofavorites",
+                        "navigate:steam", "navigate:hotwater", "navigate:flush",
+                        "navigate:beaninfo",
+                        "command:sleep", "command:startEspresso", "command:startSteam",
+                        "command:startHotWater", "command:startFlush", "command:idle",
+                        "command:tare", "command:quit",
+                        "togglePreset:espresso", "togglePreset:steam",
+                        "togglePreset:hotwater", "togglePreset:flush", "togglePreset:beans"]
+                    filterAction = actions[currentIndex]
                     refreshResults()
                 }
             }
 
-            // Search field
-            StyledTextField {
-                id: searchField
-                Layout.fillWidth: true
-                placeholderText: "Search..."
-                onTextChanged: {
-                    searchTimer.restart()
-                }
-            }
-
             // Sort
-            ComboBox {
+            StyledComboBox {
                 id: sortFilter
                 Layout.preferredWidth: Theme.scaled(120)
-                model: ["Newest", "Most Popular", "Name A-Z"]
+                model: ["Newest", "Most Popular"]
                 onCurrentIndexChanged: {
-                    var sorts = ["newest", "popular", "name"]
+                    var sorts = ["newest", "popular"]
                     sortBy = sorts[currentIndex]
                     refreshResults()
                 }
@@ -134,8 +128,8 @@ Item {
             id: resultsGrid
             Layout.fillWidth: true
             Layout.fillHeight: true
-            cellWidth: Theme.scaled(280)
-            cellHeight: Theme.scaled(80)
+            cellWidth: Theme.scaled(300)
+            cellHeight: Theme.scaled(200)
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
@@ -146,8 +140,14 @@ Item {
                 height: resultsGrid.cellHeight - Theme.scaled(8)
                 entryData: modelData
                 displayMode: 0
+                isSelected: communityBrowser.selectedEntryId === (modelData.id || "")
 
                 onClicked: {
+                    var id = modelData.id || ""
+                    communityBrowser.selectedEntryId =
+                        communityBrowser.selectedEntryId === id ? "" : id
+                }
+                onDoubleClicked: {
                     LibrarySharing.downloadEntry(modelData.id)
                 }
             }
@@ -159,7 +159,7 @@ Item {
                     if (currentPage < totalPages) {
                         currentPage++
                         LibrarySharing.browseCommunity(filterType, filterVariable,
-                            filterAction, searchText, sortBy, currentPage)
+                            filterAction, "", sortBy, currentPage)
                     }
                 }
             }
@@ -168,7 +168,7 @@ Item {
             Text {
                 visible: resultsGrid.count === 0 && !LibrarySharing.browsing
                 anchors.centerIn: parent
-                text: searchText || filterType || filterVariable || filterAction
+                text: filterType || filterVariable || filterAction
                     ? "No entries match your filters."
                     : "Community library is empty.\nBe the first to share a widget!"
                 color: Theme.textSecondaryColor
@@ -178,21 +178,16 @@ Item {
         }
     }
 
-    // Debounce search input
-    Timer {
-        id: searchTimer
-        interval: 400
-        onTriggered: {
-            searchText = searchField.text
-            refreshResults()
-        }
-    }
-
     // Download feedback
     Connections {
         target: LibrarySharing
         function onDownloadComplete(localEntryId) {
-            downloadToast.text = "Downloaded to library!"
+            downloadToast.text = "Added to your library!"
+            downloadToast.visible = true
+            downloadToastTimer.restart()
+        }
+        function onDownloadAlreadyExists(localEntryId) {
+            downloadToast.text = "Already in your library"
             downloadToast.visible = true
             downloadToastTimer.restart()
         }
@@ -208,7 +203,7 @@ Item {
         id: downloadToast
         visible: false
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(20)
+        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
         anchors.horizontalCenter: parent.horizontalCenter
         width: toastText.implicitWidth + Theme.scaled(32)
         height: Theme.scaled(40)
@@ -233,9 +228,47 @@ Item {
         onTriggered: downloadToast.visible = false
     }
 
+    // Bottom navigation bar
+    BottomBar {
+        title: "Community"
+        onBackClicked: pageStack.pop()
+
+        // Download button
+        Rectangle {
+            property bool downloadEnabled: selectedEntryId !== "" && !LibrarySharing.downloading
+            width: downloadLabel.implicitWidth + Theme.scaled(32)
+            height: Theme.scaled(40)
+            radius: Theme.scaled(20)
+            color: downloadEnabled ? "white" : Qt.rgba(1, 1, 1, 0.15)
+
+            Text {
+                id: downloadLabel
+                anchors.centerIn: parent
+                text: LibrarySharing.downloading ? "Downloading..." : "Add to Library"
+                color: parent.downloadEnabled ? Theme.primaryColor : Qt.rgba(1, 1, 1, 0.5)
+                font.family: Theme.bodyFont.family
+                font.pixelSize: Theme.bodyFont.pixelSize
+                font.bold: true
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: parent.downloadEnabled
+                onClicked: LibrarySharing.downloadEntry(selectedEntryId)
+            }
+        }
+
+        Text {
+            visible: LibrarySharing.totalCommunityResults > 0
+            text: LibrarySharing.totalCommunityResults + " entries"
+            color: "white"
+            font: Theme.captionFont
+        }
+    }
+
     function refreshResults() {
         currentPage = 1
         LibrarySharing.browseCommunity(filterType, filterVariable,
-            filterAction, searchText, sortBy, currentPage)
+            filterAction, "", sortBy, currentPage)
     }
 }
