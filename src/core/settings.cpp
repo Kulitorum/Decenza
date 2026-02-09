@@ -1840,6 +1840,10 @@ QString Settings::dyeShotNotes() const {
 void Settings::setDyeShotNotes(const QString& value) {
     if (dyeShotNotes() != value) {
         m_settings.setValue("dye/shotNotes", value);
+        // Clear legacy key so the fallback in the getter doesn't resurrect old notes
+        if (value.isEmpty()) {
+            m_settings.remove("dye/espressoNotes");
+        }
         emit dyeShotNotesChanged();
     }
 }
