@@ -778,8 +778,9 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     }
     else if (path.startsWith("/api/backup/profile/")) {
         // /api/backup/profile/{category}/{filename} - download individual profile
+        // Category can be compound (e.g., "external/user"), so split on LAST slash
         QString remainder = path.mid(20);  // After "/api/backup/profile/"
-        int slashIdx = remainder.indexOf('/');
+        int slashIdx = remainder.lastIndexOf('/');
         if (slashIdx > 0) {
             QString category = remainder.left(slashIdx);
             QString filename = QUrl::fromPercentEncoding(remainder.mid(slashIdx + 1).toUtf8());
