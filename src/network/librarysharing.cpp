@@ -53,11 +53,6 @@ void LibrarySharing::uploadEntryWithThumbnails(const QString& entryId,
                                                 const QImage& thumbnailFull,
                                                 const QImage& thumbnailCompact)
 {
-    if (m_uploading) {
-        qWarning() << "LibrarySharing: Already uploading";
-        return;
-    }
-
     QByteArray entryJson = m_library->exportEntry(entryId);
     if (entryJson.isEmpty()) {
         setLastError("Entry not found: " + entryId);
@@ -98,7 +93,12 @@ void LibrarySharing::uploadEntryWithThumbnails(const QString& entryId,
         qDebug() << "LibrarySharing: Thumbnail compact:" << compactPng.size() << "bytes";
 
     QNetworkReply* reply = m_networkManager.post(request, body);
-    connect(reply, &QNetworkReply::finished, this, &LibrarySharing::onUploadFinished);
+
+    // Capture local ID per-upload so concurrent uploads each track their own entry
+    QString localId = entryId;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, localId]() {
+        handleUploadFinished(reply, localId);
+    });
 }
 
 QByteArray LibrarySharing::buildMultipart(const QByteArray& entryJson,
@@ -139,17 +139,15 @@ QByteArray LibrarySharing::buildMultipart(const QByteArray& entryJson,
     return body;
 }
 
-void LibrarySharing::onUploadFinished()
+void LibrarySharing::handleUploadFinished(QNetworkReply* reply, const QString& localEntryId)
 {
-    QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
-    if (!reply) return;
     reply->deleteLater();
     setUploading(false);
 
     QByteArray responseBody = reply->readAll();
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    qDebug() << "LibrarySharing: Upload response status:" << statusCode;
-    qDebug() << "LibrarySharing: Upload response body:" << responseBody.left(1000);
+    qDebug() << "LibrarySharing: Upload response status:" << statusCode
+             << "for local entry:" << localEntryId;
 
     QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     QJsonObject obj = doc.object();
@@ -158,6 +156,12 @@ void LibrarySharing::onUploadFinished()
     if (statusCode == 409) {
         QString existingId = obj["existingId"].toString();
         qDebug() << "LibrarySharing: Already shared (existing ID:" << existingId << ")";
+
+        // Still adopt the server ID so future downloads match
+        if (!existingId.isEmpty() && existingId != localEntryId) {
+            m_library->renameEntry(localEntryId, existingId);
+        }
+
         setLastError("Already shared");
         emit uploadFailed("Already shared");
         return;
@@ -173,7 +177,14 @@ void LibrarySharing::onUploadFinished()
 
     if (obj.contains("id")) {
         QString serverId = obj["id"].toString();
-        qDebug() << "LibrarySharing: Upload successful, server ID:" << serverId;
+        qDebug() << "LibrarySharing: Upload successful, server ID:" << serverId
+                 << "(local was:" << localEntryId << ")";
+
+        // Rename local entry to match server ID so downloads won't create duplicates
+        if (!localEntryId.isEmpty() && serverId != localEntryId) {
+            m_library->renameEntry(localEntryId, serverId);
+        }
+
         emit uploadSuccess(serverId);
     } else {
         QString error = obj["error"].toString("Upload failed");
@@ -445,6 +456,15 @@ void LibrarySharing::onDownloadDataFinished()
 
     QByteArray data = reply->readAll();
 
+    // Check if entry already exists locally (same server ID)
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QString serverId = doc.object()["id"].toString();
+    if (!serverId.isEmpty() && !m_library->getEntry(serverId).isEmpty()) {
+        qDebug() << "LibrarySharing: Entry already in library:" << serverId;
+        emit downloadAlreadyExists(serverId);
+        return;
+    }
+
     // Import into local library
     QString localId = m_library->importEntry(data);
     if (localId.isEmpty()) {
@@ -639,12 +659,14 @@ bool LibrarySharing::isUnfilteredBrowse(const QString& type, const QString& vari
 // Property setters
 // ---------------------------------------------------------------------------
 
-void LibrarySharing::setUploading(bool v)
+void LibrarySharing::setUploading(bool starting)
 {
-    if (m_uploading != v) {
-        m_uploading = v;
+    bool wasBusy = m_activeUploads > 0;
+    m_activeUploads += starting ? 1 : -1;
+    if (m_activeUploads < 0) m_activeUploads = 0;
+    bool isBusy = m_activeUploads > 0;
+    if (wasBusy != isBusy)
         emit uploadingChanged();
-    }
 }
 
 void LibrarySharing::setBrowsing(bool v)

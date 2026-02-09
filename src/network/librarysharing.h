@@ -8,6 +8,7 @@
 #include <QImage>
 #include <QDateTime>
 
+class QNetworkReply;
 class Settings;
 class WidgetLibrary;
 
@@ -39,7 +40,7 @@ class LibrarySharing : public QObject
 public:
     explicit LibrarySharing(Settings* settings, WidgetLibrary* library, QObject* parent = nullptr);
 
-    bool isUploading() const { return m_uploading; }
+    bool isUploading() const { return m_activeUploads > 0; }
     bool isBrowsing() const { return m_browsing; }
     bool isDownloading() const { return m_downloading; }
     QString lastError() const { return m_lastError; }
@@ -96,12 +97,12 @@ signals:
     void uploadSuccess(const QString& serverId);
     void uploadFailed(const QString& error);
     void downloadComplete(const QString& localEntryId);
+    void downloadAlreadyExists(const QString& localEntryId);
     void downloadFailed(const QString& error);
     void deleteSuccess();
     void deleteFailed(const QString& error);
 
 private slots:
-    void onUploadFinished();
     void onBrowseFinished();
     void onFeaturedFinished();
     void onDownloadMetaFinished();
@@ -111,6 +112,7 @@ private slots:
     void onRecordDownloadFinished();
 
 private:
+    void handleUploadFinished(QNetworkReply* reply, const QString& localEntryId);
     QNetworkRequest buildRequest(const QString& path) const;
     QByteArray buildMultipart(const QByteArray& entryJson,
                                const QByteArray& thumbnailFullPng,
@@ -134,7 +136,7 @@ private:
     WidgetLibrary* m_library;
     QNetworkAccessManager m_networkManager;
 
-    bool m_uploading = false;
+    int m_activeUploads = 0;
     bool m_browsing = false;
     bool m_downloading = false;
     bool m_browseIsIncremental = false;  // true when using since= param

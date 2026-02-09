@@ -60,6 +60,9 @@ public:
     Q_INVOKABLE QString importEntry(const QByteArray& json);
     Q_INVOKABLE QByteArray exportEntry(const QString& entryId) const;
 
+    // Rename entry ID (used after upload to adopt server-assigned ID)
+    bool renameEntry(const QString& oldId, const QString& newId);
+
     // Thumbnail management
     Q_INVOKABLE void saveThumbnail(const QString& entryId, const QImage& image);
     Q_INVOKABLE void saveThumbnailCompact(const QString& entryId, const QImage& image);

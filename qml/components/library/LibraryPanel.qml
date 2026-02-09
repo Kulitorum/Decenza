@@ -16,6 +16,11 @@ Rectangle {
     property int displayMode: 0  // 0=full, 1=compact
     property string activeTab: "local"  // "local", "community"
 
+    // Type filters (all on by default)
+    property bool showItems: true
+    property bool showZones: true
+    property bool showLayouts: true
+
     // Type of the currently selected entry ("item", "zone", "layout", or "")
     readonly property string selectedEntryType: {
         var id = WidgetLibrary.selectedEntryId
@@ -356,6 +361,56 @@ Rectangle {
                     onClicked: captureAndUpload()
                 }
             }
+
+            Item { Layout.fillWidth: true }
+
+            // Type filter: Items
+            Rectangle {
+                width: Theme.scaled(30); height: Theme.scaled(30)
+                radius: Theme.scaled(4)
+                color: showItems ? Theme.primaryColor : "transparent"
+                border.color: showItems ? Theme.primaryColor : Theme.borderColor
+                border.width: 1
+                Text {
+                    anchors.centerIn: parent; text: "I"
+                    color: showItems ? "white" : Theme.textSecondaryColor
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.scaled(12); font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: showItems = !showItems }
+            }
+
+            // Type filter: Zones
+            Rectangle {
+                width: Theme.scaled(30); height: Theme.scaled(30)
+                radius: Theme.scaled(4)
+                color: showZones ? Theme.primaryColor : "transparent"
+                border.color: showZones ? Theme.primaryColor : Theme.borderColor
+                border.width: 1
+                Text {
+                    anchors.centerIn: parent; text: "Z"
+                    color: showZones ? "white" : Theme.textSecondaryColor
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.scaled(12); font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: showZones = !showZones }
+            }
+
+            // Type filter: Layouts
+            Rectangle {
+                width: Theme.scaled(30); height: Theme.scaled(30)
+                radius: Theme.scaled(4)
+                color: showLayouts ? Theme.primaryColor : "transparent"
+                border.color: showLayouts ? Theme.primaryColor : Theme.borderColor
+                border.width: 1
+                Text {
+                    anchors.centerIn: parent; text: "L"
+                    color: showLayouts ? "white" : Theme.textSecondaryColor
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.scaled(12); font.bold: true
+                }
+                MouseArea { anchors.fill: parent; onClicked: showLayouts = !showLayouts }
+            }
         }
 
         // Library entries list
@@ -368,9 +423,19 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
 
             model: {
-                if (activeTab === "local") return WidgetLibrary.entries
-                if (activeTab === "community") return LibrarySharing.communityEntries
-                return []
+                var entries = activeTab === "local" ? WidgetLibrary.entries
+                            : activeTab === "community" ? LibrarySharing.communityEntries
+                            : []
+                if (showItems && showZones && showLayouts) return entries
+                var result = []
+                for (var i = 0; i < entries.length; i++) {
+                    var t = entries[i].type || ""
+                    if ((t === "item" && showItems) ||
+                        (t === "zone" && showZones) ||
+                        (t === "layout" && showLayouts))
+                        result.push(entries[i])
+                }
+                return result
             }
 
             delegate: LibraryItemCard {

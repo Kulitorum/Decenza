@@ -336,6 +336,69 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
     return true;
 }
 
+// --- Rename entry (adopt server ID after upload) ---
+
+bool WidgetLibrary::renameEntry(const QString& oldId, const QString& newId)
+{
+    if (oldId.isEmpty() || newId.isEmpty() || oldId == newId)
+        return false;
+
+    QString basePath = libraryPath();
+    QString oldFile = basePath + "/" + oldId + ".json";
+    QString newFile = basePath + "/" + newId + ".json";
+
+    // Read, update ID inside JSON, write to new file
+    QJsonObject entry = readEntryFile(oldId);
+    if (entry.isEmpty()) {
+        qWarning() << "WidgetLibrary: renameEntry - old entry not found:" << oldId;
+        return false;
+    }
+
+    entry["id"] = newId;
+    QFile file(newFile);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "WidgetLibrary: renameEntry - failed to write:" << newFile;
+        return false;
+    }
+    file.write(QJsonDocument(entry).toJson(QJsonDocument::Compact));
+    file.close();
+
+    // Remove old file
+    QFile::remove(oldFile);
+
+    // Rename thumbnails
+    QString thumbDir = thumbnailsPath();
+    QFile::rename(thumbDir + "/" + oldId + ".png",
+                  thumbDir + "/" + newId + ".png");
+    QFile::rename(thumbDir + "/" + oldId + "_compact.png",
+                  thumbDir + "/" + newId + "_compact.png");
+
+    // Update thumbnail cache
+    if (m_thumbExists.remove(oldId))
+        m_thumbExists.insert(newId);
+    if (m_thumbCompactExists.remove(oldId))
+        m_thumbCompactExists.insert(newId);
+
+    // Update index
+    for (int i = 0; i < m_index.size(); ++i) {
+        if (m_index[i].toMap()["id"].toString() == oldId) {
+            QVariantMap meta = m_index[i].toMap();
+            meta["id"] = newId;
+            m_index[i] = meta;
+            break;
+        }
+    }
+    saveIndex();
+    emit entriesChanged();
+
+    // Update selection if it pointed to the old ID
+    if (m_selectedEntryId == oldId)
+        setSelectedEntryId(newId);
+
+    qDebug() << "WidgetLibrary: Renamed entry" << oldId << "->" << newId;
+    return true;
+}
+
 // --- Import/Export ---
 
 QString WidgetLibrary::importEntry(const QByteArray& json)
