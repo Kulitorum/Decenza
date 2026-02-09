@@ -31,7 +31,8 @@ public:
     bool isAvailable() const { return m_source != nullptr; }
     bool hasLocation() const { return m_currentLocation.valid || !m_manualCity.isEmpty(); }
     QString city() const;
-    QString countryCode() const { return m_currentLocation.countryCode; }
+    QString countryCode() const;
+
     LocationInfo currentLocation() const { return m_currentLocation; }
 
     // Get rounded coordinates for privacy (1 decimal ~11km)
@@ -79,6 +80,7 @@ private:
     // Manual city geocoded coordinates
     double m_manualLat = 0.0;
     double m_manualLon = 0.0;
+    QString m_manualCountryCode;
     bool m_manualGeocoded = false;
 
     // Throttle reverse geocoding (don't query if position hasn't changed much)

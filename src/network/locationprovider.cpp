@@ -22,6 +22,7 @@ LocationProvider::LocationProvider(QObject* parent)
     m_manualCity = settings.value("shotMap/manualCity", "").toString();
     m_manualLat = settings.value("shotMap/manualLat", 0.0).toDouble();
     m_manualLon = settings.value("shotMap/manualLon", 0.0).toDouble();
+    m_manualCountryCode = settings.value("shotMap/manualCountryCode", "").toString();
     m_manualGeocoded = settings.value("shotMap/manualGeocoded", false).toBool();
 
     // Try to create a position source
@@ -55,7 +56,13 @@ LocationProvider::LocationProvider(QObject* parent)
 
     if (!m_manualCity.isEmpty()) {
         qDebug() << "LocationProvider: Manual city configured:" << m_manualCity
-                 << "at" << m_manualLat << m_manualLon;
+                 << "at" << m_manualLat << m_manualLon << m_manualCountryCode;
+
+        // Re-geocode if country code is missing (migration from older versions)
+        if (m_manualGeocoded && m_manualCountryCode.isEmpty()) {
+            qDebug() << "LocationProvider: Re-geocoding manual city to obtain country code";
+            QTimer::singleShot(0, this, &LocationProvider::geocodeManualCity);
+        }
     }
 }
 
@@ -223,6 +230,14 @@ void LocationProvider::onReverseGeocodeFinished(QNetworkReply* reply)
     emit locationChanged();
 }
 
+QString LocationProvider::countryCode() const
+{
+    // Manual city takes precedence over GPS
+    if (!m_manualCity.isEmpty() && !m_manualCountryCode.isEmpty())
+        return m_manualCountryCode;
+    return m_currentLocation.countryCode;
+}
+
 QString LocationProvider::city() const
 {
     // Manual city takes precedence over GPS
@@ -240,6 +255,7 @@ void LocationProvider::setManualCity(const QString& city)
         m_manualGeocoded = false;
         m_manualLat = 0.0;
         m_manualLon = 0.0;
+        m_manualCountryCode.clear();
 
         // Save to settings
         QSettings settings;
@@ -247,6 +263,7 @@ void LocationProvider::setManualCity(const QString& city)
         settings.setValue("shotMap/manualGeocoded", false);
         settings.setValue("shotMap/manualLat", 0.0);
         settings.setValue("shotMap/manualLon", 0.0);
+        settings.setValue("shotMap/manualCountryCode", "");
 
         qDebug() << "LocationProvider: Manual city set to:" << city;
 
@@ -274,7 +291,7 @@ void LocationProvider::forwardGeocode(const QString& city)
 {
     // Use Nominatim for forward geocoding
     QString encodedCity = QUrl::toPercentEncoding(city);
-    QString url = QString("https://nominatim.openstreetmap.org/search?format=json&q=%1&limit=1")
+    QString url = QString("https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=%1&limit=1")
                       .arg(encodedCity);
 
     QNetworkRequest request(url);
@@ -311,17 +328,19 @@ void LocationProvider::onForwardGeocodeFinished(QNetworkReply* reply)
     QJsonObject result = results.first().toObject();
     m_manualLat = result["lat"].toString().toDouble();
     m_manualLon = result["lon"].toString().toDouble();
+    m_manualCountryCode = result["address"].toObject()["country_code"].toString().toUpper();
     m_manualGeocoded = true;
 
     // Save to settings
     QSettings settings;
     settings.setValue("shotMap/manualLat", m_manualLat);
     settings.setValue("shotMap/manualLon", m_manualLon);
+    settings.setValue("shotMap/manualCountryCode", m_manualCountryCode);
     settings.setValue("shotMap/manualGeocoded", true);
 
     QString displayName = result["display_name"].toString();
     qDebug() << "LocationProvider: Geocoded" << m_manualCity << "to"
-             << m_manualLat << m_manualLon << "-" << displayName;
+             << m_manualLat << m_manualLon << m_manualCountryCode << "-" << displayName;
 
     emit locationChanged();
 }
