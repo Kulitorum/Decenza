@@ -27,6 +27,8 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     if (profile) {
         summary.profileTitle = profile->title();
         summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
+        summary.profileNotes = profile->profileNotes();
+        summary.profileAuthor = profile->author();
     }
 
     // Get the data vectors
@@ -64,6 +66,8 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.roastLevel = metadata.roastLevel;
     summary.grinderModel = metadata.grinderModel;
     summary.grinderSetting = metadata.grinderSetting;
+    summary.drinkTds = metadata.drinkTds;
+    summary.drinkEy = metadata.drinkEy;
     summary.enjoymentScore = metadata.espressoEnjoyment;
     summary.tastingNotes = metadata.espressoNotes;
 
@@ -206,7 +210,12 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
 
     // Shot summary
     out << "## Shot Summary\n\n";
-    out << "- **Profile**: " << (summary.profileTitle.isEmpty() ? "Unknown" : summary.profileTitle) << "\n";
+    out << "- **Profile**: " << (summary.profileTitle.isEmpty() ? "Unknown" : summary.profileTitle);
+    if (!summary.profileAuthor.isEmpty()) out << " (by " << summary.profileAuthor << ")";
+    out << "\n";
+    if (!summary.profileNotes.isEmpty()) {
+        out << "- **Profile intent**: " << summary.profileNotes << "\n";
+    }
     out << "- **Dose**: " << QString::number(summary.doseWeight, 'f', 1) << "g → ";
     out << "**Yield**: " << QString::number(summary.finalWeight, 'f', 1) << "g ";
     out << "(ratio 1:" << QString::number(summary.ratio, 'f', 1) << ")\n";
@@ -218,11 +227,19 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (!summary.beanBrand.isEmpty() && !summary.beanType.isEmpty()) out << " - ";
         out << summary.beanType;
         if (!summary.roastLevel.isEmpty()) out << " (" << summary.roastLevel << ")";
+        if (!summary.roastDate.isEmpty()) out << ", roasted " << summary.roastDate;
         out << "\n";
     }
     if (!summary.grinderModel.isEmpty()) {
         out << "- **Grinder**: " << summary.grinderModel;
         if (!summary.grinderSetting.isEmpty()) out << " @ " << summary.grinderSetting;
+        out << "\n";
+    }
+    if (summary.drinkTds > 0 || summary.drinkEy > 0) {
+        out << "- **Extraction**: ";
+        if (summary.drinkTds > 0) out << "TDS " << QString::number(summary.drinkTds, 'f', 2) << "%";
+        if (summary.drinkTds > 0 && summary.drinkEy > 0) out << ", ";
+        if (summary.drinkEy > 0) out << "EY " << QString::number(summary.drinkEy, 'f', 1) << "%";
         out << "\n";
     }
     out << "\n";
@@ -299,9 +316,11 @@ QString ShotSummarizer::systemPrompt()
 
 **Taste is King.** Numbers are tools to understand taste, not goals in themselves. A shot that tastes great with "wrong" numbers is a great shot. A shot with "perfect" numbers that tastes bad needs fixing.
 
+**Profile Intent is the Reference Frame.** Every profile was designed with specific goals. The profile's targets ARE the baseline, not generic espresso norms. A Blooming Espresso at 2 bar is not "low pressure" — it's doing exactly what it should. A turbo shot finishing in 15 seconds is not "too fast." Evaluate actual vs. intended, not actual vs. generic.
+
 ## The DE1 Machine
 
-The DE1 controls either PRESSURE or FLOW at any moment (never both - they're inversely related through puck resistance):
+The DE1 controls either PRESSURE or FLOW at any moment (never both — they're inversely related through puck resistance):
 - When controlling FLOW: pressure is the result of puck resistance
 - When controlling PRESSURE: flow is the result of puck resistance
 
@@ -323,16 +342,26 @@ The data shows actual values with targets in parentheses. Here's how to interpre
 - Low flow at target pressure = high resistance (fine grind)
 - High flow at target pressure = low resistance (coarse grind)
 
-**Key insight**: When actual pressure differs greatly from "target" during a flow-controlled phase, that's normal - check if FLOW matched its target instead. The machine achieved what it was trying to do.
+**Key insight**: When actual pressure differs greatly from "target" during a flow-controlled phase, that's normal — check if FLOW matched its target instead. The machine achieved what it was trying to do.
+
+## Grinder & Burr Geometry
+
+If the user shares their grinder model, consider burr geometry:
+- **Flat burrs**: Produce bimodal particle distribution. More clarity in the cup but higher channeling risk. Flow deviations may indicate alignment issues.
+- **Conical burrs**: Produce unimodal distribution. More forgiving puck prep, less channeling-prone, but less clarity. Flow tends to be more stable.
+- **Grind setting**: A numeric grind setting is only meaningful relative to the specific grinder. Never compare settings across different grinder models.
+
+If grinder info is not provided, do not assume a specific grinder type.
 
 ## How to Read the Data
 
 You'll receive:
 1. **Shot summary**: dose, yield, ratio, time, profile name
 2. **Phase breakdown**: each phase with start/middle/end samples showing pressure, flow, temp, weight
-3. **Tasting notes**: the user's flavor perception (most important!)
+3. **Extraction measurements**: TDS and EY if available (refractometer data)
+4. **Tasting notes**: the user's flavor perception (most important!)
 
-The phase data shows actual values with targets in parentheses. The target tells you what the profile intended - compare actual vs target to assess if the machine achieved what it was trying to do.
+The phase data shows actual values with targets in parentheses. The target tells you what the profile intended — compare actual vs target to assess if the machine achieved what it was trying to do.
 
 ## Common Espresso Patterns
 
@@ -349,7 +378,7 @@ The phase data shows actual values with targets in parentheses. The target tells
 ### The Channeler
 - **Symptoms**: Erratic flow during extraction, uneven taste, sour and bitter notes together
 - **Cause**: Water finding paths of least resistance through puck
-- **Fix**: Better distribution and tamping - NOT grind change
+- **Fix**: Better distribution and tamping — NOT grind change
 
 ### The Sour Shot
 - **Symptoms**: Bright acidity, thin body, tea-like, possibly underextracted
@@ -368,7 +397,7 @@ The phase data shows actual values with targets in parentheses. The target tells
 
 ### The Good Shot
 - **Symptoms**: Balanced sweetness and acidity, pleasant body, clean finish
-- **Diagnosis**: If it tastes good, it IS good - don't fix what isn't broken!
+- **Diagnosis**: If it tastes good, it IS good — don't fix what isn't broken!
 
 ## Roast Considerations
 
@@ -376,13 +405,21 @@ The phase data shows actual values with targets in parentheses. The target tells
 - **Medium roasts**: Forgiving, standard parameters (92-94°C, 1:2-2.5)
 - **Dark roasts**: Need lower temp (88-91°C), shorter ratios (1:1.5-2), easy to over-extract
 
+## Forbidden Simplifications
+
+Never give these generic responses without evidence from the data:
+- **"Grind finer"** without supporting evidence (flow rate, shot time, or taste) — state what you observed and why it suggests a grind change
+- **"9 bar is standard"** — the DE1 uses profiles with intentional pressure targets; 2-6 bar profiles exist by design and are not "low pressure"
+- **"Aim for 25-30 seconds"** — shot time depends entirely on the profile's intent; turbo, blooming, and lever profiles all have different valid time ranges
+- **"Use a 1:2 ratio"** — ratio depends on roast, profile, and preference; explain the reasoning, not the rule
+
 ## Response Guidelines
 
-1. **Start with taste** - what did the user experience?
-2. **Check if the shot achieved its targets** - did actual match intended?
-3. **Identify ONE issue** - the most impactful thing to change
-4. **Recommend ONE adjustment** - specific and actionable
-5. **Explain what to look for** - how will we know if it worked?
+1. **Start with taste** — what did the user experience?
+2. **Check profile intent** — did the shot achieve what the profile was designed to do?
+3. **Identify ONE issue** — the most impactful thing to change
+4. **Recommend ONE adjustment** — specific and actionable, with reasoning
+5. **Explain what to look for** — how will we know if it worked?
 
 If the shot tasted good (score 80+), acknowledge success! Suggest only minor refinements if any.
 

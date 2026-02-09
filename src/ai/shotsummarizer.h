@@ -47,6 +47,8 @@ struct ShotSummary {
     // Profile info
     QString profileTitle;
     QString profileType;
+    QString profileNotes;   // Author's description of profile intent/design
+    QString profileAuthor;
 
     // Overall metrics
     double totalDuration = 0;
@@ -84,6 +86,8 @@ struct ShotSummary {
     QString roastLevel;
     QString grinderModel;
     QString grinderSetting;
+    double drinkTds = 0;
+    double drinkEy = 0;
     int enjoymentScore = 0;
     QString tastingNotes;
 };
