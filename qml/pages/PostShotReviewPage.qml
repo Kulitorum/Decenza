@@ -620,7 +620,7 @@ Page {
                 Item {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
-                    Layout.preferredHeight: ratingLabel.height + 40 + 2
+                    Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)
 
                     Tr {
                         id: ratingLabel
@@ -632,29 +632,27 @@ Page {
                         font.pixelSize: Theme.scaled(11)
                     }
 
-                    ValueInput {
-                        id: ratingInput
+                    Rectangle {
+                        id: ratingBox
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.leftMargin: Theme.scaled(5)
                         anchors.top: ratingLabel.bottom
                         anchors.topMargin: Theme.scaled(2)
-                        height: Theme.scaled(40)
-                        from: 0
-                        to: 100
-                        stepSize: 1
-                        decimals: 0
-                        suffix: " %"
-                        valueColor: Theme.primaryColor  // Blue (default accent)
-                        value: editEnjoyment
-                        accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
-                        onValueModified: function(newValue) {
-                            ratingInput.value = newValue
-                            editEnjoyment = newValue
-                        }
-                        onActiveFocusChanged: {
-                            if (activeFocus) {
-                                hideKeyboard()
+                        height: Theme.scaled(44)
+                        radius: Theme.scaled(12)
+                        color: Theme.surfaceColor
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
+
+                        RatingInput {
+                            id: ratingInput
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(4)
+                            value: editEnjoyment
+                            accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
+                            onValueModified: function(newValue) {
+                                ratingInput.value = newValue
+                                editEnjoyment = newValue
                             }
                         }
                     }

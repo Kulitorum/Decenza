@@ -396,6 +396,7 @@ set(QML_FILES
     qml/components/PresetPillRow.qml
     qml/components/TouchSlider.qml
     qml/components/ValueInput.qml
+    qml/components/RatingInput.qml
     qml/components/ShotGraph.qml
     qml/components/StatusBar.qml
     qml/components/ShotPlanText.qml
