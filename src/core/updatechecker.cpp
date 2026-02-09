@@ -206,9 +206,14 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     // falling back to build number if versions are equal
     bool newer = isNewerVersion(m_latestVersion, currentVersion());
     if (!newer && !isNewerVersion(currentVersion(), m_latestVersion) && m_latestBuildNumber > 0) {
-        // Same display version — compare build numbers
+        // Same display version — compare build numbers (strictly greater)
         newer = m_latestBuildNumber > currentVersionCode();
     }
+
+    qDebug() << "UpdateChecker: current=" << currentVersion() << "build=" << currentVersionCode()
+             << "latest=" << m_latestVersion << "latestBuild=" << m_latestBuildNumber
+             << "newer=" << newer << "tag=" << m_releaseTag;
+
     bool wasAvailable = m_updateAvailable;
 #if defined(Q_OS_IOS)
     m_updateAvailable = newer;
@@ -217,11 +222,6 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 #else
     m_updateAvailable = newer;
 #endif
-
-    qDebug() << "UpdateChecker: Current version:" << currentVersion()
-             << "Latest version:" << m_latestVersion
-             << "Beta:" << m_latestIsBeta
-             << "Update available:" << m_updateAvailable;
 
     if (m_updateAvailable != wasAvailable) {
         emit updateAvailableChanged();
@@ -390,6 +390,9 @@ void UpdateChecker::onPeriodicCheck()
 {
     if (m_checking || m_downloading) return;
 
+    m_checking = true;
+    emit checkingChanged();
+
     qDebug() << "UpdateChecker: Periodic update check";
 
     // Check for updates silently
@@ -400,6 +403,9 @@ void UpdateChecker::onPeriodicCheck()
 
     QNetworkReply* reply = m_network->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        m_checking = false;
+        emit checkingChanged();
+
         if (reply->error() == QNetworkReply::NoError) {
             QByteArray data = reply->readAll();
             parseReleaseInfo(data);
