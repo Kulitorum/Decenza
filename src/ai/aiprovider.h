@@ -94,7 +94,7 @@ private slots:
 private:
     QString m_apiKey;
     static constexpr const char* API_URL = "https://api.anthropic.com/v1/messages";
-    static constexpr const char* MODEL = "claude-sonnet-4-20250514";
+    static constexpr const char* MODEL = "claude-sonnet-4-5";
 };
 
 // Google Gemini Pro provider
