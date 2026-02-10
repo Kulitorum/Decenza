@@ -108,6 +108,7 @@ All platforms build automatically when a `v*` tag is pushed. Each workflow can a
 | macOS | `macos-release.yml` | macos-15 | Signed + notarized DMG |
 | Windows | `windows-release.yml` | windows-latest | Inno Setup installer |
 | Linux | `linux-release.yml` | ubuntu-24.04 | AppImage |
+| Linux ARM64 | `linux-arm64-release.yml` | ubuntu-24.04-arm | AppImage (aarch64) |
 
 All workflows upload artifacts to the same GitHub Release when triggered by a `v*` tag.
 
@@ -119,6 +120,7 @@ gh workflow run ios-release.yml --repo Kulitorum/de1-qt -f upload_to_appstore=fa
 gh workflow run windows-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
 gh workflow run macos-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
 gh workflow run linux-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
+gh workflow run linux-arm64-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
 
 # Check build status
 gh run list --repo Kulitorum/de1-qt --limit 5
@@ -132,7 +134,7 @@ gh run view --repo Kulitorum/de1-qt --log-failed
 
 ### Release all platforms at once
 ```bash
-# Push a version tag — all 5 workflows trigger simultaneously
+# Push a version tag — all 6 workflows trigger simultaneously
 git tag v1.4.4
 git push origin v1.4.4
 ```

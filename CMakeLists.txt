@@ -486,6 +486,7 @@ qt_add_qml_module(Decenza_DE1
     URI DecenzaDE1
     VERSION 1.1
     QML_FILES ${QML_FILES}
+    NO_GENERATE_EXTRA_QMLDIRS
 )
 
 # Increment version code on every build
