@@ -85,7 +85,11 @@ Item {
 
     function openCustomEditor(itemId, zoneName) {
         var props = Settings.getItemProperties(itemId)
-        customEditorPopup.openForItem(itemId, zoneName, props)
+        if ((props.type || "").startsWith("screensaver")) {
+            screensaverEditorPopup.openForItem(itemId, zoneName, props)
+        } else {
+            customEditorPopup.openForItem(itemId, zoneName, props)
+        }
     }
 
     // Ensure there's always a way to reach Settings from the home screen
@@ -115,6 +119,10 @@ Item {
     CustomEditorPopup {
         id: customEditorPopup
         pageContext: "idle"
+    }
+
+    ScreensaverEditorPopup {
+        id: screensaverEditorPopup
     }
 
     // Two-column layout: zone editors on left, library panel on right

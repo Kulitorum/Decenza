@@ -67,7 +67,15 @@ Item {
             model: root.items
             delegate: LayoutItemDelegate {
                 zoneName: root.zoneName
-                Layout.preferredWidth: root.isAutoSized(modelData.type) ? -1 : root.buttonWidth
+                Layout.preferredWidth: {
+                    // Flip clock: interpolate between buttonWidth and wide based on clockScale
+                    if (modelData.type === "screensaverFlipClock") {
+                        var s = typeof modelData.clockScale === "number" ? modelData.clockScale : 1.0
+                        return root.buttonWidth + s * (root.buttonHeight * 3.7 - root.buttonWidth)
+                    }
+                    if (root.isAutoSized(modelData.type)) return -1
+                    return root.buttonWidth
+                }
                 Layout.preferredHeight: modelData.type === "spacer" ? -1 : root.buttonHeight
                 Layout.fillWidth: modelData.type === "spacer"
             }

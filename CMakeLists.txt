@@ -456,7 +456,9 @@ set(QML_FILES
     qml/components/layout/items/SteamTemperatureItem.qml
     qml/components/layout/items/SeparatorItem.qml
     qml/components/layout/items/QuitItem.qml
+    qml/components/layout/items/ScreensaverItem.qml
     qml/components/layout/CustomEditorPopup.qml
+    qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/EmojiPicker.qml
     qml/components/layout/EmojiData.js
     qml/components/library/LibraryPanel.qml

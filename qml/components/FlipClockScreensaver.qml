@@ -380,10 +380,11 @@ Item {
         }
     }
 
-    // Black background
+    // Black background (can be made transparent for widget embedding)
+    property color backgroundColor: "#000000"
     Rectangle {
         anchors.fill: parent
-        color: "#000000"
+        color: root.backgroundColor
         z: -10
     }
 

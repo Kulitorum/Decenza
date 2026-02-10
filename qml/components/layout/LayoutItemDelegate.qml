@@ -165,6 +165,10 @@ Item {
                 case "steamTemperature": src = "items/SteamTemperatureItem.qml"; break
                 case "separator":        src = "items/SeparatorItem.qml"; break
                 case "quit":             src = "items/QuitItem.qml"; break
+                case "screensaverFlipClock":
+                case "screensaverPipes":
+                case "screensaverAttractor":
+                case "screensaverShotMap":   src = "items/ScreensaverItem.qml"; break
                 default:                 src = ""; break
             }
             return src ? Qt.resolvedUrl(src) : ""
