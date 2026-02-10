@@ -10,6 +10,7 @@ KeyboardAwareContainer {
 
     // Track backup operation state
     property bool backupInProgress: false
+    property bool restoreInProgress: false
 
     RowLayout {
         anchors.fill: parent
@@ -953,8 +954,8 @@ KeyboardAwareContainer {
         }
 
         function onStoragePermissionNeeded() {
+            // Note: backupInProgress is reset by onBackupFailed which fires alongside this signal
             console.log("Storage permission needed - user should grant access");
-            dataTab.backupInProgress = false;
         }
     }
 
@@ -1173,6 +1174,7 @@ KeyboardAwareContainer {
 
                         onClicked: {
                             if (MainController.backupManager) {
+                                dataTab.restoreInProgress = true;
                                 MainController.backupManager.restoreBackup(
                                     restoreConfirmDialog.selectedBackup,
                                     restoreConfirmDialog.mergeMode
@@ -1191,9 +1193,10 @@ KeyboardAwareContainer {
     // Restore result handlers
     Connections {
         target: MainController.backupManager
-        enabled: dataTab.visible  // Only handle signals when this tab is visible
+        enabled: (dataTab.visible || dataTab.restoreInProgress) && !root.firstRunRestoreActive
 
         function onRestoreCompleted(filename) {
+            dataTab.restoreInProgress = false;
             console.log("Restore completed:", filename);
             restartDialog.open();
 
@@ -1207,6 +1210,7 @@ KeyboardAwareContainer {
         }
 
         function onRestoreFailed(error) {
+            dataTab.restoreInProgress = false;
             console.error("Restore failed:", error);
             backupStatusText.text = "✗ " + error;
             backupStatusText.color = Theme.errorColor;

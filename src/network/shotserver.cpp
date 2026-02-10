@@ -797,8 +797,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
         QString result = m_storage->createBackup(tempPath);
         if (!result.isEmpty()) {
-            sendFile(socket, tempPath, "application/x-sqlite3");
-            // Clean up temp file after sending
+            sendFile(socket, tempPath, "application/x-sqlite3");  // Reads file fully into memory
             QFile::remove(tempPath);
         } else {
             // Clean up temp file if it was partially created
@@ -921,9 +920,55 @@ void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString
         return;
     }
 
-    QByteArray data = file.readAll();
-    QByteArray extraHeaders = QString("Content-Disposition: attachment; filename=\"shots.db\"\r\n").toUtf8();
-    sendResponse(socket, 200, contentType, data, extraHeaders);
+    qint64 fileSize = file.size();
+    QString filename = QFileInfo(path).fileName();
+    filename.replace(QRegularExpression("[^a-zA-Z0-9_.-]"), "_");
+
+    // Send headers
+    QByteArray headers = QString(
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: %1\r\n"
+        "Content-Length: %2\r\n"
+        "Content-Disposition: attachment; filename=\"%3\"\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).arg(contentType).arg(fileSize).arg(filename).toUtf8();
+
+    if (socket->write(headers) == -1) {
+        qWarning() << "ShotServer::sendFile: Failed to write headers -" << socket->errorString();
+        socket->abort();
+        return;
+    }
+
+    // Stream file in 64KB chunks to avoid OOM on large databases
+    const qint64 chunkSize = 64 * 1024;
+    bool success = true;
+    while (!file.atEnd()) {
+        QByteArray chunk = file.read(chunkSize);
+        if (chunk.isEmpty() && !file.atEnd()) {
+            qWarning() << "ShotServer::sendFile: File read error -" << file.errorString();
+            success = false;
+            break;
+        }
+        if (socket->write(chunk) == -1) {
+            qWarning() << "ShotServer::sendFile: Socket write failed -" << socket->errorString();
+            success = false;
+            break;
+        }
+        if (!socket->waitForBytesWritten(5000)) {
+            qWarning() << "ShotServer::sendFile: Write timed out";
+            success = false;
+            break;
+        }
+    }
+
+    if (success) {
+        socket->flush();
+        socket->disconnectFromHost();
+    } else {
+        socket->abort();
+    }
 }
 
 QString ShotServer::getLocalIpAddress() const

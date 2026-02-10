@@ -2388,29 +2388,36 @@ void MainController::onShotEnded() {
             duration, finalWeight, doseWeight,
             metadata, debugLog,
             shotTemperatureOverride, shotYieldOverride);
-        qDebug() << "[metadata] Shot saved to history with ID:" << shotId;
 
-        // Store shot ID for post-shot review page (so it can edit the saved shot)
-        m_lastSavedShotId = shotId;
-        emit lastSavedShotIdChanged();
+        if (shotId > 0) {
+            qDebug() << "[metadata] Shot saved to history with ID:" << shotId;
 
-        // Set shot date/time for display on metadata page
-        QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
-        m_settings->setDyeShotDateTime(shotDateTime);
-        qDebug() << "[metadata] Set dyeShotDateTime to:" << shotDateTime;
+            // Store shot ID for post-shot review page (so it can edit the saved shot)
+            m_lastSavedShotId = shotId;
+            emit lastSavedShotIdChanged();
 
-        // Update the drink weight with actual final weight from this shot
-        m_settings->setDyeDrinkWeight(finalWeight);
-        qDebug() << "[metadata] Set dyeDrinkWeight to:" << finalWeight;
+            // Set shot date/time for display on metadata page
+            QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
+            m_settings->setDyeShotDateTime(shotDateTime);
+            qDebug() << "[metadata] Set dyeShotDateTime to:" << shotDateTime;
 
-        // Reset shot-specific metadata (enjoyment and notes) for the next shot
-        // Bean/grinder info persists (sticky), but rating resets to default
-        m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
-        m_settings->setDyeShotNotes("");
-        qDebug() << "[metadata] Reset enjoyment to" << m_settings->defaultShotRating() << "and notes for next shot";
+            // Update the drink weight with actual final weight from this shot
+            m_settings->setDyeDrinkWeight(finalWeight);
+            qDebug() << "[metadata] Set dyeDrinkWeight to:" << finalWeight;
 
-        // Force QSettings to sync to disk immediately
-        m_settings->sync();
+            // Reset shot-specific metadata (enjoyment and notes) for the next shot
+            // Bean/grinder info persists (sticky), but rating resets to default
+            m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
+            m_settings->setDyeShotNotes("");
+            qDebug() << "[metadata] Reset enjoyment to" << m_settings->defaultShotRating() << "and notes for next shot";
+
+            // Force QSettings to sync to disk immediately
+            m_settings->sync();
+        } else {
+            qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
+            m_lastSavedShotId = 0;
+            emit lastSavedShotIdChanged();
+        }
     } else {
         qDebug() << "[metadata] WARNING: Could not save shot - history not ready!";
     }

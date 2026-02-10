@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <QDebug>
+#include <QThread>
 #include <algorithm>
 
 #ifdef Q_OS_ANDROID
@@ -432,8 +433,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                                      double temperatureOverride,
                                      double yieldOverride)
 {
-    if (!m_ready || !shotData) {
-        qWarning() << "ShotHistoryStorage: Cannot save shot - not ready or no data";
+    if (!m_ready || m_backupInProgress || !shotData) {
+        qWarning() << "ShotHistoryStorage: Cannot save shot - not ready, backup in progress, or no data";
         return -1;
     }
 
@@ -1395,11 +1396,18 @@ bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
     success = QFile::copy(m_dbPath, destPath);
 #endif
 
-    // Reopen database
+    // Reopen database — this is critical, retry if first attempt fails
     if (!m_db.open()) {
-        qWarning() << "ShotHistoryStorage: Failed to reopen database after backup:" << m_db.lastError().text();
-        emit errorOccurred("Failed to reopen database after backup");
-        return false;
+        qWarning() << "ShotHistoryStorage: First reopen attempt failed, retrying:" << m_db.lastError().text();
+        // Wait briefly and retry once
+        QThread::msleep(100);
+        if (!m_db.open()) {
+            qCritical() << "ShotHistoryStorage: CRITICAL - Failed to reopen database after backup:" << m_db.lastError().text();
+            m_ready = false;
+            emit readyChanged();
+            emit errorOccurred("Critical: Database connection lost after backup. Please restart the app.");
+            return false;
+        }
     }
 
     return success;
@@ -1567,14 +1575,29 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
     qDebug() << "ShotHistoryStorage: Source has" << sourceCount << "shots";
 
     // Begin transaction on destination
-    m_db.transaction();
+    if (!m_db.transaction()) {
+        qWarning() << "ShotHistoryStorage: Failed to begin transaction:" << m_db.lastError().text();
+        emit errorOccurred("Failed to begin import transaction");
+        srcDb.close();
+        QSqlDatabase::removeDatabase("import_connection");
+        m_importInProgress = false;
+        return false;
+    }
 
     if (!merge) {
         // Replace mode: delete all existing data
         QSqlQuery delQuery(m_db);
-        delQuery.exec("DELETE FROM shot_phases");
-        delQuery.exec("DELETE FROM shot_samples");
-        delQuery.exec("DELETE FROM shots");
+        if (!delQuery.exec("DELETE FROM shot_phases") ||
+            !delQuery.exec("DELETE FROM shot_samples") ||
+            !delQuery.exec("DELETE FROM shots")) {
+            qWarning() << "ShotHistoryStorage: Failed to clear existing data:" << delQuery.lastError().text();
+            m_db.rollback();
+            emit errorOccurred("Failed to clear existing data for replace");
+            srcDb.close();
+            QSqlDatabase::removeDatabase("import_connection");
+            m_importInProgress = false;
+            return false;
+        }
         qDebug() << "ShotHistoryStorage: Cleared existing data for replace";
     }
 
@@ -1582,7 +1605,9 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
     QSet<QString> existingUuids;
     if (merge) {
         QSqlQuery uuidQuery(m_db);
-        uuidQuery.exec("SELECT uuid FROM shots");
+        if (!uuidQuery.exec("SELECT uuid FROM shots")) {
+            qWarning() << "ShotHistoryStorage: Failed to query existing UUIDs:" << uuidQuery.lastError().text();
+        }
         while (uuidQuery.next()) {
             existingUuids.insert(uuidQuery.value(0).toString());
         }
@@ -1592,7 +1617,15 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
     // Import shots
     int imported = 0, skipped = 0;
     QSqlQuery srcShots(srcDb);
-    srcShots.exec("SELECT * FROM shots");
+    if (!srcShots.exec("SELECT * FROM shots")) {
+        qWarning() << "ShotHistoryStorage: Failed to query source shots:" << srcShots.lastError().text();
+        m_db.rollback();
+        emit errorOccurred("Failed to read shots from backup");
+        srcDb.close();
+        QSqlDatabase::removeDatabase("import_connection");
+        m_importInProgress = false;
+        return false;
+    }
 
     while (srcShots.next()) {
         QString uuid = srcShots.value("uuid").toString();
@@ -1691,7 +1724,15 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
         imported++;
     }
 
-    m_db.commit();
+    if (!m_db.commit()) {
+        qWarning() << "ShotHistoryStorage: Failed to commit import transaction:" << m_db.lastError().text();
+        m_db.rollback();
+        emit errorOccurred("Failed to commit imported data (disk full?)");
+        srcDb.close();
+        QSqlDatabase::removeDatabase("import_connection");
+        m_importInProgress = false;
+        return false;
+    }
 
     // Backfill beverage_type from profile_json for imported shots from old DBs
     backfillBeverageType();
