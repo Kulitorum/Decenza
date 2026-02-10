@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import DecenzaDE1
 import ".."
 import "EmojiData.js" as EmojiData
 

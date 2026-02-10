@@ -1,4 +1,5 @@
 import QtQuick
+import DecenzaDE1
 import "../.."
 
 Item {
