@@ -122,6 +122,7 @@ private:
     QString m_currentProfileFilename;
     QString m_lastPublishedSteamMode;
     bool m_lastPublishedScaleConnected = false;
+    int m_lastPublishedEspressoCount = -1;
     QString m_clientId;
 
     mutable QMutex m_mutex;

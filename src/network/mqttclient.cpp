@@ -611,12 +611,15 @@ void MqttClient::publishState()
         publish(topicPath("profile_filename"), m_currentProfileFilename, true);
     }
 
-    // Steam mode: derive from Settings
+    // Steam mode: derive from Settings and current phase
+    // Per CLAUDE.md: steam is active in Ready/Steaming phases regardless of keepSteamHeaterOn
     QString steamMode;
     if (!m_device || !m_settings || m_device->stateString() == "Sleep") {
         steamMode = "Off";
     } else if (m_settings->steamDisabled()) {
         steamMode = "Off";
+    } else if (phase == "Ready" || phase == "Steaming") {
+        steamMode = "On";
     } else if (!m_settings->keepSteamHeaterOn()) {
         steamMode = "Off";
     } else {
@@ -649,10 +652,13 @@ void MqttClient::publishTelemetry()
         publish(topicPath("target_weight"), QString::number(m_machineState->targetWeight(), 'f', 1), true);
     }
 
-    // Espresso count from shot history
+    // Espresso count from shot history (only publish on change)
     if (m_mainController && m_mainController->shotHistory()) {
-        publish(topicPath("espresso_count"),
-                QString::number(m_mainController->shotHistory()->totalShots()), true);
+        int count = m_mainController->shotHistory()->totalShots();
+        if (count != m_lastPublishedEspressoCount) {
+            publish(topicPath("espresso_count"), QString::number(count), true);
+            m_lastPublishedEspressoCount = count;
+        }
     }
 }
 

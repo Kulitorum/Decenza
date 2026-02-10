@@ -54,15 +54,16 @@ FocusScope {
     function ratingColor(val) {
         var t = Math.max(0, Math.min(100, val)) / 100.0
         var r, g, b
+        var u
         if (t <= 0.5) {
             // red (#ff4444) -> yellow (#ffaa00)
-            var u = t / 0.5
+            u = t / 0.5
             r = 1.0
             g = 0.267 + u * (0.667 - 0.267)  // 0x44/0xff -> 0xaa/0xff
             b = 0.267 * (1 - u)                // 0x44/0xff -> 0
         } else {
             // yellow (#ffaa00) -> green (#00cc6d)
-            var u = (t - 0.5) / 0.5
+            u = (t - 0.5) / 0.5
             r = 1.0 * (1 - u)                  // 0xff -> 0x00
             g = 0.667 + u * (0.8 - 0.667)      // 0xaa/0xff -> 0xcc/0xff
             b = u * 0.427                       // 0x00 -> 0x6d/0xff
@@ -116,6 +117,9 @@ FocusScope {
                         onClicked: {
                             root.value = modelData
                             root.valueModified(modelData)
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                                AccessibilityManager.announce(modelData + "%")
+                            }
                         }
                     }
                 }
@@ -133,7 +137,12 @@ FocusScope {
             from: 0
             to: 100
             stepSize: 1
-            value: root.value
+
+            // Use Binding element so the binding survives slider drag
+            Binding on value {
+                value: root.value
+                restoreMode: Binding.RestoreBindingOrValue
+            }
 
             onMoved: {
                 root.value = Math.round(value)
@@ -163,13 +172,13 @@ FocusScope {
 
                 // Filled gradient track (full opacity up to current position)
                 Item {
-                    anchors.centerIn: parent
-                    width: parent.width
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: slider.visualPosition * parent.width
                     height: Theme.scaled(6)
                     clip: true
 
                     Rectangle {
-                        width: slider.visualPosition * parent.width
+                        width: slider.availableWidth
                         height: parent.height
                         radius: height / 2
                         gradient: Gradient {

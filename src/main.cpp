@@ -391,6 +391,10 @@ int main(int argc, char *argv[])
             // Disconnect FlowScale from graph during scan
             QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                                 &mainController, &MainController::onScaleWeightChanged);
+            // Notify MQTT that scale is disconnected
+            if (mainController.mqttClient()) {
+                mainController.mqttClient()->onScaleConnectedChanged(false);
+            }
             // Clear BLEManager's reference before deleting
             bleManager.setScaleDevice(nullptr);
             // Now reset the physical scale

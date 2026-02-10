@@ -344,27 +344,37 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         }
     }
 
-    // 3. Profiles (from both external and fallback paths)
+    // 3. Profiles (from both external and fallback paths, including user/ and downloaded/ subdirs)
     if (m_profileStorage) {
-        QSet<QString> seenFiles;
-        auto addProfilesFrom = [&](const QString& dirPath) {
-            if (dirPath.isEmpty()) return;
+        QSet<QString> seenFiles;  // Keyed by subdir/filename to avoid duplicates
+        auto addProfilesFrom = [&](const QString& basePath, const QString& subdir) {
+            if (basePath.isEmpty()) return;
+            QString dirPath = subdir.isEmpty() ? basePath : basePath + "/" + subdir;
             QDir dir(dirPath);
             if (!dir.exists()) return;
             QFileInfoList files = dir.entryInfoList(QStringList() << "*.json", QDir::Files);
             for (const QFileInfo& fi : files) {
                 if (fi.fileName().startsWith("_")) continue;
-                if (seenFiles.contains(fi.fileName())) continue;
-                seenFiles.insert(fi.fileName());
+                QString key = (subdir.isEmpty() ? "" : subdir + "/") + fi.fileName();
+                if (seenFiles.contains(key)) continue;
+                seenFiles.insert(key);
                 QFile f(fi.absoluteFilePath());
                 if (f.open(QIODevice::ReadOnly)) {
-                    QByteArray name = ("profiles/" + fi.fileName()).toUtf8();
+                    QByteArray name = ("profiles/" + key).toUtf8();
                     entries.append({name, f.readAll()});
                 }
             }
         };
-        addProfilesFrom(m_profileStorage->externalProfilesPath());
-        addProfilesFrom(m_profileStorage->fallbackPath());
+        // Scan root, user/, downloaded/ in both external and fallback paths
+        QString extPath = m_profileStorage->externalProfilesPath();
+        if (!extPath.isEmpty()) {
+            addProfilesFrom(extPath, "");
+            addProfilesFrom(extPath, "user");
+            addProfilesFrom(extPath, "downloaded");
+        }
+        addProfilesFrom(m_profileStorage->fallbackPath(), "");
+        addProfilesFrom(m_profileStorage->fallbackPath(), "user");
+        addProfilesFrom(m_profileStorage->fallbackPath(), "downloaded");
     }
 
     // 4. Media files

@@ -664,7 +664,6 @@ Page {
                             value: editEnjoyment
                             accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                             onValueModified: function(newValue) {
-                                ratingInput.value = newValue
                                 editEnjoyment = newValue
                             }
                         }
