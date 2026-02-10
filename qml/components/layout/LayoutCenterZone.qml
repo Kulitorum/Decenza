@@ -73,6 +73,11 @@ Item {
                         var s = typeof modelData.clockScale === "number" ? modelData.clockScale : 1.0
                         return root.buttonWidth + s * (root.buttonHeight * 3.7 - root.buttonWidth)
                     }
+                    // Shot map: scale width from 1x to 1.7x buttonWidth
+                    if (modelData.type === "screensaverShotMap") {
+                        var m = typeof modelData.mapScale === "number" ? modelData.mapScale : 1.0
+                        return root.buttonWidth * m
+                    }
                     if (root.isAutoSized(modelData.type)) return -1
                     return root.buttonWidth
                 }

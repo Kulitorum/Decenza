@@ -7,10 +7,11 @@ Item {
     id: root
 
     property bool running: true
+    property bool widgetMode: false  // When true: no overlays, smaller dots
     property string mapShape: ScreensaverManager.shotMapShape  // "flat", "globe"
     property string mapTexture: ScreensaverManager.shotMapTexture  // "dark", "bright", "satellite"
-    property bool showClock: ScreensaverManager.shotMapShowClock
-    property bool showProfiles: ScreensaverManager.shotMapShowProfiles
+    property bool showClock: widgetMode ? false : ScreensaverManager.shotMapShowClock
+    property bool showProfiles: widgetMode ? false : ScreensaverManager.shotMapShowProfiles
 
     // Test mode - show user's location with a marker
     property bool testMode: false
@@ -196,8 +197,8 @@ Item {
 
                 x: pos.x - width / 2
                 y: pos.y - height / 2
-                width: 20
-                height: 20
+                width: root.widgetMode ? 6 : 20
+                height: width
                 visible: pos.visible
                 opacity: shotOpacity
 
@@ -210,7 +211,7 @@ Item {
                     opacity: 0.3
 
                     SequentialAnimation on scale {
-                        running: flatShotMarker.isNew
+                        running: flatShotMarker.isNew && !root.widgetMode
                         loops: 3
                         NumberAnimation { from: 1; to: 2; duration: 500; easing.type: Easing.OutQuad }
                         NumberAnimation { from: 2; to: 1; duration: 500; easing.type: Easing.InQuad }
@@ -219,9 +220,9 @@ Item {
 
                 Rectangle {
                     anchors.centerIn: parent
-                    width: 8
-                    height: 8
-                    radius: 4
+                    width: root.widgetMode ? 3 : 8
+                    height: width
+                    radius: width / 2
                     color: mapTexture === "bright" ? "#ff8c5a" : "#7abdff"
                 }
             }
@@ -374,7 +375,8 @@ Item {
                         // Glow sphere
                         Model {
                             source: "#Sphere"
-                            scale: Qt.vector3d(0.2, 0.2, 0.2)
+                            property real s: root.widgetMode ? 0.06 : 0.2
+                            scale: Qt.vector3d(s, s, s)
                             materials: DefaultMaterial {
                                 diffuseColor: mapTexture === "bright" ? "#ff6b35" : "#4a9eff"
                                 opacity: 0.3 * globeShotMarker.shotOpacity
@@ -384,7 +386,8 @@ Item {
                         // Inner marker
                         Model {
                             source: "#Sphere"
-                            scale: Qt.vector3d(0.08, 0.08, 0.08)
+                            property real s: root.widgetMode ? 0.03 : 0.08
+                            scale: Qt.vector3d(s, s, s)
                             materials: DefaultMaterial {
                                 diffuseColor: mapTexture === "bright" ? "#ff6b35" : "#4a9eff"
                                 opacity: globeShotMarker.shotOpacity
@@ -497,6 +500,7 @@ Item {
         anchors.margins: 30
         spacing: 10
         opacity: 0.8
+        visible: !widgetMode
 
         Text {
             text: shotCount + " shots in the last 24 hours"
@@ -522,6 +526,6 @@ Item {
         color: "#444455"
         font.pixelSize: 11
         font.family: Theme.bodyFont.family
-        visible: !testMode
+        visible: !testMode && !widgetMode
     }
 }

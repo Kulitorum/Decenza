@@ -11,6 +11,9 @@ Popup {
     property string zoneName: ""
     property string itemType: ""
     property real clockScale: 1.0  // 0.0 = small (fit width), 1.0 = large (fit height)
+    property real mapScale: 1.0    // 1.0 = standard width, 1.7 = wide
+
+    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap"
 
     signal saved()
 
@@ -26,6 +29,7 @@ Popup {
         } else {
             clockScale = 1.0
         }
+        mapScale = typeof props.mapScale === "number" ? props.mapScale : 1.0
         open()
     }
 
@@ -47,7 +51,10 @@ Popup {
     }
 
     function save() {
-        Settings.setItemProperty(itemId, "clockScale", clockScale)
+        if (itemType === "screensaverFlipClock")
+            Settings.setItemProperty(itemId, "clockScale", clockScale)
+        if (itemType === "screensaverShotMap")
+            Settings.setItemProperty(itemId, "mapScale", mapScale)
         saved()
         close()
     }
@@ -123,9 +130,49 @@ Popup {
             }
         }
 
-        // No settings message for non-flip-clock screensavers
+        // Width slider (only for shot map)
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingSmall
+            visible: popup.itemType === "screensaverShotMap"
+
+            Text {
+                text: "Width"
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: "Narrow"
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                }
+
+                Slider {
+                    id: mapWidthSlider
+                    Layout.fillWidth: true
+                    from: 1.0
+                    to: 1.7
+                    stepSize: 0.05
+                    value: popup.mapScale
+                    onMoved: popup.mapScale = value
+                }
+
+                Text {
+                    text: "Wide"
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                }
+            }
+        }
+
+        // No settings message for screensavers without options
         Text {
-            visible: popup.itemType !== "screensaverFlipClock"
+            visible: !popup.hasSettings
             text: "No additional settings for this screensaver."
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
@@ -165,7 +212,7 @@ Popup {
                 height: Theme.scaled(36)
                 radius: Theme.cardRadius
                 color: Theme.primaryColor
-                visible: popup.itemType === "screensaverFlipClock"
+                visible: popup.hasSettings
 
                 Text {
                     anchors.centerIn: parent

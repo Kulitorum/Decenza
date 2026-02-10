@@ -48,6 +48,8 @@ Item {
 
     // Flip clock scale: 0.0 = small (fit width), 1.0 = large (fit height)
     readonly property real clockScale: typeof modelData.clockScale === "number" ? modelData.clockScale : 1.0
+    // Shot map width: 1.0 = standard, 1.7 = wide
+    readonly property real mapScale: typeof modelData.mapScale === "number" ? modelData.mapScale : 1.0
     readonly property bool isFlipClock: screensaverSubtype === "flipclock"
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
@@ -85,6 +87,7 @@ Item {
                 // Width based on the clock's aspect ratio scaled to bar height
                 var h = Theme.bottomBarHeight - Theme.spacingSmall * 2
                 if (root.isFlipClock) return h * 2.5
+                if (root.screensaverSubtype === "shotmap") return h * 1.5 * root.mapScale
                 return h * 1.5
             }
 
@@ -122,9 +125,12 @@ Item {
                 active: Settings.hasQuick3D && root.screensaverSubtype === "shotmap"
                 visible: root.screensaverSubtype === "shotmap"
                 source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapScreensaver.qml"
-                onLoaded: item.running = Qt.binding(function() {
-                    return visible && compactContent.visible
-                })
+                onLoaded: {
+                    item.running = Qt.binding(function() {
+                        return visible && compactContent.visible
+                    })
+                    item.widgetMode = true
+                }
             }
 
             // Fallback when Quick3D not available
@@ -207,9 +213,12 @@ Item {
                 active: Settings.hasQuick3D && root.screensaverSubtype === "shotmap"
                 visible: root.screensaverSubtype === "shotmap"
                 source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapScreensaver.qml"
-                onLoaded: item.running = Qt.binding(function() {
-                    return visible && fullContent.visible
-                })
+                onLoaded: {
+                    item.running = Qt.binding(function() {
+                        return visible && fullContent.visible
+                    })
+                    item.widgetMode = true
+                }
             }
 
             // Fallback when Quick3D not available
