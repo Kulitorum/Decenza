@@ -569,6 +569,8 @@ public:
     Q_INVOKABLE bool hasItemType(const QString& type) const;
     Q_INVOKABLE int getZoneYOffset(const QString& zoneName) const;
     Q_INVOKABLE void setZoneYOffset(const QString& zoneName, int offset);
+    Q_INVOKABLE double getZoneScale(const QString& zoneName) const;
+    Q_INVOKABLE void setZoneScale(const QString& zoneName, double scale);
     Q_INVOKABLE void setItemProperty(const QString& itemId, const QString& key, const QVariant& value);
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 

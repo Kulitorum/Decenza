@@ -12,6 +12,7 @@ Popup {
     property string itemType: ""
     property real clockScale: 1.0  // 0.0 = small (fit width), 1.0 = large (fit height)
     property real mapScale: 1.0    // 1.0 = standard width, 1.7 = wide
+    property string mapTexture: "" // "" = use global, "dark", "bright", "satellite"
 
     readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap"
 
@@ -30,6 +31,7 @@ Popup {
             clockScale = 1.0
         }
         mapScale = typeof props.mapScale === "number" ? props.mapScale : 1.0
+        mapTexture = typeof props.mapTexture === "string" ? props.mapTexture : ""
         open()
     }
 
@@ -53,8 +55,10 @@ Popup {
     function save() {
         if (itemType === "screensaverFlipClock")
             Settings.setItemProperty(itemId, "clockScale", clockScale)
-        if (itemType === "screensaverShotMap")
+        if (itemType === "screensaverShotMap") {
             Settings.setItemProperty(itemId, "mapScale", mapScale)
+            Settings.setItemProperty(itemId, "mapTexture", mapTexture)
+        }
         saved()
         close()
     }
@@ -166,6 +170,60 @@ Popup {
                     text: "Wide"
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
+                }
+            }
+        }
+
+        // Map texture picker (only for shot map)
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingSmall
+            visible: popup.itemType === "screensaverShotMap"
+
+            Text {
+                text: "Background"
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                Repeater {
+                    model: [
+                        { value: "",          label: "Global" },
+                        { value: "dark",      label: "Dark" },
+                        { value: "bright",    label: "Bright" },
+                        { value: "satellite", label: "Satellite" }
+                    ]
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: Theme.scaled(32)
+                        radius: Theme.scaled(6)
+                        color: popup.mapTexture === modelData.value
+                            ? Theme.primaryColor
+                            : "transparent"
+                        border.color: popup.mapTexture === modelData.value
+                            ? Theme.primaryColor
+                            : Theme.borderColor
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData.label
+                            font: Theme.captionFont
+                            color: popup.mapTexture === modelData.value
+                                ? "white"
+                                : Theme.textColor
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: popup.mapTexture = modelData.value
+                        }
+                    }
                 }
             }
         }

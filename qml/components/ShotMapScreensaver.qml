@@ -117,8 +117,8 @@ Item {
         return Math.max(0.2, 1 - (ageHours / 24))
     }
 
-    // Get texture source based on selection
-    function getTextureSource() {
+    // Texture source based on mapTexture selection (reactive property binding)
+    readonly property string textureSource: {
         if (mapTexture === "dark") return "qrc:/maps/earth_night.png"
         if (mapTexture === "satellite") return "qrc:/maps/earth_day.jpg"
         if (mapTexture === "bright") return "qrc:/maps/earth_bright.png"
@@ -142,7 +142,7 @@ Item {
             id: mapImage
             anchors.fill: parent
             fillMode: Image.Stretch
-            source: getTextureSource()
+            source: root.textureSource
             visible: status === Image.Ready
         }
 
@@ -354,7 +354,7 @@ Item {
 
                     materials: DefaultMaterial {
                         diffuseMap: Texture {
-                            source: getTextureSource()
+                            source: root.textureSource
                         }
                         specularAmount: 0.1
                         specularRoughness: 0.8

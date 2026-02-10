@@ -48,6 +48,17 @@ Item {
         initializePipes()
     }
 
+    // Recovery: if running/visible changes after Component.onCompleted,
+    // ensure pipe generation starts when conditions are met
+    onRunningChanged: {
+        if (running && visible && !currentPipe && cylinderEntries.length === 0)
+            initializePipes()
+    }
+    onVisibleChanged: {
+        if (running && visible && !currentPipe && cylinderEntries.length === 0)
+            initializePipes()
+    }
+
     function initializePipes() {
         // Clear instance lists first, then destroy entries
         cylinderInstanceList.instances = []

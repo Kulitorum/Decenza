@@ -257,6 +257,16 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         m_settings->setZoneYOffset(zone, offset);
         sendJson(socket, R"({"success":true})");
     }
+    else if (path == "/api/layout/zone-scale") {
+        QString zone = obj["zone"].toString();
+        double scale = obj["scale"].toDouble(1.0);
+        if (zone.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing zone"})");
+            return;
+        }
+        m_settings->setZoneScale(zone, scale);
+        sendJson(socket, R"({"success":true})");
+    }
     // ========== Library API (local, synchronous) ==========
 
     else if (method == "POST" && path == "/api/library/save-item") {
@@ -561,6 +571,7 @@ QString ShotServer::generateLayoutPage() const
         }
         .zone-row { display: flex; gap: 0.5rem; }
         .zone-offset-controls { display: flex; gap: 0.25rem; align-items: center; }
+        .offset-separator { width: 1px; height: 20px; background: var(--border); margin: 0 0.25rem; }
         .offset-btn {
             background: none;
             border: 1px solid var(--border);
@@ -608,6 +619,8 @@ QString ShotServer::generateLayoutPage() const
         }
         .chip.special { color: orange; }
         .chip.selected.special { color: orange; }
+        .chip.screensaver { color: #64B5F6; }
+        .chip.selected.screensaver { color: #64B5F6; }
         .chip-arrow {
             cursor: pointer;
             font-size: 1rem;
@@ -664,6 +677,7 @@ QString ShotServer::generateLayoutPage() const
         }
         .add-dropdown-item:hover { background: var(--surface-hover); }
         .add-dropdown-item.special { color: orange; }
+        .add-dropdown-item.screensaver { color: #64B5F6; }
         .reset-btn {
             background: none;
             border: 1px solid var(--border);
@@ -688,6 +702,74 @@ QString ShotServer::generateLayoutPage() const
             color: var(--accent);
         }
         .editor-hidden { display: none; }
+        .ss-editor-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+        .ss-editor-card h3 {
+            margin: 0 0 1rem;
+            font-size: 1rem;
+            color: var(--text);
+        }
+        .ss-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .ss-slider-label {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            min-width: 50px;
+        }
+        .ss-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--border);
+            outline: none;
+        }
+        .ss-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+        .ss-btn-group {
+            display: flex;
+            gap: 0.375rem;
+            margin-bottom: 0.75rem;
+        }
+        .ss-btn-option {
+            flex: 1;
+            padding: 0.375rem 0.25rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: none;
+            color: var(--text);
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-align: center;
+        }
+        .ss-btn-option:hover { border-color: var(--accent); }
+        .ss-btn-option.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #000;
+        }
+        .ss-no-settings {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            text-align: center;
+            padding: 1rem 0;
+        }
         .toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -1613,6 +1695,50 @@ QString ShotServer::generateLayoutPage() const
         </div>
     </div>
 
+    <!-- Screensaver Editor Panel -->
+    <div class="editor-panel editor-hidden" id="ssEditorPanel">
+        <div class="ss-editor-card">
+            <h3 id="ssEditorTitle">Screensaver Settings</h3>
+
+            <!-- Flip Clock: Size slider -->
+            <div id="ssClockSettings" style="display:none">
+                <div class="section-label">Size</div>
+                <div class="ss-slider-row">
+                    <span class="ss-slider-label">Small</span>
+                    <input type="range" class="ss-slider" id="ssClockScale" min="0" max="1" step="0.05" value="1" oninput="ssClockScaleChanged(this.value)">
+                    <span class="ss-slider-label" style="text-align:right">Large</span>
+                </div>
+            </div>
+
+            <!-- Shot Map: Width slider + Background picker -->
+            <div id="ssMapSettings" style="display:none">
+                <div class="section-label">Width</div>
+                <div class="ss-slider-row">
+                    <span class="ss-slider-label">Narrow</span>
+                    <input type="range" class="ss-slider" id="ssMapScale" min="1" max="1.7" step="0.05" value="1" oninput="ssMapScaleChanged(this.value)">
+                    <span class="ss-slider-label" style="text-align:right">Wide</span>
+                </div>
+                <div class="section-label">Background</div>
+                <div class="ss-btn-group" id="ssMapTextureGroup">
+                    <button class="ss-btn-option active" onclick="ssSelectMapTexture('')">Global</button>
+                    <button class="ss-btn-option" onclick="ssSelectMapTexture('dark')">Dark</button>
+                    <button class="ss-btn-option" onclick="ssSelectMapTexture('bright')">Bright</button>
+                    <button class="ss-btn-option" onclick="ssSelectMapTexture('satellite')">Satellite</button>
+                </div>
+            </div>
+
+            <!-- No settings message -->
+            <div id="ssNoSettings" style="display:none">
+                <div class="ss-no-settings">No additional settings for this screensaver.</div>
+            </div>
+
+            <div class="editor-buttons">
+                <div style="flex:1"></div>
+                <button class="btn btn-cancel" onclick="closeScreensaverEditor()">Done</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Library Panel (right sidebar) -->
     <div class="library-panel" id="libraryPanel">
         <div class="lib-spinner-overlay" id="libSpinner"><div class="lib-spinner"></div><div class="lib-spinner-text" id="libSpinnerText">Loading...</div></div>
@@ -2008,7 +2134,11 @@ QString ShotServer::generateLayoutPage() const
         {type:"spacer",label:"Spacer",special:true},{type:"separator",label:"Separator",special:true},
         {type:"custom",label:"Custom",special:true},
         {type:"weather",label:"Weather",special:true},
-        {type:"quit",label:"Quit",special:true}
+        {type:"quit",label:"Quit",special:true},
+        {type:"screensaverFlipClock",label:"Flip Clock",screensaver:true},
+        {type:"screensaverPipes",label:"3D Pipes",screensaver:true},
+        {type:"screensaverAttractor",label:"Attractor",screensaver:true},
+        {type:"screensaverShotMap",label:"Shot Map",screensaver:true}
     ];
 
     var DISPLAY_NAMES = {
@@ -2017,7 +2147,9 @@ QString ShotServer::generateLayoutPage() const
         settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
         waterLevel:"Water",connectionStatus:"Connection",scaleWeight:"Scale",
         shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
-        custom:"Custom",weather:"Weather",quit:"Quit"
+        custom:"Custom",weather:"Weather",quit:"Quit",
+        screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",
+        screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map"
     };
 
     var ACTIONS = [
@@ -2113,6 +2245,11 @@ QString ShotServer::generateLayoutPage() const
                 html += '<button class="offset-btn" onclick="changeOffset(\'' + zone.key + '\',-5)">&#9650;</button>';
                 html += '<span class="offset-val">' + (offset !== 0 ? (offset > 0 ? "+" : "") + offset : "0") + '</span>';
                 html += '<button class="offset-btn" onclick="changeOffset(\'' + zone.key + '\',5)">&#9660;</button>';
+                var scale = (layoutData && layoutData.scales && layoutData.scales[zone.key]) ? layoutData.scales[zone.key] : 1.0;
+                html += '<div class="offset-separator"></div>';
+                html += '<span class="offset-val">' + (scale !== 1.0 ? '&times;' + scale.toFixed(2) : '') + '</span>';
+                html += '<button class="offset-btn" onclick="changeScale(\'' + zone.key + '\',-0.05)" style="font-weight:bold">&minus;</button>';
+                html += '<button class="offset-btn" onclick="changeScale(\'' + zone.key + '\',0.05)" style="font-weight:bold">+</button>';
                 html += '</div>';
             }
             html += '</div>';
@@ -2120,9 +2257,10 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="chips-area">';
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
+                var isSS = item.type.indexOf("screensaver") === 0;
                 var isSpecial = item.type === "spacer" || item.type === "custom" || item.type === "weather" || item.type === "separator" || item.type === "pageTitle" || item.type === "quit";
                 var isSel = selectedChip && selectedChip.id === item.id;
-                var cls = "chip" + (isSel ? " selected" : "") + (isSpecial ? " special" : "");
+                var cls = "chip" + (isSel ? " selected" : "") + (isSS ? " screensaver" : (isSpecial ? " special" : ""));
                 var chipStyle = "";
                 var props = item.type === "custom" ? itemPropsCache[item.id] : null;
                 if (props && props.backgroundColor && !isSel) {
@@ -2163,7 +2301,7 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="add-dropdown">';
             for (var w = 0; w < WIDGET_TYPES.length; w++) {
                 var wt = WIDGET_TYPES[w];
-                html += '<div class="add-dropdown-item' + (wt.special ? ' special' : '') + '" ';
+                html += '<div class="add-dropdown-item' + (wt.screensaver ? ' screensaver' : (wt.special ? ' special' : '')) + '" ';
                 html += 'onclick="event.stopPropagation();addItem(\'' + wt.type + '\',\'' + zone.key + '\');this.parentElement.classList.remove(\'open\')">';
                 html += wt.label + '</div>';
             }
@@ -2198,6 +2336,8 @@ QString ShotServer::generateLayoutPage() const
             selectedChip = {id: itemId, zone: zone};
             if (type === "custom") {
                 openEditor(itemId, zone);
+            } else if (type.indexOf("screensaver") === 0) {
+                openScreensaverEditor(itemId, zone, type);
             }
         }
         renderZones();
@@ -2229,6 +2369,7 @@ QString ShotServer::generateLayoutPage() const
         apiPost("/api/layout/remove", {itemId: itemId, zone: zone}, function() {
             if (selectedChip && selectedChip.id === itemId) selectedChip = null;
             if (editingItem && editingItem.id === itemId) closeEditor();
+            if (ssEditingItem && ssEditingItem.id === itemId) closeScreensaverEditor();
             loadLayout();
         });
     }
@@ -2248,13 +2389,124 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
+    function changeScale(zone, delta) {
+        var current = 1.0;
+        if (layoutData && layoutData.scales && layoutData.scales[zone] !== undefined)
+            current = layoutData.scales[zone];
+        var newScale = Math.round((current + delta) * 100) / 100;
+        apiPost("/api/layout/zone-scale", {zone: zone, scale: newScale}, function() {
+            loadLayout();
+        });
+    }
+
     function resetLayout() {
         if (!confirm("Reset layout to default?")) return;
         apiPost("/api/layout/reset", {}, function() {
             selectedChip = null;
             closeEditor();
+            closeScreensaverEditor();
             loadLayout();
         });
+    }
+
+    // ---- Screensaver Editor ----
+
+    var ssEditingItem = null;
+    var ssEditingType = "";
+    var ssCurrentMapTexture = "";
+
+    var SS_TITLES = {
+        screensaverFlipClock: "Flip Clock Settings",
+        screensaverPipes: "3D Pipes Settings",
+        screensaverAttractor: "Attractor Settings",
+        screensaverShotMap: "Shot Map Settings"
+    };
+
+    function openScreensaverEditor(itemId, zone, type) {
+        // Close custom editor if open
+        closeEditor();
+        ssEditingItem = {id: itemId, zone: zone};
+        ssEditingType = type;
+        document.getElementById("ssEditorTitle").textContent = SS_TITLES[type] || "Screensaver Settings";
+
+        // Hide all setting sections
+        document.getElementById("ssClockSettings").style.display = "none";
+        document.getElementById("ssMapSettings").style.display = "none";
+        document.getElementById("ssNoSettings").style.display = "none";
+
+        // Fetch current properties
+        fetch("/api/layout/item?id=" + encodeURIComponent(itemId))
+            .then(function(r) { return r.json(); })
+            .then(function(props) {
+                if (type === "screensaverFlipClock") {
+                    var scale = 1.0;
+                    if (typeof props.clockScale === "number") scale = props.clockScale;
+                    else if (props.fitMode === "width") scale = 0.0;
+                    document.getElementById("ssClockScale").value = scale;
+                    document.getElementById("ssClockSettings").style.display = "";
+                } else if (type === "screensaverShotMap") {
+                    var mapScale = typeof props.mapScale === "number" ? props.mapScale : 1.0;
+                    document.getElementById("ssMapScale").value = mapScale;
+                    ssCurrentMapTexture = (typeof props.mapTexture === "string") ? props.mapTexture : "";
+                    ssUpdateTextureButtons();
+                    document.getElementById("ssMapSettings").style.display = "";
+                } else {
+                    document.getElementById("ssNoSettings").style.display = "";
+                }
+                document.getElementById("ssEditorPanel").classList.remove("editor-hidden");
+            });
+    }
+
+    function closeScreensaverEditor() {
+        if (ssAutoSaveTimer) { clearTimeout(ssAutoSaveTimer); ssAutoSaveTimer = null; ssSaveProperty(); }
+        ssEditingItem = null;
+        ssEditingType = "";
+        document.getElementById("ssEditorPanel").classList.add("editor-hidden");
+    }
+
+    var ssAutoSaveTimer = null;
+    function ssAutoSave() {
+        if (ssAutoSaveTimer) clearTimeout(ssAutoSaveTimer);
+        ssAutoSaveTimer = setTimeout(function() { ssAutoSaveTimer = null; ssSaveProperty(); }, 200);
+    }
+
+    function ssSaveProperty() {
+        if (!ssEditingItem) return;
+        var id = ssEditingItem.id;
+        if (ssEditingType === "screensaverFlipClock") {
+            var clockScale = parseFloat(document.getElementById("ssClockScale").value);
+            apiPost("/api/layout/item", {itemId: id, key: "clockScale", value: clockScale}, function() {});
+        } else if (ssEditingType === "screensaverShotMap") {
+            var mapScale = parseFloat(document.getElementById("ssMapScale").value);
+            apiPost("/api/layout/item", {itemId: id, key: "mapScale", value: mapScale}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "mapTexture", value: ssCurrentMapTexture}, function() {});
+        }
+    }
+
+    function ssClockScaleChanged(val) {
+        ssAutoSave();
+    }
+
+    function ssMapScaleChanged(val) {
+        ssAutoSave();
+    }
+
+    function ssSelectMapTexture(value) {
+        ssCurrentMapTexture = value;
+        ssUpdateTextureButtons();
+        ssSaveProperty();
+    }
+
+    function ssUpdateTextureButtons() {
+        var btns = document.getElementById("ssMapTextureGroup").querySelectorAll(".ss-btn-option");
+        var values = ["", "dark", "bright", "satellite"];
+        for (var i = 0; i < btns.length; i++) {
+            if (values[i] === ssCurrentMapTexture) {
+                btns[i].classList.add("active");
+            } else {
+                btns[i].classList.remove("active");
+            }
+        }
     }
 
     // ---- WYSIWYG Text Editor ----
@@ -2416,6 +2668,8 @@ QString ShotServer::generateLayoutPage() const
     }
 
     function openEditor(itemId, zone) {
+        // Close screensaver editor if open
+        closeScreensaverEditor();
         // Flush any pending auto-save from previously edited item
         if (editingItem && autoSaveTimer) {
             clearTimeout(autoSaveTimer); autoSaveTimer = null; saveText();

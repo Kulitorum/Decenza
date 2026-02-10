@@ -50,6 +50,8 @@ Item {
     readonly property real clockScale: typeof modelData.clockScale === "number" ? modelData.clockScale : 1.0
     // Shot map width: 1.0 = standard, 1.7 = wide
     readonly property real mapScale: typeof modelData.mapScale === "number" ? modelData.mapScale : 1.0
+    // Shot map background: "" = use global, "dark", "bright", "satellite"
+    readonly property string mapTexture: typeof modelData.mapTexture === "string" ? modelData.mapTexture : ""
     readonly property bool isFlipClock: screensaverSubtype === "flipclock"
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
@@ -108,10 +110,10 @@ Item {
                 running: visible && compactContent.visible
             }
 
-            // Pipes preview (Quick3D)
+            // Pipes preview (Quick3D) — only create when compact to avoid duplicate View3D
             Loader {
                 anchors.fill: parent
-                active: Settings.hasQuick3D && root.screensaverSubtype === "pipes"
+                active: Settings.hasQuick3D && root.screensaverSubtype === "pipes" && root.isCompact
                 visible: root.screensaverSubtype === "pipes"
                 source: "qrc:/qt/qml/DecenzaDE1/qml/components/PipesScreensaver.qml"
                 onLoaded: item.running = Qt.binding(function() {
@@ -119,10 +121,10 @@ Item {
                 })
             }
 
-            // Shot Map preview (Quick3D)
+            // Shot Map preview (Quick3D) — only create when compact to avoid duplicate View3D
             Loader {
                 anchors.fill: parent
-                active: Settings.hasQuick3D && root.screensaverSubtype === "shotmap"
+                active: Settings.hasQuick3D && root.screensaverSubtype === "shotmap" && root.isCompact
                 visible: root.screensaverSubtype === "shotmap"
                 source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapScreensaver.qml"
                 onLoaded: {
@@ -130,6 +132,9 @@ Item {
                         return visible && compactContent.visible
                     })
                     item.widgetMode = true
+                    item.mapTexture = Qt.binding(function() {
+                        return root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
+                    })
                 }
             }
 
@@ -199,7 +204,7 @@ Item {
             // 3D Pipes — Loader with qrc path (requires Quick3D)
             Loader {
                 anchors.fill: parent
-                active: Settings.hasQuick3D && root.screensaverSubtype === "pipes"
+                active: Settings.hasQuick3D && root.screensaverSubtype === "pipes" && !root.isCompact
                 visible: root.screensaverSubtype === "pipes"
                 source: "qrc:/qt/qml/DecenzaDE1/qml/components/PipesScreensaver.qml"
                 onLoaded: item.running = Qt.binding(function() {
@@ -210,7 +215,7 @@ Item {
             // Shot Map — Loader with qrc path (requires Quick3D)
             Loader {
                 anchors.fill: parent
-                active: Settings.hasQuick3D && root.screensaverSubtype === "shotmap"
+                active: Settings.hasQuick3D && root.screensaverSubtype === "shotmap" && !root.isCompact
                 visible: root.screensaverSubtype === "shotmap"
                 source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapScreensaver.qml"
                 onLoaded: {
@@ -218,6 +223,9 @@ Item {
                         return visible && fullContent.visible
                     })
                     item.widgetMode = true
+                    item.mapTexture = Qt.binding(function() {
+                        return root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
+                    })
                 }
             }
 

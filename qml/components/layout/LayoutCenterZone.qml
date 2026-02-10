@@ -6,6 +6,7 @@ Item {
 
     required property string zoneName
     required property var items
+    property real zoneScale: 1.0
 
     // Items that size to their content instead of using fixed button width
     // Action buttons (espresso, steam, etc.) use fixed buttonWidth; readouts auto-size
@@ -26,7 +27,8 @@ Item {
         }
     }
 
-    // Calculate button sizing (auto-sized items don't count)
+    // Calculate button sizing in unscaled space (auto-sized items don't count)
+    readonly property real effectiveWidth: width / zoneScale
     readonly property int buttonCount: {
         if (!items) return 0
         var count = 0
@@ -42,23 +44,30 @@ Item {
         }
         return false
     }
-    readonly property real availableWidth: width - Theme.scaled(20) -
+    readonly property real availableWidth: effectiveWidth - Theme.scaled(20) -
         (buttonCount > 1 ? (buttonCount - 1) * Theme.scaled(10) : 0)
     readonly property real buttonWidth: buttonCount > 0
         ? Math.min(Theme.scaled(150), availableWidth / buttonCount) : Theme.scaled(150)
     readonly property real buttonHeight: Theme.scaled(120)
 
-    implicitHeight: contentRow.implicitHeight
+    implicitHeight: contentRow.implicitHeight * zoneScale
 
     Component.onCompleted: {
     }
 
     RowLayout {
         id: contentRow
-        anchors.left: parent.left
-        anchors.right: parent.right
+        width: root.effectiveWidth
+        anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.scaled(10)
+
+        transform: Scale {
+            xScale: root.zoneScale
+            yScale: root.zoneScale
+            origin.x: contentRow.width / 2
+            origin.y: contentRow.height / 2
+        }
 
         // Auto-centering spacer (hides when user has their own spacers)
         Item { Layout.fillWidth: true; visible: !root.hasSpacer }

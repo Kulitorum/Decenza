@@ -15,6 +15,7 @@ Rectangle {
     property bool zoneSelected: false
     property bool showPositionControls: false
     property int yOffset: 0
+    property real zoneScale: 1.0
 
     signal itemTapped(string itemId)
     signal zoneTapped()
@@ -24,6 +25,8 @@ Rectangle {
     signal addItemRequested(string type)
     signal moveUp()
     signal moveDown()
+    signal scaleUp()
+    signal scaleDown()
     signal editCustomRequested(string itemId, string zoneName)
 
     Layout.fillWidth: true
@@ -117,6 +120,82 @@ Rectangle {
                     id: downMa
                     anchors.fill: parent
                     onClicked: root.moveDown()
+                }
+            }
+
+            // Scale separator
+            Rectangle {
+                visible: root.showPositionControls
+                width: 1
+                height: Theme.scaled(20)
+                color: Theme.borderColor
+            }
+
+            // Scale display
+            Text {
+                visible: root.showPositionControls && root.zoneScale !== 1.0
+                text: "\u00D7" + root.zoneScale.toFixed(2)
+                color: Theme.textSecondaryColor
+                font: Theme.captionFont
+            }
+
+            // Scale DOWN (smaller)
+            Rectangle {
+                visible: root.showPositionControls
+                width: Theme.scaled(32)
+                height: Theme.scaled(32)
+                radius: Theme.scaled(6)
+                color: scaleDownMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+
+                Accessible.role: Accessible.Button
+                Accessible.name: "Make " + root.zoneLabel + " smaller"
+                Accessible.focusable: true
+                Accessible.onPressAction: root.scaleDown()
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "\u2212"
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.scaled(18)
+                    font.bold: true
+                }
+
+                MouseArea {
+                    id: scaleDownMa
+                    anchors.fill: parent
+                    onClicked: root.scaleDown()
+                }
+            }
+
+            // Scale UP (bigger)
+            Rectangle {
+                visible: root.showPositionControls
+                width: Theme.scaled(32)
+                height: Theme.scaled(32)
+                radius: Theme.scaled(6)
+                color: scaleUpMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+
+                Accessible.role: Accessible.Button
+                Accessible.name: "Make " + root.zoneLabel + " bigger"
+                Accessible.focusable: true
+                Accessible.onPressAction: root.scaleUp()
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "+"
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.scaled(18)
+                    font.bold: true
+                }
+
+                MouseArea {
+                    id: scaleUpMa
+                    anchors.fill: parent
+                    onClicked: root.scaleUp()
                 }
             }
         }

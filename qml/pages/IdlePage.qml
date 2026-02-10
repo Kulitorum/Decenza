@@ -78,6 +78,11 @@ Page {
     property int centerTopYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerTop || 0) : 0
     property int centerMiddleYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerMiddle || 0) : 0
 
+    // Center zone scales (user-configurable sizing)
+    property real centerStatusScale: layoutConfig.scales ? (layoutConfig.scales.centerStatus || 1.0) : 1.0
+    property real centerTopScale: layoutConfig.scales ? (layoutConfig.scales.centerTop || 1.0) : 1.0
+    property real centerMiddleScale: layoutConfig.scales ? (layoutConfig.scales.centerMiddle || 1.0) : 1.0
+
     Component.onCompleted: {
         root.currentPageTitle = "Idle"
     }
@@ -199,6 +204,7 @@ Page {
             zoneName: "centerStatus"
             items: idlePage.centerStatusItems
             visible: idlePage.centerStatusItems.length > 0
+            zoneScale: idlePage.centerStatusScale
         }
 
         // Main action buttons from centerTop zone
@@ -208,6 +214,7 @@ Page {
             Layout.topMargin: idlePage.centerTopYOffset
             zoneName: "centerTop"
             items: idlePage.centerTopItems
+            zoneScale: idlePage.centerTopScale
         }
 
         // Inline preset rows (for center-zone action buttons)
@@ -450,6 +457,7 @@ Page {
             Layout.topMargin: idlePage.centerMiddleYOffset
             zoneName: "centerMiddle"
             items: idlePage.centerMiddleItems
+            zoneScale: idlePage.centerMiddleScale
         }
     }
 

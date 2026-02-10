@@ -2752,6 +2752,21 @@ void Settings::setZoneYOffset(const QString& zoneName, int offset) {
     saveLayoutObject(layout);
 }
 
+double Settings::getZoneScale(const QString& zoneName) const {
+    QJsonObject layout = getLayoutObject();
+    QJsonObject scales = layout["scales"].toObject();
+    return scales[zoneName].toDouble(1.0);
+}
+
+void Settings::setZoneScale(const QString& zoneName, double scale) {
+    scale = qBound(0.5, scale, 2.0);
+    QJsonObject layout = getLayoutObject();
+    QJsonObject scales = layout["scales"].toObject();
+    scales[zoneName] = scale;
+    layout["scales"] = scales;
+    saveLayoutObject(layout);
+}
+
 void Settings::setItemProperty(const QString& itemId, const QString& key, const QVariant& value) {
     QJsonObject layout = getLayoutObject();
     QJsonObject zones = layout["zones"].toObject();

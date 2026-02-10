@@ -30,6 +30,12 @@ Item {
         return Settings.getZoneYOffset(zoneName)
     }
 
+    // Helper to get zone scale (also depends on layoutConfiguration)
+    function getZoneScale(zoneName) {
+        var _dep = Settings.layoutConfiguration
+        return Settings.getZoneScale(zoneName)
+    }
+
     // Handle item tap: select or deselect
     function onItemTapped(itemId, zoneName) {
         if (selectedItemId === itemId) {
@@ -246,6 +252,7 @@ Item {
                     zoneSelected: layoutTab.selectedZoneName === "centerStatus"
                     showPositionControls: true
                     yOffset: layoutTab.getZoneYOffset("centerStatus")
+                    zoneScale: layoutTab.getZoneScale("centerStatus")
 
                     onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerStatus") }
                     onZoneTapped: layoutTab.onZoneTapped("centerStatus")
@@ -257,6 +264,8 @@ Item {
 
                     onMoveUp: Settings.setZoneYOffset("centerStatus", yOffset - 5)
                     onMoveDown: Settings.setZoneYOffset("centerStatus", yOffset + 5)
+                    onScaleUp: Settings.setZoneScale("centerStatus", zoneScale + 0.05)
+                    onScaleDown: Settings.setZoneScale("centerStatus", zoneScale - 0.05)
                 }
 
                 // Center Top zone
@@ -269,6 +278,7 @@ Item {
                     zoneSelected: layoutTab.selectedZoneName === "centerTop"
                     showPositionControls: true
                     yOffset: layoutTab.getZoneYOffset("centerTop")
+                    zoneScale: layoutTab.getZoneScale("centerTop")
 
                     onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerTop") }
                     onZoneTapped: layoutTab.onZoneTapped("centerTop")
@@ -280,6 +290,8 @@ Item {
 
                     onMoveUp: Settings.setZoneYOffset("centerTop", yOffset - 5)
                     onMoveDown: Settings.setZoneYOffset("centerTop", yOffset + 5)
+                    onScaleUp: Settings.setZoneScale("centerTop", zoneScale + 0.05)
+                    onScaleDown: Settings.setZoneScale("centerTop", zoneScale - 0.05)
                 }
 
                 // Center Middle zone
@@ -292,6 +304,7 @@ Item {
                     zoneSelected: layoutTab.selectedZoneName === "centerMiddle"
                     showPositionControls: true
                     yOffset: layoutTab.getZoneYOffset("centerMiddle")
+                    zoneScale: layoutTab.getZoneScale("centerMiddle")
 
                     onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerMiddle") }
                     onZoneTapped: layoutTab.onZoneTapped("centerMiddle")
@@ -303,6 +316,8 @@ Item {
 
                     onMoveUp: Settings.setZoneYOffset("centerMiddle", yOffset - 5)
                     onMoveDown: Settings.setZoneYOffset("centerMiddle", yOffset + 5)
+                    onScaleUp: Settings.setZoneScale("centerMiddle", zoneScale + 0.05)
+                    onScaleDown: Settings.setZoneScale("centerMiddle", zoneScale - 0.05)
                 }
 
                 // Bottom bar zones
