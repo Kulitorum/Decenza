@@ -98,6 +98,13 @@ jobs:
           cp decenza.desktop AppDir/usr/share/applications/
           cp decenza.png AppDir/usr/share/icons/hicolor/256x256/apps/
 
+      - name: Install GStreamer
+        run: |
+          sudo apt-get install -y \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-bad1.0-dev
+
       - name: Remove problematic Qt plugins
         run: |
           # Remove plugins with external dependencies not available in AppImage
@@ -109,6 +116,8 @@ jobs:
           rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlodbc.so
           rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlmimer.so
           rm -f $QT_ROOT_DIR/plugins/position/libqtposition_nmea.so
+          # Remove Quick3D QML modules (not built on ARM64, but Qt install includes them)
+          rm -rf $QT_ROOT_DIR/qml/QtQuick3D
 
       - name: Create AppImage
         env:
