@@ -288,14 +288,15 @@ bool DatabaseBackupManager::createBackup(bool force)
         QStringList args;
         args << "-NoProfile" << "-NonInteractive" << "-Command";
         // Use PowerShell's literal string syntax to avoid injection
-        args << QString("Compress-Archive -LiteralPath '%1' -DestinationPath '%2' -Force")
+        // Note: Compress-Archive always uses optimal compression, no level parameter needed
+        args << QString("Compress-Archive -LiteralPath '%1' -DestinationPath '%2' -Force -CompressionLevel Optimal")
                 .arg(dbFileName.replace("'", "''"))  // Escape single quotes
                 .arg(zipFileName.replace("'", "''"));
         zipProcess.start("powershell", args);
 #else
         // macOS/Linux: Use zip command
         QStringList args;
-        args << "-j" << zipFileName << dbFileName; // -j = junk directory paths
+        args << "-9" << "-j" << zipFileName << dbFileName; // -9 = maximum compression, -j = junk directory paths
         zipProcess.start("zip", args);
 #endif
 

@@ -311,6 +311,9 @@ public class StorageHelper {
             fos = new java.io.FileOutputStream(zipFilePath);
             zos = new java.util.zip.ZipOutputStream(fos);
 
+            // Set maximum compression level (9 = best compression, slower)
+            zos.setLevel(java.util.zip.Deflater.BEST_COMPRESSION);
+
             // Add file to ZIP with just the filename (not full path)
             java.util.zip.ZipEntry zipEntry = new java.util.zip.ZipEntry(sourceFile.getName());
             zos.putNextEntry(zipEntry);
