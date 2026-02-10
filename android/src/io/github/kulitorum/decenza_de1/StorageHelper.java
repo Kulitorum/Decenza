@@ -180,6 +180,9 @@ public class StorageHelper {
      * Returns true on success, false on error.
      */
     public static boolean copyFile(String sourcePath, String destPath) {
+        java.io.FileInputStream fis = null;
+        java.io.FileOutputStream fos = null;
+
         try {
             java.io.File sourceFile = new java.io.File(sourcePath);
             java.io.File destFile = new java.io.File(destPath);
@@ -194,8 +197,8 @@ public class StorageHelper {
                 destFile.delete();
             }
 
-            java.io.FileInputStream fis = new java.io.FileInputStream(sourceFile);
-            java.io.FileOutputStream fos = new java.io.FileOutputStream(destFile);
+            fis = new java.io.FileInputStream(sourceFile);
+            fos = new java.io.FileOutputStream(destFile);
 
             byte[] buffer = new byte[4096];
             int length;
@@ -204,8 +207,6 @@ public class StorageHelper {
             }
 
             fos.flush();
-            fos.close();
-            fis.close();
 
             Log.i(TAG, "Copied file: " + sourcePath + " -> " + destPath);
             return true;
@@ -213,6 +214,18 @@ public class StorageHelper {
         } catch (Exception e) {
             Log.e(TAG, "Failed to copy file: " + e.getMessage());
             return false;
+        } finally {
+            // Ensure streams are always closed
+            try {
+                if (fos != null) fos.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+            }
+            try {
+                if (fis != null) fis.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+            }
         }
     }
 

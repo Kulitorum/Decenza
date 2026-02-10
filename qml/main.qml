@@ -2506,4 +2506,89 @@ ApplicationWindow {
             }
         }
     }
+
+    // First-run restore result dialog
+    Dialog {
+        id: firstRunRestoreResultDialog
+        anchors.centerIn: parent
+        modal: true
+        closePolicy: Popup.NoAutoClose
+
+        property bool isSuccess: false
+        property string message: ""
+
+        title: isSuccess ?
+            TranslationManager.translate("main.firstrun.restoresuccess", "Restore Complete") :
+            TranslationManager.translate("main.firstrun.restorefailed", "Restore Failed")
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(15)
+
+            Text {
+                Layout.fillWidth: true
+                text: firstRunRestoreResultDialog.message
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(13)
+                wrapMode: Text.WordWrap
+            }
+
+            AccessibleButton {
+                Layout.alignment: Qt.AlignHCenter
+                text: firstRunRestoreResultDialog.isSuccess ?
+                    TranslationManager.translate("main.firstrun.restartnow", "Restart Now") :
+                    TranslationManager.translate("common.ok", "OK")
+                primary: true
+                onClicked: {
+                    if (firstRunRestoreResultDialog.isSuccess) {
+                        Qt.quit();  // Restart required after successful restore
+                    } else {
+                        firstRunRestoreResultDialog.close();
+                        firstRunRestoreDialog.open();  // Reopen restore dialog on failure
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle first-run restore results
+    Connections {
+        target: MainController.backupManager
+        enabled: firstRunRestoreDialog.visible || firstRunRestoreResultDialog.visible
+
+        function onRestoreCompleted(filename) {
+            console.log("First-run restore completed:", filename);
+            firstRunRestoreResultDialog.isSuccess = true;
+            firstRunRestoreResultDialog.message = TranslationManager.translate(
+                "main.firstrun.restoremessage",
+                "Backup restored successfully! The app needs to restart to load the imported shots."
+            );
+            firstRunRestoreResultDialog.open();
+
+            // TTS announcement
+            if (MainController.accessibilityManager) {
+                MainController.accessibilityManager.announce(
+                    TranslationManager.translate("main.firstrun.restoresuccessAccessible",
+                        "Backup restored successfully. Restart required.")
+                );
+            }
+        }
+
+        function onRestoreFailed(error) {
+            console.error("First-run restore failed:", error);
+            firstRunRestoreResultDialog.isSuccess = false;
+            firstRunRestoreResultDialog.message = TranslationManager.translate(
+                "main.firstrun.restoreerrormessage",
+                "Failed to restore backup: "
+            ) + error;
+            firstRunRestoreResultDialog.open();
+
+            // TTS announcement
+            if (MainController.accessibilityManager) {
+                MainController.accessibilityManager.announce(
+                    TranslationManager.translate("main.firstrun.restorefailedAccessible",
+                        "Restore failed: ") + error
+                );
+            }
+        }
+    }
 }

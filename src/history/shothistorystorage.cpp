@@ -1396,7 +1396,11 @@ bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
 #endif
 
     // Reopen database
-    m_db.open();
+    if (!m_db.open()) {
+        qWarning() << "ShotHistoryStorage: Failed to reopen database after backup:" << m_db.lastError().text();
+        emit errorOccurred("Failed to reopen database after backup");
+        return false;
+    }
 
     return success;
 }
