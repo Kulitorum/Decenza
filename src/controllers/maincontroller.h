@@ -19,6 +19,7 @@
 #include "../network/mqttclient.h"
 #include "../core/updatechecker.h"
 #include "../core/datamigrationclient.h"
+#include "../core/databasebackupmanager.h"
 
 class Settings;
 class DE1Device;
@@ -80,6 +81,7 @@ class MainController : public QObject {
     Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT)
     Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT)
     Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT)
+    Q_PROPERTY(DatabaseBackupManager* backupManager READ backupManager CONSTANT)
     Q_PROPERTY(bool isCurrentProfileRecipe READ isCurrentProfileRecipe NOTIFY currentProfileChanged)
     Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
@@ -119,6 +121,7 @@ public:
     void setBLEManager(BLEManager* bleManager) { m_bleManager = bleManager; }
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
+    void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
     Profile* currentProfilePtr() { return &m_currentProfile; }
     bool isSawSettling() const;
@@ -135,6 +138,7 @@ public:
     UpdateChecker* updateChecker() const { return m_updateChecker; }
     ShotReporter* shotReporter() const { return m_shotReporter; }
     DataMigrationClient* dataMigration() const { return m_dataMigration; }
+    DatabaseBackupManager* backupManager() const { return m_backupManager; }
     LocationProvider* locationProvider() const { return m_locationProvider; }
     qint64 lastSavedShotId() const { return m_lastSavedShotId; }
     double profileTargetTemperature() const { return m_currentProfile.espressoTemperature(); }
@@ -316,4 +320,5 @@ private:
     LocationProvider* m_locationProvider = nullptr;
     DataMigrationClient* m_dataMigration = nullptr;
     ShotReporter* m_shotReporter = nullptr;
+    DatabaseBackupManager* m_backupManager = nullptr;
 };

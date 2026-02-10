@@ -25,6 +25,7 @@
 #include "core/batterymanager.h"
 #include "core/accessibilitymanager.h"
 #include "core/autowakemanager.h"
+#include "core/databasebackupmanager.h"
 #include "core/crashhandler.h"
 #include "network/crashreporter.h"
 #include "core/profilestorage.h"
@@ -246,6 +247,19 @@ int main(int argc, char *argv[])
         }
     });
     autoWakeManager.start();
+
+    // Database backup manager for scheduled daily backups
+    DatabaseBackupManager backupManager(&settings, mainController.shotHistory());
+    mainController.setBackupManager(&backupManager);
+    QObject::connect(&backupManager, &DatabaseBackupManager::backupCreated,
+                     [](const QString& path) {
+        qDebug() << "DatabaseBackupManager: Backup created successfully:" << path;
+    });
+    QObject::connect(&backupManager, &DatabaseBackupManager::backupFailed,
+                     [](const QString& error) {
+        qWarning() << "DatabaseBackupManager: Backup failed:" << error;
+    });
+    backupManager.start();
 
     checkpoint("Managers wired");
 

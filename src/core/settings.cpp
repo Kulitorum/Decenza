@@ -1975,6 +1975,17 @@ void Settings::setBetaUpdatesEnabled(bool enabled) {
     }
 }
 
+int Settings::dailyBackupHour() const {
+    return m_settings.value("backup/dailyBackupHour", -1).toInt();  // -1 = off
+}
+
+void Settings::setDailyBackupHour(int hour) {
+    if (dailyBackupHour() != hour) {
+        m_settings.setValue("backup/dailyBackupHour", hour);
+        emit dailyBackupHourChanged();
+    }
+}
+
 QString Settings::waterLevelDisplayUnit() const {
     return m_settings.value("display/waterLevelUnit", "percent").toString();
 }

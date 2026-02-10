@@ -1608,7 +1608,7 @@ ApplicationWindow {
         function onFolderSelected(success) {
             if (storageSetupDialog.opened) {
                 storageSetupDialog.close()
-                startBluetoothScan()
+                checkFirstRunRestore()
             }
         }
     }
@@ -1618,7 +1618,34 @@ ApplicationWindow {
         if (ProfileStorage.needsSetup) {
             storageSetupDialog.open()
         } else {
-            startBluetoothScan()
+            checkFirstRunRestore()
+        }
+    }
+
+    // Check for first-run restore (after storage permission is granted)
+    function checkFirstRunRestore() {
+        if (MainController.backupManager && MainController.backupManager.shouldOfferFirstRunRestore()) {
+            // Get available backups
+            var backups = MainController.backupManager.getAvailableBackups();
+            var displayList = [];
+            var filenameList = [];
+
+            for (var i = 0; i < backups.length; i++) {
+                var parts = backups[i].split("|");
+                if (parts.length === 2) {
+                    displayList.push(parts[0]);  // Display name
+                    filenameList.push(parts[1]);  // Actual filename
+                }
+            }
+
+            if (displayList.length > 0) {
+                firstRunRestoreDialog.setBackups(displayList, filenameList);
+                firstRunRestoreDialog.open();
+            } else {
+                startBluetoothScan();
+            }
+        } else {
+            startBluetoothScan();
         }
     }
 
@@ -2334,6 +2361,149 @@ ApplicationWindow {
         MouseArea {
             anchors.fill: parent
             onClicked: Qt.inputMethod.hide()
+        }
+    }
+
+    // First-run restore dialog
+    Dialog {
+        id: firstRunRestoreDialog
+        anchors.centerIn: parent
+        modal: true
+        title: TranslationManager.translate("main.firstrun.title", "Welcome to Decenza!")
+        closePolicy: Popup.CloseOnEscape
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: "white"
+        }
+
+        function setBackups(displayList, filenameList) {
+            // Use Qt.callLater to ensure ComboBox is fully initialized
+            Qt.callLater(function() {
+                firstRunBackupCombo.model = displayList;
+                firstRunBackupCombo.backupFilenames = filenameList;
+                firstRunBackupCombo.currentIndex = 0;
+            });
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(15)
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("main.firstrun.message",
+                    "We found existing backups from a previous installation. Would you like to restore your shot history?")
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(13)
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("main.firstrun.selectbackup", "Select a backup to restore:")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(12)
+            }
+
+            ComboBox {
+                id: firstRunBackupCombo
+                Layout.fillWidth: true
+
+                property var backupFilenames: []
+
+                implicitHeight: Theme.scaled(36)
+
+                delegate: ItemDelegate {
+                    width: firstRunBackupCombo.width
+                    height: Theme.scaled(36)
+
+                    contentItem: Text {
+                        text: modelData
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: highlighted ? Theme.primaryColor : "transparent"
+                    }
+
+                    highlighted: firstRunBackupCombo.highlightedIndex === index
+                }
+
+                contentItem: Text {
+                    text: firstRunBackupCombo.displayText
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    leftPadding: Theme.scaled(10)
+                    rightPadding: Theme.scaled(30)
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
+
+                background: Rectangle {
+                    implicitHeight: Theme.scaled(36)
+                    color: Qt.rgba(255, 255, 255, 0.1)
+                    radius: Theme.scaled(6)
+                    border.color: firstRunBackupCombo.activeFocus ? Theme.primaryColor : "transparent"
+                    border.width: firstRunBackupCombo.activeFocus ? 1 : 0
+                }
+
+                indicator: Text {
+                    x: firstRunBackupCombo.width - width - Theme.scaled(10)
+                    y: firstRunBackupCombo.height / 2 - height / 2
+                    text: "▼"
+                    font.pixelSize: Theme.scaled(10)
+                    color: Theme.textSecondaryColor
+                }
+
+                popup: Popup {
+                    y: firstRunBackupCombo.height
+                    width: firstRunBackupCombo.width
+                    padding: 1
+
+                    contentItem: ListView {
+                        clip: true
+                        implicitHeight: Math.min(contentHeight, Theme.scaled(200))
+                        model: firstRunBackupCombo.popup.visible ? firstRunBackupCombo.delegateModel : null
+                        ScrollIndicator.vertical: ScrollIndicator {}
+                    }
+
+                    background: Rectangle {
+                        color: Theme.surfaceColor
+                        radius: Theme.scaled(6)
+                        border.color: Theme.borderColor
+                        border.width: 1
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: Theme.scaled(10)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("main.firstrun.skip", "Skip")
+                    accessibleName: TranslationManager.translate("main.firstrun.skipAccessible", "Skip restore and start fresh")
+                    onClicked: firstRunRestoreDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("main.firstrun.restore", "Restore")
+                    primary: true
+                    enabled: firstRunBackupCombo.currentIndex >= 0 && firstRunBackupCombo.backupFilenames.length > 0
+                    accessibleName: TranslationManager.translate("main.firstrun.restoreAccessible", "Restore selected backup")
+                    onClicked: {
+                        var filename = firstRunBackupCombo.backupFilenames[firstRunBackupCombo.currentIndex];
+                        firstRunRestoreDialog.close();
+                        if (MainController.backupManager) {
+                            MainController.backupManager.restoreBackup(filename, true);  // Merge mode for first-run
+                        }
+                    }
+                }
+            }
         }
     }
 }

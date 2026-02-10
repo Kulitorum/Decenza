@@ -15,6 +15,10 @@
 #include <QDebug>
 #include <algorithm>
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
+
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
 ShotHistoryStorage::ShotHistoryStorage(QObject* parent)
@@ -1361,37 +1365,67 @@ void ShotHistoryStorage::updateTotalShots()
     }
 }
 
-QString ShotHistoryStorage::exportDatabase()
+bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
 {
+    // This method assumes caller has:
+    // 1. Set m_backupInProgress = true
+    // 2. Checked that m_dbPath is valid
+
+    qDebug() << "ShotHistoryStorage: Performing database copy to" << destPath;
+
+    // Checkpoint WAL to ensure all data is in main database file
+    checkpoint();
+
+    // Close database temporarily to ensure clean copy
+    m_db.close();
+
+    // Copy file using platform-specific method
+    bool success = false;
+#ifdef Q_OS_ANDROID
+    // On Android, use Java file API for scoped storage compatibility
+    success = QJniObject::callStaticMethod<jboolean>(
+        "io/github/kulitorum/decenza_de1/StorageHelper",
+        "copyFile",
+        "(Ljava/lang/String;Ljava/lang/String;)Z",
+        QJniObject::fromString(m_dbPath).object<jstring>(),
+        QJniObject::fromString(destPath).object<jstring>());
+    qDebug() << "ShotHistoryStorage: Java copyFile result:" << success;
+#else
+    // Desktop/iOS: use Qt's QFile::copy
+    success = QFile::copy(m_dbPath, destPath);
+#endif
+
+    // Reopen database
+    m_db.open();
+
+    return success;
+}
+
+QString ShotHistoryStorage::createBackup(const QString& destPath)
+{
+    // Prevent concurrent backup operations
+    if (m_backupInProgress) {
+        qWarning() << "ShotHistoryStorage: Backup already in progress";
+        return QString();
+    }
+
     if (m_dbPath.isEmpty()) {
         emit errorOccurred("Database path not set");
         return QString();
     }
 
-    // Export to Downloads folder
-    QString downloadsDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    if (downloadsDir.isEmpty()) {
-        // Fallback to Documents
-        downloadsDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    }
+    m_backupInProgress = true;
 
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
-    QString destPath = downloadsDir + "/shots_" + timestamp + ".db";
+    // Use common helper for checkpoint + close + copy + reopen
+    bool success = performDatabaseCopy(destPath);
 
-    // Close database temporarily to ensure all data is flushed
-    m_db.close();
-
-    // Copy file
-    bool success = QFile::copy(m_dbPath, destPath);
-
-    // Reopen database
-    m_db.open();
+    m_backupInProgress = false;
 
     if (success) {
-        qDebug() << "ShotHistoryStorage: Exported database to" << destPath;
+        qDebug() << "ShotHistoryStorage: Created backup at" << destPath;
         return destPath;
     } else {
-        QString error = "Failed to export database to " + destPath;
+        QString error = "Failed to create backup at " + destPath;
         qWarning() << "ShotHistoryStorage:" << error;
         emit errorOccurred(error);
         return QString();
@@ -1455,10 +1489,19 @@ void ShotHistoryStorage::checkpoint()
 
 bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
 {
+    // Prevent concurrent import operations
+    if (m_importInProgress) {
+        qWarning() << "ShotHistoryStorage: Import already in progress";
+        emit errorOccurred("Import already in progress");
+        return false;
+    }
+
     if (!m_db.isOpen()) {
         emit errorOccurred("Database not open");
         return false;
     }
+
+    m_importInProgress = true;
 
     // Clean up file path (remove file:// prefix if present)
     QString cleanPath = filePath;
@@ -1484,6 +1527,7 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
         qWarning() << "ShotHistoryStorage:" << error;
         emit errorOccurred(error);
         QSqlDatabase::removeDatabase("import_connection");
+        m_importInProgress = false;
         return false;
     }
 
@@ -1498,6 +1542,7 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
             srcCheck.finish();  // Release query before closing connection
             srcDb.close();
             QSqlDatabase::removeDatabase("import_connection");
+            m_importInProgress = false;
             return false;
         }
         srcCheck.next();
@@ -1511,6 +1556,7 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
         emit errorOccurred(error);
         srcDb.close();
         QSqlDatabase::removeDatabase("import_connection");
+        m_importInProgress = false;
         return false;
     }
 
@@ -1651,6 +1697,8 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
     QSqlDatabase::removeDatabase("import_connection");
 
     updateTotalShots();
+
+    m_importInProgress = false;
 
     qDebug() << "ShotHistoryStorage: Import complete -" << imported << "imported," << skipped << "skipped";
     return true;

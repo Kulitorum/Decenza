@@ -790,10 +790,19 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         }
     }
     else if (path == "/api/backup/shots") {
-        // Checkpoint WAL and send database file (reuse existing logic)
-        m_storage->checkpoint();
-        QString dbPath = m_storage->databasePath();
-        sendFile(socket, dbPath, "application/x-sqlite3");
+        // Create a safe backup copy in temp directory, then send it
+        // This ensures database is properly checkpointed and closed during copy
+        QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+        QString tempPath = tempDir + "/backup_web_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".db";
+
+        QString result = m_storage->createBackup(tempPath);
+        if (!result.isEmpty()) {
+            sendFile(socket, tempPath, "application/x-sqlite3");
+            // Clean up temp file after sending
+            QFile::remove(tempPath);
+        } else {
+            sendResponse(socket, 500, "application/json", R"({"error":"Failed to create backup"})");
+        }
     }
     else if (path == "/api/backup/media") {
         handleBackupMediaList(socket);
