@@ -15,6 +15,14 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: {
+        var text = "Group temperature: " + DE1Device.temperature.toFixed(1) + " degrees, target: " + root.effectiveTargetTemp.toFixed(0) + " degrees"
+        if (Settings.hasTemperatureOverride) text += " (override active)"
+        return text
+    }
+    Accessible.focusable: true
+
     // --- COMPACT MODE (bar rendering) ---
     Item {
         id: compactContent

@@ -126,6 +126,34 @@ Item {
         }
     }
 
+    // Accessibility: expose delegate to screen readers so dynamically added items are discoverable
+    Accessible.role: Accessible.Pane
+    Accessible.name: {
+        switch (root.itemType) {
+            case "espresso":         return "Espresso"
+            case "steam":            return "Steam"
+            case "hotwater":         return "Hot Water"
+            case "flush":            return "Flush"
+            case "beans":            return "Beans"
+            case "history":          return "History"
+            case "settings":         return "Settings"
+            case "autofavorites":    return "Favorites"
+            case "sleep":            return "Sleep"
+            case "quit":             return "Quit"
+            case "temperature":      return "Temperature"
+            case "waterLevel":       return "Water Level"
+            case "connectionStatus": return "Connection Status"
+            case "scaleWeight":      return "Scale Weight"
+            case "shotPlan":         return "Shot Plan"
+            case "weather":          return "Weather"
+            case "pageTitle":        return "Page Title"
+            case "steamTemperature": return "Steam Temperature"
+            case "custom":           return "Custom Widget"
+            default:                 return root.itemType
+        }
+    }
+    Accessible.focusable: true
+
     // Track loaded item's implicit size so the parent RowLayout allocates
     // the correct width (Loader alone doesn't re-propagate after property
     // bindings are set up in onLoaded)

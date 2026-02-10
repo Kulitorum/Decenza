@@ -13,6 +13,16 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: {
+        var level = root.showMl
+            ? DE1Device.waterLevelMl + " milliliters"
+            : DE1Device.waterLevel.toFixed(0) + " percent"
+        var warning = DE1Device.waterLevel <= 20 ? ". Warning: water level is low" : ""
+        return "Water level: " + level + warning
+    }
+    Accessible.focusable: true
+
     // --- COMPACT MODE ---
     Item {
         id: compactContent
