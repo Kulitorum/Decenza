@@ -801,6 +801,10 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             // Clean up temp file after sending
             QFile::remove(tempPath);
         } else {
+            // Clean up temp file if it was partially created
+            if (QFile::exists(tempPath)) {
+                QFile::remove(tempPath);
+            }
             sendResponse(socket, 500, "application/json", R"({"error":"Failed to create backup"})");
         }
     }

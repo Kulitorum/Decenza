@@ -1191,6 +1191,7 @@ KeyboardAwareContainer {
     // Restore result handlers
     Connections {
         target: MainController.backupManager
+        enabled: dataTab.visible  // Only handle signals when this tab is visible
 
         function onRestoreCompleted(filename) {
             console.log("Restore completed:", filename);

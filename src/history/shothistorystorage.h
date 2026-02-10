@@ -6,6 +6,7 @@
 #include <QVector>
 #include <QPointF>
 #include <QDateTime>
+#include <atomic>
 
 class ShotDataModel;
 class Profile;
@@ -237,8 +238,8 @@ private:
     int m_totalShots = 0;
     int m_schemaVersion = 1;
     qint64 m_lastSavedShotId = 0;
-    bool m_backupInProgress = false;  // Prevent concurrent backup/export operations
-    bool m_importInProgress = false;   // Prevent concurrent import/restore operations
+    std::atomic<bool> m_backupInProgress{false};  // Prevent concurrent backup/export operations (thread-safe)
+    std::atomic<bool> m_importInProgress{false};   // Prevent concurrent import/restore operations (thread-safe)
 
     static const QString DB_CONNECTION_NAME;
 };
