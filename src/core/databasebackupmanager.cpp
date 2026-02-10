@@ -542,6 +542,51 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
         return false;
     }
 
+    // Validate extracted file exists and is a valid SQLite database
+    QFileInfo extractedFileInfo(tempDbPath);
+    if (!extractedFileInfo.exists()) {
+        QString error = "Extracted file not found: " + tempDbPath;
+        qWarning() << "DatabaseBackupManager:" << error;
+        m_restoreInProgress = false;
+        emit restoreFailed(error);
+        return false;
+    }
+
+    if (extractedFileInfo.size() < 100) {
+        QString error = "Extracted file is too small to be a valid database: " + QString::number(extractedFileInfo.size()) + " bytes";
+        qWarning() << "DatabaseBackupManager:" << error;
+        QFile::remove(tempDbPath);
+        m_restoreInProgress = false;
+        emit restoreFailed(error);
+        return false;
+    }
+
+    // Verify SQLite magic header (first 16 bytes should be "SQLite format 3\0")
+    QFile dbFile(tempDbPath);
+    if (!dbFile.open(QIODevice::ReadOnly)) {
+        QString error = "Cannot open extracted file for validation: " + dbFile.errorString();
+        qWarning() << "DatabaseBackupManager:" << error;
+        QFile::remove(tempDbPath);
+        m_restoreInProgress = false;
+        emit restoreFailed(error);
+        return false;
+    }
+
+    QByteArray header = dbFile.read(16);
+    dbFile.close();
+
+    if (header.size() != 16 || !header.startsWith("SQLite format 3")) {
+        QString error = "Extracted file is not a valid SQLite database (invalid magic header)";
+        qWarning() << "DatabaseBackupManager:" << error;
+        qWarning() << "DatabaseBackupManager: Header bytes:" << header.toHex();
+        QFile::remove(tempDbPath);
+        m_restoreInProgress = false;
+        emit restoreFailed(error);
+        return false;
+    }
+
+    qDebug() << "DatabaseBackupManager: Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
+
     // Import the extracted database
     qDebug() << "DatabaseBackupManager: Importing database from" << tempDbPath
              << (merge ? "(merge mode)" : "(replace mode)");
