@@ -160,6 +160,11 @@ ChartView {
                 required property int index
                 required property var modelData
                 property var frame: modelData
+
+                Accessible.role: Accessible.ListItem
+                Accessible.name: (frame ? (frame.name || ("Frame " + (index + 1))) : "") +
+                                 (index === selectedFrameIndex ? ", selected" : "")
+                Accessible.focusable: true
                 property double frameStart: {
                     var start = 0
                     for (var i = 0; i < index; i++) {

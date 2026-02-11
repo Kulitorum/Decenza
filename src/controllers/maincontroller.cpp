@@ -353,10 +353,10 @@ QString MainController::currentEditorType() const {
     }
     // Detect by profile type for non-recipe-mode profiles
     QString profileType = m_currentProfile.profileType();
-    if (profileType == "settings_2a" && m_currentProfile.isRecipeMode()) {
+    if (profileType == "settings_2a") {
         return QStringLiteral("pressure");
     }
-    if (profileType == "settings_2b" && m_currentProfile.isRecipeMode()) {
+    if (profileType == "settings_2b") {
         return QStringLiteral("flow");
     }
     // Detect by title prefix
@@ -620,15 +620,10 @@ bool MainController::deleteProfile(const QString& filename) {
         }
     }
 
-    // Cannot delete built-in profiles
-    if (source == ProfileSource::BuiltIn) {
-        qWarning() << "Cannot delete built-in profile:" << filename;
-        return false;
-    }
-
     bool deleted = false;
 
-    // Try ProfileStorage first (SAF on Android)
+    // Always try to clean up ProfileStorage copies (even for built-in profiles,
+    // since imported copies can shadow the built-in version)
     if (m_profileStorage && m_profileStorage->isConfigured()) {
         if (m_profileStorage->deleteProfile(filename)) {
             qDebug() << "Deleted profile from ProfileStorage:" << filename;
@@ -636,19 +631,26 @@ bool MainController::deleteProfile(const QString& filename) {
         }
     }
 
-    // Also try deleting from local folders (fallback or legacy)
-    if (!deleted) {
-        QString path;
-        if (source == ProfileSource::Downloaded) {
-            path = downloadedProfilesPath() + "/" + filename + ".json";
-        } else if (source == ProfileSource::UserCreated) {
-            path = userProfilesPath() + "/" + filename + ".json";
-        }
+    // Always try to clean up local folder copies
+    QString userPath = userProfilesPath() + "/" + filename + ".json";
+    if (QFile::remove(userPath)) {
+        qDebug() << "Deleted profile from user storage:" << userPath;
+        deleted = true;
+    }
+    QString downloadedPath = downloadedProfilesPath() + "/" + filename + ".json";
+    if (QFile::remove(downloadedPath)) {
+        qDebug() << "Deleted profile from downloaded storage:" << downloadedPath;
+        deleted = true;
+    }
 
-        if (QFile::remove(path)) {
-            qDebug() << "Deleted profile from local storage:" << path;
-            deleted = true;
+    // Built-in profiles can't be fully deleted (they'll still show from QRC),
+    // but we cleaned up any local overrides above
+    if (source == ProfileSource::BuiltIn) {
+        if (deleted) {
+            qDebug() << "Cleaned up local override for built-in profile:" << filename;
+            refreshProfiles();
         }
+        return false;
     }
 
     if (deleted) {
@@ -759,6 +761,17 @@ QVariantMap MainController::getProfileByFilename(const QString& filename) const 
         return QVariantMap();  // Return empty map if not found
     }
 
+    // Backfill empty notes from built-in profile (handles imported copies from before notes were added)
+    if (profile.profileNotes().isEmpty()) {
+        QString builtInPath = ":/profiles/" + filename + ".json";
+        if (QFile::exists(builtInPath)) {
+            Profile builtIn = Profile::loadFromFile(builtInPath);
+            if (!builtIn.profileNotes().isEmpty()) {
+                profile.setProfileNotes(builtIn.profileNotes());
+            }
+        }
+    }
+
     // Build result map (same format as getCurrentProfile)
     QVariantMap result;
     result["title"] = profile.title();
@@ -860,6 +873,17 @@ void MainController::loadProfile(const QString& profileName) {
     if (!found) {
         qWarning() << "MainController::loadProfile: Profile not found:" << profileName << "(resolved:" << resolvedName << ")";
         loadDefaultProfile();
+    }
+
+    // Backfill empty notes from built-in profile (handles imported copies from before notes were added)
+    if (found && m_currentProfile.profileNotes().isEmpty()) {
+        QString builtInPath = ":/profiles/" + resolvedName + ".json";
+        if (QFile::exists(builtInPath)) {
+            Profile builtIn = Profile::loadFromFile(builtInPath);
+            if (!builtIn.profileNotes().isEmpty()) {
+                m_currentProfile.setProfileNotes(builtIn.profileNotes());
+            }
+        }
     }
 
     // Track the base profile name (filename without extension)
@@ -1099,13 +1123,11 @@ void MainController::refreshProfiles() {
     }
 
     // 2. Load profiles from ProfileStorage (SAF folder or fallback)
+    // ProfileStorage takes loading priority over built-in (loadProfile checks it first),
+    // so if a copy exists here it should override the built-in entry in the list too.
     if (m_profileStorage) {
         QStringList storageProfiles = m_profileStorage->listProfiles();
         for (const QString& name : storageProfiles) {
-            if (m_availableProfiles.contains(name)) {
-                continue;  // Skip if already loaded (e.g., built-in with same name)
-            }
-
             QString jsonContent = m_profileStorage->readProfile(name);
             if (jsonContent.isEmpty()) {
                 continue;
@@ -1117,11 +1139,21 @@ void MainController::refreshProfiles() {
             info.filename = name;
             info.title = title.isEmpty() ? name : title;
             info.beverageType = beverageType;
-            info.source = ProfileSource::UserCreated;  // All SAF profiles are user-created
+            info.source = ProfileSource::UserCreated;
             info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
-            m_allProfiles.append(info);
 
-            m_availableProfiles.append(name);
+            if (m_availableProfiles.contains(name)) {
+                // Override built-in entry so list matches what loadProfile() actually loads
+                for (int i = 0; i < m_allProfiles.size(); ++i) {
+                    if (m_allProfiles[i].filename == name) {
+                        m_allProfiles[i].source = ProfileSource::UserCreated;
+                        break;
+                    }
+                }
+            } else {
+                m_allProfiles.append(info);
+                m_availableProfiles.append(name);
+            }
             m_profileTitles[name] = info.title;
         }
     }
@@ -1490,7 +1522,8 @@ QVariantMap MainController::getCurrentRecipeParams() {
 }
 
 void MainController::createNewRecipe(const QString& title) {
-    RecipeParams recipe;  // Default recipe params
+    RecipeParams recipe;
+    recipe.editorType = "dflow";  // Explicit for consistency with other create functions
 
     // Preserve notes from original profile
     QString notes = m_currentProfile.profileNotes();

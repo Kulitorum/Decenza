@@ -65,9 +65,10 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     // Targets
     profile.setTargetWeight(recipe.targetWeight);
     profile.setTargetVolume(recipe.targetVolume > 0 ? recipe.targetVolume : 100.0);
-    // For pressure/flow profiles, use tempStart as the machine's initial target temp
+    // For pressure/flow profiles, use tempHold as the machine's baseline temp
+    // (tempStart is a 2-second boost and doesn't represent the main extraction temp)
     if (recipe.editorType == "pressure" || recipe.editorType == "flow") {
-        profile.setEspressoTemperature(recipe.tempStart);
+        profile.setEspressoTemperature(recipe.tempHold);
     } else {
         profile.setEspressoTemperature(recipe.pourTemperature);
     }

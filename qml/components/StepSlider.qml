@@ -12,11 +12,16 @@ Item {
     property real to: 100
     property real value: 0
     property real stepSize: 1
+    property string accessibleName: ""
 
     signal moved()
 
     implicitHeight: slider.implicitHeight
     implicitWidth: 200
+
+    Accessible.role: Accessible.Slider
+    Accessible.name: root.accessibleName
+    Accessible.focusable: true
 
     Slider {
         id: slider
@@ -25,6 +30,7 @@ Item {
         to: root.to
         value: root.value
         stepSize: root.stepSize
+        Accessible.ignored: true
 
         onMoved: {
             root.value = value

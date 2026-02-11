@@ -412,6 +412,15 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_isRecipeMode = obj["is_recipe_mode"].toBool(false);
     if (profile.m_isRecipeMode && obj.contains("recipe")) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
+        // Infer editorType from profileType when not explicitly saved in recipe
+        // (handles profiles created before editorType was introduced)
+        if (!obj["recipe"].toObject().contains("editorType")) {
+            if (profile.m_profileType == "settings_2a") {
+                profile.m_recipeParams.editorType = "pressure";
+            } else if (profile.m_profileType == "settings_2b") {
+                profile.m_recipeParams.editorType = "flow";
+            }
+        }
     }
 
     // Sync espresso_temperature with first frame if they differ
@@ -964,15 +973,36 @@ void Profile::regenerateFromRecipe() {
 
     // Update profile metadata from recipe
     m_targetWeight = m_recipeParams.targetWeight;
-    m_espressoTemperature = m_recipeParams.pourTemperature;
-
-    // Calculate preinfuse frame count (fill + bloom + infuse)
-    int preinfuseCount = 1;  // Fill is always preinfuse
-    if (m_recipeParams.bloomEnabled && m_recipeParams.bloomTime > 0) {
-        preinfuseCount++;
+    // For pressure/flow profiles, use tempHold as the machine's baseline temp
+    // (must match RecipeGenerator::createProfile logic)
+    if (m_recipeParams.editorType == "pressure" || m_recipeParams.editorType == "flow") {
+        m_espressoTemperature = m_recipeParams.tempHold;
+    } else {
+        m_espressoTemperature = m_recipeParams.pourTemperature;
     }
-    if (m_recipeParams.infuseEnabled) {
-        preinfuseCount++;
+
+    // Calculate preinfuse frame count (must match RecipeGenerator::createProfile logic)
+    int preinfuseCount = 1;  // Fill/preinfusion is always first
+    if (m_recipeParams.editorType == "pressure" || m_recipeParams.editorType == "flow") {
+        // Simple profiles: count preinfusion frames (1 or 2 with temp boost)
+        if (m_recipeParams.preinfusionTime > 0) {
+            bool hasTempBoost = (m_recipeParams.tempStart != m_recipeParams.tempPreinfuse);
+            if (hasTempBoost && m_recipeParams.preinfusionTime > 2.0) {
+                preinfuseCount = 2;
+            } else {
+                preinfuseCount = 1;
+            }
+        } else {
+            preinfuseCount = 0;
+        }
+    } else if (m_recipeParams.editorType == "aflow") {
+        // A-Flow: only Fill counts as preinfuse
+        preinfuseCount = 1;
+    } else {
+        // D-Flow: Fill + Bloom + Infuse + Ramp
+        if (m_recipeParams.bloomEnabled && m_recipeParams.bloomTime > 0) preinfuseCount++;
+        if (m_recipeParams.infuseEnabled) preinfuseCount++;
+        if (m_recipeParams.rampEnabled && m_recipeParams.rampTime > 0) preinfuseCount++;
     }
     m_preinfuseFrameCount = preinfuseCount;
 }

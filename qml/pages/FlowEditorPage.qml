@@ -236,6 +236,7 @@ Page {
 
                             TextArea {
                                 id: notesField
+                                Accessible.name: "Profile description"
                                 text: profile ? (profile.profile_notes || "") : ""
                                 font.pixelSize: Theme.scaled(10)
                                 color: Theme.textColor
@@ -350,6 +351,9 @@ Page {
 
                                     MouseArea {
                                         anchors.fill: parent
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: "Edit temperature steps"
+                                        Accessible.focusable: true
                                         onClicked: tempStepsDialog.open()
                                     }
                                 }
@@ -358,6 +362,7 @@ Page {
                             StepSlider {
                                 id: profileTempSlider
                                 Layout.fillWidth: true
+                                accessibleName: "Profile temperature"
                                 from: 70; to: 100; stepSize: 0.1
                                 value: recipe.pourTemperature || 90
                                 onMoved: updateProfileTemp(Math.round(value * 10) / 10)
@@ -394,7 +399,7 @@ Page {
                                         Layout.preferredWidth: tempPreinfuseLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(24)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Text { id: tempPreinfuseLabel; anchors.centerIn: parent; text: stepTemp("tempStart").toFixed(1) + "/" + stepTemp("tempPreinfuse").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
-                                        MouseArea { anchors.fill: parent; onClicked: tempStepsDialog.open() }
+                                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit preinfuse temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
                                     }
                                 }
 
@@ -404,7 +409,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: Math.round(recipe.preinfusionTime || 20) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0; to: 60; stepSize: 1; value: recipe.preinfusionTime || 20; onMoved: updateRecipe("preinfusionTime", Math.round(value)) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Preinfusion time"; from: 0; to: 60; stepSize: 1; value: recipe.preinfusionTime || 20; onMoved: updateRecipe("preinfusionTime", Math.round(value)) }
 
                                 // Flow rate
                                 RowLayout { Layout.fillWidth: true
@@ -412,7 +417,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: (recipe.preinfusionFlowRate || 8.0).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.flowColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 1; to: 10; stepSize: 0.1; value: recipe.preinfusionFlowRate || 8.0; onMoved: updateRecipe("preinfusionFlowRate", Math.round(value * 10) / 10) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Preinfusion flow rate"; from: 1; to: 10; stepSize: 0.1; value: recipe.preinfusionFlowRate || 8.0; onMoved: updateRecipe("preinfusionFlowRate", Math.round(value * 10) / 10) }
 
                                 // Pressure
                                 RowLayout { Layout.fillWidth: true
@@ -420,7 +425,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: (recipe.preinfusionStopPressure || 4.0).toFixed(1) + " bar"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.pressureColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0.5; to: 8; stepSize: 0.1; value: recipe.preinfusionStopPressure || 4.0; onMoved: updateRecipe("preinfusionStopPressure", Math.round(value * 10) / 10) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Preinfusion stop pressure"; from: 0.5; to: 8; stepSize: 0.1; value: recipe.preinfusionStopPressure || 4.0; onMoved: updateRecipe("preinfusionStopPressure", Math.round(value * 10) / 10) }
                             }
                         }
 
@@ -450,7 +455,7 @@ Page {
                                         Layout.preferredWidth: tempHoldLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(24)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Text { id: tempHoldLabel; anchors.centerIn: parent; text: stepTemp("tempHold").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
-                                        MouseArea { anchors.fill: parent; onClicked: tempStepsDialog.open() }
+                                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit hold temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
                                     }
                                 }
 
@@ -460,7 +465,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: Math.round(recipe.holdTime || 10) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0; to: 60; stepSize: 1; value: recipe.holdTime || 10; onMoved: updateRecipe("holdTime", Math.round(value)) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Hold time"; from: 0; to: 60; stepSize: 1; value: recipe.holdTime || 10; onMoved: updateRecipe("holdTime", Math.round(value)) }
 
                                 // Flow
                                 RowLayout { Layout.fillWidth: true
@@ -468,7 +473,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: (recipe.holdFlow || 2.2).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.flowColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0.1; to: 8; stepSize: 0.1; value: recipe.holdFlow || 2.2; onMoved: updateRecipe("holdFlow", Math.round(value * 10) / 10) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Hold flow"; from: 0.1; to: 8; stepSize: 0.1; value: recipe.holdFlow || 2.2; onMoved: updateRecipe("holdFlow", Math.round(value * 10) / 10) }
 
                                 // Limit pressure
                                 RowLayout { Layout.fillWidth: true
@@ -476,7 +481,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: (recipe.limiterValue || 3.5).toFixed(1) + " bar"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.pressureColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0; to: 12; stepSize: 0.1; value: recipe.limiterValue || 3.5; onMoved: updateRecipe("limiterValue", Math.round(value * 10) / 10) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Pressure limiter"; from: 0; to: 12; stepSize: 0.1; value: recipe.limiterValue || 3.5; onMoved: updateRecipe("limiterValue", Math.round(value * 10) / 10) }
                             }
                         }
 
@@ -506,7 +511,7 @@ Page {
                                         Layout.preferredWidth: tempDeclineLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(24)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Text { id: tempDeclineLabel; anchors.centerIn: parent; text: stepTemp("tempDecline").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
-                                        MouseArea { anchors.fill: parent; onClicked: tempStepsDialog.open() }
+                                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit decline temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
                                     }
                                 }
 
@@ -516,7 +521,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: Math.round(recipe.simpleDeclineTime || 30) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0; to: 60; stepSize: 1; value: recipe.simpleDeclineTime || 30; onMoved: updateRecipe("simpleDeclineTime", Math.round(value)) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Decline time"; from: 0; to: 60; stepSize: 1; value: recipe.simpleDeclineTime || 30; onMoved: updateRecipe("simpleDeclineTime", Math.round(value)) }
 
                                 // End flow
                                 RowLayout { Layout.fillWidth: true
@@ -524,7 +529,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: (recipe.flowEnd || 1.8).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.flowColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0; to: 8; stepSize: 0.1; value: recipe.flowEnd || 1.8; onMoved: updateRecipe("flowEnd", Math.round(value * 10) / 10) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Decline end flow"; from: 0; to: 8; stepSize: 0.1; value: recipe.flowEnd || 1.8; onMoved: updateRecipe("flowEnd", Math.round(value * 10) / 10) }
                             }
                         }
 
@@ -555,7 +560,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: (recipe.dose || 18).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 3; to: 40; stepSize: 0.1; value: recipe.dose || 18; onMoved: updateRecipe("dose", Math.round(value * 10) / 10) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Dose"; from: 3; to: 40; stepSize: 0.1; value: recipe.dose || 18; onMoved: updateRecipe("dose", Math.round(value * 10) / 10) }
 
                                 // Weight
                                 RowLayout { Layout.fillWidth: true
@@ -563,7 +568,7 @@ Page {
                                     Item { Layout.fillWidth: true }
                                     Text { text: (recipe.targetWeight || 36).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                                 }
-                                StepSlider { Layout.fillWidth: true; from: 0; to: 100; stepSize: 0.1; value: recipe.targetWeight || 36; onMoved: updateRecipe("targetWeight", Math.round(value * 10) / 10) }
+                                StepSlider { Layout.fillWidth: true; accessibleName: "Target weight"; from: 0; to: 100; stepSize: 0.1; value: recipe.targetWeight || 36; onMoved: updateRecipe("targetWeight", Math.round(value * 10) / 10) }
 
                                 Text {
                                     Layout.fillWidth: true
@@ -695,6 +700,9 @@ Page {
                     MouseArea {
                         id: tempCloseArea
                         anchors.fill: parent
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Close temperature steps"
+                        Accessible.focusable: true
                         onClicked: tempStepsDialog.close()
                     }
                 }
@@ -724,7 +732,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: (recipe.tempStart || 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    StepSlider { Layout.fillWidth: true; from: 70; to: 100; stepSize: 0.1; value: recipe.tempStart || 90; onMoved: updateRecipe("tempStart", Math.round(value * 10) / 10) }
+                    StepSlider { Layout.fillWidth: true; accessibleName: "Start temperature"; from: 70; to: 100; stepSize: 0.1; value: recipe.tempStart || 90; onMoved: updateRecipe("tempStart", Math.round(value * 10) / 10) }
                 }
 
                 // 1: Preinfuse
@@ -737,7 +745,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: (recipe.tempPreinfuse || 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    StepSlider { Layout.fillWidth: true; from: 70; to: 100; stepSize: 0.1; value: recipe.tempPreinfuse || 90; onMoved: updateRecipe("tempPreinfuse", Math.round(value * 10) / 10) }
+                    StepSlider { Layout.fillWidth: true; accessibleName: "Preinfuse temperature"; from: 70; to: 100; stepSize: 0.1; value: recipe.tempPreinfuse || 90; onMoved: updateRecipe("tempPreinfuse", Math.round(value * 10) / 10) }
                 }
 
                 // 2: Hold
@@ -750,7 +758,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: (recipe.tempHold || 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    StepSlider { Layout.fillWidth: true; from: 70; to: 100; stepSize: 0.1; value: recipe.tempHold || 90; onMoved: updateRecipe("tempHold", Math.round(value * 10) / 10) }
+                    StepSlider { Layout.fillWidth: true; accessibleName: "Hold temperature"; from: 70; to: 100; stepSize: 0.1; value: recipe.tempHold || 90; onMoved: updateRecipe("tempHold", Math.round(value * 10) / 10) }
                 }
 
                 // 3: Decline
@@ -763,7 +771,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: (recipe.tempDecline || 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    StepSlider { Layout.fillWidth: true; from: 70; to: 100; stepSize: 0.1; value: recipe.tempDecline || 90; onMoved: updateRecipe("tempDecline", Math.round(value * 10) / 10) }
+                    StepSlider { Layout.fillWidth: true; accessibleName: "Decline temperature"; from: 70; to: 100; stepSize: 0.1; value: recipe.tempDecline || 90; onMoved: updateRecipe("tempDecline", Math.round(value * 10) / 10) }
                 }
 
                 AccessibleButton {
@@ -877,8 +885,10 @@ Page {
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
             if (MainController.saveProfile(originalProfileName)) {
+                AccessibilityManager.announce("Profile saved")
                 root.goBack()
             } else {
+                AccessibilityManager.announce("Save failed")
                 saveErrorDialog.open()
             }
         }
@@ -940,6 +950,7 @@ Page {
 
                 TextField {
                     id: saveAsTitleField
+                    Accessible.name: "Profile name"
                     Layout.fillWidth: true
                     text: "New Flow Profile"
                     font: Theme.bodyFont

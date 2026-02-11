@@ -345,14 +345,18 @@ Page {
                                     if (profileDelegate.isBuiltIn) {
                                         if (profileDelegate.isSelected) {
                                             Settings.removeSelectedBuiltInProfile(modelData.name)
+                                            AccessibilityManager.announce("Removed from selected")
                                         } else {
                                             Settings.addSelectedBuiltInProfile(modelData.name)
+                                            AccessibilityManager.announce("Added to selected")
                                         }
                                     } else {
                                         if (profileDelegate.isSelected) {
                                             Settings.addHiddenProfile(modelData.name)
+                                            AccessibilityManager.announce("Removed from selected")
                                         } else {
                                             Settings.removeHiddenProfile(modelData.name)
+                                            AccessibilityManager.announce("Added to selected")
                                         }
                                     }
                                 }
@@ -872,19 +876,19 @@ Page {
                             var profileType = modelData.type
                             if (profileType === "pressure") {
                                 MainController.createNewPressureProfile("New Pressure Profile")
-                                root.goToPressureEditor()
+                                root.goToProfileEditor()
                             } else if (profileType === "flow") {
                                 MainController.createNewFlowProfile("New Flow Profile")
-                                root.goToFlowEditor()
+                                root.goToProfileEditor()
                             } else if (profileType === "dflow") {
                                 MainController.createNewRecipe("D-Flow / New Recipe")
-                                root.goToRecipeEditor()
+                                root.goToProfileEditor()
                             } else if (profileType === "aflow") {
                                 MainController.createNewAFlowRecipe("A-Flow / New Recipe")
-                                root.goToRecipeEditor()
+                                root.goToProfileEditor()
                             } else {
                                 MainController.createNewProfile("New Profile")
-                                root.goToAdvancedEditor()
+                                root.goToProfileEditor()
                             }
                         }
                     }
