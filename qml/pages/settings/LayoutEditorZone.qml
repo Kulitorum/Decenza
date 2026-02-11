@@ -419,33 +419,37 @@ Rectangle {
                         boundsBehavior: Flickable.StopAtBounds
                         clip: true
 
+                        // Grouped by color (white, orange, blue), sorted by name within each group
                         model: [
-                            { type: "espresso", label: "Espresso" },
-                            { type: "steam", label: "Steam" },
-                            { type: "hotwater", label: "Hot Water" },
-                            { type: "flush", label: "Flush" },
+                            // Actions & readouts (white)
                             { type: "beans", label: "Beans" },
-                            { type: "history", label: "History" },
-                            { type: "autofavorites", label: "Favorites" },
-                            { type: "sleep", label: "Sleep" },
-                            { type: "settings", label: "Settings" },
-                            { type: "temperature", label: "Temperature" },
-                            { type: "steamTemperature", label: "Steam Temp" },
-                            { type: "waterLevel", label: "Water Level" },
                             { type: "connectionStatus", label: "Connection" },
+                            { type: "espresso", label: "Espresso" },
+                            { type: "autofavorites", label: "Favorites" },
+                            { type: "flush", label: "Flush" },
+                            { type: "history", label: "History" },
+                            { type: "hotwater", label: "Hot Water" },
                             { type: "scaleWeight", label: "Scale Weight" },
+                            { type: "settings", label: "Settings" },
                             { type: "shotPlan", label: "Shot Plan" },
-                            { type: "pageTitle", label: "Page Title" },
-                            { type: "spacer", label: "Spacer" },
-                            { type: "separator", label: "Separator" },
+                            { type: "sleep", label: "Sleep" },
+                            { type: "steam", label: "Steam" },
+                            { type: "steamTemperature", label: "Steam Temp" },
+                            { type: "temperature", label: "Temperature" },
+                            { type: "waterLevel", label: "Water Level" },
+                            // Utility (orange)
                             { type: "custom", label: "Custom" },
+                            { type: "pageTitle", label: "Page Title" },
+                            { type: "quit", label: "Quit" },
+                            { type: "separator", label: "Separator" },
+                            { type: "spacer", label: "Spacer" },
                             { type: "weather", label: "Weather" },
-                            { type: "lastShot", label: "Last Shot" },
-                            { type: "screensaverFlipClock", label: "Flip Clock" },
+                            // Screensavers & widgets (blue)
                             { type: "screensaverPipes", label: "3D Pipes" },
                             { type: "screensaverAttractor", label: "Attractors" },
-                            { type: "screensaverShotMap", label: "Shot Map" },
-                            { type: "quit", label: "Quit" }
+                            { type: "screensaverFlipClock", label: "Flip Clock" },
+                            { type: "lastShot", label: "Last Shot" },
+                            { type: "screensaverShotMap", label: "Shot Map" }
                         ]
 
                         delegate: Rectangle {

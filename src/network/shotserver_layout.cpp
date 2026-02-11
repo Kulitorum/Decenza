@@ -91,7 +91,10 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             return;
         }
         int qIdx = path.indexOf("?id=");
-        QString entryId = (qIdx >= 0) ? QUrl::fromPercentEncoding(path.mid(qIdx + 4).toUtf8()) : QString();
+        QString rawId = (qIdx >= 0) ? path.mid(qIdx + 4) : QString();
+        int ampIdx = rawId.indexOf('&');
+        if (ampIdx >= 0) rawId = rawId.left(ampIdx);
+        QString entryId = QUrl::fromPercentEncoding(rawId.toUtf8());
         if (!entryId.isEmpty() && m_widgetLibrary->hasThumbnail(entryId)) {
             sendFile(socket, m_widgetLibrary->thumbnailPath(entryId), "image/png");
         } else {
@@ -2146,25 +2149,37 @@ QString ShotServer::generateLayoutPage() const
         {key: "bottomRight", label: "Bottom Bar (Right)", hasOffset: false}
     ];
 
+    // Grouped by color (white, orange, blue), sorted by name within each group
     var WIDGET_TYPES = [
-        {type:"espresso",label:"Espresso"},{type:"steam",label:"Steam"},
-        {type:"hotwater",label:"Hot Water"},{type:"flush",label:"Flush"},
-        {type:"beans",label:"Beans"},{type:"history",label:"History"},
-        {type:"autofavorites",label:"Favorites"},{type:"sleep",label:"Sleep"},
-        {type:"settings",label:"Settings"},{type:"temperature",label:"Temperature"},
+        // Actions & readouts (white)
+        {type:"beans",label:"Beans"},
+        {type:"connectionStatus",label:"Connection"},
+        {type:"espresso",label:"Espresso"},
+        {type:"autofavorites",label:"Favorites"},
+        {type:"flush",label:"Flush"},
+        {type:"history",label:"History"},
+        {type:"hotwater",label:"Hot Water"},
+        {type:"scaleWeight",label:"Scale Weight"},
+        {type:"settings",label:"Settings"},
+        {type:"shotPlan",label:"Shot Plan"},
+        {type:"sleep",label:"Sleep"},
+        {type:"steam",label:"Steam"},
         {type:"steamTemperature",label:"Steam Temp"},
-        {type:"waterLevel",label:"Water Level"},{type:"connectionStatus",label:"Connection"},
-        {type:"scaleWeight",label:"Scale Weight"},{type:"shotPlan",label:"Shot Plan"},
-        {type:"pageTitle",label:"Page Title",special:true},
-        {type:"spacer",label:"Spacer",special:true},{type:"separator",label:"Separator",special:true},
+        {type:"temperature",label:"Temperature"},
+        {type:"waterLevel",label:"Water Level"},
+        // Utility (orange)
         {type:"custom",label:"Custom",special:true},
-        {type:"weather",label:"Weather",special:true},
+        {type:"pageTitle",label:"Page Title",special:true},
         {type:"quit",label:"Quit",special:true},
-        {type:"screensaverFlipClock",label:"Flip Clock",screensaver:true},
+        {type:"separator",label:"Separator",special:true},
+        {type:"spacer",label:"Spacer",special:true},
+        {type:"weather",label:"Weather",special:true},
+        // Screensavers & widgets (blue)
         {type:"screensaverPipes",label:"3D Pipes",screensaver:true},
         {type:"screensaverAttractor",label:"Attractor",screensaver:true},
-        {type:"screensaverShotMap",label:"Shot Map",screensaver:true},
-        {type:"lastShot",label:"Last Shot",screensaver:true}
+        {type:"screensaverFlipClock",label:"Flip Clock",screensaver:true},
+        {type:"lastShot",label:"Last Shot",screensaver:true},
+        {type:"screensaverShotMap",label:"Shot Map",screensaver:true}
     ];
 
     var DISPLAY_NAMES = {
@@ -3414,8 +3429,10 @@ QString ShotServer::generateLayoutPage() const
             html += '</div>';
         } else if (isLocal) {
             // Check for local thumbnail (hidden until loaded, then hides fallback)
+            // Cache-bust to avoid browser caching a 404; retry once after 800ms for newly-saved entries
+            var thumbSrc = '/api/library/thumbnail?id=' + encodeURIComponent(id) + '&t=' + Date.now();
             html += '<div class="lib-entry-visual" style="background:var(--bg);justify-content:center;display:none">';
-            html += '<img class="lib-thumb" src="/api/library/thumbnail?id=' + encodeURIComponent(id) + '" onload="var p=this.parentElement;p.style.display=\'\';if(p.nextElementSibling)p.nextElementSibling.style.display=\'none\'">';
+            html += '<img class="lib-thumb" src="' + thumbSrc + '" onload="var p=this.parentElement;p.style.display=\'\';if(p.nextElementSibling)p.nextElementSibling.style.display=\'none\'" onerror="if(!this.dataset.retried){this.dataset.retried=1;var img=this;setTimeout(function(){img.src=img.src+\'&r=\'+Date.now()},800)}">';
             html += '</div>';
         }
 
