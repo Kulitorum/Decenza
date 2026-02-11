@@ -1750,7 +1750,8 @@ QString ShotServer::generateLayoutPage() const
                     </label>
                 </div>
             </div>
-
+)HTML";
+    html += R"HTML(
             <!-- No settings message -->
             <div id="ssNoSettings" style="display:none">
                 <div class="ss-no-settings">No additional settings for this screensaver.</div>
