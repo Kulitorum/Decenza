@@ -547,47 +547,6 @@ Rectangle {
         }
     }
 
-    // Timer for local thumbnail capture (full + compact)
-    Timer {
-        id: localCaptureTimer
-        interval: 200
-        repeat: false
-        property string captureEntryId: ""
-        onTriggered: {
-            thumbCardFull.grabToImage(function(fullResult) {
-                WidgetLibrary.saveThumbnail(captureEntryId, fullResult.image)
-                thumbCardCompact.grabToImage(function(compactResult) {
-                    WidgetLibrary.saveThumbnailCompact(captureEntryId, compactResult.image)
-                    thumbContainer.visible = false
-                }, Qt.size(Theme.scaled(280), thumbCardCompact.height))
-            }, Qt.size(Theme.scaled(280), thumbCardFull.height))
-        }
-    }
-
-    // Auto-capture thumbnails when entries are added or re-capture is requested
-    Connections {
-        target: WidgetLibrary
-        function onEntryAdded(entryId) {
-            triggerLocalCapture(entryId)
-        }
-        function onRequestThumbnailCapture(entryId) {
-            triggerLocalCapture(entryId)
-        }
-    }
-
-    function triggerLocalCapture(entryId) {
-        var data = WidgetLibrary.getEntryData(entryId)
-        if (!data || !data.type) return
-
-        thumbCardFull.entryData = data
-        thumbCardCompact.entryData = data
-        thumbContainer.z = -1
-        thumbContainer.visible = true
-
-        localCaptureTimer.captureEntryId = entryId
-        localCaptureTimer.start()
-    }
-
     // Track pending apply-after-download
     property string pendingApplyZone: ""
 

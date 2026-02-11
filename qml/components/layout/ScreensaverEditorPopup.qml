@@ -13,8 +13,11 @@ Popup {
     property real clockScale: 1.0  // 0.0 = small (fit width), 1.0 = large (fit height)
     property real mapScale: 1.0    // 1.0 = standard width, 1.7 = wide
     property string mapTexture: "" // "" = use global, "dark", "bright", "satellite"
+    property real shotScale: 1.0   // 1.0 = standard width, 2.5 = wide
+    property bool shotShowLabels: false  // Show axis labels on graph
+    property bool shotShowPhaseLabels: true  // Show frame transition labels
 
-    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap"
+    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot"
 
     signal saved()
 
@@ -32,6 +35,9 @@ Popup {
         }
         mapScale = typeof props.mapScale === "number" ? props.mapScale : 1.0
         mapTexture = typeof props.mapTexture === "string" ? props.mapTexture : ""
+        shotScale = typeof props.shotScale === "number" ? props.shotScale : 1.0
+        shotShowLabels = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false
+        shotShowPhaseLabels = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true
         open()
     }
 
@@ -59,6 +65,11 @@ Popup {
             Settings.setItemProperty(itemId, "mapScale", mapScale)
             Settings.setItemProperty(itemId, "mapTexture", mapTexture)
         }
+        if (itemType === "lastShot") {
+            Settings.setItemProperty(itemId, "shotScale", shotScale)
+            Settings.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
+            Settings.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
+        }
         saved()
         close()
     }
@@ -76,6 +87,7 @@ Popup {
                     case "screensaverPipes": return "3D Pipes Settings"
                     case "screensaverAttractor": return "Attractors Settings"
                     case "screensaverShotMap": return "Shot Map Settings"
+                    case "lastShot": return "Last Shot Settings"
                     default: return "Screensaver Settings"
                 }
             }
@@ -225,6 +237,82 @@ Popup {
                         }
                     }
                 }
+            }
+        }
+
+        // Width slider (only for last shot)
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingSmall
+            visible: popup.itemType === "lastShot"
+
+            Text {
+                text: "Width"
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: "1x"
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                }
+
+                Slider {
+                    id: shotWidthSlider
+                    Layout.fillWidth: true
+                    from: 1.0
+                    to: 2.5
+                    stepSize: 0.1
+                    value: popup.shotScale
+                    onMoved: popup.shotScale = value
+                }
+
+                Text {
+                    text: "2.5x"
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                }
+            }
+        }
+
+        // Labels toggle (only for last shot)
+        RowLayout {
+            Layout.fillWidth: true
+            visible: popup.itemType === "lastShot"
+
+            Text {
+                text: "Show axis labels"
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
+                Layout.fillWidth: true
+            }
+
+            Switch {
+                checked: popup.shotShowLabels
+                onToggled: popup.shotShowLabels = checked
+            }
+        }
+
+        // Frame labels toggle (only for last shot)
+        RowLayout {
+            Layout.fillWidth: true
+            visible: popup.itemType === "lastShot"
+
+            Text {
+                text: "Show frame labels"
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
+                Layout.fillWidth: true
+            }
+
+            Switch {
+                checked: popup.shotShowPhaseLabels
+                onToggled: popup.shotShowPhaseLabels = checked
             }
         }
 

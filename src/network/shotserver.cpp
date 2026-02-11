@@ -59,6 +59,33 @@ ShotServer::~ShotServer()
     m_pendingRequests.clear();
 }
 
+void ShotServer::setSettings(Settings* settings)
+{
+    m_settings = settings;
+    if (m_settings) {
+        connect(m_settings, &Settings::layoutConfigurationChanged,
+                this, &ShotServer::onLayoutChanged);
+    }
+}
+
+void ShotServer::onLayoutChanged()
+{
+    // Notify all SSE clients that the layout has changed
+    QByteArray event = "event: layout-changed\ndata: {}\n\n";
+    QList<QTcpSocket*> dead;
+    for (QTcpSocket* client : m_sseLayoutClients) {
+        if (client->state() != QAbstractSocket::ConnectedState) {
+            dead.append(client);
+            continue;
+        }
+        client->write(event);
+        client->flush();
+    }
+    for (QTcpSocket* s : dead) {
+        m_sseLayoutClients.remove(s);
+    }
+}
+
 QString ShotServer::url() const
 {
     if (!isRunning()) return QString();
@@ -118,6 +145,7 @@ void ShotServer::stop()
 
     if (m_server) {
         m_cleanupTimer->stop();
+        m_sseLayoutClients.clear();
         m_server->close();
         delete m_server;
         m_server = nullptr;
@@ -141,6 +169,9 @@ void ShotServer::onReadyRead()
 {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
+
+    // SSE clients keep connections open — ignore further data from them
+    if (m_sseLayoutClients.contains(socket)) return;
 
     try {
         PendingRequest& pending = m_pendingRequests[socket];
@@ -326,6 +357,7 @@ void ShotServer::onDisconnected()
 {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (socket) {
+        m_sseLayoutClients.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->deleteLater();
@@ -835,6 +867,17 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     // Layout editor
     else if (path == "/layout") {
         sendHtml(socket, generateLayoutPage());
+    }
+    // SSE endpoint for layout change notifications
+    else if (path == "/api/layout/events" && method == "GET") {
+        QByteArray headers = "HTTP/1.1 200 OK\r\n"
+                             "Content-Type: text/event-stream\r\n"
+                             "Cache-Control: no-cache\r\n"
+                             "Connection: keep-alive\r\n"
+                             "Access-Control-Allow-Origin: *\r\n\r\n";
+        socket->write(headers);
+        socket->flush();
+        m_sseLayoutClients.insert(socket);
     }
     else if (path == "/api/layout" || path.startsWith("/api/layout/") || path.startsWith("/api/layout?")
              || path.startsWith("/api/library") || path.startsWith("/api/community")) {

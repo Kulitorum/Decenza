@@ -47,6 +47,7 @@ public:
     Q_INVOKABLE void toggleBold();
     Q_INVOKABLE void toggleItalic();
     Q_INVOKABLE void setColor(const QString &color);
+    Q_INVOKABLE void setColorOnRange(const QString &color, int selStart, int selEnd);
     Q_INVOKABLE void setFontSize(int pixelSize);
     Q_INVOKABLE void clearFormatting();
 

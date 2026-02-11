@@ -12,7 +12,7 @@ Item {
     readonly property int flipDuration: 800  // TEST: Slowed down for debugging
 
     // Card dimensions (scaled based on screen size)
-    readonly property real cardWidth: Math.min(width * 0.15, height * 0.35)
+    readonly property real cardWidth: Math.min(width * 0.13, height * 0.30)
     readonly property real cardHeight: cardWidth * 1.4
     readonly property real cardGap: cardHeight * 0.02  // Gap between top and bottom halves
     readonly property real digitGap: cardWidth * 0.12  // Gap between digits in a pair
@@ -375,7 +375,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             height: cardGap
-            color: "#000000"
+            color: "transparent"
             z: 15
         }
     }

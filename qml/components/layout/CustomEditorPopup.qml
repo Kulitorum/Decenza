@@ -19,6 +19,7 @@ Popup {
     property string textDoubleclickAction: ""
     property string textEmoji: ""
     property string textBackgroundColor: ""
+    property bool textHideBackground: false
     property bool showEmojiPicker: false
 
     signal saved()
@@ -32,7 +33,7 @@ Popup {
     x: Math.round((parent.width - width) / 2)
     y: Theme.spacingSmall
     width: parent.width - Theme.spacingSmall * 2
-    height: Math.min(mainColumn.implicitHeight + padding * 2, parent.height * 0.85)
+    height: Math.min(mainColumn.implicitHeight + Theme.scaled(28) + Theme.scaled(4) + padding * 2, parent.height * 0.85)
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -77,6 +78,7 @@ Popup {
         textDoubleclickAction = props.doubleclickAction || ""
         textEmoji = props.emoji || ""
         textBackgroundColor = props.backgroundColor || ""
+        textHideBackground = props.hideBackground || false
         showEmojiPicker = false
 
         // Load segments if available, otherwise fall back to HTML content
@@ -117,6 +119,7 @@ Popup {
         Settings.setItemProperty(itemId, "doubleclickAction", textDoubleclickAction)
         Settings.setItemProperty(itemId, "emoji", textEmoji)
         Settings.setItemProperty(itemId, "backgroundColor", textBackgroundColor)
+        Settings.setItemProperty(itemId, "hideBackground", textHideBackground)
         saved()
         close()
     }
@@ -169,31 +172,31 @@ Popup {
     }
 
     contentItem: Item {
-        // Dismiss keyboard when tapping outside text input
-        MouseArea {
-            anchors.fill: parent
-            z: 100  // Above all content
-            propagateComposedEvents: true
-            onPressed: function(mouse) {
-                if (contentInput.activeFocus) {
-                    // Don't dismiss if tapping on the text input itself (avoids keyboard flicker)
-                    var mapped = mapToItem(inputFlickable, mouse.x, mouse.y)
-                    if (mapped.x >= 0 && mapped.y >= 0 &&
-                        mapped.x <= inputFlickable.width && mapped.y <= inputFlickable.height) {
-                        mouse.accepted = false
-                        return
-                    }
-                    contentInput.focus = false
-                    Qt.inputMethod.hide()
-                }
-                mouse.accepted = false  // Let event propagate to buttons/scrollview
-            }
-        }
-
         ScrollView {
             anchors.fill: parent
+            anchors.bottomMargin: buttonRow.height + Theme.scaled(4)
             contentWidth: availableWidth
             clip: true
+
+            // Dismiss keyboard when tapping outside text input
+            MouseArea {
+                anchors.fill: parent
+                z: 100
+                propagateComposedEvents: true
+                onPressed: function(mouse) {
+                    if (contentInput.activeFocus) {
+                        var mapped = mapToItem(inputFlickable, mouse.x, mouse.y)
+                        if (mapped.x >= 0 && mapped.y >= 0 &&
+                            mapped.x <= inputFlickable.width && mapped.y <= inputFlickable.height) {
+                            mouse.accepted = false
+                            return
+                        }
+                        contentInput.focus = false
+                        Qt.inputMethod.hide()
+                    }
+                    mouse.accepted = false
+                }
+            }
 
             ColumnLayout {
                 id: mainColumn
@@ -336,6 +339,9 @@ Popup {
                             leftPadding: 0
                             rightPadding: 0
 
+                            onSelectionStartChanged: colorPickerPopup.saveSelectionFrom(contentInput)
+                            onSelectionEndChanged: colorPickerPopup.saveSelectionFrom(contentInput)
+
                             DocumentFormatter {
                                 id: formatter
                                 document: contentInput.textDocument
@@ -387,7 +393,7 @@ Popup {
                             : (fpText.implicitHeight + Theme.scaled(16) + (previewCol.hasAction ? Theme.scaled(8) : 0))
 
                         Rectangle {
-                            visible: previewCol.hasAction || previewCol.hasEmoji
+                            visible: !popup.textHideBackground && (previewCol.hasAction || previewCol.hasEmoji)
                             anchors.fill: parent
                             color: previewCol.fullBg
                             radius: Theme.cardRadius
@@ -410,7 +416,7 @@ Popup {
                                 id: fpEmojiText
                                 text: previewCol.previewHtml
                                 textFormat: Text.RichText
-                                color: "white"
+                                color: (!popup.textHideBackground && (previewCol.hasAction || previewCol.hasEmoji)) ? "white" : Theme.textColor
                                 font: Theme.bodyFont
                                 horizontalAlignment: Text.AlignHCenter
                                 anchors.horizontalCenter: parent.horizontalCenter
@@ -446,7 +452,7 @@ Popup {
                         height: Theme.bottomBarHeight
 
                         Rectangle {
-                            visible: previewCol.hasAction || popup.textBackgroundColor !== ""
+                            visible: !popup.textHideBackground && (previewCol.hasAction || popup.textBackgroundColor !== "")
                             anchors.fill: parent
                             anchors.topMargin: Theme.spacingSmall
                             anchors.bottomMargin: Theme.spacingSmall
@@ -470,7 +476,7 @@ Popup {
                             Text {
                                 text: previewCol.previewHtml
                                 textFormat: Text.RichText
-                                color: (previewCol.hasAction || popup.textBackgroundColor !== "") ? "white" : Theme.textColor
+                                color: (!popup.textHideBackground && (previewCol.hasAction || popup.textBackgroundColor !== "")) ? "white" : Theme.textColor
                                 font: Theme.bodyFont
                                 elide: Text.ElideRight
                                 maximumLineCount: 1
@@ -597,6 +603,7 @@ Popup {
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: {
+                                    Qt.inputMethod.commit()
                                     colorPickerPopup.mode = "text"
                                     colorPickerPopup.initialColor = Qt.color(formatter.currentColor || "#ffffff")
                                     colorPickerPopup.open()
@@ -672,6 +679,27 @@ Popup {
                                 id: clearBgMa
                                 anchors.fill: parent
                                 onClicked: popup.textBackgroundColor = ""
+                            }
+                        }
+
+                        // Hide background toggle
+                        Rectangle {
+                            width: noBgText.implicitWidth + Theme.scaled(12)
+                            height: Theme.scaled(22)
+                            radius: Theme.scaled(11)
+                            color: popup.textHideBackground ? Theme.primaryColor : "transparent"
+                            border.color: popup.textHideBackground ? Theme.primaryColor : Theme.borderColor
+                            border.width: 1
+                            Text {
+                                id: noBgText
+                                anchors.centerIn: parent
+                                text: "No Bg"
+                                color: popup.textHideBackground ? "white" : Theme.textSecondaryColor
+                                font: Theme.captionFont
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: popup.textHideBackground = !popup.textHideBackground
                             }
                         }
                     }
@@ -883,47 +911,51 @@ Popup {
                 }
             }
 
-            // === ROW 4: Buttons (horizontal) ===
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(4)
-
-                Item { Layout.fillWidth: true }
-
-                // Cancel
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(70)
-                    height: Theme.scaled(28)
-                    radius: Theme.scaled(6)
-                    color: cancelMa.pressed ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
-                    border.color: Theme.borderColor; border.width: 1
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "Cancel"
-                        color: Theme.textColor
-                        font: Theme.captionFont
-                    }
-                    MouseArea { id: cancelMa; anchors.fill: parent; onClicked: popup.close() }
-                }
-
-                // Save
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(70)
-                    height: Theme.scaled(28)
-                    radius: Theme.scaled(6)
-                    color: saveMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "Save"
-                        color: "white"
-                        font: Theme.captionFont
-                    }
-                    MouseArea { id: saveMa; anchors.fill: parent; onClicked: popup.doSave() }
-                }
             }
         }
+
+        // === Buttons (outside ScrollView, always visible and clickable) ===
+        RowLayout {
+            id: buttonRow
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            spacing: Theme.scaled(4)
+
+            Item { Layout.fillWidth: true }
+
+            // Cancel
+            Rectangle {
+                Layout.preferredWidth: Theme.scaled(70)
+                Layout.preferredHeight: Theme.scaled(28)
+                radius: Theme.scaled(6)
+                color: cancelMa.pressed ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
+                border.color: Theme.borderColor; border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Cancel"
+                    color: Theme.textColor
+                    font: Theme.captionFont
+                }
+                MouseArea { id: cancelMa; anchors.fill: parent; onClicked: popup.close() }
+            }
+
+            // Save
+            Rectangle {
+                Layout.preferredWidth: Theme.scaled(70)
+                Layout.preferredHeight: Theme.scaled(28)
+                radius: Theme.scaled(6)
+                color: saveMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "Save"
+                    color: "white"
+                    font: Theme.captionFont
+                }
+                MouseArea { id: saveMa; anchors.fill: parent; onClicked: popup.doSave() }
+            }
         }
     }
 
@@ -932,6 +964,16 @@ Popup {
         id: colorPickerPopup
         property string mode: "text"  // "text" or "bg"
         property color initialColor: "#ffffff"
+        // Eagerly saved from TextArea (updated on every selection change, before focus loss)
+        property int savedSelectionStart: 0
+        property int savedSelectionEnd: 0
+
+        function saveSelectionFrom(ta) {
+            if (ta.selectionStart !== ta.selectionEnd) {
+                savedSelectionStart = ta.selectionStart
+                savedSelectionEnd = ta.selectionEnd
+            }
+        }
 
         parent: Overlay.overlay
         modal: true
@@ -1007,7 +1049,7 @@ Popup {
                                 onClicked: {
                                     var c = cpEditorInner.color.toString()
                                     if (colorPickerPopup.mode === "text") {
-                                        formatter.setColor(c)
+                                        formatter.setColorOnRange(c, colorPickerPopup.savedSelectionStart, colorPickerPopup.savedSelectionEnd)
                                     } else {
                                         popup.textBackgroundColor = c
                                     }
@@ -1062,7 +1104,7 @@ Popup {
                                 onClicked: {
                                     var c = parent.modelData.color.toString()
                                     if (colorPickerPopup.mode === "text") {
-                                        formatter.setColor(c)
+                                        formatter.setColorOnRange(c, colorPickerPopup.savedSelectionStart, colorPickerPopup.savedSelectionEnd)
                                     } else {
                                         popup.textBackgroundColor = c
                                     }

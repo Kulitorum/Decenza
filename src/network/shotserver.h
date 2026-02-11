@@ -5,6 +5,7 @@
 #include <QTcpSocket>
 #include <QUdpSocket>
 #include <QHash>
+#include <QSet>
 #include <QFile>
 #include <QTimer>
 #include <QElapsedTimer>
@@ -54,7 +55,8 @@ public:
     void setScreensaverVideoManager(ScreensaverVideoManager* manager) { m_screensaverManager = manager; }
 
     // Settings and profiles for data migration
-    void setSettings(Settings* settings) { m_settings = settings; }
+    void setSettings(Settings* settings);
+
     void setProfileStorage(ProfileStorage* profileStorage) { m_profileStorage = profileStorage; }
 
     // Machine state for home automation API
@@ -80,6 +82,7 @@ private slots:
     void onDisconnected();
     void cleanupStaleConnections();
     void onDiscoveryDatagram();
+    void onLayoutChanged();
 
 private:
     void handleRequest(QTcpSocket* socket, const QByteArray& request);
@@ -147,6 +150,7 @@ private:
     int m_port = 8888;
     int m_activeMediaUploads = 0;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
+    QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications
 
     // Limits to prevent resource exhaustion
     static constexpr qint64 MAX_HEADER_SIZE = 64 * 1024;           // 64 KB for headers

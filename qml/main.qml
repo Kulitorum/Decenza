@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Window
 import DecenzaDE1
 import "components"
+import "components/library"
 
 ApplicationWindow {
     id: root
@@ -2335,5 +2336,75 @@ ApplicationWindow {
             anchors.fill: parent
             onClicked: Qt.inputMethod.hide()
         }
+    }
+
+    // ── Library thumbnail capture (always available, even when LibraryPanel is not loaded) ──
+    // Off-screen renderer: uses layer.enabled to force FBO rendering (Android GPU skips off-screen items)
+    Item {
+        id: libThumbContainer
+        visible: false
+        width: Theme.scaled(280)
+        height: Math.max(libThumbFull.height, libThumbCompact.height)
+        layer.enabled: visible
+
+        LibraryItemCard {
+            id: libThumbFull
+            width: parent.width
+            displayMode: 0
+            entryData: ({})
+            isSelected: false
+            showBadge: false
+            livePreview: true
+        }
+
+        LibraryItemCard {
+            id: libThumbCompact
+            y: libThumbFull.height + Theme.scaled(4)
+            width: parent.width
+            displayMode: 1
+            entryData: ({})
+            isSelected: false
+            showBadge: false
+            livePreview: true
+        }
+    }
+
+    Timer {
+        id: libCaptureTimer
+        interval: 200
+        repeat: false
+        property string captureEntryId: ""
+        onTriggered: {
+            libThumbFull.grabToImage(function(fullResult) {
+                WidgetLibrary.saveThumbnail(captureEntryId, fullResult.image)
+                libThumbCompact.grabToImage(function(compactResult) {
+                    WidgetLibrary.saveThumbnailCompact(captureEntryId, compactResult.image)
+                    libThumbContainer.visible = false
+                }, Qt.size(Theme.scaled(280), libThumbCompact.height))
+            }, Qt.size(Theme.scaled(280), libThumbFull.height))
+        }
+    }
+
+    Connections {
+        target: WidgetLibrary
+        function onEntryAdded(entryId) {
+            triggerLibraryThumbnailCapture(entryId)
+        }
+        function onRequestThumbnailCapture(entryId) {
+            triggerLibraryThumbnailCapture(entryId)
+        }
+    }
+
+    function triggerLibraryThumbnailCapture(entryId) {
+        var data = WidgetLibrary.getEntryData(entryId)
+        if (!data || !data.type) return
+
+        libThumbFull.entryData = data
+        libThumbCompact.entryData = data
+        libThumbContainer.z = -1
+        libThumbContainer.visible = true
+
+        libCaptureTimer.captureEntryId = entryId
+        libCaptureTimer.start()
     }
 }

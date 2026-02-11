@@ -18,6 +18,7 @@ Item {
     readonly property string emoji: modelData.emoji || ""
     readonly property string bgColor: modelData.backgroundColor || ""
     readonly property bool hasAction: action !== "" || longPressAction !== "" || doubleclickAction !== ""
+    readonly property bool hideBackground: modelData.hideBackground === true
     readonly property bool hasEmoji: emoji !== ""
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
@@ -229,7 +230,7 @@ Item {
         implicitHeight: Theme.bottomBarHeight
 
         Rectangle {
-            visible: root.hasAction || root.bgColor !== ""
+            visible: !root.hideBackground && (root.hasAction || root.bgColor !== "")
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
@@ -258,7 +259,7 @@ Item {
             Text {
                 text: root.resolvedText
                 textFormat: Text.RichText
-                color: (root.hasAction || root.bgColor !== "") ? "white" : Theme.textColor
+                color: (!root.hideBackground && (root.hasAction || root.bgColor !== "")) ? "white" : Theme.textColor
                 font: Theme.bodyFont
                 horizontalAlignment: root.qtAlignment
                 elide: Text.ElideRight
@@ -287,7 +288,7 @@ Item {
         implicitHeight: root.hasEmoji ? Theme.scaled(120) : (fullText.implicitHeight + Theme.scaled(16) + (root.hasAction ? Theme.scaled(8) : 0))
 
         Rectangle {
-            visible: root.hasAction || root.hasEmoji
+            visible: !root.hideBackground && (root.hasAction || root.hasEmoji)
             anchors.fill: parent
             color: {
                 var base = root.bgColor || (root.hasAction ? "#555555" : Theme.surfaceColor)
@@ -316,7 +317,7 @@ Item {
                 id: emojiText
                 text: root.resolvedText
                 textFormat: Text.RichText
-                color: (root.hasAction || root.hasEmoji) ? "white" : Theme.textColor
+                color: (!root.hideBackground && (root.hasAction || root.hasEmoji)) ? "white" : Theme.textColor
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
                 anchors.horizontalCenter: parent.horizontalCenter

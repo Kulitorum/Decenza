@@ -259,7 +259,7 @@ Rectangle {
                             color: modelData.id === root.selectedItemId
                                 ? "white"
                                 : ((modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "weather") ? "orange"
-                                : (modelData.type.startsWith("screensaver") ? "#64B5F6" : Theme.textColor))
+                                : ((modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
                             font: Theme.bodyFont
                         }
 
@@ -330,7 +330,7 @@ Rectangle {
                         z: -1
                         onClicked: root.itemTapped(modelData.id)
                         onPressAndHold: {
-                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver"))
+                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot")
                                 root.editCustomRequested(modelData.id, root.zoneName)
                         }
                     }
@@ -419,32 +419,37 @@ Rectangle {
                         boundsBehavior: Flickable.StopAtBounds
                         clip: true
 
+                        // Grouped by color (white, orange, blue), sorted by name within each group
                         model: [
-                            { type: "espresso", label: "Espresso" },
-                            { type: "steam", label: "Steam" },
-                            { type: "hotwater", label: "Hot Water" },
-                            { type: "flush", label: "Flush" },
+                            // Actions & readouts (white)
                             { type: "beans", label: "Beans" },
-                            { type: "history", label: "History" },
-                            { type: "autofavorites", label: "Favorites" },
-                            { type: "sleep", label: "Sleep" },
-                            { type: "settings", label: "Settings" },
-                            { type: "temperature", label: "Temperature" },
-                            { type: "steamTemperature", label: "Steam Temp" },
-                            { type: "waterLevel", label: "Water Level" },
                             { type: "connectionStatus", label: "Connection" },
+                            { type: "espresso", label: "Espresso" },
+                            { type: "autofavorites", label: "Favorites" },
+                            { type: "flush", label: "Flush" },
+                            { type: "history", label: "History" },
+                            { type: "hotwater", label: "Hot Water" },
                             { type: "scaleWeight", label: "Scale Weight" },
+                            { type: "settings", label: "Settings" },
                             { type: "shotPlan", label: "Shot Plan" },
-                            { type: "pageTitle", label: "Page Title" },
-                            { type: "spacer", label: "Spacer" },
-                            { type: "separator", label: "Separator" },
+                            { type: "sleep", label: "Sleep" },
+                            { type: "steam", label: "Steam" },
+                            { type: "steamTemperature", label: "Steam Temp" },
+                            { type: "temperature", label: "Temperature" },
+                            { type: "waterLevel", label: "Water Level" },
+                            // Utility (orange)
                             { type: "custom", label: "Custom" },
+                            { type: "pageTitle", label: "Page Title" },
+                            { type: "quit", label: "Quit" },
+                            { type: "separator", label: "Separator" },
+                            { type: "spacer", label: "Spacer" },
                             { type: "weather", label: "Weather" },
-                            { type: "screensaverFlipClock", label: "Flip Clock" },
+                            // Screensavers & widgets (blue)
                             { type: "screensaverPipes", label: "3D Pipes" },
                             { type: "screensaverAttractor", label: "Attractors" },
-                            { type: "screensaverShotMap", label: "Shot Map" },
-                            { type: "quit", label: "Quit" }
+                            { type: "screensaverFlipClock", label: "Flip Clock" },
+                            { type: "lastShot", label: "Last Shot" },
+                            { type: "screensaverShotMap", label: "Shot Map" }
                         ]
 
                         delegate: Rectangle {
@@ -466,7 +471,7 @@ Rectangle {
                                 anchors.leftMargin: Theme.scaled(12)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.label
-                                color: modelData.type.startsWith("screensaver") ? "#64B5F6"
+                                color: (modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6"
                                     : (modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "custom" || modelData.type === "weather") ? "orange" : Theme.textColor
                                 font: Theme.bodyFont
                             }
@@ -553,6 +558,7 @@ Rectangle {
             "shotPlan": "Shot Plan", "pageTitle": "Page Title",
             "spacer": "Spacer", "separator": "Sep", "custom": "Custom",
             "weather": "Weather",
+            "lastShot": "Last Shot",
             "screensaverFlipClock": "Clock",
             "screensaverPipes": "Pipes",
             "screensaverAttractor": "Attractor",

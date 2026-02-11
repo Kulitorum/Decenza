@@ -78,22 +78,52 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         }
         QVariantList entries = m_widgetLibrary->entries();
         QJsonArray arr;
-        for (const QVariant& v : entries)
-            arr.append(QJsonObject::fromVariantMap(v.toMap()));
+        for (const QVariant& v : entries) {
+            QJsonObject obj = QJsonObject::fromVariantMap(v.toMap());
+            QString id = obj["id"].toString();
+            if (!id.isEmpty()) {
+                QString encodedId = QString::fromLatin1(QUrl::toPercentEncoding(id));
+                if (m_widgetLibrary->hasThumbnail(id))
+                    obj["thumbnailFullUrl"] = "/api/library/thumbnail?id=" + encodedId;
+                if (m_widgetLibrary->hasThumbnailCompact(id))
+                    obj["thumbnailCompactUrl"] = "/api/library/thumbnail?id=" + encodedId + "&compact=1";
+            }
+            arr.append(obj);
+        }
         sendJson(socket, QJsonDocument(arr).toJson(QJsonDocument::Compact));
         return;
     }
 
-    // GET /api/library/thumbnail?id=X — serve thumbnail PNG
+    // GET /api/library/thumbnail?id=X[&compact=1] — serve thumbnail PNG
     if (method == "GET" && path.startsWith("/api/library/thumbnail")) {
         if (!m_widgetLibrary) {
             sendResponse(socket, 404, "text/plain", "Not found");
             return;
         }
         int qIdx = path.indexOf("?id=");
-        QString entryId = (qIdx >= 0) ? QUrl::fromPercentEncoding(path.mid(qIdx + 4).toUtf8()) : QString();
-        if (!entryId.isEmpty() && m_widgetLibrary->hasThumbnail(entryId)) {
-            sendFile(socket, m_widgetLibrary->thumbnailPath(entryId), "image/png");
+        QString rawId = (qIdx >= 0) ? path.mid(qIdx + 4) : QString();
+        int ampIdx = rawId.indexOf('&');
+        if (ampIdx >= 0) rawId = rawId.left(ampIdx);
+        QString entryId = QUrl::fromPercentEncoding(rawId.toUtf8());
+        bool compact = path.contains("&compact=1");
+        QString thumbPath;
+        bool exists = false;
+        if (!entryId.isEmpty()) {
+            if (compact && m_widgetLibrary->hasThumbnailCompact(entryId)) {
+                thumbPath = m_widgetLibrary->thumbnailCompactPath(entryId);
+                exists = true;
+            } else if (m_widgetLibrary->hasThumbnail(entryId)) {
+                thumbPath = m_widgetLibrary->thumbnailPath(entryId);
+                exists = true;
+            }
+        }
+        if (exists) {
+            QFile file(thumbPath);
+            if (file.open(QIODevice::ReadOnly)) {
+                sendResponse(socket, 200, "image/png", file.readAll());
+            } else {
+                sendResponse(socket, 404, "text/plain", "No thumbnail");
+            }
         } else {
             sendResponse(socket, 404, "text/plain", "No thumbnail");
         }
@@ -657,6 +687,7 @@ QString ShotServer::generateLayoutPage() const
             top: 100%;
             left: 0;
             margin-top: 0.25rem;
+            margin-bottom: 0.25rem;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -1080,6 +1111,23 @@ QString ShotServer::generateLayoutPage() const
             background: none;
         }
         .color-swatch-x:hover { background: rgba(248,81,73,0.15); }
+        .toggle-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 8px;
+            height: 22px;
+            border-radius: 11px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            background: none;
+            margin-left: 4px;
+            user-select: none;
+        }
+        .toggle-pill:hover { border-color: var(--primary); color: var(--primary); }
+        .toggle-pill.active { background: var(--primary); border-color: var(--primary); color: white; }
 )HTML";
     html += R"HTML(
         .color-popup-overlay {
@@ -1422,7 +1470,6 @@ QString ShotServer::generateLayoutPage() const
             align-items: center;
             gap: 0.4rem;
             min-height: 32px;
-            position: relative;
             overflow: hidden;
         }
         .lib-entry-visual img.lib-thumb {
@@ -1460,6 +1507,7 @@ QString ShotServer::generateLayoutPage() const
             position: absolute;
             top: 3px;
             left: 3px;
+            z-index: 1;
             font-size: 0.55rem;
             font-weight: 700;
             text-transform: uppercase;
@@ -1641,6 +1689,7 @@ QString ShotServer::generateLayoutPage() const
                             </div>
                             <input type="color" id="bgColorInput" value="#555555" style="position:absolute;visibility:hidden;width:0;height:0" onchange="setBgColor(this.value)">
                             <span class="color-swatch-x" id="bgClearBtn" onclick="clearBgColor()" title="Remove background" style="display:none">&#10005;</span>
+                            <span id="hideBgToggle" class="toggle-pill" onclick="toggleHideBackground()" title="Hide background even with actions">No Bg</span>
                         </div>
                     </div>
                     <div class="editor-tools-vars">
@@ -1727,6 +1776,31 @@ QString ShotServer::generateLayoutPage() const
                 </div>
             </div>
 
+            <!-- Last Shot: Width slider + Labels toggles -->
+            <div id="ssLastShotSettings" style="display:none">
+                <div class="section-label">Width</div>
+                <div class="ss-slider-row">
+                    <span class="ss-slider-label">1x</span>
+                    <input type="range" class="ss-slider" id="ssShotScale" min="1" max="2.5" step="0.1" value="1" oninput="ssShotScaleChanged(this.value)">
+                    <span class="ss-slider-label" style="text-align:right">2.5x</span>
+                </div>
+                <div class="section-label">Show axis labels</div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="ssShotShowLabels" onchange="ssShotToggleChanged()">
+                        <span style="color:var(--text-secondary)">Pressure, flow, weight scales</span>
+                    </label>
+                </div>
+                <div class="section-label">Show frame labels</div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="ssShotShowPhaseLabels" checked onchange="ssShotToggleChanged()">
+                        <span style="color:var(--text-secondary)">Frame transition markers</span>
+                    </label>
+                </div>
+            </div>
+)HTML";
+    html += R"HTML(
             <!-- No settings message -->
             <div id="ssNoSettings" style="display:none">
                 <div class="ss-no-settings">No additional settings for this screensaver.</div>
@@ -1931,6 +2005,7 @@ QString ShotServer::generateLayoutPage() const
     var currentDoubleclickAction = "";
     var currentEmoji = "";
     var currentBgColor = "";
+    var currentHideBackground = false;
     var emojiCategory = 0;
     var itemPropsCache = {}; // id -> {emoji, content, backgroundColor, ...}
 
@@ -2121,23 +2196,36 @@ QString ShotServer::generateLayoutPage() const
         {key: "bottomRight", label: "Bottom Bar (Right)", hasOffset: false}
     ];
 
+    // Grouped by color (white, orange, blue), sorted by name within each group
     var WIDGET_TYPES = [
-        {type:"espresso",label:"Espresso"},{type:"steam",label:"Steam"},
-        {type:"hotwater",label:"Hot Water"},{type:"flush",label:"Flush"},
-        {type:"beans",label:"Beans"},{type:"history",label:"History"},
-        {type:"autofavorites",label:"Favorites"},{type:"sleep",label:"Sleep"},
-        {type:"settings",label:"Settings"},{type:"temperature",label:"Temperature"},
+        // Actions & readouts (white)
+        {type:"beans",label:"Beans"},
+        {type:"connectionStatus",label:"Connection"},
+        {type:"espresso",label:"Espresso"},
+        {type:"autofavorites",label:"Favorites"},
+        {type:"flush",label:"Flush"},
+        {type:"history",label:"History"},
+        {type:"hotwater",label:"Hot Water"},
+        {type:"scaleWeight",label:"Scale Weight"},
+        {type:"settings",label:"Settings"},
+        {type:"shotPlan",label:"Shot Plan"},
+        {type:"sleep",label:"Sleep"},
+        {type:"steam",label:"Steam"},
         {type:"steamTemperature",label:"Steam Temp"},
-        {type:"waterLevel",label:"Water Level"},{type:"connectionStatus",label:"Connection"},
-        {type:"scaleWeight",label:"Scale Weight"},{type:"shotPlan",label:"Shot Plan"},
-        {type:"pageTitle",label:"Page Title",special:true},
-        {type:"spacer",label:"Spacer",special:true},{type:"separator",label:"Separator",special:true},
+        {type:"temperature",label:"Temperature"},
+        {type:"waterLevel",label:"Water Level"},
+        // Utility (orange)
         {type:"custom",label:"Custom",special:true},
-        {type:"weather",label:"Weather",special:true},
+        {type:"pageTitle",label:"Page Title",special:true},
         {type:"quit",label:"Quit",special:true},
-        {type:"screensaverFlipClock",label:"Flip Clock",screensaver:true},
+        {type:"separator",label:"Separator",special:true},
+        {type:"spacer",label:"Spacer",special:true},
+        {type:"weather",label:"Weather",special:true},
+        // Screensavers & widgets (blue)
         {type:"screensaverPipes",label:"3D Pipes",screensaver:true},
         {type:"screensaverAttractor",label:"Attractor",screensaver:true},
+        {type:"screensaverFlipClock",label:"Flip Clock",screensaver:true},
+        {type:"lastShot",label:"Last Shot",screensaver:true},
         {type:"screensaverShotMap",label:"Shot Map",screensaver:true}
     ];
 
@@ -2149,7 +2237,8 @@ QString ShotServer::generateLayoutPage() const
         shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
         custom:"Custom",weather:"Weather",quit:"Quit",
         screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",
-        screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map"
+        screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map",
+        lastShot:"Last Shot"
     };
 
     var ACTIONS = [
@@ -2257,13 +2346,13 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="chips-area">';
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
-                var isSS = item.type.indexOf("screensaver") === 0;
+                var isSS = item.type.indexOf("screensaver") === 0 || item.type === "lastShot";
                 var isSpecial = item.type === "spacer" || item.type === "custom" || item.type === "weather" || item.type === "separator" || item.type === "pageTitle" || item.type === "quit";
                 var isSel = selectedChip && selectedChip.id === item.id;
                 var cls = "chip" + (isSel ? " selected" : "") + (isSS ? " screensaver" : (isSpecial ? " special" : ""));
                 var chipStyle = "";
                 var props = item.type === "custom" ? itemPropsCache[item.id] : null;
-                if (props && props.backgroundColor && !isSel) {
+                if (props && props.backgroundColor && !isSel && !props.hideBackground) {
                     chipStyle = "background:" + props.backgroundColor + ";border-color:" + props.backgroundColor + ";color:white";
                 }
                 html += '<span class="' + cls + '" style="' + chipStyle + '" onclick="chipClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">';
@@ -2336,7 +2425,7 @@ QString ShotServer::generateLayoutPage() const
             selectedChip = {id: itemId, zone: zone};
             if (type === "custom") {
                 openEditor(itemId, zone);
-            } else if (type.indexOf("screensaver") === 0) {
+            } else if (type.indexOf("screensaver") === 0 || type === "lastShot") {
                 openScreensaverEditor(itemId, zone, type);
             }
         }
@@ -2349,7 +2438,29 @@ QString ShotServer::generateLayoutPage() const
         document.querySelectorAll(".add-dropdown.open").forEach(function(d) {
             if (d !== dropdown) d.classList.remove("open");
         });
+        // Reset position before measuring
+        dropdown.style.top = "";
+        dropdown.style.bottom = "";
+        dropdown.style.maxHeight = "";
         dropdown.classList.toggle("open");
+        if (dropdown.classList.contains("open")) {
+            // Check if dropdown overflows the viewport and flip upward if needed
+            var rect = dropdown.getBoundingClientRect();
+            var viewH = window.innerHeight;
+            if (rect.bottom > viewH) {
+                var spaceBelow = viewH - rect.top;
+                var spaceAbove = rect.top;
+                if (spaceAbove > spaceBelow) {
+                    // Open upward
+                    dropdown.style.top = "auto";
+                    dropdown.style.bottom = "100%";
+                    dropdown.style.maxHeight = Math.min(400, spaceAbove - 8) + "px";
+                } else {
+                    // Keep downward but clamp height
+                    dropdown.style.maxHeight = Math.max(120, spaceBelow - 8) + "px";
+                }
+            }
+        }
     }
 
     // Close dropdowns when clicking outside
@@ -2419,7 +2530,8 @@ QString ShotServer::generateLayoutPage() const
         screensaverFlipClock: "Flip Clock Settings",
         screensaverPipes: "3D Pipes Settings",
         screensaverAttractor: "Attractor Settings",
-        screensaverShotMap: "Shot Map Settings"
+        screensaverShotMap: "Shot Map Settings",
+        lastShot: "Last Shot Settings"
     };
 
     function openScreensaverEditor(itemId, zone, type) {
@@ -2432,6 +2544,7 @@ QString ShotServer::generateLayoutPage() const
         // Hide all setting sections
         document.getElementById("ssClockSettings").style.display = "none";
         document.getElementById("ssMapSettings").style.display = "none";
+        document.getElementById("ssLastShotSettings").style.display = "none";
         document.getElementById("ssNoSettings").style.display = "none";
 
         // Fetch current properties
@@ -2450,6 +2563,12 @@ QString ShotServer::generateLayoutPage() const
                     ssCurrentMapTexture = (typeof props.mapTexture === "string") ? props.mapTexture : "";
                     ssUpdateTextureButtons();
                     document.getElementById("ssMapSettings").style.display = "";
+                } else if (type === "lastShot") {
+                    var shotScale = typeof props.shotScale === "number" ? props.shotScale : 1.0;
+                    document.getElementById("ssShotScale").value = shotScale;
+                    document.getElementById("ssShotShowLabels").checked = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false;
+                    document.getElementById("ssShotShowPhaseLabels").checked = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true;
+                    document.getElementById("ssLastShotSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
                 }
@@ -2480,6 +2599,13 @@ QString ShotServer::generateLayoutPage() const
             var mapScale = parseFloat(document.getElementById("ssMapScale").value);
             apiPost("/api/layout/item", {itemId: id, key: "mapScale", value: mapScale}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "mapTexture", value: ssCurrentMapTexture}, function() {});
+        } else if (ssEditingType === "lastShot") {
+            var shotScale = parseFloat(document.getElementById("ssShotScale").value);
+            var showLabels = document.getElementById("ssShotShowLabels").checked;
+            var showPhaseLabels = document.getElementById("ssShotShowPhaseLabels").checked;
+            apiPost("/api/layout/item", {itemId: id, key: "shotScale", value: shotScale}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotShowLabels", value: showLabels}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotShowPhaseLabels", value: showPhaseLabels}, function() {});
         }
     }
 
@@ -2488,6 +2614,13 @@ QString ShotServer::generateLayoutPage() const
     }
 
     function ssMapScaleChanged(val) {
+        ssAutoSave();
+    }
+
+    function ssShotScaleChanged(val) {
+        ssAutoSave();
+    }
+    function ssShotToggleChanged() {
         ssAutoSave();
     }
 
@@ -2692,6 +2825,7 @@ QString ShotServer::generateLayoutPage() const
                 currentDoubleclickAction = props.doubleclickAction || "";
                 currentEmoji = props.emoji || "";
                 currentBgColor = props.backgroundColor || "";
+                currentHideBackground = props.hideBackground || false;
                 wysiwygEl.style.textAlign = currentAlign;
                 updateAlignButtons();
                 updateActionSelectors();
@@ -2699,6 +2833,7 @@ QString ShotServer::generateLayoutPage() const
                 renderEmojiTabs();
                 renderEmojiGrid();
                 updateBgColorUI();
+                updateHideBgUI();
                 updateTextColorUI("#ffffff");
                 updatePreview();
                 document.getElementById("editorPanel").classList.remove("editor-hidden");
@@ -2727,7 +2862,7 @@ QString ShotServer::generateLayoutPage() const
         if (!content || content === "<br>") content = "Text";
         var id = editingItem.id;
         var done = 0;
-        var total = 8;
+        var total = 9;
         function check() { done++; if (done >= total) { itemPropsCache[id] = null; loadLayout(); } }
         apiPost("/api/layout/item", {itemId: id, key: "content", value: content}, check);
         apiPost("/api/layout/item", {itemId: id, key: "segments", value: segments}, check);
@@ -2737,6 +2872,7 @@ QString ShotServer::generateLayoutPage() const
         apiPost("/api/layout/item", {itemId: id, key: "doubleclickAction", value: currentDoubleclickAction}, check);
         apiPost("/api/layout/item", {itemId: id, key: "emoji", value: currentEmoji}, check);
         apiPost("/api/layout/item", {itemId: id, key: "backgroundColor", value: currentBgColor}, check);
+        apiPost("/api/layout/item", {itemId: id, key: "hideBackground", value: currentHideBackground}, check);
     }
 )HTML";
     html += R"HTML(
@@ -2976,6 +3112,24 @@ QString ShotServer::generateLayoutPage() const
         }
     }
 
+    function toggleHideBackground() {
+        currentHideBackground = !currentHideBackground;
+        updateHideBgUI();
+        updatePreview();
+        autoSave();
+    }
+
+    function updateHideBgUI() {
+        var el = document.getElementById("hideBgToggle");
+        if (el) {
+            if (currentHideBackground) {
+                el.classList.add("active");
+            } else {
+                el.classList.remove("active");
+            }
+        }
+    }
+
 )HTML";
 
     // Part 5b2: Layout editor JS - action picker, emoji, preview
@@ -3122,8 +3276,9 @@ QString ShotServer::generateLayoutPage() const
         var formattedPreview = substitutePreview(rawHtml);
         var hasAction = currentAction || currentLongPressAction || currentDoubleclickAction;
         var hasEmoji = currentEmoji !== "";
-        var bgColor = currentBgColor || ((hasAction || hasEmoji) ? "#555555" : "");
-        var defaultColor = (hasAction || hasEmoji || currentBgColor) ? "white" : "var(--text)";
+        var showBg = !currentHideBackground;
+        var bgColor = showBg ? (currentBgColor || ((hasAction || hasEmoji) ? "#555555" : "")) : "";
+        var defaultColor = (showBg && (hasAction || hasEmoji || currentBgColor)) ? "white" : "var(--text)";
 
         // Full preview (center zones: vertical emoji + text)
         var fullEl = document.getElementById("previewFull");
@@ -3283,7 +3438,8 @@ QString ShotServer::generateLayoutPage() const
     function renderItemVisual(item) {
         var bg = item.backgroundColor || '';
         var hasAction = (item.action||'') !== '' || (item.longPressAction||'') !== '' || (item.doubleclickAction||'') !== '';
-        var bgStyle = bg || (hasAction ? '#555555' : 'var(--bg)');
+        var hideBg = item.hideBackground || false;
+        var bgStyle = !hideBg ? (bg || (hasAction ? '#555555' : 'var(--bg)')) : 'var(--bg)';
         var html = '<div class="lib-entry-visual" style="background:' + bgStyle + '">';
         if (item.emoji) html += '<span class="lib-item-emoji">' + emojiImgHtml(item.emoji) + '</span>';
         var text = resolveVars(item.content || item.type || '');
@@ -3300,7 +3456,8 @@ QString ShotServer::generateLayoutPage() const
             var it = items[i];
             var bg = it.backgroundColor || '';
             var hasAct = (it.action||'') !== '';
-            var chipBg = bg || (hasAct ? '#555555' : 'var(--surface)');
+            var hideBg = it.hideBackground || false;
+            var chipBg = !hideBg ? (bg || (hasAct ? '#555555' : 'var(--surface)')) : 'var(--surface)';
             html += '<span class="lib-zone-mini-chip" style="background:' + chipBg + '">';
             if (it.emoji) html += emojiImgHtml(it.emoji);
             if (it.type !== 'custom') {
@@ -3329,7 +3486,8 @@ QString ShotServer::generateLayoutPage() const
                 var it = zItems[j];
                 var bg = it.backgroundColor || '';
                 var hasAct = (it.action||'') !== '';
-                var chipBg = bg || (hasAct ? '#555555' : 'var(--surface)');
+                var hideBg = it.hideBackground || false;
+                var chipBg = !hideBg ? (bg || (hasAct ? '#555555' : 'var(--surface)')) : 'var(--surface)';
                 html += '<span class="lib-zone-mini-chip" style="background:' + chipBg + '">';
                 if (it.type !== 'custom') html += (DISPLAY_NAMES[it.type] || it.type);
                 else {
@@ -3349,7 +3507,7 @@ QString ShotServer::generateLayoutPage() const
         var sel = id === libSelectedId ? ' selected' : '';
         var compactCls = compact ? ' compact' : '';
         var onclick = isLocal ? "selectLibEntry('" + id + "')" : "selectCommEntry('" + id + "')";
-        var html = '<div class="lib-entry' + sel + compactCls + '" onclick="' + onclick + '">';
+        var html = '<div class="lib-entry' + sel + compactCls + '" data-entry-id="' + id + '" onclick="' + onclick + '">';
 
         // Type badge overlay
         html += '<span class="lib-type-overlay ' + (entry.type||'') + '">' + (entry.type||'?') + '</span>';
@@ -3359,21 +3517,28 @@ QString ShotServer::generateLayoutPage() const
             ? (entry.thumbnailCompactUrl || entry.thumbnailFullUrl || '')
             : (entry.thumbnailFullUrl || '');
 
+        // thumbMode: 'known' = URL from server (thumbnail exists), 'probe' = try loading (might not exist yet)
+        var thumbMode = '';
         if (thumbUrl) {
+            thumbMode = 'known';
             html += '<div class="lib-entry-visual" style="background:var(--bg);justify-content:center">';
-            html += '<img class="lib-thumb" src="' + thumbUrl + '">';
+            html += '<img class="lib-thumb" src="' + thumbUrl + '" onerror="this.parentElement.style.display=\'none\';var fb=this.parentElement.nextElementSibling;if(fb)fb.style.display=\'\'">';
             html += '</div>';
         } else if (isLocal) {
-            // Check for local thumbnail (hidden until loaded, then hides fallback)
+            thumbMode = 'probe';
+            // Thumbnail might not exist yet (newly saved) — probe with retry
+            var thumbSrc = '/api/library/thumbnail?id=' + encodeURIComponent(id) + '&t=' + Date.now();
             html += '<div class="lib-entry-visual" style="background:var(--bg);justify-content:center;display:none">';
-            html += '<img class="lib-thumb" src="/api/library/thumbnail?id=' + encodeURIComponent(id) + '" onload="var p=this.parentElement;p.style.display=\'\';if(p.nextElementSibling)p.nextElementSibling.style.display=\'none\'">';
+            html += '<img class="lib-thumb" src="' + thumbSrc + '" onload="var p=this.parentElement;p.style.display=\'\';if(p.nextElementSibling)p.nextElementSibling.style.display=\'none\'" onerror="if(!this.dataset.retried){this.dataset.retried=\'1\';var img=this;setTimeout(function(){img.src=\'/api/library/thumbnail?id=' + encodeURIComponent(id) + '&t=\'+Date.now()},1000)}">';
             html += '</div>';
         }
 
-        // Visual preview (shown if no thumbnail, or as fallback when thumbnail fails to load)
+        // Visual preview (fallback when thumbnail fails or is not available)
         if (entry.data) {
             var fallbackId = 'lf_' + id.replace(/[^a-zA-Z0-9]/g,'_');
             var wrap = isLocal ? ' id="' + fallbackId + '"' : '';
+            // Hide fallback when a known thumbnail URL exists (shown on thumbnail error)
+            var fallbackHide = thumbMode === 'known' ? ' style="display:none"' : '';
             if (compact) {
                 // Compact mode: show type name and brief summary
                 var summary = '';
@@ -3387,14 +3552,15 @@ QString ShotServer::generateLayoutPage() const
                     var cnt = 0; for (var zk in lz) cnt += lz[zk].length;
                     summary = cnt + ' widgets';
                 }
-                html += '<div' + wrap + ' style="flex:1;font-size:0.8rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(summary) + '</div>';
+                var compactStyle = (thumbMode === 'known' ? 'display:none;' : '') + 'flex:1;font-size:0.8rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+                html += '<div' + wrap + ' style="' + compactStyle + '">' + escapeHtml(summary) + '</div>';
             } else {
                 if (entry.type === 'item' && entry.data.item) {
-                    html += '<div' + wrap + '>' + renderItemVisual(entry.data.item) + '</div>';
+                    html += '<div' + wrap + fallbackHide + '>' + renderItemVisual(entry.data.item) + '</div>';
                 } else if (entry.type === 'zone' && entry.data.items) {
-                    html += '<div' + wrap + '>' + renderZoneVisual(entry.data) + '</div>';
+                    html += '<div' + wrap + fallbackHide + '>' + renderZoneVisual(entry.data) + '</div>';
                 } else if (entry.type === 'layout') {
-                    html += '<div' + wrap + '>' + renderLayoutVisual(entry.data) + '</div>';
+                    html += '<div' + wrap + fallbackHide + '>' + renderLayoutVisual(entry.data) + '</div>';
                 }
             }
         }
@@ -3410,18 +3576,33 @@ QString ShotServer::generateLayoutPage() const
             el.innerHTML = '<div class="lib-empty">No saved entries yet.<br>Select a widget and click <b>+</b> to save it.</div>';
             return;
         }
+        var scrollTop = el.scrollTop;
         var html = '';
         for (var i = 0; i < libLocalData.length; i++) {
             var e = libLocalData[i];
             html += renderEntryCard(e, e.id, true);
         }
         el.innerHTML = html;
+        el.scrollTop = scrollTop;
     }
 
     function selectLibEntry(id) {
+        var prev = libSelectedId;
         libSelectedId = libSelectedId === id ? null : id;
-        if (libCurrentTab === 'local') renderLocalEntries();
-        else renderCommunityEntries();
+        // Toggle selection classes in-place without rebuilding the list
+        var container = libCurrentTab === 'local'
+            ? document.getElementById('libLocalEntries')
+            : document.getElementById('libCommunityEntries');
+        if (container) {
+            if (prev) {
+                var prevEl = container.querySelector('[data-entry-id="' + prev + '"]');
+                if (prevEl) prevEl.classList.remove('selected');
+            }
+            if (libSelectedId) {
+                var newEl = container.querySelector('[data-entry-id="' + id + '"]');
+                if (newEl) newEl.classList.add('selected');
+            }
+        }
         updateLibButtons();
     }
 
@@ -3560,6 +3741,7 @@ QString ShotServer::generateLayoutPage() const
             document.getElementById('commLoadMore').style.display = 'none';
             return;
         }
+        var scrollTop = el.scrollTop;
         var html = '';
         for (var i = 0; i < libCommunityData.length; i++) {
             var e = libCommunityData[i];
@@ -3567,12 +3749,25 @@ QString ShotServer::generateLayoutPage() const
             html += renderEntryCard(e, id, false);
         }
         el.innerHTML = html;
+        el.scrollTop = scrollTop;
         document.getElementById('commLoadMore').style.display = libCommunityData.length < commTotal ? '' : 'none';
     }
 
     function selectCommEntry(id) {
+        var prev = libSelectedId;
         libSelectedId = libSelectedId === id ? null : id;
-        renderCommunityEntries();
+        // Toggle selection classes in-place without rebuilding the list
+        var container = document.getElementById('libCommunityEntries');
+        if (container) {
+            if (prev) {
+                var prevEl = container.querySelector('[data-entry-id="' + prev + '"]');
+                if (prevEl) prevEl.classList.remove('selected');
+            }
+            if (libSelectedId) {
+                var newEl = container.querySelector('[data-entry-id="' + id + '"]');
+                if (newEl) newEl.classList.add('selected');
+            }
+        }
         updateLibButtons();
     }
 
@@ -3643,11 +3838,12 @@ QString ShotServer::generateLayoutPage() const
     loadLayout();
     loadLibrary();
 
-    // Poll for external changes (e.g. layout reset on tablet)
-    setInterval(function() {
+    // Listen for layout changes pushed from the tablet via SSE
+    var layoutEvents = new EventSource("/api/layout/events");
+    layoutEvents.addEventListener("layout-changed", function() {
         if (editingItem || ssEditingItem) return;
         loadLayout();
-    }, 3000);
+    });
 
     </script>
 </body>
