@@ -259,7 +259,7 @@ Rectangle {
                             color: modelData.id === root.selectedItemId
                                 ? "white"
                                 : ((modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "weather") ? "orange"
-                                : (modelData.type.startsWith("screensaver") ? "#64B5F6" : Theme.textColor))
+                                : ((modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
                             font: Theme.bodyFont
                         }
 
@@ -330,7 +330,7 @@ Rectangle {
                         z: -1
                         onClicked: root.itemTapped(modelData.id)
                         onPressAndHold: {
-                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver"))
+                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot")
                                 root.editCustomRequested(modelData.id, root.zoneName)
                         }
                     }
@@ -440,6 +440,7 @@ Rectangle {
                             { type: "separator", label: "Separator" },
                             { type: "custom", label: "Custom" },
                             { type: "weather", label: "Weather" },
+                            { type: "lastShot", label: "Last Shot" },
                             { type: "screensaverFlipClock", label: "Flip Clock" },
                             { type: "screensaverPipes", label: "3D Pipes" },
                             { type: "screensaverAttractor", label: "Attractors" },
@@ -466,7 +467,7 @@ Rectangle {
                                 anchors.leftMargin: Theme.scaled(12)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.label
-                                color: modelData.type.startsWith("screensaver") ? "#64B5F6"
+                                color: (modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6"
                                     : (modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "custom" || modelData.type === "weather") ? "orange" : Theme.textColor
                                 font: Theme.bodyFont
                             }
@@ -553,6 +554,7 @@ Rectangle {
             "shotPlan": "Shot Plan", "pageTitle": "Page Title",
             "spacer": "Spacer", "separator": "Sep", "custom": "Custom",
             "weather": "Weather",
+            "lastShot": "Last Shot",
             "screensaverFlipClock": "Clock",
             "screensaverPipes": "Pipes",
             "screensaverAttractor": "Attractor",

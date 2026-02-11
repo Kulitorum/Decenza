@@ -91,7 +91,8 @@ Item {
 
     function openCustomEditor(itemId, zoneName) {
         var props = Settings.getItemProperties(itemId)
-        if ((props.type || "").startsWith("screensaver")) {
+        var type = props.type || ""
+        if (type.startsWith("screensaver") || type === "lastShot") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else {
             customEditorPopup.openForItem(itemId, zoneName, props)

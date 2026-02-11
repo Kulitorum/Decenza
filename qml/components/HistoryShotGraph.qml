@@ -9,6 +9,10 @@ ChartView {
     plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
     legend.visible: false
 
+    // Controls for compact/widget rendering
+    property bool showLabels: true
+    property bool showPhaseLabels: true
+
     margins.top: 0
     margins.bottom: 0
     margins.left: 0
@@ -59,6 +63,7 @@ ChartView {
         max: 60
         tickCount: 7
         labelFormat: "%.0f"
+        labelsVisible: chart.showLabels
         labelsColor: Theme.textSecondaryColor
         gridLineColor: Qt.rgba(255, 255, 255, 0.1)
     }
@@ -70,9 +75,10 @@ ChartView {
         max: 12
         tickCount: 5
         labelFormat: "%.0f"
+        labelsVisible: chart.showLabels
         labelsColor: Theme.textSecondaryColor
         gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-        titleText: "bar / mL/s"
+        titleText: chart.showLabels ? "bar / mL/s" : ""
         titleBrush: Theme.textSecondaryColor
     }
 
@@ -85,7 +91,7 @@ ChartView {
         labelFormat: "%.0f"
         labelsColor: Theme.temperatureColor
         gridLineColor: "transparent"
-        titleText: "°C"
+        titleText: chart.showLabels ? "°C" : ""
         titleBrush: Theme.temperatureColor
         visible: false
     }
@@ -105,9 +111,10 @@ ChartView {
         max: maxWeight
         tickCount: 5
         labelFormat: "%.0f"
+        labelsVisible: chart.showLabels
         labelsColor: Theme.weightColor
         gridLineColor: "transparent"
-        titleText: "g"
+        titleText: chart.showLabels ? "g" : ""
         titleBrush: Theme.weightColor
     }
 
@@ -200,7 +207,7 @@ ChartView {
             x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
             y: chart.plotArea.y
             height: chart.plotArea.height
-            visible: markerTime <= timeAxis.max && markerTime >= 0 && !isStart
+            visible: markerTime <= timeAxis.max && markerTime >= 0 && !isStart && chart.showPhaseLabels
 
             Text {
                 text: {

@@ -28,8 +28,7 @@ Item {
         }
     }
 
-    // Calculate button sizing in unscaled space (auto-sized items don't count)
-    readonly property real effectiveWidth: width / zoneScale
+    // Calculate button sizing with zoneScale baked in (renders at display resolution)
     readonly property int buttonCount: {
         if (!items) return 0
         var count = 0
@@ -45,30 +44,24 @@ Item {
         }
         return false
     }
-    readonly property real availableWidth: effectiveWidth - Theme.scaled(20) -
-        (buttonCount > 1 ? (buttonCount - 1) * Theme.scaled(10) : 0)
+    readonly property real scaledSpacing: Theme.scaled(10) * zoneScale
+    readonly property real availableWidth: width - Theme.scaled(20) * zoneScale -
+        (buttonCount > 1 ? (buttonCount - 1) * scaledSpacing : 0)
     readonly property real buttonWidth: buttonCount > 0
-        ? Math.min(Theme.scaled(150), availableWidth / buttonCount) : Theme.scaled(150)
-    readonly property real buttonHeight: Theme.scaled(120)
+        ? Math.min(Theme.scaled(150) * zoneScale, availableWidth / buttonCount) : Theme.scaled(150) * zoneScale
+    readonly property real buttonHeight: Theme.scaled(120) * zoneScale
 
-    implicitHeight: contentRow.implicitHeight * zoneScale
+    implicitHeight: contentRow.implicitHeight
 
     Component.onCompleted: {
     }
 
     RowLayout {
         id: contentRow
-        width: root.effectiveWidth
+        width: root.width
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Theme.scaled(10)
-
-        transform: Scale {
-            xScale: root.zoneScale
-            yScale: root.zoneScale
-            origin.x: contentRow.width / 2
-            origin.y: contentRow.height / 2
-        }
+        spacing: root.scaledSpacing
 
         // Auto-centering spacer (hides when user has their own spacers)
         Item { Layout.fillWidth: true; visible: !root.hasSpacer }
@@ -87,6 +80,11 @@ Item {
                     if (modelData.type === "screensaverShotMap") {
                         var m = typeof modelData.mapScale === "number" ? modelData.mapScale : 1.0
                         return root.buttonWidth * m
+                    }
+                    // Last shot: scale width from 1x to 2.5x buttonWidth
+                    if (modelData.type === "lastShot") {
+                        var ls = typeof modelData.shotScale === "number" ? modelData.shotScale : 1.0
+                        return root.buttonWidth * ls
                     }
                     if (root.isAutoSized(modelData.type)) return -1
                     return root.buttonWidth

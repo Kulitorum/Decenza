@@ -85,7 +85,7 @@ QtObject {
     readonly property int cardRadius: scaled(16)
     readonly property int standardMargin: scaled(16)
     readonly property int smallMargin: scaled(8)
-    readonly property int graphLineWidth: Math.max(2, scaled(3))
+    readonly property int graphLineWidth: 1
 
     // Layout constants
     readonly property int statusBarHeight: scaled(70)

@@ -336,6 +336,9 @@ Popup {
                             leftPadding: 0
                             rightPadding: 0
 
+                            onSelectionStartChanged: colorPickerPopup.saveSelectionFrom(contentInput)
+                            onSelectionEndChanged: colorPickerPopup.saveSelectionFrom(contentInput)
+
                             DocumentFormatter {
                                 id: formatter
                                 document: contentInput.textDocument
@@ -597,6 +600,7 @@ Popup {
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: {
+                                    Qt.inputMethod.commit()
                                     colorPickerPopup.mode = "text"
                                     colorPickerPopup.initialColor = Qt.color(formatter.currentColor || "#ffffff")
                                     colorPickerPopup.open()
@@ -932,6 +936,16 @@ Popup {
         id: colorPickerPopup
         property string mode: "text"  // "text" or "bg"
         property color initialColor: "#ffffff"
+        // Eagerly saved from TextArea (updated on every selection change, before focus loss)
+        property int savedSelectionStart: 0
+        property int savedSelectionEnd: 0
+
+        function saveSelectionFrom(ta) {
+            if (ta.selectionStart !== ta.selectionEnd) {
+                savedSelectionStart = ta.selectionStart
+                savedSelectionEnd = ta.selectionEnd
+            }
+        }
 
         parent: Overlay.overlay
         modal: true
@@ -1007,7 +1021,7 @@ Popup {
                                 onClicked: {
                                     var c = cpEditorInner.color.toString()
                                     if (colorPickerPopup.mode === "text") {
-                                        formatter.setColor(c)
+                                        formatter.setColorOnRange(c, colorPickerPopup.savedSelectionStart, colorPickerPopup.savedSelectionEnd)
                                     } else {
                                         popup.textBackgroundColor = c
                                     }
@@ -1062,7 +1076,7 @@ Popup {
                                 onClicked: {
                                     var c = parent.modelData.color.toString()
                                     if (colorPickerPopup.mode === "text") {
-                                        formatter.setColor(c)
+                                        formatter.setColorOnRange(c, colorPickerPopup.savedSelectionStart, colorPickerPopup.savedSelectionEnd)
                                     } else {
                                         popup.textBackgroundColor = c
                                     }

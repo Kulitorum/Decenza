@@ -149,6 +149,7 @@ Item {
             case "pageTitle":        return "Page Title"
             case "steamTemperature": return "Steam Temperature"
             case "custom":           return "Custom Widget"
+            case "lastShot":         return "Last Shot"
             default:                 return root.itemType
         }
     }
@@ -193,6 +194,7 @@ Item {
                 case "steamTemperature": src = "items/SteamTemperatureItem.qml"; break
                 case "separator":        src = "items/SeparatorItem.qml"; break
                 case "quit":             src = "items/QuitItem.qml"; break
+                case "lastShot":         src = "items/LastShotItem.qml"; break
                 case "screensaverFlipClock":
                 case "screensaverPipes":
                 case "screensaverAttractor":

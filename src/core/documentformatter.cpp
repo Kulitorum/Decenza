@@ -175,6 +175,21 @@ void DocumentFormatter::setColor(const QString &color)
     mergeFormatOnSelection(fmt);
 }
 
+void DocumentFormatter::setColorOnRange(const QString &color, int selStart, int selEnd)
+{
+    QTextDocument *doc = textDocument();
+    if (!doc || selStart == selEnd)
+        return;
+    const int maxPos = doc->characterCount() - 1;
+    QTextCursor cursor(doc);
+    cursor.setPosition(qBound(0, selStart, maxPos));
+    cursor.setPosition(qBound(0, selEnd, maxPos), QTextCursor::KeepAnchor);
+    QTextCharFormat fmt;
+    fmt.setForeground(QColor(color));
+    cursor.mergeCharFormat(fmt);
+    emit formatChanged();
+}
+
 void DocumentFormatter::setFontSize(int pixelSize)
 {
     QTextCharFormat fmt;
