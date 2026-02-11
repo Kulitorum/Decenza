@@ -1464,6 +1464,7 @@ QString ShotServer::generateLayoutPage() const
             position: absolute;
             top: 3px;
             left: 3px;
+            z-index: 1;
             font-size: 0.55rem;
             font-weight: 700;
             text-transform: uppercase;
