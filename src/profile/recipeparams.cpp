@@ -24,20 +24,26 @@ QJsonObject RecipeParams::toJson() const {
     obj["bloomEnabled"] = bloomEnabled;
     obj["bloomTime"] = bloomTime;
 
-    // Pour
+    // Pour (always flow-driven with pressure limit)
     obj["pourTemperature"] = pourTemperature;
-    obj["pourStyle"] = pourStyle;
     obj["pourPressure"] = pourPressure;
     obj["pourFlow"] = pourFlow;
-    obj["flowLimit"] = flowLimit;
-    obj["pressureLimit"] = pressureLimit;
     obj["rampEnabled"] = rampEnabled;
     obj["rampTime"] = rampTime;
 
-    // Decline
+    // Decline (D-Flow only)
     obj["declineEnabled"] = declineEnabled;
     obj["declineTo"] = declineTo;
     obj["declineTime"] = declineTime;
+
+    // Editor type
+    obj["editorType"] = editorType;
+
+    // A-Flow extensions
+    obj["secondFillEnabled"] = secondFillEnabled;
+    obj["rampDownEnabled"] = rampDownEnabled;
+    obj["rampDownPressure"] = rampDownPressure;
+    obj["flowUpEnabled"] = flowUpEnabled;
 
     return obj;
 }
@@ -76,18 +82,45 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     if (!json.contains("pourTemperature") && json.contains("temperature")) {
         params.pourTemperature = json["temperature"].toDouble(93.0);
     }
-    params.pourStyle = json["pourStyle"].toString("flow");
-    params.pourPressure = json["pourPressure"].toDouble(9.0);
-    params.pourFlow = json["pourFlow"].toDouble(2.0);
-    params.flowLimit = json["flowLimit"].toDouble(0.0);
-    params.pressureLimit = json["pressureLimit"].toDouble(6.0);
+
+    // Backward compatibility: migrate old pourStyle/flowLimit/pressureLimit fields
+    QString oldStyle = json["pourStyle"].toString("");
+    if (!oldStyle.isEmpty()) {
+        // Old format had pourStyle = "pressure" or "flow"
+        if (oldStyle == "pressure") {
+            // Pressure mode: pourPressure was the setpoint, flowLimit was the cap
+            // New model: always flow-driven, so treat old pressure as the cap
+            params.pourPressure = json["pourPressure"].toDouble(9.0);
+            params.pourFlow = json["pourFlow"].toDouble(2.0);
+        } else {
+            // Flow mode: pourFlow was the setpoint, pressureLimit was the cap
+            params.pourFlow = json["pourFlow"].toDouble(2.0);
+            params.pourPressure = json.contains("pressureLimit")
+                ? json["pressureLimit"].toDouble(6.0)
+                : json["pourPressure"].toDouble(9.0);
+        }
+    } else {
+        // New format: pourPressure is always the pressure cap, pourFlow is the flow setpoint
+        params.pourPressure = json["pourPressure"].toDouble(9.0);
+        params.pourFlow = json["pourFlow"].toDouble(2.0);
+    }
+
     params.rampEnabled = json["rampEnabled"].toBool(true);  // Default true for legacy
     params.rampTime = json["rampTime"].toDouble(5.0);
 
     // Decline
     params.declineEnabled = json["declineEnabled"].toBool(false);
-    params.declineTo = json["declineTo"].toDouble(6.0);
+    params.declineTo = json["declineTo"].toDouble(1.0);
     params.declineTime = json["declineTime"].toDouble(30.0);
+
+    // Editor type
+    params.editorType = json["editorType"].toString("dflow");
+
+    // A-Flow extensions
+    params.secondFillEnabled = json["secondFillEnabled"].toBool(false);
+    params.rampDownEnabled = json["rampDownEnabled"].toBool(false);
+    params.rampDownPressure = json["rampDownPressure"].toDouble(4.0);
+    params.flowUpEnabled = json["flowUpEnabled"].toBool(false);
 
     return params;
 }
@@ -116,13 +149,10 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["bloomEnabled"] = bloomEnabled;
     map["bloomTime"] = bloomTime;
 
-    // Pour
+    // Pour (always flow-driven with pressure limit)
     map["pourTemperature"] = pourTemperature;
-    map["pourStyle"] = pourStyle;
     map["pourPressure"] = pourPressure;
     map["pourFlow"] = pourFlow;
-    map["flowLimit"] = flowLimit;
-    map["pressureLimit"] = pressureLimit;
     map["rampEnabled"] = rampEnabled;
     map["rampTime"] = rampTime;
 
@@ -130,6 +160,15 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["declineEnabled"] = declineEnabled;
     map["declineTo"] = declineTo;
     map["declineTime"] = declineTime;
+
+    // Editor type
+    map["editorType"] = editorType;
+
+    // A-Flow extensions
+    map["secondFillEnabled"] = secondFillEnabled;
+    map["rampDownEnabled"] = rampDownEnabled;
+    map["rampDownPressure"] = rampDownPressure;
+    map["flowUpEnabled"] = flowUpEnabled;
 
     return map;
 }
@@ -168,26 +207,49 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     if (!map.contains("pourTemperature") && map.contains("temperature")) {
         params.pourTemperature = map.value("temperature", 93.0).toDouble();
     }
-    params.pourStyle = map.value("pourStyle", "flow").toString();
-    params.pourPressure = map.value("pourPressure", 9.0).toDouble();
-    params.pourFlow = map.value("pourFlow", 2.0).toDouble();
-    params.flowLimit = map.value("flowLimit", 0.0).toDouble();
-    params.pressureLimit = map.value("pressureLimit", 6.0).toDouble();
+
+    // Backward compatibility: migrate old pourStyle/flowLimit/pressureLimit fields
+    QString oldStyle = map.value("pourStyle", "").toString();
+    if (!oldStyle.isEmpty()) {
+        if (oldStyle == "pressure") {
+            params.pourPressure = map.value("pourPressure", 9.0).toDouble();
+            params.pourFlow = map.value("pourFlow", 2.0).toDouble();
+        } else {
+            params.pourFlow = map.value("pourFlow", 2.0).toDouble();
+            params.pourPressure = map.contains("pressureLimit")
+                ? map.value("pressureLimit", 6.0).toDouble()
+                : map.value("pourPressure", 9.0).toDouble();
+        }
+    } else {
+        params.pourPressure = map.value("pourPressure", 9.0).toDouble();
+        params.pourFlow = map.value("pourFlow", 2.0).toDouble();
+    }
+
     params.rampEnabled = map.value("rampEnabled", true).toBool();  // Default true for legacy
     params.rampTime = map.value("rampTime", 5.0).toDouble();
 
     // Decline
     params.declineEnabled = map.value("declineEnabled", false).toBool();
-    params.declineTo = map.value("declineTo", 6.0).toDouble();
+    params.declineTo = map.value("declineTo", 1.0).toDouble();
     params.declineTime = map.value("declineTime", 30.0).toDouble();
+
+    // Editor type
+    params.editorType = map.value("editorType", "dflow").toString();
+
+    // A-Flow extensions
+    params.secondFillEnabled = map.value("secondFillEnabled", false).toBool();
+    params.rampDownEnabled = map.value("rampDownEnabled", false).toBool();
+    params.rampDownPressure = map.value("rampDownPressure", 4.0).toDouble();
+    params.flowUpEnabled = map.value("flowUpEnabled", false).toBool();
 
     return params;
 }
 
-// === Presets ===
+// === D-Flow Presets ===
 
 RecipeParams RecipeParams::classic() {
     RecipeParams params;
+    params.editorType = "dflow";
     params.targetWeight = 36.0;
     params.dose = 18.0;
 
@@ -203,9 +265,8 @@ RecipeParams RecipeParams::classic() {
     params.bloomEnabled = false;
 
     params.pourTemperature = 93.0;
-    params.pourStyle = "pressure";
+    params.pourFlow = 2.0;
     params.pourPressure = 9.0;
-    params.flowLimit = 0.0;
     params.rampTime = 2.0;
 
     params.declineEnabled = false;
@@ -215,6 +276,7 @@ RecipeParams RecipeParams::classic() {
 
 RecipeParams RecipeParams::londinium() {
     RecipeParams params;
+    params.editorType = "dflow";
     params.targetWeight = 36.0;
     params.dose = 18.0;
 
@@ -230,13 +292,12 @@ RecipeParams RecipeParams::londinium() {
     params.bloomEnabled = false;
 
     params.pourTemperature = 90.0;
-    params.pourStyle = "pressure";
+    params.pourFlow = 2.0;
     params.pourPressure = 9.0;
-    params.flowLimit = 2.5;
     params.rampTime = 5.0;
 
     params.declineEnabled = true;
-    params.declineTo = 6.0;
+    params.declineTo = 1.0;
     params.declineTime = 30.0;
 
     return params;
@@ -244,6 +305,7 @@ RecipeParams RecipeParams::londinium() {
 
 RecipeParams RecipeParams::turbo() {
     RecipeParams params;
+    params.editorType = "dflow";
     params.targetWeight = 50.0;
     params.dose = 18.0;
 
@@ -260,9 +322,8 @@ RecipeParams RecipeParams::turbo() {
     params.bloomEnabled = false;
 
     params.pourTemperature = 90.0;
-    params.pourStyle = "flow";
     params.pourFlow = 4.5;
-    params.pressureLimit = 6.0;
+    params.pourPressure = 6.0;
     params.rampEnabled = false;  // No ramp for turbo - instant jump to pour
     params.rampTime = 0.0;
 
@@ -273,6 +334,7 @@ RecipeParams RecipeParams::turbo() {
 
 RecipeParams RecipeParams::blooming() {
     RecipeParams params;
+    params.editorType = "dflow";
     params.targetWeight = 40.0;
     params.dose = 18.0;
 
@@ -289,9 +351,8 @@ RecipeParams RecipeParams::blooming() {
     params.bloomTime = 20.0;
 
     params.pourTemperature = 92.0;
-    params.pourStyle = "flow";
     params.pourFlow = 2.0;
-    params.pressureLimit = 9.0;
+    params.pourPressure = 9.0;
     params.rampTime = 10.0;
 
     params.declineEnabled = false;
@@ -302,6 +363,7 @@ RecipeParams RecipeParams::blooming() {
 RecipeParams RecipeParams::dflowDefault() {
     // D-Flow default settings based on Damian's plugin
     RecipeParams params;
+    params.editorType = "dflow";
     params.targetWeight = 36.0;
     params.dose = 18.0;
 
@@ -319,10 +381,116 @@ RecipeParams RecipeParams::dflowDefault() {
     params.bloomEnabled = false;
 
     params.pourTemperature = 88.0;
-    params.pourStyle = "flow";
     params.pourFlow = 1.7;
-    params.pressureLimit = 4.8;
+    params.pourPressure = 4.8;
     params.rampTime = 5.0;
+
+    params.declineEnabled = false;
+
+    return params;
+}
+
+// === A-Flow Presets ===
+
+RecipeParams RecipeParams::aflowDefault() {
+    RecipeParams params;
+    params.editorType = "aflow";
+    params.targetWeight = 36.0;
+    params.dose = 18.0;
+
+    params.fillTemperature = 88.0;
+    params.fillPressure = 3.0;
+    params.fillFlow = 8.0;
+    params.fillTimeout = 15.0;
+    params.fillExitPressure = 3.0;
+
+    params.infusePressure = 3.0;
+    params.infuseTime = 60.0;
+    params.infuseByWeight = true;
+    params.infuseWeight = 4.0;
+    params.infuseVolume = 100.0;
+    params.bloomEnabled = false;
+
+    params.pourTemperature = 88.0;
+    params.pourFlow = 1.5;
+    params.pourPressure = 8.5;
+    params.rampEnabled = true;
+    params.rampTime = 16.0;
+
+    params.rampDownEnabled = true;
+    params.rampDownPressure = 4.0;
+    params.flowUpEnabled = false;
+    params.secondFillEnabled = false;
+
+    params.declineEnabled = false;
+
+    return params;
+}
+
+RecipeParams RecipeParams::aflowMedium() {
+    RecipeParams params;
+    params.editorType = "aflow";
+    params.targetWeight = 36.0;
+    params.dose = 18.0;
+
+    params.fillTemperature = 90.0;
+    params.fillPressure = 3.0;
+    params.fillFlow = 8.0;
+    params.fillTimeout = 15.0;
+    params.fillExitPressure = 3.0;
+
+    params.infusePressure = 3.0;
+    params.infuseTime = 60.0;
+    params.infuseByWeight = true;
+    params.infuseWeight = 4.0;
+    params.infuseVolume = 100.0;
+    params.bloomEnabled = false;
+
+    params.pourTemperature = 90.0;
+    params.pourFlow = 2.0;
+    params.pourPressure = 8.5;
+    params.rampEnabled = true;
+    params.rampTime = 12.0;
+
+    params.rampDownEnabled = true;
+    params.rampDownPressure = 5.0;
+    params.flowUpEnabled = true;
+    params.secondFillEnabled = false;
+
+    params.declineEnabled = false;
+
+    return params;
+}
+
+RecipeParams RecipeParams::aflowLever() {
+    RecipeParams params;
+    params.editorType = "aflow";
+    params.targetWeight = 36.0;
+    params.dose = 18.0;
+
+    params.fillTemperature = 88.0;
+    params.fillPressure = 1.5;
+    params.fillFlow = 8.0;
+    params.fillTimeout = 20.0;
+    params.fillExitPressure = 1.5;
+
+    params.infusePressure = 1.5;
+    params.infuseTime = 60.0;
+    params.infuseByWeight = true;
+    params.infuseWeight = 4.0;
+    params.infuseVolume = 100.0;
+    params.bloomEnabled = false;
+
+    params.pourTemperature = 88.0;
+    params.pourFlow = 1.2;
+    params.pourPressure = 6.0;
+    params.rampEnabled = true;
+    params.rampTime = 20.0;
+
+    params.rampDownEnabled = true;
+    params.rampDownPressure = 3.0;
+    params.flowUpEnabled = false;
+    params.secondFillEnabled = true;
 
     params.declineEnabled = false;
 

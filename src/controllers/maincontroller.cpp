@@ -325,12 +325,19 @@ bool MainController::isDFlowTitle(const QString& title) {
     return t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive);
 }
 
+bool MainController::isAFlowTitle(const QString& title) {
+    // Check if title indicates an A-Flow profile (matching de1app behavior)
+    // Ignores leading * (modified indicator that may come from imports)
+    QString t = title.startsWith(QLatin1Char('*')) ? title.mid(1) : title;
+    return t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive);
+}
+
 bool MainController::isCurrentProfileRecipe() const {
-    // Match de1app behavior: detect D-Flow profiles by title prefix at runtime
+    // Match de1app behavior: detect D-Flow/A-Flow profiles by title prefix at runtime
     if (m_currentProfile.isRecipeMode()) {
         return true;
     }
-    return isDFlowTitle(m_currentProfile.title());
+    return isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title());
 }
 
 double MainController::targetWeight() const {
@@ -1058,7 +1065,7 @@ void MainController::refreshProfiles() {
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.source = ProfileSource::BuiltIn;
-        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
+        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1085,7 +1092,7 @@ void MainController::refreshProfiles() {
             info.title = title.isEmpty() ? name : title;
             info.beverageType = beverageType;
             info.source = ProfileSource::UserCreated;  // All SAF profiles are user-created
-            info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
+            info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
             m_allProfiles.append(info);
 
             m_availableProfiles.append(name);
@@ -1109,7 +1116,7 @@ void MainController::refreshProfiles() {
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.source = ProfileSource::Downloaded;
-        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
+        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1132,7 +1139,7 @@ void MainController::refreshProfiles() {
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.source = ProfileSource::UserCreated;
-        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title);
+        info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1433,6 +1440,15 @@ QVariantMap MainController::getCurrentRecipeParams() {
         RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
         qDebug() << "Auto-converted D-Flow profile to recipe mode:" << m_currentProfile.title();
     }
+    if (!m_currentProfile.isRecipeMode() && isAFlowTitle(m_currentProfile.title())) {
+        // Auto-convert A-Flow profiles (detected by title prefix, matching de1app behavior)
+        RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
+        // Set editor type to aflow for A-Flow title-detected profiles
+        RecipeParams params = m_currentProfile.recipeParams();
+        params.editorType = "aflow";
+        m_currentProfile.setRecipeParams(params);
+        qDebug() << "Auto-converted A-Flow profile to recipe mode:" << m_currentProfile.title();
+    }
     if (m_currentProfile.isRecipeMode()) {
         return m_currentProfile.recipeParams().toVariantMap();
     }
@@ -1463,6 +1479,31 @@ void MainController::createNewRecipe(const QString& title) {
     uploadCurrentProfile();
 
     qDebug() << "Created new recipe profile:" << title;
+}
+
+void MainController::createNewAFlowRecipe(const QString& title) {
+    RecipeParams recipe = RecipeParams::aflowDefault();
+
+    // Create new profile from A-Flow recipe
+    m_currentProfile = RecipeGenerator::createProfile(recipe, title);
+    m_baseProfileName = "";  // New profile, no base filename yet
+    m_profileModified = true;
+
+    if (m_settings) {
+        m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
+
+    emit currentProfileChanged();
+    emit profileModifiedChanged();
+    emit targetWeightChanged();
+    emit profilesChanged();
+
+    // Upload to machine
+    uploadCurrentProfile();
+
+    qDebug() << "Created new A-Flow recipe profile:" << title;
 }
 
 void MainController::convertCurrentProfileToRecipe() {
@@ -1518,6 +1559,12 @@ void MainController::applyRecipePreset(const QString& presetName) {
         recipe = RecipeParams::blooming();
     } else if (presetName == "dflowDefault") {
         recipe = RecipeParams::dflowDefault();
+    } else if (presetName == "aflowDefault") {
+        recipe = RecipeParams::aflowDefault();
+    } else if (presetName == "aflowMedium") {
+        recipe = RecipeParams::aflowMedium();
+    } else if (presetName == "aflowLever") {
+        recipe = RecipeParams::aflowLever();
     } else {
         qWarning() << "Unknown recipe preset:" << presetName;
         return;

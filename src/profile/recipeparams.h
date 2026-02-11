@@ -9,11 +9,12 @@
  * for the Recipe Editor. These parameters are converted to DE1
  * frames by RecipeGenerator.
  *
- * This provides a D-Flow-style simplified interface where users
- * edit intuitive values like "infuse pressure" instead of raw
- * machine frames.
+ * Supports two editor types:
+ * - D-Flow (by Damian Brakel): Fill → Infuse → Pour (flow-driven with pressure limit)
+ * - A-Flow (by Janek, forked from D-Flow): Adds pressure ramp, ramp down, flow up, 2nd fill
  *
- * Based on the D-Flow plugin by Damian Brakel.
+ * Editor type is determined by profile title prefix ("D-Flow" or "A-Flow"),
+ * matching de1app behavior.
  */
 struct RecipeParams {
     // === Core Parameters ===
@@ -38,19 +39,27 @@ struct RecipeParams {
     double bloomTime = 10.0;            // Bloom pause duration (seconds)
 
     // === Pour Phase (Extraction) ===
+    // Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow model).
+    // pourFlow = flow setpoint, pourPressure = pressure cap (max_flow_or_pressure).
     double pourTemperature = 93.0;      // Pour water temperature (Celsius)
-    QString pourStyle = "flow";         // "pressure" or "flow"
-    double pourPressure = 9.0;          // Extraction pressure (bar)
-    double pourFlow = 2.0;              // Extraction flow (mL/s) - if flow mode
-    double flowLimit = 0.0;             // Max flow in pressure mode (0=disabled)
-    double pressureLimit = 6.0;         // Max pressure in flow mode (bar, 0=disabled)
+    double pourPressure = 9.0;          // Pressure limit/cap (bar) — max_flow_or_pressure
+    double pourFlow = 2.0;              // Extraction flow setpoint (mL/s)
     bool rampEnabled = true;            // Enable ramp transition phase
     double rampTime = 5.0;              // Transition ramp duration (seconds)
 
-    // === Decline Phase (Optional) ===
-    bool declineEnabled = false;        // Enable pressure ramp-down
-    double declineTo = 6.0;             // Target end pressure (bar)
-    double declineTime = 30.0;          // Ramp duration (seconds)
+    // === Decline Phase (D-Flow only) ===
+    bool declineEnabled = false;        // Enable flow decline during extraction
+    double declineTo = 1.0;             // Target flow to decline to (mL/s)
+    double declineTime = 30.0;          // Decline duration (seconds)
+
+    // === Editor Type ===
+    QString editorType = "dflow";       // "dflow" or "aflow" — determines frame generation
+
+    // === A-Flow Extensions ===
+    bool secondFillEnabled = false;     // 2nd fill step after infuse
+    bool rampDownEnabled = false;       // Pressure ramp down phase after ramp up
+    double rampDownPressure = 4.0;      // Target pressure for ramp down (bar)
+    bool flowUpEnabled = false;         // Gradually increase flow during extraction
 
     // === Serialization ===
     QJsonObject toJson() const;
@@ -60,10 +69,15 @@ struct RecipeParams {
     QVariantMap toVariantMap() const;
     static RecipeParams fromVariantMap(const QVariantMap& map);
 
-    // === Presets ===
+    // === D-Flow Presets ===
     static RecipeParams classic();      // Traditional 9-bar Italian
     static RecipeParams londinium();    // Lever machine style with decline
     static RecipeParams turbo();        // Fast high-extraction flow profile
     static RecipeParams blooming();     // Long bloom, lower pressure
     static RecipeParams dflowDefault(); // D-Flow default (Damian's style)
+
+    // === A-Flow Presets ===
+    static RecipeParams aflowDefault(); // A-Flow default
+    static RecipeParams aflowMedium();  // A-Flow medium with flow up
+    static RecipeParams aflowLever();   // A-Flow lever style with 2nd fill
 };

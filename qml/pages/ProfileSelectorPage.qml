@@ -146,6 +146,26 @@ Page {
                         Layout.preferredHeight: Theme.scaled(44)
                         onClicked: root.goToProfileImport()
                     }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("profileselector.button.new_dflow", "New D-Flow")
+                        accessibleName: TranslationManager.translate("profileSelector.createNewDFlow", "Create a new D-Flow recipe profile")
+                        Layout.preferredHeight: Theme.scaled(44)
+                        onClicked: {
+                            MainController.createNewRecipe("D-Flow / New Recipe")
+                            root.goToRecipeEditor()
+                        }
+                    }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("profileselector.button.new_aflow", "New A-Flow")
+                        accessibleName: TranslationManager.translate("profileSelector.createNewAFlow", "Create a new A-Flow recipe profile")
+                        Layout.preferredHeight: Theme.scaled(44)
+                        onClicked: {
+                            MainController.createNewAFlowRecipe("A-Flow / New Recipe")
+                            root.goToRecipeEditor()
+                        }
+                    }
                 }
 
                 ListView {

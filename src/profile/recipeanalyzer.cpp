@@ -131,13 +131,12 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         const auto& pourFrame = steps[pourIndex];
 
         if (pourFrame.pump == "flow") {
-            params.pourStyle = "flow";
             params.pourFlow = extractPourFlow(pourFrame);
-            params.pressureLimit = extractPressureLimit(pourFrame);
+            params.pourPressure = extractPressureLimit(pourFrame);
+            if (params.pourPressure <= 0) params.pourPressure = 9.0;
         } else {
-            params.pourStyle = "pressure";
             params.pourPressure = extractPourPressure(pourFrame);
-            params.flowLimit = extractFlowLimit(pourFrame);
+            params.pourFlow = 2.0;  // Default flow for pressure-mode profiles
         }
 
         // Use pour frame temperature
@@ -146,11 +145,18 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         }
     }
 
-    // Extract decline parameters
+    // Extract decline parameters (decline is now flow-based: declineTo = target flow in mL/s)
     if (declineIndex >= 0 && declineIndex < steps.size()) {
+        const auto& declineFrame = steps[declineIndex];
         params.declineEnabled = true;
-        params.declineTo = extractDeclinePressure(steps[declineIndex]);
-        params.declineTime = extractDeclineTime(steps[declineIndex]);
+        // New model: decline is flow reduction. Extract target flow from decline frame.
+        if (declineFrame.pump == "flow" && declineFrame.flow > 0) {
+            params.declineTo = declineFrame.flow;
+        } else {
+            // Legacy pressure-mode decline: approximate flow decline from pour flow
+            params.declineTo = params.pourFlow * 0.5;
+        }
+        params.declineTime = extractDeclineTime(declineFrame);
     } else {
         params.declineEnabled = false;
     }
@@ -242,13 +248,12 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
         if (foundFill && (isPourFrame(frame) || frame.pressure >= 6.0 || frame.pump == "flow")) {
             foundPour = true;
             if (frame.pump == "flow") {
-                params.pourStyle = "flow";
                 params.pourFlow = extractPourFlow(frame);
-                params.pressureLimit = extractPressureLimit(frame);
+                params.pourPressure = extractPressureLimit(frame);
+                if (params.pourPressure <= 0) params.pourPressure = 9.0;
             } else {
-                params.pourStyle = "pressure";
                 params.pourPressure = extractPourPressure(frame);
-                params.flowLimit = extractFlowLimit(frame);
+                params.pourFlow = 2.0;  // Default flow for pressure-mode profiles
             }
             if (frame.temperature > 0) {
                 params.pourTemperature = frame.temperature;
@@ -258,7 +263,11 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
                 const auto& nextFrame = steps[i + 1];
                 if (isDeclineFrame(nextFrame, &frame)) {
                     params.declineEnabled = true;
-                    params.declineTo = extractDeclinePressure(nextFrame);
+                    if (nextFrame.pump == "flow" && nextFrame.flow > 0) {
+                        params.declineTo = nextFrame.flow;
+                    } else {
+                        params.declineTo = params.pourFlow * 0.5;
+                    }
                     params.declineTime = extractDeclineTime(nextFrame);
                 }
             }
@@ -270,11 +279,11 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
     if (!foundPour && steps.size() > 0) {
         const auto& lastFrame = steps.last();
         if (lastFrame.pump == "flow") {
-            params.pourStyle = "flow";
             params.pourFlow = lastFrame.flow > 0 ? lastFrame.flow : 2.0;
+            params.pourPressure = lastFrame.maxFlowOrPressure > 0 ? lastFrame.maxFlowOrPressure : 9.0;
         } else {
-            params.pourStyle = "pressure";
             params.pourPressure = lastFrame.pressure > 0 ? lastFrame.pressure : 9.0;
+            params.pourFlow = 2.0;
         }
         if (lastFrame.temperature > 0) {
             params.pourTemperature = lastFrame.temperature;
