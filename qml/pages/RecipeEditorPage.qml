@@ -33,13 +33,16 @@ Page {
         var name = (frame.name || "").toLowerCase()
 
         // Match frame name to section
-        if (name.indexOf("2nd fill") !== -1 || name.indexOf("pause") !== -1) return "aflowToggles"
         if (name.indexOf("fill") !== -1) return "infuse"  // Fill maps to infuse section
         if (name.indexOf("bloom") !== -1) return "infuse"
         if (name.indexOf("infuse") !== -1 || name.indexOf("preinfuse") !== -1) return "infuse"
-        if (name.indexOf("ramp") !== -1 || name.indexOf("transition") !== -1) return "ramp"
+        if (name.indexOf("ramp") !== -1 || name.indexOf("transition") !== -1) return "pour"
+        if (name.indexOf("pressure up") !== -1) return "pour"
+        if (name.indexOf("pressure decline") !== -1) return "pour"
+        if (name.indexOf("flow start") !== -1) return "pour"
+        if (name.indexOf("flow extraction") !== -1) return "pour"
         if (name.indexOf("pour") !== -1 || name.indexOf("extraction") !== -1) return "pour"
-        if (name.indexOf("decline") !== -1) return "pour"  // Decline maps to pour section
+        if (name.indexOf("decline") !== -1) return "pour"
 
         // Fallback: use frame position heuristic
         var totalFrames = profile.steps.length
@@ -152,19 +155,6 @@ Page {
         }
     }
 
-    // Apply a preset
-    function applyPreset(name) {
-        MainController.applyRecipePreset(name)
-        recipe = MainController.getCurrentRecipeParams()
-        // Reload profile to get regenerated frames
-        var loadedProfile = MainController.getCurrentProfile()
-        if (loadedProfile && loadedProfile.steps) {
-            profile = loadedProfile
-            profileGraph.frames = profile.steps.slice()
-            profileGraph.refresh()
-        }
-    }
-
     // Editor mode header
     Rectangle {
         id: editorModeHeader
@@ -193,149 +183,7 @@ Page {
                 color: "white"
             }
 
-            Text {
-                text: (recipe.editorType === "aflow")
-                    ? TranslationManager.translate("recipeEditor.aFlowDescription", "Fill → Infuse → Ramp → Pour with optional ramp down, flow up, 2nd fill")
-                    : TranslationManager.translate("recipeEditor.simplifiedDescription", "Simplified profile editing with Fill → Infuse → Pour phases")
-                font: Theme.captionFont
-                color: Qt.rgba(1, 1, 1, 0.8)
-                Layout.fillWidth: true
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("recipeEditor.switchToAdvanced", "Switch to Advanced Editor")
-                subtle: true
-                accessibleName: TranslationManager.translate("recipeEditor.switchToAdvancedAccessible", "Switch to advanced frame-based profile editor")
-                onClicked: switchToAdvancedDialog.open()
-            }
-        }
-    }
-
-    // Switch to Advanced Editor confirmation dialog
-    Dialog {
-        id: switchToAdvancedDialog
-        anchors.centerIn: parent
-        width: Theme.scaled(450)
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: "white"
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            // Header
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-                Layout.topMargin: Theme.scaled(10)
-
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(20)
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: TranslationManager.translate("recipeEditor.switchToAdvancedDialogTitle", "Switch to Advanced Editor")
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                }
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    color: Theme.borderColor
-                }
-            }
-
-            // Content
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                spacing: Theme.scaled(12)
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("recipeEditor.convertDescription", "This will convert the profile to Advanced mode with full frame-by-frame control.")
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("recipeEditor.convertDetails", "You will gain access to advanced settings like custom exit conditions, per-frame limiters, popup messages, and arbitrary frame structures.")
-                    font: Theme.captionFont
-                    color: Theme.textSecondaryColor
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("recipeEditor.convertWarning", "Note: Once converted, this profile can no longer be edited in the recipe editor.")
-                    font: Theme.captionFont
-                    color: Theme.warningColor
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-            // Buttons
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                spacing: Theme.scaled(10)
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    text: TranslationManager.translate("recipeEditor.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("recipeEditor.cancelAccessible", "Cancel and stay in D-Flow Editor")
-                    onClicked: switchToAdvancedDialog.close()
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.textSecondaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    text: TranslationManager.translate("recipeEditor.convert", "Convert")
-                    accessibleName: TranslationManager.translate("recipeEditor.convertAccessible", "Convert to Advanced format")
-                    onClicked: {
-                        switchToAdvancedDialog.close()
-                        MainController.convertCurrentProfileToAdvanced()
-                        root.switchToAdvancedEditor()
-                    }
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
+            Item { Layout.fillWidth: true }
         }
     }
 
@@ -353,16 +201,17 @@ Page {
             anchors.fill: parent
             spacing: Theme.scaled(15)
 
-            // Left side: Profile graph + Presets
+            // Left side: Profile graph + Description
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                spacing: Theme.scaled(12)
+                spacing: Theme.scaled(8)
 
                 // Profile visualization
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    Layout.minimumHeight: Theme.scaled(120)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
@@ -381,75 +230,42 @@ Page {
                     }
                 }
 
-                // Presets row
+                // Profile description
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(60)
+                    Layout.preferredHeight: Theme.scaled(70)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
-                    RowLayout {
+                    ScrollView {
                         anchors.fill: parent
-                        anchors.margins: Theme.scaled(12)
-                        spacing: Theme.scaled(8)
+                        anchors.margins: Theme.scaled(6)
 
-                        Text {
-                            text: TranslationManager.translate("recipeEditor.presetsLabel", "Presets:")
+                        TextArea {
+                            id: recipeNotesField
+                            text: profile ? (profile.profile_notes || "") : ""
                             font: Theme.captionFont
-                            color: Theme.textSecondaryColor
+                            color: Theme.textColor
+                            placeholderText: TranslationManager.translate("recipeEditor.descriptionPlaceholder", "Profile description...")
+                            placeholderTextColor: Theme.textSecondaryColor
+                            wrapMode: TextArea.Wrap
+                            leftPadding: Theme.scaled(8)
+                            rightPadding: Theme.scaled(8)
+                            topPadding: Theme.scaled(4)
+                            bottomPadding: Theme.scaled(4)
+                            background: Rectangle {
+                                color: Theme.backgroundColor
+                                radius: Theme.scaled(4)
+                                border.color: recipeNotesField.activeFocus ? Theme.primaryColor : Theme.borderColor
+                                border.width: 1
+                            }
+                            onEditingFinished: {
+                                if (profile) {
+                                    profile.profile_notes = text
+                                    MainController.uploadProfile(profile)
+                                }
+                            }
                         }
-
-                        // D-Flow presets
-                        PresetButton {
-                            visible: recipe.editorType !== "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetClassic", "Classic")
-                            onClicked: applyPreset("classic")
-                        }
-
-                        PresetButton {
-                            visible: recipe.editorType !== "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetLondinium", "Londinium")
-                            onClicked: applyPreset("londinium")
-                        }
-
-                        PresetButton {
-                            visible: recipe.editorType !== "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetTurbo", "Turbo")
-                            onClicked: applyPreset("turbo")
-                        }
-
-                        PresetButton {
-                            visible: recipe.editorType !== "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetBlooming", "Blooming")
-                            onClicked: applyPreset("blooming")
-                        }
-
-                        PresetButton {
-                            visible: recipe.editorType !== "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetDFlow", "D-Flow")
-                            onClicked: applyPreset("dflowDefault")
-                        }
-
-                        // A-Flow presets
-                        PresetButton {
-                            visible: recipe.editorType === "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetAFlowDefault", "Default")
-                            onClicked: applyPreset("aflowDefault")
-                        }
-
-                        PresetButton {
-                            visible: recipe.editorType === "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetAFlowMedium", "Medium")
-                            onClicked: applyPreset("aflowMedium")
-                        }
-
-                        PresetButton {
-                            visible: recipe.editorType === "aflow"
-                            text: TranslationManager.translate("recipeEditor.presetAFlowLever", "Lever")
-                            onClicked: applyPreset("aflowLever")
-                        }
-
-                        Item { Layout.fillWidth: true }
                     }
                 }
             }
@@ -526,42 +342,6 @@ Page {
                                 color: Theme.textSecondaryColor
                                 horizontalAlignment: Text.AlignRight
                             }
-
-                            // Profile notes
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.notes", "Notes")
-
-                                ScrollView {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Theme.scaled(60)
-
-                                    TextArea {
-                                        id: recipeNotesField
-                                        text: profile ? (profile.profile_notes || "") : ""
-                                        font: Theme.bodyFont
-                                        color: Theme.textColor
-                                        placeholderText: TranslationManager.translate("recipeEditor.notesPlaceholder", "Profile description (used by AI analysis)")
-                                        placeholderTextColor: Theme.textSecondaryColor
-                                        wrapMode: TextArea.Wrap
-                                        leftPadding: Theme.scaled(12)
-                                        rightPadding: Theme.scaled(12)
-                                        topPadding: Theme.scaled(10)
-                                        bottomPadding: Theme.scaled(10)
-                                        background: Rectangle {
-                                            color: Theme.backgroundColor
-                                            radius: Theme.scaled(4)
-                                            border.color: recipeNotesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                                            border.width: 1
-                                        }
-                                        onEditingFinished: {
-                                            if (profile) {
-                                                profile.profile_notes = text
-                                                MainController.uploadProfile(profile)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
 
                         // === Infuse Phase ===
@@ -605,172 +385,100 @@ Page {
                                 }
                             }
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time")
-                                visible: !recipe.infuseByWeight
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.infuseTime || 20
-                                    from: 0; to: 60; stepSize: 1
-                                    suffix: "s"
-                                    decimals: 0
-                                    accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("infuseTime", newValue)
-                                    }
-                                }
-                            }
-
-                            RowLayout {
+                            // Grouped: move to next step on first reached
+                            Item {
                                 Layout.fillWidth: true
-                                spacing: Theme.scaled(8)
+                                implicitHeight: infuseExitGroup.implicitHeight
 
-                                CheckBox {
-                                    id: infuseByWeightCheck
-                                    text: TranslationManager.translate("recipeEditor.byWeight", "By weight")
-                                    checked: recipe.infuseByWeight || false
-                                    onToggled: updateRecipe("infuseByWeight", checked)
-                                    contentItem: Text {
-                                        text: parent.text
-                                        font: Theme.captionFont
-                                        color: Theme.textColor
-                                        leftPadding: parent.indicator.width + parent.spacing
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
+                                // Left accent bar
+                                Rectangle {
+                                    id: infuseAccent
+                                    width: Theme.scaled(3)
+                                    height: parent.height
+                                    radius: Theme.scaled(1.5)
+                                    color: Theme.textSecondaryColor
+                                    opacity: 0.4
                                 }
 
-                                ValueInput {
-                                    visible: infuseByWeightCheck.checked
-                                    Layout.fillWidth: true
-                                    value: recipe.infuseWeight || 4.0
-                                    from: 0; to: 20; stepSize: 0.5
-                                    suffix: "g"
-                                    valueColor: Theme.weightColor
-                                    accentColor: Theme.weightColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("infuseWeight", newValue)
-                                    }
-                                }
-                            }
+                                ColumnLayout {
+                                    id: infuseExitGroup
+                                    anchors.left: infuseAccent.right
+                                    anchors.leftMargin: Theme.scaled(8)
+                                    anchors.right: parent.right
+                                    spacing: Theme.scaled(8)
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.infuseVolume || 100
-                                    from: 10; to: 200; stepSize: 10
-                                    suffix: " mL"
-                                    decimals: 0
-                                    accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("infuseVolume", newValue)
+                                    Text {
+                                        text: TranslationManager.translate("recipeEditor.infuseExitLabel", "Move to next step on first reached")
+                                        font.family: Theme.captionFont.family
+                                        font.pixelSize: Theme.captionFont.pixelSize
+                                        font.italic: true
+                                        color: Theme.textSecondaryColor
+                                        opacity: 0.8
+                                    }
+
+                                    RecipeRow {
+                                        label: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time")
+                                        ValueInput {
+                                            Layout.fillWidth: true
+                                            value: recipe.infuseTime || 20
+                                            from: 0; to: 60; stepSize: 1
+                                            suffix: "s"
+                                            decimals: 0
+                                            accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time")
+                                            onValueModified: function(newValue) {
+                                                updateRecipe("infuseTime", newValue)
+                                            }
+                                        }
+                                    }
+
+                                    RecipeRow {
+                                        label: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume")
+                                        ValueInput {
+                                            Layout.fillWidth: true
+                                            value: recipe.infuseVolume || 100
+                                            from: 10; to: 200; stepSize: 10
+                                            suffix: " mL"
+                                            decimals: 0
+                                            accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume")
+                                            onValueModified: function(newValue) {
+                                                updateRecipe("infuseVolume", newValue)
+                                            }
+                                        }
+                                    }
+
+                                    RecipeRow {
+                                        label: TranslationManager.translate("recipeEditor.infuseWeightLabel", "Weight")
+                                        ValueInput {
+                                            Layout.fillWidth: true
+                                            value: recipe.infuseWeight || 4.0
+                                            from: 0; to: 20; stepSize: 0.5
+                                            suffix: "g"
+                                            valueColor: Theme.weightColor
+                                            accentColor: Theme.weightColor
+                                            accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight")
+                                            onValueModified: function(newValue) {
+                                                updateRecipe("infuseWeight", newValue)
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        // === Ramp Phase (A-Flow only — D-Flow auto-generates ramp) ===
-                        RecipeSection {
+                        // Ramp section anchor (for scroll sync compatibility)
+                        Item {
                             id: rampSection
-                            title: TranslationManager.translate("recipeEditor.rampTitle", "Ramp")
+                            visible: false
                             Layout.fillWidth: true
-                            visible: recipe.editorType === "aflow"
-                            canEnable: true
-                            sectionEnabled: recipe.rampEnabled !== false  // Default true
-                            onSectionToggled: function(enabled) { updateRecipe("rampEnabled", enabled) }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.rampTimeLabel", "Time")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.rampTime || 5
-                                    from: 0.5; to: 30; stepSize: 0.5
-                                    suffix: "s"
-                                    accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("rampTime", newValue)
-                                    }
-                                }
-                            }
-
-                            Text {
-                                text: TranslationManager.translate("recipeEditor.rampDescriptionAFlow", "Pressure ramp up + down time (split evenly when ramp down enabled)")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
+                            implicitHeight: 0
                         }
 
-                        // === A-Flow Toggles (visible for A-Flow editor only) ===
-                        RecipeSection {
+                        // A-Flow toggles section anchor (for scroll sync compatibility)
+                        Item {
                             id: aflowTogglesSection
-                            title: TranslationManager.translate("recipeEditor.aflowOptionsTitle", "A-Flow Options")
+                            visible: false
                             Layout.fillWidth: true
-                            visible: recipe.editorType === "aflow"
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(12)
-
-                                CheckBox {
-                                    text: TranslationManager.translate("recipeEditor.rampDown", "Ramp Down")
-                                    checked: recipe.rampDownEnabled || false
-                                    onToggled: updateRecipe("rampDownEnabled", checked)
-                                    contentItem: Text {
-                                        text: parent.text
-                                        font: Theme.captionFont
-                                        color: Theme.textColor
-                                        leftPadding: parent.indicator.width + parent.spacing
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                }
-
-                                CheckBox {
-                                    text: TranslationManager.translate("recipeEditor.flowUp", "Flow Up")
-                                    checked: recipe.flowUpEnabled || false
-                                    onToggled: updateRecipe("flowUpEnabled", checked)
-                                    contentItem: Text {
-                                        text: parent.text
-                                        font: Theme.captionFont
-                                        color: Theme.textColor
-                                        leftPadding: parent.indicator.width + parent.spacing
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                }
-
-                                CheckBox {
-                                    text: TranslationManager.translate("recipeEditor.secondFill", "2nd Fill")
-                                    checked: recipe.secondFillEnabled || false
-                                    onToggled: updateRecipe("secondFillEnabled", checked)
-                                    contentItem: Text {
-                                        text: parent.text
-                                        font: Theme.captionFont
-                                        color: Theme.textColor
-                                        leftPadding: parent.indicator.width + parent.spacing
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                }
-                            }
-
-                            // Ramp Down pressure (visible when ramp down is enabled)
-                            RecipeRow {
-                                visible: recipe.rampDownEnabled || false
-                                label: TranslationManager.translate("recipeEditor.rampDownPressure", "Ramp down to")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.rampDownPressure || 4.0
-                                    from: 1; to: (recipe.pourPressure || 9) - 1; stepSize: 0.5
-                                    suffix: " bar"
-                                    valueColor: Theme.pressureColor
-                                    accentColor: Theme.pressureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.rampDownPressureAccessible", "Ramp down target pressure")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("rampDownPressure", newValue)
-                                    }
-                                }
-                            }
+                            implicitHeight: 0
                         }
 
                         // === Pour Phase ===
@@ -795,53 +503,87 @@ Page {
                                 }
                             }
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.pourFlow || 2.0
-                                    from: 0.1; to: 8; stepSize: 0.1
-                                    suffix: " mL/s"
-                                    valueColor: Theme.flowColor
-                                    accentColor: Theme.flowGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("pourFlow", newValue)
+                            // Grouped: flow, pressure, and time (ramp time for A-Flow)
+                            Item {
+                                Layout.fillWidth: true
+                                implicitHeight: pourExtractionGroup.implicitHeight
+
+                                Rectangle {
+                                    id: pourExtractionAccent
+                                    width: Theme.scaled(3)
+                                    height: parent.height
+                                    radius: Theme.scaled(1.5)
+                                    color: Theme.flowColor
+                                    opacity: 0.5
+                                }
+
+                                ColumnLayout {
+                                    id: pourExtractionGroup
+                                    anchors.left: pourExtractionAccent.right
+                                    anchors.leftMargin: Theme.scaled(8)
+                                    anchors.right: parent.right
+                                    spacing: Theme.scaled(8)
+
+                                    Text {
+                                        text: TranslationManager.translate("recipeEditor.pourExtractionLabel", "Flow control with pressure limit")
+                                        font.family: Theme.captionFont.family
+                                        font.pixelSize: Theme.captionFont.pixelSize
+                                        font.italic: true
+                                        color: Theme.textSecondaryColor
+                                        opacity: 0.8
+                                    }
+
+                                    RecipeRow {
+                                        label: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow")
+                                        ValueInput {
+                                            Layout.fillWidth: true
+                                            value: recipe.pourFlow || 2.0
+                                            from: 0.1; to: 8; stepSize: 0.1
+                                            suffix: " mL/s"
+                                            valueColor: Theme.flowColor
+                                            accentColor: Theme.flowGoalColor
+                                            accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow")
+                                            onValueModified: function(newValue) {
+                                                updateRecipe("pourFlow", newValue)
+                                            }
+                                        }
+                                    }
+
+                                    RecipeRow {
+                                        label: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure")
+                                        ValueInput {
+                                            Layout.fillWidth: true
+                                            value: recipe.pourPressure || 9.0
+                                            from: 1; to: 12; stepSize: 0.1
+                                            suffix: " bar"
+                                            valueColor: Theme.pressureColor
+                                            accentColor: Theme.pressureGoalColor
+                                            accessibleName: TranslationManager.translate("recipeEditor.pourPressure", "Pour pressure limit")
+                                            onValueModified: function(newValue) {
+                                                updateRecipe("pourPressure", newValue)
+                                            }
+                                        }
+                                    }
+
+                                    // Ramp time (A-Flow only — pressure ramp up duration)
+                                    RecipeRow {
+                                        visible: recipe.editorType === "aflow"
+                                        label: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time")
+                                        ValueInput {
+                                            Layout.fillWidth: true
+                                            value: recipe.rampTime || 5
+                                            from: 0; to: 30; stepSize: 0.5
+                                            suffix: "s"
+                                            accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time")
+                                            onValueModified: function(newValue) {
+                                                updateRecipe("rampTime", newValue)
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.pourPressure || 9.0
-                                    from: 1; to: 12; stepSize: 0.1
-                                    suffix: " bar"
-                                    valueColor: Theme.pressureColor
-                                    accentColor: Theme.pressureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.pourPressure", "Pour pressure limit")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("pourPressure", newValue)
-                                    }
-                                }
-                            }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.targetVolume || 0
-                                    from: 0; to: 200; stepSize: 5
-                                    suffix: " mL"
-                                    decimals: 0
-                                    accessibleName: TranslationManager.translate("recipeEditor.pourVolume", "Stop at volume")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("targetVolume", newValue)
-                                    }
-                                }
-                            }
-
+                            // Weight stop condition
                             RecipeRow {
                                 label: TranslationManager.translate("recipeEditor.pourWeightLabel", "Weight")
                                 ValueInput {
@@ -858,12 +600,21 @@ Page {
                                 }
                             }
 
-                            Text {
-                                text: TranslationManager.translate("recipeEditor.pourDescription", "Flow-driven extraction with pressure limit")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
+                            // Volume stop condition (D-Flow only)
+                            RecipeRow {
+                                visible: recipe.editorType !== "aflow"
+                                label: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.targetVolume || 0
+                                    from: 0; to: 200; stepSize: 5
+                                    suffix: " mL"
+                                    decimals: 0
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourVolume", "Stop at volume")
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("targetVolume", newValue)
+                                    }
+                                }
                             }
                         }
 
@@ -940,6 +691,25 @@ Page {
         }
     }
 
+    // Save error dialog
+    Dialog {
+        id: saveErrorDialog
+        title: TranslationManager.translate("recipeEditor.saveError", "Save Failed")
+        x: (parent.width - width) / 2
+        y: Theme.scaled(80)
+        width: Theme.scaled(350)
+        modal: true
+        standardButtons: Dialog.Ok
+
+        contentItem: Text {
+            width: saveErrorDialog.availableWidth
+            text: TranslationManager.translate("recipeEditor.saveErrorMessage", "Could not save the profile. Please try again or use Save As with a different name.")
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.Wrap
+        }
+    }
+
     // Exit dialog for unsaved changes
     UnsavedChangesDialog {
         id: exitDialog
@@ -955,6 +725,8 @@ Page {
         onSaveClicked: {
             if (MainController.saveProfile(originalProfileName)) {
                 root.goBack()
+            } else {
+                saveErrorDialog.open()
             }
         }
     }
@@ -982,6 +754,8 @@ Page {
         width: Theme.scaled(400)
         modal: true
         standardButtons: Dialog.Save | Dialog.Cancel
+
+        property string pendingFilename: ""
 
         ColumnLayout {
             width: parent.width
@@ -1032,8 +806,15 @@ Page {
             if (saveAsTitleField.text.length > 0) {
                 var fullTitle = editorPrefix() + saveAsTitleField.text
                 var filename = MainController.titleToFilename(fullTitle)
-                if (MainController.saveProfileAs(filename, fullTitle)) {
-                    root.goBack()
+                if (MainController.profileExists(filename) && filename !== originalProfileName) {
+                    saveAsDialog.pendingFilename = filename
+                    overwriteDialog.open()
+                } else {
+                    if (MainController.saveProfileAs(filename, fullTitle)) {
+                        root.goBack()
+                    } else {
+                        saveErrorDialog.open()
+                    }
                 }
             }
         }
@@ -1043,6 +824,34 @@ Page {
             var currentName = MainController.currentProfileName || "New Recipe"
             saveAsTitleField.text = stripPrefix(currentName)
             saveAsTitleField.forceActiveFocus()
+        }
+    }
+
+    // Overwrite confirmation dialog
+    Dialog {
+        id: overwriteDialog
+        title: TranslationManager.translate("recipeEditor.profileExists", "Profile Exists")
+        x: (parent.width - width) / 2
+        y: Theme.scaled(80)
+        width: Theme.scaled(400)
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.No
+
+        contentItem: Text {
+            width: overwriteDialog.availableWidth
+            text: TranslationManager.translate("recipeEditor.overwriteConfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.Wrap
+        }
+
+        onAccepted: {
+            var fullTitle = editorPrefix() + saveAsTitleField.text
+            if (MainController.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
+                root.goBack()
+            } else {
+                saveErrorDialog.open()
+            }
         }
     }
 

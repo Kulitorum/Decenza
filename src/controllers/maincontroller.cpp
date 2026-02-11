@@ -340,6 +340,27 @@ bool MainController::isCurrentProfileRecipe() const {
     return isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title());
 }
 
+QString MainController::currentEditorType() const {
+    if (m_currentProfile.isRecipeMode()) {
+        QString type = m_currentProfile.recipeParams().editorType;
+        if (type == "pressure" || type == "flow" || type == "aflow" || type == "dflow") {
+            return type;
+        }
+    }
+    // Detect by profile type for non-recipe-mode profiles
+    QString profileType = m_currentProfile.profileType();
+    if (profileType == "settings_2a" && m_currentProfile.isRecipeMode()) {
+        return QStringLiteral("pressure");
+    }
+    if (profileType == "settings_2b" && m_currentProfile.isRecipeMode()) {
+        return QStringLiteral("flow");
+    }
+    // Detect by title prefix
+    if (isDFlowTitle(m_currentProfile.title())) return QStringLiteral("dflow");
+    if (isAFlowTitle(m_currentProfile.title())) return QStringLiteral("aflow");
+    return QStringLiteral("advanced");
+}
+
 double MainController::targetWeight() const {
     if (m_settings && m_settings->hasBrewYieldOverride()) {
         return m_settings->brewYieldOverride();
@@ -1450,6 +1471,13 @@ QVariantMap MainController::getCurrentRecipeParams() {
         qDebug() << "Auto-converted A-Flow profile to recipe mode:" << m_currentProfile.title();
     }
     if (m_currentProfile.isRecipeMode()) {
+        // Always ensure editorType matches title (handles profiles saved with wrong type)
+        RecipeParams params = m_currentProfile.recipeParams();
+        if (isAFlowTitle(m_currentProfile.title()) && params.editorType != "aflow") {
+            params.editorType = "aflow";
+            m_currentProfile.setRecipeParams(params);
+            qDebug() << "Corrected editorType to aflow for:" << m_currentProfile.title();
+        }
         return m_currentProfile.recipeParams().toVariantMap();
     }
     // Return default params if not in recipe mode
@@ -1459,8 +1487,12 @@ QVariantMap MainController::getCurrentRecipeParams() {
 void MainController::createNewRecipe(const QString& title) {
     RecipeParams recipe;  // Default recipe params
 
+    // Preserve notes from original profile
+    QString notes = m_currentProfile.profileNotes();
+
     // Create new profile from recipe
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
+    m_currentProfile.setProfileNotes(notes);
     m_baseProfileName = "";  // New profile, no base filename yet
     m_profileModified = true;
 
@@ -1482,10 +1514,15 @@ void MainController::createNewRecipe(const QString& title) {
 }
 
 void MainController::createNewAFlowRecipe(const QString& title) {
-    RecipeParams recipe = RecipeParams::aflowDefault();
+    RecipeParams recipe;
+    recipe.editorType = "aflow";
+
+    // Preserve notes from original profile
+    QString notes = m_currentProfile.profileNotes();
 
     // Create new profile from A-Flow recipe
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
+    m_currentProfile.setProfileNotes(notes);
     m_baseProfileName = "";  // New profile, no base filename yet
     m_profileModified = true;
 
@@ -1504,6 +1541,62 @@ void MainController::createNewAFlowRecipe(const QString& title) {
     uploadCurrentProfile();
 
     qDebug() << "Created new A-Flow recipe profile:" << title;
+}
+
+void MainController::createNewPressureProfile(const QString& title) {
+    RecipeParams recipe;
+    recipe.editorType = "pressure";
+
+    // Preserve notes from original profile
+    QString notes = m_currentProfile.profileNotes();
+
+    // Create new profile from pressure recipe
+    m_currentProfile = RecipeGenerator::createProfile(recipe, title);
+    m_currentProfile.setProfileNotes(notes);
+    m_baseProfileName = "";
+    m_profileModified = true;
+
+    if (m_settings) {
+        m_settings->setSelectedFavoriteProfile(-1);
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
+
+    emit currentProfileChanged();
+    emit profileModifiedChanged();
+    emit targetWeightChanged();
+    emit profilesChanged();
+
+    uploadCurrentProfile();
+    qDebug() << "Created new pressure profile:" << title;
+}
+
+void MainController::createNewFlowProfile(const QString& title) {
+    RecipeParams recipe;
+    recipe.editorType = "flow";
+
+    // Preserve notes from original profile
+    QString notes = m_currentProfile.profileNotes();
+
+    // Create new profile from flow recipe
+    m_currentProfile = RecipeGenerator::createProfile(recipe, title);
+    m_currentProfile.setProfileNotes(notes);
+    m_baseProfileName = "";
+    m_profileModified = true;
+
+    if (m_settings) {
+        m_settings->setSelectedFavoriteProfile(-1);
+        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
+
+    emit currentProfileChanged();
+    emit profileModifiedChanged();
+    emit targetWeightChanged();
+    emit profilesChanged();
+
+    uploadCurrentProfile();
+    qDebug() << "Created new flow profile:" << title;
 }
 
 void MainController::convertCurrentProfileToRecipe() {
@@ -1544,50 +1637,6 @@ void MainController::convertCurrentProfileToAdvanced() {
     emit profileModifiedChanged();
 
     qDebug() << "Converted profile to Advanced mode:" << m_currentProfile.title();
-}
-
-void MainController::applyRecipePreset(const QString& presetName) {
-    RecipeParams recipe;
-
-    if (presetName == "classic") {
-        recipe = RecipeParams::classic();
-    } else if (presetName == "londinium") {
-        recipe = RecipeParams::londinium();
-    } else if (presetName == "turbo") {
-        recipe = RecipeParams::turbo();
-    } else if (presetName == "blooming") {
-        recipe = RecipeParams::blooming();
-    } else if (presetName == "dflowDefault") {
-        recipe = RecipeParams::dflowDefault();
-    } else if (presetName == "aflowDefault") {
-        recipe = RecipeParams::aflowDefault();
-    } else if (presetName == "aflowMedium") {
-        recipe = RecipeParams::aflowMedium();
-    } else if (presetName == "aflowLever") {
-        recipe = RecipeParams::aflowLever();
-    } else {
-        qWarning() << "Unknown recipe preset:" << presetName;
-        return;
-    }
-
-    // Preserve current target weight and title
-    recipe.targetWeight = m_currentProfile.targetWeight();
-
-    // Update current profile with preset
-    m_currentProfile.setRecipeMode(true);
-    m_currentProfile.setRecipeParams(recipe);
-    m_currentProfile.regenerateFromRecipe();
-
-    if (!m_profileModified) {
-        m_profileModified = true;
-        emit profileModifiedChanged();
-    }
-    emit currentProfileChanged();
-
-    // Upload to machine
-    uploadCurrentProfile();
-
-    qDebug() << "Applied recipe preset:" << presetName;
 }
 
 // === D-Flow Frame Editor Methods ===

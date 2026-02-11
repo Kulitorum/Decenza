@@ -11,7 +11,7 @@
  *
  * Supports two editor types:
  * - D-Flow (by Damian Brakel): Fill → Infuse → Pour (flow-driven with pressure limit)
- * - A-Flow (by Janek, forked from D-Flow): Adds pressure ramp, ramp down, flow up, 2nd fill
+ * - A-Flow (by Janek, forked from D-Flow): Fill → Infuse → Pressure Ramp → Pour
  *
  * Editor type is determined by profile title prefix ("D-Flow" or "A-Flow"),
  * matching de1app behavior.
@@ -53,14 +53,28 @@ struct RecipeParams {
     double declineTo = 1.0;             // Target flow to decline to (mL/s)
     double declineTime = 30.0;          // Decline duration (seconds)
 
-    // === Editor Type ===
-    QString editorType = "dflow";       // "dflow" or "aflow" — determines frame generation
+    // === Simple Profile Parameters (pressure/flow editors) ===
+    double preinfusionTime = 20.0;        // Preinfusion duration (seconds)
+    double preinfusionFlowRate = 8.0;     // Preinfusion flow rate (mL/s)
+    double preinfusionStopPressure = 4.0; // Exit preinfusion at this pressure (bar)
+    double holdTime = 10.0;               // Hold phase duration (seconds)
+    double espressoPressure = 8.4;        // Pressure setpoint for pressure profiles (bar)
+    double holdFlow = 2.2;                // Flow setpoint for flow profiles (mL/s)
+    double simpleDeclineTime = 30.0;      // Decline phase duration (seconds, 0=disabled)
+    double pressureEnd = 6.0;             // End pressure for pressure decline (bar)
+    double flowEnd = 1.8;                 // End flow for flow decline (mL/s)
+    double limiterValue = 3.5;            // Flow limiter for pressure / Pressure limiter for flow
+    double limiterRange = 1.0;            // Limiter P/I range
 
-    // === A-Flow Extensions ===
-    bool secondFillEnabled = false;     // 2nd fill step after infuse
-    bool rampDownEnabled = false;       // Pressure ramp down phase after ramp up
-    double rampDownPressure = 4.0;      // Target pressure for ramp down (bar)
-    bool flowUpEnabled = false;         // Gradually increase flow during extraction
+    // === Per-Step Temperatures (pressure/flow editors) ===
+    // Always used — profile temp at top is a convenience to set all at once
+    double tempStart = 90.0;              // Start temperature (Celsius)
+    double tempPreinfuse = 90.0;          // Preinfusion temperature (Celsius)
+    double tempHold = 90.0;              // Rise and Hold temperature (Celsius)
+    double tempDecline = 90.0;           // Decline temperature (Celsius)
+
+    // === Editor Type ===
+    QString editorType = "dflow";       // "dflow", "aflow", "pressure", or "flow" — determines frame generation
 
     // === Serialization ===
     QJsonObject toJson() const;
@@ -70,15 +84,4 @@ struct RecipeParams {
     QVariantMap toVariantMap() const;
     static RecipeParams fromVariantMap(const QVariantMap& map);
 
-    // === D-Flow Presets ===
-    static RecipeParams classic();      // Traditional 9-bar Italian
-    static RecipeParams londinium();    // Lever machine style with decline
-    static RecipeParams turbo();        // Fast high-extraction flow profile
-    static RecipeParams blooming();     // Long bloom, lower pressure
-    static RecipeParams dflowDefault(); // D-Flow default (Damian's style)
-
-    // === A-Flow Presets ===
-    static RecipeParams aflowDefault(); // A-Flow default
-    static RecipeParams aflowMedium();  // A-Flow medium with flow up
-    static RecipeParams aflowLever();   // A-Flow lever style with 2nd fill
 };

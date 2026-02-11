@@ -357,6 +357,8 @@ set(QML_FILES
     qml/pages/SettingsPage.qml
     qml/pages/ProfileEditorPage.qml
     qml/pages/RecipeEditorPage.qml
+    qml/pages/PressureEditorPage.qml
+    qml/pages/FlowEditorPage.qml
     qml/pages/ProfileSelectorPage.qml
     qml/pages/DescalingPage.qml
     qml/pages/ScreensaverPage.qml
@@ -398,6 +400,7 @@ set(QML_FILES
     qml/components/ConnectionIndicator.qml
     qml/components/PresetPillRow.qml
     qml/components/TouchSlider.qml
+    qml/components/StepSlider.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
     qml/components/ShotGraph.qml

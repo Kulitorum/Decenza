@@ -81,6 +81,7 @@ class MainController : public QObject {
     Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT)
     Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT)
     Q_PROPERTY(bool isCurrentProfileRecipe READ isCurrentProfileRecipe NOTIFY currentProfileChanged)
+    Q_PROPERTY(QString currentEditorType READ currentEditorType NOTIFY currentProfileChanged)
     Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
@@ -124,6 +125,7 @@ public:
     bool isSawSettling() const;
     QString currentFrameName() const { return m_currentFrameName; }
     bool isCurrentProfileRecipe() const;
+    QString currentEditorType() const;
     static bool isDFlowTitle(const QString& title);  // Check if title indicates D-Flow profile
     static bool isAFlowTitle(const QString& title);  // Check if title indicates A-Flow profile
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
@@ -163,8 +165,8 @@ public:
     Q_INVOKABLE QVariantMap getCurrentRecipeParams();
     Q_INVOKABLE void createNewRecipe(const QString& title = "New Recipe");
     Q_INVOKABLE void createNewAFlowRecipe(const QString& title = "New A-Flow Recipe");
-    Q_INVOKABLE void applyRecipePreset(const QString& presetName);
-
+    Q_INVOKABLE void createNewPressureProfile(const QString& title = "New Pressure Profile");
+    Q_INVOKABLE void createNewFlowProfile(const QString& title = "New Flow Profile");
     // Profile mode conversion
     Q_INVOKABLE void convertCurrentProfileToRecipe();   // Advanced -> D-Flow (simplifies profile)
     Q_INVOKABLE void convertCurrentProfileToAdvanced(); // D-Flow -> Advanced (expands capabilities)

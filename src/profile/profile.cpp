@@ -28,23 +28,70 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         temp3 = temp0;
     }
 
-    // Preinfusion frame (flow pump, exit on pressure_over)
+    // Preinfusion frame(s) (flow pump, exit on pressure_over)
+    // When temp stepping is enabled, split into a 2-second temp boost at temp0
+    // followed by remaining time at temp1 (matches de1app's temp_bump_time_seconds)
     if (preinfusionTime > 0) {
-        ProfileFrame preinfusion;
-        preinfusion.name = "preinfusion";
-        preinfusion.temperature = temp1;
-        preinfusion.sensor = "coffee";
-        preinfusion.pump = "flow";
-        preinfusion.transition = "fast";
-        preinfusion.pressure = 1.0;
-        preinfusion.flow = preinfusionFlowRate;
-        preinfusion.seconds = preinfusionTime;
-        preinfusion.volume = 0;
-        preinfusion.exitIf = true;
-        preinfusion.exitType = "pressure_over";
-        preinfusion.exitPressureOver = preinfusionStopPressure;
-        preinfusion.exitFlowOver = 6.0;
-        frames.append(preinfusion);
+        double tempBoostDuration = 2.0;  // de1app: temp_bump_time_seconds
+
+        if (tempStepsEnabled) {
+            double boostLen = qMin(tempBoostDuration, preinfusionTime);
+            double remainLen = preinfusionTime - tempBoostDuration;
+            if (remainLen < 0) remainLen = 0;
+
+            // Temp boost frame at temp0 (no flow exit)
+            ProfileFrame boost;
+            boost.name = "preinfusion temp boost";
+            boost.temperature = temp0;
+            boost.sensor = "coffee";
+            boost.pump = "flow";
+            boost.transition = "fast";
+            boost.pressure = 1.0;
+            boost.flow = preinfusionFlowRate;
+            boost.seconds = boostLen;
+            boost.volume = 0;
+            boost.exitIf = true;
+            boost.exitType = "pressure_over";
+            boost.exitPressureOver = preinfusionStopPressure;
+            // exitFlowOver = 0 (default) - no flow exit during temp boost
+            frames.append(boost);
+
+            // Preinfusion frame at temp1 (with flow exit)
+            if (remainLen > 0) {
+                ProfileFrame preinfusion;
+                preinfusion.name = "preinfusion";
+                preinfusion.temperature = temp1;
+                preinfusion.sensor = "coffee";
+                preinfusion.pump = "flow";
+                preinfusion.transition = "fast";
+                preinfusion.pressure = 1.0;
+                preinfusion.flow = preinfusionFlowRate;
+                preinfusion.seconds = remainLen;
+                preinfusion.volume = 0;
+                preinfusion.exitIf = true;
+                preinfusion.exitType = "pressure_over";
+                preinfusion.exitPressureOver = preinfusionStopPressure;
+                preinfusion.exitFlowOver = 6.0;
+                frames.append(preinfusion);
+            }
+        } else {
+            // Single preinfusion frame (no temp stepping)
+            ProfileFrame preinfusion;
+            preinfusion.name = "preinfusion";
+            preinfusion.temperature = temp1;
+            preinfusion.sensor = "coffee";
+            preinfusion.pump = "flow";
+            preinfusion.transition = "fast";
+            preinfusion.pressure = 1.0;
+            preinfusion.flow = preinfusionFlowRate;
+            preinfusion.seconds = preinfusionTime;
+            preinfusion.volume = 0;
+            preinfusion.exitIf = true;
+            preinfusion.exitType = "pressure_over";
+            preinfusion.exitPressureOver = preinfusionStopPressure;
+            preinfusion.exitFlowOver = 6.0;
+            frames.append(preinfusion);
+        }
     }
 
     // Rise and hold frame (pressure pump)
@@ -84,8 +131,9 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
 
     // Decline frame (pressure pump, smooth transition)
     if (declineTime > 0) {
-        // If this is the first pressurized step and decline time > 3s, add forced rise first
-        if (holdTime <= 0 && declineTime > 3) {
+        // Match de1app: add forced rise before decline when hold was short (< 3s after
+        // possible decrement) and decline is long enough to split off 3s
+        if (holdTime < 3 && declineTime > 3) {
             ProfileFrame riseNoLimit;
             riseNoLimit.name = "forced rise without limit";
             riseNoLimit.temperature = temp3;
@@ -155,22 +203,69 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
         temp3 = temp0;
     }
 
-    // Preinfusion frame (flow pump, exit on pressure_over)
+    // Preinfusion frame(s) (flow pump, exit on pressure_over)
+    // When temp stepping is enabled, split into a 2-second temp boost at temp0
+    // followed by remaining time at temp1 (matches de1app's temp_bump_time_seconds)
     if (preinfusionTime > 0) {
-        ProfileFrame preinfusion;
-        preinfusion.name = "preinfusion";
-        preinfusion.temperature = temp1;
-        preinfusion.sensor = "coffee";
-        preinfusion.pump = "flow";
-        preinfusion.transition = "fast";
-        preinfusion.pressure = 1.0;
-        preinfusion.flow = preinfusionFlowRate;
-        preinfusion.seconds = preinfusionTime;
-        preinfusion.volume = 0;
-        preinfusion.exitIf = true;
-        preinfusion.exitType = "pressure_over";
-        preinfusion.exitPressureOver = preinfusionStopPressure;
-        frames.append(preinfusion);
+        double tempBoostDuration = 2.0;  // de1app: temp_bump_time_seconds
+
+        if (tempStepsEnabled) {
+            double boostLen = qMin(tempBoostDuration, preinfusionTime);
+            double remainLen = preinfusionTime - tempBoostDuration;
+            if (remainLen < 0) remainLen = 0;
+
+            // Temp boost frame at temp0 (no flow exit)
+            ProfileFrame boost;
+            boost.name = "preinfusion boost";
+            boost.temperature = temp0;
+            boost.sensor = "coffee";
+            boost.pump = "flow";
+            boost.transition = "fast";
+            boost.pressure = 1.0;
+            boost.flow = preinfusionFlowRate;
+            boost.seconds = boostLen;
+            boost.volume = 0;
+            boost.exitIf = true;
+            boost.exitType = "pressure_over";
+            boost.exitPressureOver = preinfusionStopPressure;
+            // exitFlowOver = 0 (default) - no flow exit during temp boost
+            frames.append(boost);
+
+            // Preinfusion frame at temp1 (no flow exit for flow profiles)
+            if (remainLen > 0) {
+                ProfileFrame preinfusion;
+                preinfusion.name = "preinfusion";
+                preinfusion.temperature = temp1;
+                preinfusion.sensor = "coffee";
+                preinfusion.pump = "flow";
+                preinfusion.transition = "fast";
+                preinfusion.pressure = 1.0;
+                preinfusion.flow = preinfusionFlowRate;
+                preinfusion.seconds = remainLen;
+                preinfusion.volume = 0;
+                preinfusion.exitIf = true;
+                preinfusion.exitType = "pressure_over";
+                preinfusion.exitPressureOver = preinfusionStopPressure;
+                // exitFlowOver = 0 (default) - flow profiles don't use flow exit
+                frames.append(preinfusion);
+            }
+        } else {
+            // Single preinfusion frame (no temp stepping)
+            ProfileFrame preinfusion;
+            preinfusion.name = "preinfusion";
+            preinfusion.temperature = temp1;
+            preinfusion.sensor = "coffee";
+            preinfusion.pump = "flow";
+            preinfusion.transition = "fast";
+            preinfusion.pressure = 1.0;
+            preinfusion.flow = preinfusionFlowRate;
+            preinfusion.seconds = preinfusionTime;
+            preinfusion.volume = 0;
+            preinfusion.exitIf = true;
+            preinfusion.exitType = "pressure_over";
+            preinfusion.exitPressureOver = preinfusionStopPressure;
+            frames.append(preinfusion);
+        }
     }
 
     // Hold frame (flow pump)

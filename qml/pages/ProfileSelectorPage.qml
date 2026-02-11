@@ -128,43 +128,48 @@ Page {
                     }
 
                     AccessibleButton {
-                        text: TranslationManager.translate("profileselector.button.import_visualizer", "From Visualizer")
+                        text: TranslationManager.translate("profileselector.button.import_visualizer_short", "Visualizer")
                         accessibleName: TranslationManager.translate("profileSelector.importFromVisualizer", "Import profiles from Visualizer website")
                         primary: true
                         Layout.preferredHeight: Theme.scaled(44)
+                        leftPadding: Theme.scaled(10)
+                        rightPadding: Theme.scaled(10)
                         onClicked: root.goToVisualizerBrowser()
                     }
 
                     AccessibleButton {
                         text: Qt.platform.os === "ios" ?
-                              TranslationManager.translate("profileselector.button.import_file", "Import File") :
-                              TranslationManager.translate("profileselector.button.import_tablet", "From Tablet")
+                              TranslationManager.translate("profileselector.button.import_file_short", "File") :
+                              TranslationManager.translate("profileselector.button.import_tablet_short", "Tablet")
                         accessibleName: Qt.platform.os === "ios" ?
                               TranslationManager.translate("profileSelector.importFromFiles", "Import a profile file from Files app") :
                               TranslationManager.translate("profileSelector.importFromTablet", "Import profiles from Decent tablet")
                         primary: true
                         Layout.preferredHeight: Theme.scaled(44)
+                        leftPadding: Theme.scaled(10)
+                        rightPadding: Theme.scaled(10)
                         onClicked: root.goToProfileImport()
                     }
 
                     AccessibleButton {
-                        text: TranslationManager.translate("profileselector.button.new_dflow", "New D-Flow")
-                        accessibleName: TranslationManager.translate("profileSelector.createNewDFlow", "Create a new D-Flow recipe profile")
+                        text: "+"
+                        accessibleName: TranslationManager.translate("profileSelector.createNewProfile", "Create new profile")
+                        primary: true
                         Layout.preferredHeight: Theme.scaled(44)
-                        onClicked: {
-                            MainController.createNewRecipe("D-Flow / New Recipe")
-                            root.goToRecipeEditor()
+                        Layout.preferredWidth: Theme.scaled(44)
+                        leftPadding: Theme.scaled(4)
+                        rightPadding: Theme.scaled(4)
+                        contentItem: Text {
+                            text: "+"
+                            font.pixelSize: Theme.scaled(22)
+                            font.bold: true
+                            font.family: Theme.bodyFont.family
+                            color: "white"
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            Accessible.ignored: true
                         }
-                    }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("profileselector.button.new_aflow", "New A-Flow")
-                        accessibleName: TranslationManager.translate("profileSelector.createNewAFlow", "Create a new A-Flow recipe profile")
-                        Layout.preferredHeight: Theme.scaled(44)
-                        onClicked: {
-                            MainController.createNewAFlowRecipe("A-Flow / New Recipe")
-                            root.goToRecipeEditor()
-                        }
+                        onClicked: newProfileDialog.open()
                     }
                 }
 
@@ -746,6 +751,77 @@ Page {
                     onClicked: {
                         MainController.deleteProfile(deleteDialog.profileName)
                         deleteDialog.close()
+                    }
+                }
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(8)
+            border.color: Theme.borderColor
+        }
+    }
+
+    // New profile type picker dialog
+    Dialog {
+        id: newProfileDialog
+        title: TranslationManager.translate("profileselector.newProfile.title", "New Profile")
+        anchors.centerIn: parent
+        width: Theme.scaled(350)
+        modal: true
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(8)
+
+            Repeater {
+                model: [
+                    { label: TranslationManager.translate("profileselector.newProfile.pressure", "Pressure Profile"), type: "pressure" },
+                    { label: TranslationManager.translate("profileselector.newProfile.flow", "Flow Profile"), type: "flow" },
+                    { label: TranslationManager.translate("profileselector.newProfile.dflow", "D-Flow"), type: "dflow" },
+                    { label: TranslationManager.translate("profileselector.newProfile.aflow", "A-Flow"), type: "aflow" },
+                    { label: TranslationManager.translate("profileselector.newProfile.advanced", "Advanced"), type: "advanced" }
+                ]
+
+                delegate: Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(48)
+                    radius: Theme.scaled(6)
+                    color: typeMouseArea.containsMouse ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : Theme.backgroundColor
+
+                    Text {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.scaled(16)
+                        text: modelData.label
+                        color: Theme.textColor
+                        font: Theme.bodyFont
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    MouseArea {
+                        id: typeMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            newProfileDialog.close()
+                            var profileType = modelData.type
+                            if (profileType === "pressure") {
+                                MainController.createNewPressureProfile("New Pressure Profile")
+                                root.goToPressureEditor()
+                            } else if (profileType === "flow") {
+                                MainController.createNewFlowProfile("New Flow Profile")
+                                root.goToFlowEditor()
+                            } else if (profileType === "dflow") {
+                                MainController.createNewRecipe("D-Flow / New Recipe")
+                                root.goToRecipeEditor()
+                            } else if (profileType === "aflow") {
+                                MainController.createNewAFlowRecipe("A-Flow / New Recipe")
+                                root.goToRecipeEditor()
+                            } else {
+                                MainController.createNewProfile("New Profile")
+                                root.goToAdvancedEditor()
+                            }
+                        }
                     }
                 }
             }

@@ -20,14 +20,12 @@ class Profile;
  *   Frame 5: Decline   - Optional flow decline
  *
  * A-Flow (Janek, forked from D-Flow):
- *   Frame 0: Fill      - Same as D-Flow
- *   Frame 1: Infuse    - Same as D-Flow
- *   Frame 2: 2nd Fill  - Optional refill after infuse (low-pressure recovery)
- *   Frame 3: Pause     - Optional pause after 2nd fill
- *   Frame 4: Ramp Up   - Pressure ramp to pour pressure
- *   Frame 5: Ramp Down - Optional pressure decline from pour to lower target
- *   Frame 6: Pour Start- Flow mode transition
- *   Frame 7: Pour      - Flow-driven extraction with pressure limit
+ *   Frame 0: Fill              - Same as D-Flow
+ *   Frame 1: Infuse            - Same as D-Flow
+ *   Frame 2: Pressure Up       - Smooth ramp to pour pressure
+ *   Frame 3: Pressure Decline  - Decline to 1 bar, exit on flow_under
+ *   Frame 4: Flow Start        - Transition to flow control
+ *   Frame 5: Flow Extraction   - Flow-driven extraction with pressure limiter
  */
 class RecipeGenerator {
 public:
@@ -47,4 +45,8 @@ private:
 
     // A-Flow frame generation
     static QList<ProfileFrame> generateAFlowFrames(const RecipeParams& recipe);
+
+    // Simple pressure/flow profile generators
+    static QList<ProfileFrame> generatePressureFrames(const RecipeParams& recipe);
+    static QList<ProfileFrame> generateFlowFrames(const RecipeParams& recipe);
 };

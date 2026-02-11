@@ -149,13 +149,6 @@ Page {
                 color: Qt.rgba(1, 1, 1, 0.8)
                 Layout.fillWidth: true
             }
-
-            AccessibleButton {
-                text: TranslationManager.translate("profileEditor.switchToDFlow", "Switch to D-Flow Editor")
-                subtle: true
-                accessibleName: TranslationManager.translate("profileEditor.switchToDFlowAccessible", "Switch to simplified D-Flow recipe editor")
-                onClicked: switchToDFlowDialog.open()
-            }
         }
     }
 
@@ -271,6 +264,45 @@ Page {
 
                             onFrameSelected: function(index) {
                                 selectedStepIndex = index
+                            }
+                        }
+                    }
+
+                    // Profile description
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(70)
+                        color: Theme.surfaceColor
+                        radius: Theme.cardRadius
+
+                        ScrollView {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(6)
+
+                            TextArea {
+                                id: profileNotesFieldInline
+                                text: profile ? (profile.profile_notes || "") : ""
+                                font: Theme.captionFont
+                                color: Theme.textColor
+                                placeholderText: TranslationManager.translate("profileEditor.descriptionPlaceholder", "Profile description...")
+                                placeholderTextColor: Theme.textSecondaryColor
+                                wrapMode: TextArea.Wrap
+                                leftPadding: Theme.scaled(8)
+                                rightPadding: Theme.scaled(8)
+                                topPadding: Theme.scaled(4)
+                                bottomPadding: Theme.scaled(4)
+                                background: Rectangle {
+                                    color: Theme.backgroundColor
+                                    radius: Theme.scaled(4)
+                                    border.color: profileNotesFieldInline.activeFocus ? Theme.primaryColor : Theme.borderColor
+                                    border.width: 1
+                                }
+                                onEditingFinished: {
+                                    if (profile && text !== (profile.profile_notes || "")) {
+                                        profile.profile_notes = text
+                                        uploadProfile()
+                                    }
+                                }
                             }
                         }
                     }
@@ -397,51 +429,6 @@ Page {
                             profile.title = text
                             updatePageTitle()
                             uploadProfile()
-                        }
-                    }
-                }
-            }
-
-            // Profile notes
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(12)
-
-                Text {
-                    text: TranslationManager.translate("profileEditor.notes", "Notes")
-                    font: Theme.bodyFont
-                    color: Theme.textSecondaryColor
-                    Layout.preferredWidth: Theme.scaled(80)
-                    Layout.alignment: Qt.AlignTop
-                }
-
-                ScrollView {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(60)
-
-                    TextArea {
-                        id: profileNotesField
-                        text: profile ? (profile.profile_notes || "") : ""
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        placeholderText: TranslationManager.translate("profileEditor.notesPlaceholder", "Profile description (used by AI analysis)")
-                        placeholderTextColor: Theme.textSecondaryColor
-                        wrapMode: TextArea.Wrap
-                        leftPadding: Theme.scaled(12)
-                        rightPadding: Theme.scaled(12)
-                        topPadding: Theme.scaled(10)
-                        bottomPadding: Theme.scaled(10)
-                        background: Rectangle {
-                            color: Theme.backgroundColor
-                            radius: Theme.scaled(4)
-                            border.color: profileNotesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
-                        }
-                        onEditingFinished: {
-                            if (profile && text !== (profile.profile_notes || "")) {
-                                profile.profile_notes = text
-                                uploadProfile()
-                            }
                         }
                     }
                 }
@@ -790,6 +777,8 @@ Page {
                 } else {
                     if (saveProfileAs(filename, saveAsTitleField.text)) {
                         root.goBack()
+                    } else {
+                        saveErrorDialog.open()
                     }
                 }
             }
@@ -823,7 +812,29 @@ Page {
         onAccepted: {
             if (saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
                 root.goBack()
+            } else {
+                saveErrorDialog.open()
             }
+        }
+    }
+
+    // Save error dialog
+    Dialog {
+        id: saveErrorDialog
+        title: TranslationManager.translate("profileEditor.saveError", "Save Failed")
+        x: (parent.width - width) / 2
+        y: Theme.scaled(80)
+        width: Theme.scaled(350)
+        modal: true
+        standardButtons: Dialog.Ok
+
+        contentItem: Tr {
+            width: saveErrorDialog.availableWidth
+            key: "profileeditor.dialog.saveerror"
+            fallback: "Could not save the profile. Please try again or use Save As with a different name."
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.Wrap
         }
     }
 
@@ -842,6 +853,8 @@ Page {
         onSaveClicked: {
             if (saveProfile()) {
                 root.goBack()
+            } else {
+                saveErrorDialog.open()
             }
         }
     }
@@ -1664,134 +1677,6 @@ Page {
             nameField.text = profile ? profile.title : ""
             nameField.selectAll()
             nameField.forceActiveFocus()
-        }
-    }
-
-    // Switch to D-Flow confirmation dialog
-    Dialog {
-        id: switchToDFlowDialog
-        anchors.centerIn: parent
-        width: Theme.scaled(450)
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: "white"
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            // Header
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-                Layout.topMargin: Theme.scaled(10)
-
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(20)
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: TranslationManager.translate("profileEditor.switchToDFlowTitle", "Switch to D-Flow Editor")
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                }
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    color: Theme.borderColor
-                }
-            }
-
-            // Content
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                spacing: Theme.scaled(12)
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("profileEditor.dFlowSimplifyWarning", "This will simplify the profile to fit the D-Flow format.")
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("profileEditor.dFlowConvertWarning", "The converter will attempt to retain the main idea of your profile, but advanced settings like custom exit conditions, per-frame weight exits, and popup messages may be lost.")
-                    font: Theme.captionFont
-                    color: Theme.textSecondaryColor
-                    wrapMode: Text.WordWrap
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("profileEditor.dFlowStructure", "D-Flow profiles use a fixed structure: Fill → Bloom → Infuse → Ramp → Pour → Decline")
-                    font: Theme.captionFont
-                    color: Theme.warningColor
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-            // Buttons
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                spacing: Theme.scaled(10)
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    text: TranslationManager.translate("profileEditor.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("profileEditor.cancelStayAdvanced", "Cancel and stay in Advanced Editor")
-                    onClicked: switchToDFlowDialog.close()
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.textSecondaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    text: TranslationManager.translate("profileEditor.convert", "Convert")
-                    accessibleName: TranslationManager.translate("profileEditor.convertToDFlow", "Convert to D-Flow format")
-                    onClicked: {
-                        switchToDFlowDialog.close()
-                        MainController.convertCurrentProfileToRecipe()
-                        root.switchToRecipeEditor()
-                    }
-                    background: Rectangle {
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
         }
     }
 

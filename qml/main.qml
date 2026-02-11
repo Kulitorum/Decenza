@@ -616,6 +616,22 @@ ApplicationWindow {
         sourceComponent: Component { RecipeEditorPage {} }
         onLoaded: active = false
     }
+    Loader {
+        id: preloadPressureEditor
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { PressureEditorPage {} }
+        onLoaded: active = false
+    }
+    Loader {
+        id: preloadFlowEditor
+        active: true
+        asynchronous: true
+        visible: false
+        sourceComponent: Component { FlowEditorPage {} }
+        onLoaded: active = false
+    }
 
     // Navigation guard to prevent double-taps during page transitions
     property bool navigationInProgress: false
@@ -707,6 +723,16 @@ ApplicationWindow {
         }
 
         Component {
+            id: pressureEditorPage
+            PressureEditorPage {}
+        }
+
+        Component {
+            id: flowEditorPage
+            FlowEditorPage {}
+        }
+
+        Component {
             id: profileSelectorPage
             ProfileSelectorPage {}
         }
@@ -769,6 +795,8 @@ ApplicationWindow {
             "profileSelectorPage": TranslationManager.translate("main.pageProfileSelector", "Profile selector"),
             "profileEditorPage": TranslationManager.translate("main.pageProfileEditor", "Profile editor"),
             "recipeEditorPage": TranslationManager.translate("main.pageRecipeEditor", "Recipe editor"),
+            "pressureEditorPage": TranslationManager.translate("main.pagePressureEditor", "Pressure profile editor"),
+            "flowEditorPage": TranslationManager.translate("main.pageFlowEditor", "Flow profile editor"),
             "shotHistoryPage": TranslationManager.translate("main.pageShotHistory", "Shot history"),
             "descalingPage": TranslationManager.translate("main.pageDescalingScreen", "Descaling screen"),
             "visualizerBrowserPage": TranslationManager.translate("main.pageVisualizerBrowser", "Visualizer browser"),
@@ -1827,8 +1855,13 @@ ApplicationWindow {
 
     function goToProfileEditor() {
         if (!startNavigation()) return
-        // Route to D-Flow editor for recipe-mode profiles, Advanced editor for frame-based
-        if (MainController.isCurrentProfileRecipe) {
+        // Route to appropriate editor based on editor type
+        var editorType = MainController.currentEditorType
+        if (editorType === "pressure") {
+            pageStack.push(pressureEditorPage)
+        } else if (editorType === "flow") {
+            pageStack.push(flowEditorPage)
+        } else if (editorType === "dflow" || editorType === "aflow") {
             pageStack.push(recipeEditorPage)
         } else {
             pageStack.push(profileEditorPage)
@@ -1851,6 +1884,16 @@ ApplicationWindow {
         if (!startNavigation()) return
         // Replace current editor with Advanced editor (for switching between editors)
         pageStack.replace(profileEditorPage)
+    }
+
+    function goToPressureEditor() {
+        if (!startNavigation()) return
+        pageStack.push(pressureEditorPage)
+    }
+
+    function goToFlowEditor() {
+        if (!startNavigation()) return
+        pageStack.push(flowEditorPage)
     }
 
     function goToAdvancedEditor() {

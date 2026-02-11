@@ -82,6 +82,9 @@
         <file>profiles/cleaning_weber_spring_clean.json</file>
         <file>profiles/cremina_lever_machine.json</file>
         <file>profiles/damian_s_lm_leva.json</file>
+        <file>profiles/d_flow_default.json</file>
+        <file>profiles/d_flow_la_pavoni.json</file>
+        <file>profiles/d_flow_q.json</file>
         <file>profiles/damian_s_lrv2.json</file>
         <file>profiles/damian_s_lrv3.json</file>
         <file>profiles/damian_s_q.json</file>
