@@ -289,7 +289,8 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
     }
 
     // Decline frame (flow pump, smooth transition)
-    if (declineTime > 0) {
+    // de1app: decline is only generated when holdTime > 0 (not declineTime > 0)
+    if (holdTime > 0) {
         ProfileFrame decline;
         decline.name = "decline";
         decline.temperature = temp3;

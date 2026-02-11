@@ -661,7 +661,8 @@ QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& reci
     }
 
     // Decline frame (flow pump, smooth transition)
-    if (recipe.simpleDeclineTime > 0) {
+    // de1app: decline is only generated when holdTime > 0 (not declineTime > 0)
+    if (recipe.holdTime > 0) {
         ProfileFrame decline;
         decline.name = "decline";
         decline.temperature = tempDecline;

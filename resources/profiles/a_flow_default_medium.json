@@ -32,6 +32,7 @@
         "pourPressure": 10,
         "pourTemperature": 95,
         "rampTime": 10,
+        "editorType": "aflow",
         "targetWeight": 42
     },
     "steps": [
