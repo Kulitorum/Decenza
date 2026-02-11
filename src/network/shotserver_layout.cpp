@@ -1111,6 +1111,23 @@ QString ShotServer::generateLayoutPage() const
             background: none;
         }
         .color-swatch-x:hover { background: rgba(248,81,73,0.15); }
+        .toggle-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 8px;
+            height: 22px;
+            border-radius: 11px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            background: none;
+            margin-left: 4px;
+            user-select: none;
+        }
+        .toggle-pill:hover { border-color: var(--primary); color: var(--primary); }
+        .toggle-pill.active { background: var(--primary); border-color: var(--primary); color: white; }
 )HTML";
     html += R"HTML(
         .color-popup-overlay {
@@ -1672,6 +1689,7 @@ QString ShotServer::generateLayoutPage() const
                             </div>
                             <input type="color" id="bgColorInput" value="#555555" style="position:absolute;visibility:hidden;width:0;height:0" onchange="setBgColor(this.value)">
                             <span class="color-swatch-x" id="bgClearBtn" onclick="clearBgColor()" title="Remove background" style="display:none">&#10005;</span>
+                            <span id="hideBgToggle" class="toggle-pill" onclick="toggleHideBackground()" title="Hide background even with actions">No Bg</span>
                         </div>
                     </div>
                     <div class="editor-tools-vars">
@@ -1987,6 +2005,7 @@ QString ShotServer::generateLayoutPage() const
     var currentDoubleclickAction = "";
     var currentEmoji = "";
     var currentBgColor = "";
+    var currentHideBackground = false;
     var emojiCategory = 0;
     var itemPropsCache = {}; // id -> {emoji, content, backgroundColor, ...}
 
@@ -2333,7 +2352,7 @@ QString ShotServer::generateLayoutPage() const
                 var cls = "chip" + (isSel ? " selected" : "") + (isSS ? " screensaver" : (isSpecial ? " special" : ""));
                 var chipStyle = "";
                 var props = item.type === "custom" ? itemPropsCache[item.id] : null;
-                if (props && props.backgroundColor && !isSel) {
+                if (props && props.backgroundColor && !isSel && !props.hideBackground) {
                     chipStyle = "background:" + props.backgroundColor + ";border-color:" + props.backgroundColor + ";color:white";
                 }
                 html += '<span class="' + cls + '" style="' + chipStyle + '" onclick="chipClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">';
@@ -2806,6 +2825,7 @@ QString ShotServer::generateLayoutPage() const
                 currentDoubleclickAction = props.doubleclickAction || "";
                 currentEmoji = props.emoji || "";
                 currentBgColor = props.backgroundColor || "";
+                currentHideBackground = props.hideBackground || false;
                 wysiwygEl.style.textAlign = currentAlign;
                 updateAlignButtons();
                 updateActionSelectors();
@@ -2813,6 +2833,7 @@ QString ShotServer::generateLayoutPage() const
                 renderEmojiTabs();
                 renderEmojiGrid();
                 updateBgColorUI();
+                updateHideBgUI();
                 updateTextColorUI("#ffffff");
                 updatePreview();
                 document.getElementById("editorPanel").classList.remove("editor-hidden");
@@ -2841,7 +2862,7 @@ QString ShotServer::generateLayoutPage() const
         if (!content || content === "<br>") content = "Text";
         var id = editingItem.id;
         var done = 0;
-        var total = 8;
+        var total = 9;
         function check() { done++; if (done >= total) { itemPropsCache[id] = null; loadLayout(); } }
         apiPost("/api/layout/item", {itemId: id, key: "content", value: content}, check);
         apiPost("/api/layout/item", {itemId: id, key: "segments", value: segments}, check);
@@ -2851,6 +2872,7 @@ QString ShotServer::generateLayoutPage() const
         apiPost("/api/layout/item", {itemId: id, key: "doubleclickAction", value: currentDoubleclickAction}, check);
         apiPost("/api/layout/item", {itemId: id, key: "emoji", value: currentEmoji}, check);
         apiPost("/api/layout/item", {itemId: id, key: "backgroundColor", value: currentBgColor}, check);
+        apiPost("/api/layout/item", {itemId: id, key: "hideBackground", value: currentHideBackground}, check);
     }
 )HTML";
     html += R"HTML(
@@ -3090,6 +3112,24 @@ QString ShotServer::generateLayoutPage() const
         }
     }
 
+    function toggleHideBackground() {
+        currentHideBackground = !currentHideBackground;
+        updateHideBgUI();
+        updatePreview();
+        autoSave();
+    }
+
+    function updateHideBgUI() {
+        var el = document.getElementById("hideBgToggle");
+        if (el) {
+            if (currentHideBackground) {
+                el.classList.add("active");
+            } else {
+                el.classList.remove("active");
+            }
+        }
+    }
+
 )HTML";
 
     // Part 5b2: Layout editor JS - action picker, emoji, preview
@@ -3236,8 +3276,9 @@ QString ShotServer::generateLayoutPage() const
         var formattedPreview = substitutePreview(rawHtml);
         var hasAction = currentAction || currentLongPressAction || currentDoubleclickAction;
         var hasEmoji = currentEmoji !== "";
-        var bgColor = currentBgColor || ((hasAction || hasEmoji) ? "#555555" : "");
-        var defaultColor = (hasAction || hasEmoji || currentBgColor) ? "white" : "var(--text)";
+        var showBg = !currentHideBackground;
+        var bgColor = showBg ? (currentBgColor || ((hasAction || hasEmoji) ? "#555555" : "")) : "";
+        var defaultColor = (showBg && (hasAction || hasEmoji || currentBgColor)) ? "white" : "var(--text)";
 
         // Full preview (center zones: vertical emoji + text)
         var fullEl = document.getElementById("previewFull");
@@ -3397,7 +3438,8 @@ QString ShotServer::generateLayoutPage() const
     function renderItemVisual(item) {
         var bg = item.backgroundColor || '';
         var hasAction = (item.action||'') !== '' || (item.longPressAction||'') !== '' || (item.doubleclickAction||'') !== '';
-        var bgStyle = bg || (hasAction ? '#555555' : 'var(--bg)');
+        var hideBg = item.hideBackground || false;
+        var bgStyle = !hideBg ? (bg || (hasAction ? '#555555' : 'var(--bg)')) : 'var(--bg)';
         var html = '<div class="lib-entry-visual" style="background:' + bgStyle + '">';
         if (item.emoji) html += '<span class="lib-item-emoji">' + emojiImgHtml(item.emoji) + '</span>';
         var text = resolveVars(item.content || item.type || '');
@@ -3414,7 +3456,8 @@ QString ShotServer::generateLayoutPage() const
             var it = items[i];
             var bg = it.backgroundColor || '';
             var hasAct = (it.action||'') !== '';
-            var chipBg = bg || (hasAct ? '#555555' : 'var(--surface)');
+            var hideBg = it.hideBackground || false;
+            var chipBg = !hideBg ? (bg || (hasAct ? '#555555' : 'var(--surface)')) : 'var(--surface)';
             html += '<span class="lib-zone-mini-chip" style="background:' + chipBg + '">';
             if (it.emoji) html += emojiImgHtml(it.emoji);
             if (it.type !== 'custom') {
@@ -3443,7 +3486,8 @@ QString ShotServer::generateLayoutPage() const
                 var it = zItems[j];
                 var bg = it.backgroundColor || '';
                 var hasAct = (it.action||'') !== '';
-                var chipBg = bg || (hasAct ? '#555555' : 'var(--surface)');
+                var hideBg = it.hideBackground || false;
+                var chipBg = !hideBg ? (bg || (hasAct ? '#555555' : 'var(--surface)')) : 'var(--surface)';
                 html += '<span class="lib-zone-mini-chip" style="background:' + chipBg + '">';
                 if (it.type !== 'custom') html += (DISPLAY_NAMES[it.type] || it.type);
                 else {
