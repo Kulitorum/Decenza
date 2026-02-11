@@ -619,6 +619,62 @@ bool Settings::isSelectedBuiltInProfile(const QString& filename) const {
     return selectedBuiltInProfiles().contains(filename);
 }
 
+// Hidden profiles (downloaded/user profiles removed from "Selected" view)
+QStringList Settings::hiddenProfiles() const {
+    return m_settings.value("profile/hiddenProfiles").toStringList();
+}
+
+void Settings::setHiddenProfiles(const QStringList& profiles) {
+    if (hiddenProfiles() != profiles) {
+        m_settings.setValue("profile/hiddenProfiles", profiles);
+        emit hiddenProfilesChanged();
+    }
+}
+
+void Settings::addHiddenProfile(const QString& filename) {
+    QStringList current = hiddenProfiles();
+    if (!current.contains(filename)) {
+        current.append(filename);
+        m_settings.setValue("profile/hiddenProfiles", current);
+        emit hiddenProfilesChanged();
+
+        // Also remove from favorites if it was a favorite
+        if (isFavoriteProfile(filename)) {
+            QByteArray data = m_settings.value("profile/favorites").toByteArray();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            QJsonArray arr = doc.array();
+
+            for (int i = arr.size() - 1; i >= 0; --i) {
+                if (arr[i].toObject()["filename"].toString() == filename) {
+                    arr.removeAt(i);
+                    break;
+                }
+            }
+
+            m_settings.setValue("profile/favorites", QJsonDocument(arr).toJson());
+
+            int selected = selectedFavoriteProfile();
+            if (selected >= arr.size() && arr.size() > 0) {
+                setSelectedFavoriteProfile(arr.size() - 1);
+            }
+
+            emit favoriteProfilesChanged();
+        }
+    }
+}
+
+void Settings::removeHiddenProfile(const QString& filename) {
+    QStringList current = hiddenProfiles();
+    if (current.removeAll(filename) > 0) {
+        m_settings.setValue("profile/hiddenProfiles", current);
+        emit hiddenProfilesChanged();
+    }
+}
+
+bool Settings::isHiddenProfile(const QString& filename) const {
+    return hiddenProfiles().contains(filename);
+}
+
 // Hot water settings
 double Settings::waterTemperature() const {
     return m_settings.value("water/temperature", 85.0).toDouble();

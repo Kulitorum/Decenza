@@ -308,6 +308,10 @@ MainController::MainController(Settings* settings, DE1Device* device,
         connect(m_settings, &Settings::dyeBeanWeightChanged, this, [this]() {
             emit targetWeightChanged();
         });
+
+        // Update profile lists when selection/hidden state changes
+        connect(m_settings, &Settings::selectedBuiltInProfilesChanged, this, &MainController::profilesChanged);
+        connect(m_settings, &Settings::hiddenProfilesChanged, this, &MainController::profilesChanged);
     }
 }
 
@@ -446,6 +450,7 @@ QVariantList MainController::selectedProfiles() const {
 
     // Get selected built-in profile names from settings
     QStringList selectedBuiltIns = m_settings ? m_settings->selectedBuiltInProfiles() : QStringList();
+    QStringList hiddenProfiles = m_settings ? m_settings->hiddenProfiles() : QStringList();
 
     for (const ProfileInfo& info : m_allProfiles) {
         bool include = false;
@@ -457,8 +462,8 @@ QVariantList MainController::selectedProfiles() const {
             break;
         case ProfileSource::Downloaded:
         case ProfileSource::UserCreated:
-            // Always include user and downloaded profiles
-            include = true;
+            // Include unless explicitly hidden
+            include = !hiddenProfiles.contains(info.filename);
             break;
         }
 

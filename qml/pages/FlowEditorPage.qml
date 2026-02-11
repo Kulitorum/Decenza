@@ -206,44 +206,61 @@ Page {
                     }
                 }
 
-                Rectangle {
+                Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(70)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
+                    Layout.preferredHeight: Theme.scaled(90)
 
-                    ScrollView {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(6)
+                    Text {
+                        id: flowDescLabel
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.scaled(4)
+                        text: TranslationManager.translate("flowEditor.descriptionLabel", "Description")
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
 
-                        TextArea {
-                            id: notesField
-                            text: profile ? (profile.profile_notes || "") : ""
-                            font: Theme.captionFont
-                            color: Theme.textColor
-                            placeholderText: TranslationManager.translate("flowEditor.descriptionPlaceholder", "Profile description...")
-                            placeholderTextColor: Theme.textSecondaryColor
-                            wrapMode: TextArea.Wrap
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            topPadding: Theme.scaled(4)
-                            bottomPadding: Theme.scaled(4)
-                            background: Rectangle {
-                                color: Theme.backgroundColor
-                                radius: Theme.scaled(4)
-                                border.color: notesField.activeFocus ? Theme.primaryColor : Theme.borderColor
-                                border.width: 1
-                            }
-                            onEditingFinished: {
-                                if (profile) {
-                                    profile.profile_notes = text
-                                    MainController.uploadProfile(profile)
+                    Rectangle {
+                        anchors.top: flowDescLabel.bottom
+                        anchors.topMargin: Theme.scaled(2)
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        color: Theme.surfaceColor
+                        radius: Theme.cardRadius
+
+                        ScrollView {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(6)
+                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                            TextArea {
+                                id: notesField
+                                text: profile ? (profile.profile_notes || "") : ""
+                                font.pixelSize: Theme.scaled(10)
+                                color: Theme.textColor
+                                wrapMode: TextArea.Wrap
+                                leftPadding: Theme.scaled(8)
+                                rightPadding: Theme.scaled(8)
+                                topPadding: Theme.scaled(4)
+                                bottomPadding: Theme.scaled(4)
+                                background: Rectangle {
+                                    color: Theme.backgroundColor
+                                    radius: Theme.scaled(4)
+                                    border.color: notesField.activeFocus ? Theme.primaryColor : Theme.borderColor
+                                    border.width: 1
+                                }
+                                onEditingFinished: {
+                                    if (profile) {
+                                        profile.profile_notes = text
+                                        MainController.uploadProfile(profile)
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
+}
 
             // Right side: Editor controls (de1app style)
             Rectangle {

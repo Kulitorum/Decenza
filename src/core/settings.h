@@ -49,6 +49,9 @@ class Settings : public QObject {
     // Selected built-in profiles (shown in "Selected" view)
     Q_PROPERTY(QStringList selectedBuiltInProfiles READ selectedBuiltInProfiles WRITE setSelectedBuiltInProfiles NOTIFY selectedBuiltInProfilesChanged)
 
+    // Hidden profiles (downloaded/user profiles removed from "Selected" view)
+    Q_PROPERTY(QStringList hiddenProfiles READ hiddenProfiles WRITE setHiddenProfiles NOTIFY hiddenProfilesChanged)
+
     // Hot water settings
     Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged)
     Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged)
@@ -270,6 +273,13 @@ public:
     Q_INVOKABLE void addSelectedBuiltInProfile(const QString& filename);
     Q_INVOKABLE void removeSelectedBuiltInProfile(const QString& filename);
     Q_INVOKABLE bool isSelectedBuiltInProfile(const QString& filename) const;
+
+    // Hidden profiles (downloaded/user profiles removed from "Selected" view)
+    QStringList hiddenProfiles() const;
+    void setHiddenProfiles(const QStringList& profiles);
+    Q_INVOKABLE void addHiddenProfile(const QString& filename);
+    Q_INVOKABLE void removeHiddenProfile(const QString& filename);
+    Q_INVOKABLE bool isHiddenProfile(const QString& filename) const;
 
     // Hot water settings
     double waterTemperature() const;
@@ -602,6 +612,7 @@ signals:
     void favoriteProfilesChanged();
     void selectedFavoriteProfileChanged();
     void selectedBuiltInProfilesChanged();
+    void hiddenProfilesChanged();
     void waterTemperatureChanged();
     void waterVolumeChanged();
     void waterVolumeModeChanged();

@@ -8,6 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "D-Flow Q: high-pressure 6 bar infuse, 1s infuse, 1.8 ml/s, 10 bar limiter",
+    "profile_notes": "This is the profile Damian currently uses for every day coffee. Grind 10um coarser than other profiles, more berry flavours from Xtraction Blend than Slayer V3 or La Marzocco KB90, same creaminess.\n\nThe goal is to grind for a pressure peak between 6 and 9 bar.",
     "preinfuse_frame_count": 1,
     "profile_type": "settings_2c",
     "recipe": {

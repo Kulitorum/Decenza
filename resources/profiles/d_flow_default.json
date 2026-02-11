@@ -8,6 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "D-Flow default: general-purpose, 3 bar infuse, 1.7 ml/s pour, 8.5 bar limiter",
+    "profile_notes": "A simple to use profiling system by Damian Brakel. D-Flow's Default profile is provided as an example profile for you to get started in creating your own.",
     "preinfuse_frame_count": 1,
     "profile_type": "settings_2c",
     "recipe": {

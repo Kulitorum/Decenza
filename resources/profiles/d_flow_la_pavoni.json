@@ -8,6 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "D-Flow La Pavoni: lever emulation, 1.2 bar infuse, 2.4 ml/s, 9 bar limiter",
+    "profile_notes": "Damian created this profile to simulate the results from his La Pavoni machine which he profiled side by side with a Slayer V3 for same taste in cup.\n\nThe goal is to grind for a pressure peak between 6 and 9 bar.",
     "preinfuse_frame_count": 1,
     "profile_type": "settings_2c",
     "recipe": {

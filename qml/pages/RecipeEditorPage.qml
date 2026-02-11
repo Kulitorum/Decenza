@@ -231,38 +231,55 @@ Page {
                 }
 
                 // Profile description
-                Rectangle {
+                Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(70)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
+                    Layout.preferredHeight: Theme.scaled(90)
 
-                    ScrollView {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(6)
+                    Text {
+                        id: recipeDescLabel
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.scaled(4)
+                        text: TranslationManager.translate("recipeEditor.descriptionLabel", "Description")
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                    }
 
-                        TextArea {
-                            id: recipeNotesField
-                            text: profile ? (profile.profile_notes || "") : ""
-                            font: Theme.captionFont
-                            color: Theme.textColor
-                            placeholderText: TranslationManager.translate("recipeEditor.descriptionPlaceholder", "Profile description...")
-                            placeholderTextColor: Theme.textSecondaryColor
-                            wrapMode: TextArea.Wrap
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            topPadding: Theme.scaled(4)
-                            bottomPadding: Theme.scaled(4)
-                            background: Rectangle {
-                                color: Theme.backgroundColor
-                                radius: Theme.scaled(4)
-                                border.color: recipeNotesField.activeFocus ? Theme.primaryColor : Theme.borderColor
-                                border.width: 1
-                            }
-                            onEditingFinished: {
-                                if (profile) {
-                                    profile.profile_notes = text
-                                    MainController.uploadProfile(profile)
+                    Rectangle {
+                        anchors.top: recipeDescLabel.bottom
+                        anchors.topMargin: Theme.scaled(2)
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        color: Theme.surfaceColor
+                        radius: Theme.cardRadius
+
+                        ScrollView {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(6)
+                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                            TextArea {
+                                id: recipeNotesField
+                                text: profile ? (profile.profile_notes || "") : ""
+                                font.pixelSize: Theme.scaled(10)
+                                color: Theme.textColor
+                                wrapMode: TextArea.Wrap
+                                leftPadding: Theme.scaled(8)
+                                rightPadding: Theme.scaled(8)
+                                topPadding: Theme.scaled(4)
+                                bottomPadding: Theme.scaled(4)
+                                background: Rectangle {
+                                    color: Theme.backgroundColor
+                                    radius: Theme.scaled(4)
+                                    border.color: recipeNotesField.activeFocus ? Theme.primaryColor : Theme.borderColor
+                                    border.width: 1
+                                }
+                                onEditingFinished: {
+                                    if (profile) {
+                                        profile.profile_notes = text
+                                        MainController.uploadProfile(profile)
+                                    }
                                 }
                             }
                         }
@@ -318,21 +335,13 @@ Page {
                             id: coreSection
                             Layout.fillWidth: true
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.dose", "Dose")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.dose || 18
-                                    from: 3; to: 40; stepSize: 0.5
-                                    suffix: "g"
-                                    valueColor: Theme.weightColor
-                                    accentColor: Theme.weightColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.doseWeight", "Dose weight")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("dose", newValue)
-                                    }
-                                }
+                            // Dose
+                            RowLayout { Layout.fillWidth: true
+                                Text { text: TranslationManager.translate("recipeEditor.dose", "Dose"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                Item { Layout.fillWidth: true }
+                                Text { text: (recipe.dose || 18).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                             }
+                            StepSlider { Layout.fillWidth: true; from: 3; to: 40; stepSize: 0.5; value: recipe.dose || 18; onMoved: updateRecipe("dose", Math.round(value * 10) / 10) }
 
                             // Display ratio (weight is set in Pour section)
                             Text {
@@ -349,41 +358,22 @@ Page {
                             id: infuseSection
                             title: TranslationManager.translate("recipeEditor.infuseTitle", "Infuse")
                             Layout.fillWidth: true
-                            canEnable: recipe.editorType === "aflow"  // D-Flow always has infuse
-                            sectionEnabled: recipe.infuseEnabled !== false  // Default true
-                            onSectionToggled: function(enabled) { updateRecipe("infuseEnabled", enabled) }
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.infuseTemp", "Temp")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.fillTemperature || 88
-                                    from: 80; to: 100; stepSize: 0.5
-                                    suffix: "\u00B0C"
-                                    valueColor: Theme.temperatureColor
-                                    accentColor: Theme.temperatureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("fillTemperature", newValue)
-                                    }
-                                }
+                            // Temp
+                            RowLayout { Layout.fillWidth: true
+                                Text { text: TranslationManager.translate("recipeEditor.infuseTemp", "Temp"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                Item { Layout.fillWidth: true }
+                                Text { text: (recipe.fillTemperature || 88).toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                             }
+                            StepSlider { Layout.fillWidth: true; from: 80; to: 100; stepSize: 0.5; value: recipe.fillTemperature || 88; onMoved: updateRecipe("fillTemperature", Math.round(value * 10) / 10) }
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0
-                                    from: 0; to: 6; stepSize: 0.1
-                                    suffix: " bar"
-                                    valueColor: Theme.pressureColor
-                                    accentColor: Theme.pressureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("infusePressure", newValue)
-                                    }
-                                }
+                            // Pressure
+                            RowLayout { Layout.fillWidth: true
+                                Text { text: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                Item { Layout.fillWidth: true }
+                                Text { text: (recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0).toFixed(1) + " bar"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.pressureColor }
                             }
+                            StepSlider { Layout.fillWidth: true; from: 0; to: 6; stepSize: 0.1; value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0; onMoved: updateRecipe("infusePressure", Math.round(value * 10) / 10) }
 
                             // Grouped: move to next step on first reached
                             Item {
@@ -416,51 +406,29 @@ Page {
                                         opacity: 0.8
                                     }
 
-                                    RecipeRow {
-                                        label: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time")
-                                        ValueInput {
-                                            Layout.fillWidth: true
-                                            value: recipe.infuseTime || 20
-                                            from: 0; to: 60; stepSize: 1
-                                            suffix: "s"
-                                            decimals: 0
-                                            accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time")
-                                            onValueModified: function(newValue) {
-                                                updateRecipe("infuseTime", newValue)
-                                            }
-                                        }
+                                    // Time
+                                    RowLayout { Layout.fillWidth: true
+                                        Text { text: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: Math.round(recipe.infuseTime || 20) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     }
+                                    StepSlider { Layout.fillWidth: true; from: 0; to: 60; stepSize: 1; value: recipe.infuseTime || 20; onMoved: updateRecipe("infuseTime", Math.round(value)) }
 
-                                    RecipeRow {
-                                        label: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume")
-                                        ValueInput {
-                                            Layout.fillWidth: true
-                                            value: recipe.infuseVolume || 100
-                                            from: 10; to: 200; stepSize: 10
-                                            suffix: " mL"
-                                            decimals: 0
-                                            accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume")
-                                            onValueModified: function(newValue) {
-                                                updateRecipe("infuseVolume", newValue)
-                                            }
-                                        }
+                                    // Volume
+                                    RowLayout { Layout.fillWidth: true
+                                        Text { text: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: Math.round(recipe.infuseVolume || 100) + " mL"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     }
+                                    StepSlider { Layout.fillWidth: true; from: 10; to: 200; stepSize: 10; value: recipe.infuseVolume || 100; onMoved: updateRecipe("infuseVolume", Math.round(value)) }
 
-                                    RecipeRow {
-                                        label: TranslationManager.translate("recipeEditor.infuseWeightLabel", "Weight")
-                                        ValueInput {
-                                            Layout.fillWidth: true
-                                            value: recipe.infuseWeight || 4.0
-                                            from: 0; to: 20; stepSize: 0.5
-                                            suffix: "g"
-                                            valueColor: Theme.weightColor
-                                            accentColor: Theme.weightColor
-                                            accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight")
-                                            onValueModified: function(newValue) {
-                                                updateRecipe("infuseWeight", newValue)
-                                            }
-                                        }
+                                    // Weight
+                                    RowLayout { Layout.fillWidth: true
+                                        Text { text: TranslationManager.translate("recipeEditor.infuseWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: (recipe.infuseWeight || 4.0).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                                     }
+                                    StepSlider { Layout.fillWidth: true; from: 0; to: 20; stepSize: 0.5; value: recipe.infuseWeight || 4.0; onMoved: updateRecipe("infuseWeight", Math.round(value * 10) / 10) }
                                 }
                             }
                         }
@@ -487,21 +455,13 @@ Page {
                             title: TranslationManager.translate("recipeEditor.pourTitle", "Pour")
                             Layout.fillWidth: true
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.pourTemp", "Temp")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.pourTemperature || 93
-                                    from: 80; to: 100; stepSize: 0.5
-                                    suffix: "\u00B0C"
-                                    valueColor: Theme.temperatureColor
-                                    accentColor: Theme.temperatureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("pourTemperature", newValue)
-                                    }
-                                }
+                            // Temp
+                            RowLayout { Layout.fillWidth: true
+                                Text { text: TranslationManager.translate("recipeEditor.pourTemp", "Temp"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                Item { Layout.fillWidth: true }
+                                Text { text: (recipe.pourTemperature || 93).toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                             }
+                            StepSlider { Layout.fillWidth: true; from: 80; to: 100; stepSize: 0.5; value: recipe.pourTemperature || 93; onMoved: updateRecipe("pourTemperature", Math.round(value * 10) / 10) }
 
                             // Grouped: flow, pressure, and time (ramp time for A-Flow)
                             Item {
@@ -533,89 +493,47 @@ Page {
                                         opacity: 0.8
                                     }
 
-                                    RecipeRow {
-                                        label: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow")
-                                        ValueInput {
-                                            Layout.fillWidth: true
-                                            value: recipe.pourFlow || 2.0
-                                            from: 0.1; to: 8; stepSize: 0.1
-                                            suffix: " mL/s"
-                                            valueColor: Theme.flowColor
-                                            accentColor: Theme.flowGoalColor
-                                            accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow")
-                                            onValueModified: function(newValue) {
-                                                updateRecipe("pourFlow", newValue)
-                                            }
-                                        }
+                                    // Flow
+                                    RowLayout { Layout.fillWidth: true
+                                        Text { text: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: (recipe.pourFlow || 2.0).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.flowColor }
                                     }
+                                    StepSlider { Layout.fillWidth: true; from: 0.1; to: 8; stepSize: 0.1; value: recipe.pourFlow || 2.0; onMoved: updateRecipe("pourFlow", Math.round(value * 10) / 10) }
 
-                                    RecipeRow {
-                                        label: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure")
-                                        ValueInput {
-                                            Layout.fillWidth: true
-                                            value: recipe.pourPressure || 9.0
-                                            from: 1; to: 12; stepSize: 0.1
-                                            suffix: " bar"
-                                            valueColor: Theme.pressureColor
-                                            accentColor: Theme.pressureGoalColor
-                                            accessibleName: TranslationManager.translate("recipeEditor.pourPressure", "Pour pressure limit")
-                                            onValueModified: function(newValue) {
-                                                updateRecipe("pourPressure", newValue)
-                                            }
-                                        }
+                                    // Pressure limit
+                                    RowLayout { Layout.fillWidth: true
+                                        Text { text: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: (recipe.pourPressure || 9.0).toFixed(1) + " bar"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.pressureColor }
                                     }
+                                    StepSlider { Layout.fillWidth: true; from: 1; to: 12; stepSize: 0.1; value: recipe.pourPressure || 9.0; onMoved: updateRecipe("pourPressure", Math.round(value * 10) / 10) }
 
                                     // Ramp time (A-Flow only — pressure ramp up duration)
-                                    RecipeRow {
-                                        visible: recipe.editorType === "aflow"
-                                        label: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time")
-                                        ValueInput {
-                                            Layout.fillWidth: true
-                                            value: recipe.rampTime || 5
-                                            from: 0; to: 30; stepSize: 0.5
-                                            suffix: "s"
-                                            accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time")
-                                            onValueModified: function(newValue) {
-                                                updateRecipe("rampTime", newValue)
-                                            }
-                                        }
+                                    RowLayout { Layout.fillWidth: true; visible: recipe.editorType === "aflow"
+                                        Text { text: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                        Item { Layout.fillWidth: true }
+                                        Text { text: (recipe.rampTime || 5).toFixed(1) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     }
+                                    StepSlider { Layout.fillWidth: true; visible: recipe.editorType === "aflow"; from: 0; to: 30; stepSize: 0.5; value: recipe.rampTime || 5; onMoved: updateRecipe("rampTime", Math.round(value * 10) / 10) }
                                 }
                             }
 
                             // Weight stop condition
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.pourWeightLabel", "Weight")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.targetWeight || 36
-                                    from: 0; to: 100; stepSize: 1
-                                    suffix: "g"
-                                    valueColor: Theme.weightColor
-                                    accentColor: Theme.weightColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.pourWeight", "Stop at weight")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("targetWeight", newValue)
-                                    }
-                                }
+                            RowLayout { Layout.fillWidth: true
+                                Text { text: TranslationManager.translate("recipeEditor.pourWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                Item { Layout.fillWidth: true }
+                                Text { text: Math.round(recipe.targetWeight || 36) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                             }
+                            StepSlider { Layout.fillWidth: true; from: 0; to: 100; stepSize: 1; value: recipe.targetWeight || 36; onMoved: updateRecipe("targetWeight", Math.round(value)) }
 
                             // Volume stop condition (D-Flow only)
-                            RecipeRow {
-                                visible: recipe.editorType !== "aflow"
-                                label: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.targetVolume || 0
-                                    from: 0; to: 200; stepSize: 5
-                                    suffix: " mL"
-                                    decimals: 0
-                                    accessibleName: TranslationManager.translate("recipeEditor.pourVolume", "Stop at volume")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("targetVolume", newValue)
-                                    }
-                                }
+                            RowLayout { Layout.fillWidth: true; visible: recipe.editorType !== "aflow"
+                                Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                Item { Layout.fillWidth: true }
+                                Text { text: Math.round(recipe.targetVolume || 0) + " mL"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                             }
+                            StepSlider { Layout.fillWidth: true; visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 5; value: recipe.targetVolume || 0; onMoved: updateRecipe("targetVolume", Math.round(value)) }
                         }
 
                         // Spacer
