@@ -11,7 +11,7 @@ Page {
 
     property var profile: null
     property int selectedStepIndex: -1
-    property bool profileModified: false
+    property bool profileModified: MainController.profileModified
     property string originalProfileName: ""
     property int stepVersion: 0  // Increment to force step editor refresh
 
@@ -90,7 +90,6 @@ Page {
     function uploadProfile() {
         if (profile) {
             MainController.uploadProfile(profile)
-            profileModified = true
             // Force step editor bindings to re-evaluate
             stepVersion++
             // Force graph to update by creating a new array reference
@@ -99,21 +98,23 @@ Page {
         }
     }
 
-    // Save profile to file
+    // Save profile to file. Returns true on success.
     function saveProfile() {
-        if (profile && originalProfileName) {
-            MainController.saveProfile(originalProfileName)
-            profileModified = false
+        if (!profile || !originalProfileName) {
+            saveAsDialog.open()
+            return false
         }
+        return MainController.saveProfile(originalProfileName)
     }
 
-    // Save profile with new name
+    // Save profile with new name. Returns true on success.
     function saveProfileAs(filename, title) {
-        if (profile) {
-            MainController.saveProfileAs(filename, title)
+        if (!profile) return false
+        if (MainController.saveProfileAs(filename, title)) {
             originalProfileName = filename
-            profileModified = false
+            return true
         }
+        return false
     }
 
     // Editor mode header
@@ -787,8 +788,9 @@ Page {
                     saveAsDialog.pendingFilename = filename
                     overwriteDialog.open()
                 } else {
-                    saveProfileAs(filename, saveAsTitleField.text)
-                    root.goBack()
+                    if (saveProfileAs(filename, saveAsTitleField.text)) {
+                        root.goBack()
+                    }
                 }
             }
         }
@@ -819,8 +821,9 @@ Page {
         }
 
         onAccepted: {
-            saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)
-            root.goBack()
+            if (saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
+                root.goBack()
+            }
         }
     }
 
@@ -837,8 +840,9 @@ Page {
         }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
-            saveProfile()
-            root.goBack()
+            if (saveProfile()) {
+                root.goBack()
+            }
         }
     }
 
@@ -1910,7 +1914,6 @@ Page {
         }
         // Track the original profile filename for saving (not the title!)
         originalProfileName = MainController.baseProfileName || ""
-        profileModified = false
         selectedStepIndex = -1
         updatePageTitle()
         // Force graph to update with new profile data
