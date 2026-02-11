@@ -1727,6 +1727,30 @@ QString ShotServer::generateLayoutPage() const
                 </div>
             </div>
 
+            <!-- Last Shot: Width slider + Labels toggles -->
+            <div id="ssLastShotSettings" style="display:none">
+                <div class="section-label">Width</div>
+                <div class="ss-slider-row">
+                    <span class="ss-slider-label">1x</span>
+                    <input type="range" class="ss-slider" id="ssShotScale" min="1" max="2.5" step="0.1" value="1" oninput="ssShotScaleChanged(this.value)">
+                    <span class="ss-slider-label" style="text-align:right">2.5x</span>
+                </div>
+                <div class="section-label">Show axis labels</div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="ssShotShowLabels" onchange="ssShotToggleChanged()">
+                        <span style="color:var(--text-secondary)">Pressure, flow, weight scales</span>
+                    </label>
+                </div>
+                <div class="section-label">Show frame labels</div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="ssShotShowPhaseLabels" checked onchange="ssShotToggleChanged()">
+                        <span style="color:var(--text-secondary)">Frame transition markers</span>
+                    </label>
+                </div>
+            </div>
+
             <!-- No settings message -->
             <div id="ssNoSettings" style="display:none">
                 <div class="ss-no-settings">No additional settings for this screensaver.</div>
@@ -2138,7 +2162,8 @@ QString ShotServer::generateLayoutPage() const
         {type:"screensaverFlipClock",label:"Flip Clock",screensaver:true},
         {type:"screensaverPipes",label:"3D Pipes",screensaver:true},
         {type:"screensaverAttractor",label:"Attractor",screensaver:true},
-        {type:"screensaverShotMap",label:"Shot Map",screensaver:true}
+        {type:"screensaverShotMap",label:"Shot Map",screensaver:true},
+        {type:"lastShot",label:"Last Shot",screensaver:true}
     ];
 
     var DISPLAY_NAMES = {
@@ -2149,7 +2174,8 @@ QString ShotServer::generateLayoutPage() const
         shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
         custom:"Custom",weather:"Weather",quit:"Quit",
         screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",
-        screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map"
+        screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map",
+        lastShot:"Last Shot"
     };
 
     var ACTIONS = [
@@ -2257,7 +2283,7 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="chips-area">';
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
-                var isSS = item.type.indexOf("screensaver") === 0;
+                var isSS = item.type.indexOf("screensaver") === 0 || item.type === "lastShot";
                 var isSpecial = item.type === "spacer" || item.type === "custom" || item.type === "weather" || item.type === "separator" || item.type === "pageTitle" || item.type === "quit";
                 var isSel = selectedChip && selectedChip.id === item.id;
                 var cls = "chip" + (isSel ? " selected" : "") + (isSS ? " screensaver" : (isSpecial ? " special" : ""));
@@ -2336,7 +2362,7 @@ QString ShotServer::generateLayoutPage() const
             selectedChip = {id: itemId, zone: zone};
             if (type === "custom") {
                 openEditor(itemId, zone);
-            } else if (type.indexOf("screensaver") === 0) {
+            } else if (type.indexOf("screensaver") === 0 || type === "lastShot") {
                 openScreensaverEditor(itemId, zone, type);
             }
         }
@@ -2419,7 +2445,8 @@ QString ShotServer::generateLayoutPage() const
         screensaverFlipClock: "Flip Clock Settings",
         screensaverPipes: "3D Pipes Settings",
         screensaverAttractor: "Attractor Settings",
-        screensaverShotMap: "Shot Map Settings"
+        screensaverShotMap: "Shot Map Settings",
+        lastShot: "Last Shot Settings"
     };
 
     function openScreensaverEditor(itemId, zone, type) {
@@ -2432,6 +2459,7 @@ QString ShotServer::generateLayoutPage() const
         // Hide all setting sections
         document.getElementById("ssClockSettings").style.display = "none";
         document.getElementById("ssMapSettings").style.display = "none";
+        document.getElementById("ssLastShotSettings").style.display = "none";
         document.getElementById("ssNoSettings").style.display = "none";
 
         // Fetch current properties
@@ -2450,6 +2478,12 @@ QString ShotServer::generateLayoutPage() const
                     ssCurrentMapTexture = (typeof props.mapTexture === "string") ? props.mapTexture : "";
                     ssUpdateTextureButtons();
                     document.getElementById("ssMapSettings").style.display = "";
+                } else if (type === "lastShot") {
+                    var shotScale = typeof props.shotScale === "number" ? props.shotScale : 1.0;
+                    document.getElementById("ssShotScale").value = shotScale;
+                    document.getElementById("ssShotShowLabels").checked = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false;
+                    document.getElementById("ssShotShowPhaseLabels").checked = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true;
+                    document.getElementById("ssLastShotSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
                 }
@@ -2480,6 +2514,13 @@ QString ShotServer::generateLayoutPage() const
             var mapScale = parseFloat(document.getElementById("ssMapScale").value);
             apiPost("/api/layout/item", {itemId: id, key: "mapScale", value: mapScale}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "mapTexture", value: ssCurrentMapTexture}, function() {});
+        } else if (ssEditingType === "lastShot") {
+            var shotScale = parseFloat(document.getElementById("ssShotScale").value);
+            var showLabels = document.getElementById("ssShotShowLabels").checked;
+            var showPhaseLabels = document.getElementById("ssShotShowPhaseLabels").checked;
+            apiPost("/api/layout/item", {itemId: id, key: "shotScale", value: shotScale}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotShowLabels", value: showLabels}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotShowPhaseLabels", value: showPhaseLabels}, function() {});
         }
     }
 
@@ -2488,6 +2529,13 @@ QString ShotServer::generateLayoutPage() const
     }
 
     function ssMapScaleChanged(val) {
+        ssAutoSave();
+    }
+
+    function ssShotScaleChanged(val) {
+        ssAutoSave();
+    }
+    function ssShotToggleChanged() {
         ssAutoSave();
     }
 
@@ -3643,11 +3691,12 @@ QString ShotServer::generateLayoutPage() const
     loadLayout();
     loadLibrary();
 
-    // Poll for external changes (e.g. layout reset on tablet)
-    setInterval(function() {
+    // Listen for layout changes pushed from the tablet via SSE
+    var layoutEvents = new EventSource("/api/layout/events");
+    layoutEvents.addEventListener("layout-changed", function() {
         if (editingItem || ssEditingItem) return;
         loadLayout();
-    }, 3000);
+    });
 
     </script>
 </body>
