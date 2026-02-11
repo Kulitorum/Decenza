@@ -19,6 +19,7 @@
 struct RecipeParams {
     // === Core Parameters ===
     double targetWeight = 36.0;         // Stop at weight (grams)
+    double targetVolume = 0.0;          // Stop at volume (mL, 0 = disabled)
     double dose = 18.0;                 // Input dose for ratio display (grams)
 
     // === Fill Phase ===

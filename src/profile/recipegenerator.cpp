@@ -50,7 +50,7 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
 
     // Targets
     profile.setTargetWeight(recipe.targetWeight);
-    profile.setTargetVolume(100.0);  // Volume as backup
+    profile.setTargetVolume(recipe.targetVolume > 0 ? recipe.targetVolume : 100.0);
     profile.setEspressoTemperature(recipe.pourTemperature);
 
     // Mode
@@ -61,11 +61,16 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
 
     // Calculate preinfuse frame count
     int preinfuseCount = 1;  // Fill is always preinfuse
-    if (recipe.bloomEnabled && recipe.bloomTime > 0) {
-        preinfuseCount++;
-    }
-    if (recipe.infuseTime > 0 || recipe.infuseByWeight) {
-        preinfuseCount++;
+    if (recipe.editorType == "aflow") {
+        if (recipe.infuseEnabled) preinfuseCount++;
+        if (recipe.secondFillEnabled) preinfuseCount += 2;  // 2nd Fill + Pause
+        if (recipe.rampEnabled && recipe.rampTime > 0) preinfuseCount++;  // Ramp Up
+        if (recipe.rampDownEnabled) preinfuseCount++;
+        preinfuseCount++;  // Pour Start
+    } else {
+        if (recipe.bloomEnabled && recipe.bloomTime > 0) preinfuseCount++;
+        if (recipe.infuseEnabled) preinfuseCount++;
+        if (recipe.rampEnabled && recipe.rampTime > 0) preinfuseCount++;
     }
     profile.setPreinfuseFrameCount(preinfuseCount);
 
@@ -331,7 +336,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         rampUp.exitPressureUnder = 0.0;
         rampUp.exitFlowOver = 0.0;
         rampUp.exitFlowUnder = 0.0;
-        rampUp.maxFlowOrPressure = 0.0;
+        rampUp.maxFlowOrPressure = 8.0;  // Flow cap in pressure mode
+        rampUp.maxFlowOrPressureRange = 0.6;
         frames.append(rampUp);
     }
 
@@ -354,8 +360,9 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         rampDown.exitPressureOver = 11.0;
         rampDown.exitPressureUnder = 0.0;
         rampDown.exitFlowOver = 6.0;
-        rampDown.exitFlowUnder = recipe.pourFlow + 0.1;
-        rampDown.maxFlowOrPressure = 0.0;
+        rampDown.exitFlowUnder = recipe.pourFlow + 0.5;
+        rampDown.maxFlowOrPressure = 8.0;  // Flow cap in pressure mode
+        rampDown.maxFlowOrPressureRange = 0.6;
         frames.append(rampDown);
     }
 

@@ -34,17 +34,16 @@ Page {
 
         // Match frame name to section
         if (name.indexOf("2nd fill") !== -1 || name.indexOf("pause") !== -1) return "aflowToggles"
-        if (name.indexOf("fill") !== -1) return "fill"
-        if (name.indexOf("bloom") !== -1) return "bloom"
+        if (name.indexOf("fill") !== -1) return "infuse"  // Fill maps to infuse section
+        if (name.indexOf("bloom") !== -1) return "infuse"
         if (name.indexOf("infuse") !== -1 || name.indexOf("preinfuse") !== -1) return "infuse"
         if (name.indexOf("ramp") !== -1 || name.indexOf("transition") !== -1) return "ramp"
         if (name.indexOf("pour") !== -1 || name.indexOf("extraction") !== -1) return "pour"
-        if (name.indexOf("decline") !== -1) return "decline"
+        if (name.indexOf("decline") !== -1) return "pour"  // Decline maps to pour section
 
         // Fallback: use frame position heuristic
         var totalFrames = profile.steps.length
-        if (frameIndex === 0) return "fill"
-        if (frameIndex === totalFrames - 1 && recipe.declineEnabled) return "decline"
+        if (frameIndex === 0) return "infuse"
         if (frameIndex >= totalFrames - 2) return "pour"
 
         return "infuse"  // Default middle frames to infuse
@@ -55,13 +54,10 @@ Page {
         var targetY = 0
         switch (sectionName) {
             case "core": targetY = coreSection.y; break
-            case "fill": targetY = fillSection.y; break
-            case "bloom": targetY = bloomSection.y; break
             case "infuse": targetY = infuseSection.y; break
             case "aflowToggles": targetY = aflowTogglesSection.y; break
             case "ramp": targetY = rampSection.y; break
             case "pour": targetY = pourSection.y; break
-            case "decline": targetY = declineSection.y; break
             default: return
         }
 
@@ -77,16 +73,13 @@ Page {
         var viewCenter = recipeScrollView.contentItem.contentY + recipeScrollView.height / 2
         var sections = [
             { name: "core", item: coreSection },
-            { name: "fill", item: fillSection },
-            { name: "bloom", item: bloomSection },
             { name: "infuse", item: infuseSection },
             { name: "aflowToggles", item: aflowTogglesSection },
             { name: "ramp", item: rampSection },
-            { name: "pour", item: pourSection },
-            { name: "decline", item: declineSection }
+            { name: "pour", item: pourSection }
         ]
 
-        var closest = "fill"  // Default to fill if nothing found
+        var closest = "infuse"  // Default to infuse if nothing found
         var closestDist = 999999
 
         for (var i = 0; i < sections.length; i++) {
@@ -525,23 +518,7 @@ Page {
                                 }
                             }
 
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.stopAt", "Stop at")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.targetWeight || 36
-                                    from: 0; to: 100; stepSize: 1
-                                    suffix: "g"
-                                    valueColor: Theme.weightColor
-                                    accentColor: Theme.weightColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("targetWeight", newValue)
-                                    }
-                                }
-                            }
-
-                            // Display ratio
+                            // Display ratio (weight is set in Pour section)
                             Text {
                                 Layout.fillWidth: true
                                 text: TranslationManager.translate("recipeEditor.ratio", "Ratio: 1:") + ((recipe.targetWeight || 36) / (recipe.dose || 18)).toFixed(1)
@@ -587,14 +564,17 @@ Page {
                             }
                         }
 
-                        // === Fill Phase ===
+                        // === Infuse Phase ===
                         RecipeSection {
-                            id: fillSection
-                            title: TranslationManager.translate("recipeEditor.fillTitle", "Fill")
+                            id: infuseSection
+                            title: TranslationManager.translate("recipeEditor.infuseTitle", "Infuse")
                             Layout.fillWidth: true
+                            canEnable: recipe.editorType === "aflow"  // D-Flow always has infuse
+                            sectionEnabled: recipe.infuseEnabled !== false  // Default true
+                            onSectionToggled: function(enabled) { updateRecipe("infuseEnabled", enabled) }
 
                             RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.fillTemp", "Temp")
+                                label: TranslationManager.translate("recipeEditor.infuseTemp", "Temp")
                                 ValueInput {
                                     Layout.fillWidth: true
                                     value: recipe.fillTemperature || 88
@@ -602,119 +582,12 @@ Page {
                                     suffix: "\u00B0C"
                                     valueColor: Theme.temperatureColor
                                     accentColor: Theme.temperatureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.fillTemperature", "Fill temperature")
+                                    accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature")
                                     onValueModified: function(newValue) {
                                         updateRecipe("fillTemperature", newValue)
                                     }
                                 }
                             }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.fillPressureLabel", "Pressure")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.fillPressure || 3.0
-                                    from: 1; to: 6; stepSize: 0.1
-                                    suffix: " bar"
-                                    valueColor: Theme.pressureColor
-                                    accentColor: Theme.pressureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.fillPressure", "Fill pressure")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("fillPressure", newValue)
-                                    }
-                                }
-                            }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.fillFlowLabel", "Flow")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.fillFlow || 8.0
-                                    from: 2; to: 10; stepSize: 0.5
-                                    suffix: " mL/s"
-                                    valueColor: Theme.flowColor
-                                    accentColor: Theme.flowGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.fillFlow", "Fill flow")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("fillFlow", newValue)
-                                    }
-                                }
-                            }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.fillExitAt", "Exit at")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.fillExitPressure || 3.0
-                                    from: 0.5; to: 6; stepSize: 0.1
-                                    suffix: " bar"
-                                    valueColor: Theme.pressureColor
-                                    accentColor: Theme.pressureGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.fillExitPressure", "Fill exit pressure")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("fillExitPressure", newValue)
-                                    }
-                                }
-                            }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.fillTimeoutLabel", "Timeout")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.fillTimeout || 25
-                                    from: 5; to: 60; stepSize: 1
-                                    suffix: "s"
-                                    decimals: 0
-                                    accessibleName: TranslationManager.translate("recipeEditor.fillTimeout", "Fill timeout")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("fillTimeout", newValue)
-                                    }
-                                }
-                            }
-                        }
-
-                        // === Bloom Phase (Optional, D-Flow only — A-Flow uses 2nd Fill) ===
-                        RecipeSection {
-                            id: bloomSection
-                            title: TranslationManager.translate("recipeEditor.bloomTitle", "Bloom")
-                            Layout.fillWidth: true
-                            visible: recipe.editorType !== "aflow"
-                            canEnable: true
-                            sectionEnabled: recipe.bloomEnabled || false
-                            onSectionToggled: function(enabled) { updateRecipe("bloomEnabled", enabled) }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.bloomTimeLabel", "Time")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.bloomTime || 10
-                                    from: 1; to: 30; stepSize: 1
-                                    suffix: "s"
-                                    decimals: 0
-                                    accessibleName: TranslationManager.translate("recipeEditor.bloomTime", "Bloom time")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("bloomTime", newValue)
-                                    }
-                                }
-                            }
-
-                            Text {
-                                text: TranslationManager.translate("recipeEditor.bloomDescription", "Zero-flow pause for CO2 release")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
-                        }
-
-                        // === Infuse Phase ===
-                        RecipeSection {
-                            id: infuseSection
-                            title: TranslationManager.translate("recipeEditor.infuseTitle", "Infuse")
-                            Layout.fillWidth: true
-                            canEnable: true
-                            sectionEnabled: recipe.infuseEnabled !== false  // Default true
-                            onSectionToggled: function(enabled) { updateRecipe("infuseEnabled", enabled) }
 
                             RecipeRow {
                                 label: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure")
@@ -797,13 +670,12 @@ Page {
                             }
                         }
 
-                        // === Ramp Phase ===
+                        // === Ramp Phase (A-Flow only — D-Flow auto-generates ramp) ===
                         RecipeSection {
                             id: rampSection
-                            title: (recipe.editorType === "aflow")
-                                ? TranslationManager.translate("recipeEditor.rampTitleAFlow", "Ramp")
-                                : TranslationManager.translate("recipeEditor.rampTitle", "Ramp")
+                            title: TranslationManager.translate("recipeEditor.rampTitle", "Ramp")
                             Layout.fillWidth: true
+                            visible: recipe.editorType === "aflow"
                             canEnable: true
                             sectionEnabled: recipe.rampEnabled !== false  // Default true
                             onSectionToggled: function(enabled) { updateRecipe("rampEnabled", enabled) }
@@ -823,9 +695,7 @@ Page {
                             }
 
                             Text {
-                                text: (recipe.editorType === "aflow")
-                                    ? TranslationManager.translate("recipeEditor.rampDescriptionAFlow", "Pressure ramp up + down time (split evenly)")
-                                    : TranslationManager.translate("recipeEditor.rampDescription", "Smooth transition from infuse to pour")
+                                text: TranslationManager.translate("recipeEditor.rampDescriptionAFlow", "Pressure ramp up + down time (split evenly when ramp down enabled)")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
@@ -957,54 +827,43 @@ Page {
                                 }
                             }
 
+                            RecipeRow {
+                                label: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.targetVolume || 0
+                                    from: 0; to: 200; stepSize: 5
+                                    suffix: " mL"
+                                    decimals: 0
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourVolume", "Stop at volume")
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("targetVolume", newValue)
+                                    }
+                                }
+                            }
+
+                            RecipeRow {
+                                label: TranslationManager.translate("recipeEditor.pourWeightLabel", "Weight")
+                                ValueInput {
+                                    Layout.fillWidth: true
+                                    value: recipe.targetWeight || 36
+                                    from: 0; to: 100; stepSize: 1
+                                    suffix: "g"
+                                    valueColor: Theme.weightColor
+                                    accentColor: Theme.weightColor
+                                    accessibleName: TranslationManager.translate("recipeEditor.pourWeight", "Stop at weight")
+                                    onValueModified: function(newValue) {
+                                        updateRecipe("targetWeight", newValue)
+                                    }
+                                }
+                            }
+
                             Text {
                                 text: TranslationManager.translate("recipeEditor.pourDescription", "Flow-driven extraction with pressure limit")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
-                            }
-                        }
-
-                        // === Decline Phase (D-Flow only — A-Flow uses ramp down instead) ===
-                        RecipeSection {
-                            id: declineSection
-                            title: TranslationManager.translate("recipeEditor.declineTitle", "Decline")
-                            Layout.fillWidth: true
-                            visible: recipe.editorType !== "aflow"
-                            canEnable: true
-                            sectionEnabled: recipe.declineEnabled || false
-                            onSectionToggled: function(enabled) { updateRecipe("declineEnabled", enabled) }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.declineTo", "To")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.declineTo || 1.0
-                                    from: 0.1; to: (recipe.pourFlow || 2) - 0.1; stepSize: 0.1
-                                    suffix: " mL/s"
-                                    valueColor: Theme.flowColor
-                                    accentColor: Theme.flowGoalColor
-                                    accessibleName: TranslationManager.translate("recipeEditor.declineToFlow", "Decline to flow")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("declineTo", newValue)
-                                    }
-                                }
-                            }
-
-                            RecipeRow {
-                                label: TranslationManager.translate("recipeEditor.declineOver", "Over")
-                                ValueInput {
-                                    Layout.fillWidth: true
-                                    value: recipe.declineTime || 30
-                                    from: 5; to: 60; stepSize: 1
-                                    suffix: "s"
-                                    decimals: 0
-                                    accessibleName: TranslationManager.translate("recipeEditor.declineTime", "Decline time")
-                                    onValueModified: function(newValue) {
-                                        updateRecipe("declineTime", newValue)
-                                    }
-                                }
                             }
                         }
 

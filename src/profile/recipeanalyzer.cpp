@@ -4,9 +4,10 @@
 bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     const auto& steps = profile.steps();
 
-    // Need at least 2 frames (Fill + Pour) and at most 6 frames
-    // Pattern: Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
-    if (steps.size() < 2 || steps.size() > 6) {
+    // Need at least 2 frames (Fill + Pour) and at most 9 frames
+    // D-Flow: Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
+    // A-Flow: Fill → [Infuse] → [2ndFill] → [Pause] → [RampUp] → [RampDown] → PourStart → Pour
+    if (steps.size() < 2 || steps.size() > 9) {
         return false;
     }
 
@@ -47,8 +48,9 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         return params;
     }
 
-    // Extract target weight from profile
+    // Extract targets from profile
     params.targetWeight = profile.targetWeight();
+    params.targetVolume = profile.targetVolume();
 
     // Default temperatures from profile
     double profileTemp = profile.espressoTemperature();
@@ -136,7 +138,8 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
             if (params.pourPressure <= 0) params.pourPressure = 9.0;
         } else {
             params.pourPressure = extractPourPressure(pourFrame);
-            params.pourFlow = 2.0;  // Default flow for pressure-mode profiles
+            double flowLimit = extractFlowLimit(pourFrame);
+            params.pourFlow = flowLimit > 0 ? flowLimit : 2.0;
         }
 
         // Use pour frame temperature
@@ -253,7 +256,8 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
                 if (params.pourPressure <= 0) params.pourPressure = 9.0;
             } else {
                 params.pourPressure = extractPourPressure(frame);
-                params.pourFlow = 2.0;  // Default flow for pressure-mode profiles
+                double flowLimit = extractFlowLimit(frame);
+                params.pourFlow = flowLimit > 0 ? flowLimit : 2.0;
             }
             if (frame.temperature > 0) {
                 params.pourTemperature = frame.temperature;
@@ -412,9 +416,12 @@ bool RecipeAnalyzer::isDeclineFrame(const ProfileFrame& frame, const ProfileFram
         return true;
     }
 
-    // Heuristic: smooth transition to lower pressure
-    if (frame.transition == "smooth" && frame.pump == "pressure" && previousFrame) {
-        if (frame.pressure < previousFrame->pressure) {
+    // Heuristic: smooth transition to lower pressure or lower flow
+    if (frame.transition == "smooth" && previousFrame) {
+        if (frame.pump == "pressure" && frame.pressure < previousFrame->pressure) {
+            return true;
+        }
+        if (frame.pump == "flow" && frame.flow < previousFrame->flow) {
             return true;
         }
     }

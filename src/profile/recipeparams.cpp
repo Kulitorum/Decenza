@@ -5,6 +5,7 @@ QJsonObject RecipeParams::toJson() const {
 
     // Core
     obj["targetWeight"] = targetWeight;
+    obj["targetVolume"] = targetVolume;
     obj["dose"] = dose;
 
     // Fill
@@ -53,6 +54,7 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
 
     // Core
     params.targetWeight = json["targetWeight"].toDouble(36.0);
+    params.targetVolume = json["targetVolume"].toDouble(0.0);
     params.dose = json["dose"].toDouble(18.0);
 
     // Fill
@@ -89,9 +91,12 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
         // Old format had pourStyle = "pressure" or "flow"
         if (oldStyle == "pressure") {
             // Pressure mode: pourPressure was the setpoint, flowLimit was the cap
-            // New model: always flow-driven, so treat old pressure as the cap
+            // New model: always flow-driven, so old pressure setpoint becomes the cap
             params.pourPressure = json["pourPressure"].toDouble(9.0);
-            params.pourFlow = json["pourFlow"].toDouble(2.0);
+            // Use flowLimit if present, otherwise default
+            params.pourFlow = json.contains("flowLimit") && json["flowLimit"].toDouble(0.0) > 0
+                ? json["flowLimit"].toDouble(2.0)
+                : json["pourFlow"].toDouble(2.0);
         } else {
             // Flow mode: pourFlow was the setpoint, pressureLimit was the cap
             params.pourFlow = json["pourFlow"].toDouble(2.0);
@@ -130,6 +135,7 @@ QVariantMap RecipeParams::toVariantMap() const {
 
     // Core
     map["targetWeight"] = targetWeight;
+    map["targetVolume"] = targetVolume;
     map["dose"] = dose;
 
     // Fill
@@ -178,6 +184,7 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
 
     // Core
     params.targetWeight = map.value("targetWeight", 36.0).toDouble();
+    params.targetVolume = map.value("targetVolume", 0.0).toDouble();
     params.dose = map.value("dose", 18.0).toDouble();
 
     // Fill
@@ -213,7 +220,11 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     if (!oldStyle.isEmpty()) {
         if (oldStyle == "pressure") {
             params.pourPressure = map.value("pourPressure", 9.0).toDouble();
-            params.pourFlow = map.value("pourFlow", 2.0).toDouble();
+            // Use flowLimit if present, otherwise default
+            double oldFlowLimit = map.value("flowLimit", 0.0).toDouble();
+            params.pourFlow = (map.contains("flowLimit") && oldFlowLimit > 0)
+                ? oldFlowLimit
+                : map.value("pourFlow", 2.0).toDouble();
         } else {
             params.pourFlow = map.value("pourFlow", 2.0).toDouble();
             params.pourPressure = map.contains("pressureLimit")
