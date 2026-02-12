@@ -340,10 +340,29 @@ QJsonDocument Profile::toJson() const {
     obj["maximum_pressure"] = m_maximumPressure;
     obj["maximum_flow"] = m_maximumFlow;
     obj["minimum_pressure"] = m_minimumPressure;
+    obj["tank_desired_water_temperature"] = m_tankDesiredWaterTemperature;
+    obj["maximum_flow_range_advanced"] = m_maximumFlowRangeAdvanced;
+    obj["maximum_pressure_range_advanced"] = m_maximumPressureRangeAdvanced;
     obj["preinfuse_frame_count"] = m_preinfuseFrameCount;
     obj["has_recommended_dose"] = m_hasRecommendedDose;
     obj["recommended_dose"] = m_recommendedDose;
     obj["mode"] = (m_mode == Mode::DirectControl) ? "direct" : "frame_based";
+
+    // Simple profile parameters (settings_2a/2b)
+    if (m_profileType == "settings_2a" || m_profileType == "settings_2b") {
+        obj["preinfusion_time"] = m_preinfusionTime;
+        obj["preinfusion_flow_rate"] = m_preinfusionFlowRate;
+        obj["preinfusion_stop_pressure"] = m_preinfusionStopPressure;
+        obj["espresso_pressure"] = m_espressoPressure;
+        obj["espresso_hold_time"] = m_espressoHoldTime;
+        obj["espresso_decline_time"] = m_espressoDeclineTime;
+        obj["pressure_end"] = m_pressureEnd;
+        obj["flow_profile_hold"] = m_flowProfileHold;
+        obj["flow_profile_decline"] = m_flowProfileDecline;
+        obj["maximum_flow_range_default"] = m_maximumFlowRangeDefault;
+        obj["maximum_pressure_range_default"] = m_maximumPressureRangeDefault;
+        obj["temp_steps_enabled"] = m_tempStepsEnabled;
+    }
 
     QJsonArray tempsArray;
     for (double temp : m_temperaturePresets) {
@@ -387,9 +406,26 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_maximumPressure = obj["maximum_pressure"].toDouble(12.0);
     profile.m_maximumFlow = obj["maximum_flow"].toDouble(6.0);
     profile.m_minimumPressure = obj["minimum_pressure"].toDouble(0.0);
+    profile.m_tankDesiredWaterTemperature = obj["tank_desired_water_temperature"].toDouble(0.0);
+    profile.m_maximumFlowRangeAdvanced = obj["maximum_flow_range_advanced"].toDouble(0.6);
+    profile.m_maximumPressureRangeAdvanced = obj["maximum_pressure_range_advanced"].toDouble(0.6);
     profile.m_preinfuseFrameCount = obj["preinfuse_frame_count"].toInt(0);
     profile.m_hasRecommendedDose = obj["has_recommended_dose"].toBool(false);
     profile.m_recommendedDose = obj["recommended_dose"].toDouble(18.0);
+
+    // Simple profile parameters (settings_2a/2b)
+    profile.m_preinfusionTime = obj["preinfusion_time"].toDouble(5.0);
+    profile.m_preinfusionFlowRate = obj["preinfusion_flow_rate"].toDouble(4.0);
+    profile.m_preinfusionStopPressure = obj["preinfusion_stop_pressure"].toDouble(4.0);
+    profile.m_espressoPressure = obj["espresso_pressure"].toDouble(9.2);
+    profile.m_espressoHoldTime = obj["espresso_hold_time"].toDouble(10.0);
+    profile.m_espressoDeclineTime = obj["espresso_decline_time"].toDouble(25.0);
+    profile.m_pressureEnd = obj["pressure_end"].toDouble(4.0);
+    profile.m_flowProfileHold = obj["flow_profile_hold"].toDouble(2.0);
+    profile.m_flowProfileDecline = obj["flow_profile_decline"].toDouble(1.2);
+    profile.m_maximumFlowRangeDefault = obj["maximum_flow_range_default"].toDouble(1.0);
+    profile.m_maximumPressureRangeDefault = obj["maximum_pressure_range_default"].toDouble(0.9);
+    profile.m_tempStepsEnabled = obj["temp_steps_enabled"].toBool(false);
 
     QString modeStr = obj["mode"].toString("frame_based");
     profile.m_mode = (modeStr == "direct") ? Mode::DirectControl : Mode::FrameBased;
@@ -406,6 +442,47 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     QJsonArray stepsArray = obj["steps"].toArray();
     for (const auto& stepVal : stepsArray) {
         profile.m_steps.append(ProfileFrame::fromJson(stepVal.toObject()));
+    }
+
+    // Generate frames for simple profiles when steps are empty
+    // This handles built-in profiles that store scalar parameters instead of pre-generated frames
+    if (profile.m_steps.isEmpty() &&
+        (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b")) {
+
+        double temp0 = profile.m_temperaturePresets.value(0, profile.m_espressoTemperature);
+        double temp1 = profile.m_temperaturePresets.value(1, profile.m_espressoTemperature);
+        double temp2 = profile.m_temperaturePresets.value(2, profile.m_espressoTemperature);
+        double temp3 = profile.m_temperaturePresets.value(3, profile.m_espressoTemperature);
+
+        if (profile.m_profileType == "settings_2a") {
+            profile.m_steps = generatePressureProfileFrames(
+                profile.m_preinfusionTime, profile.m_preinfusionFlowRate, profile.m_preinfusionStopPressure,
+                profile.m_espressoHoldTime, profile.m_espressoPressure,
+                profile.m_espressoDeclineTime, profile.m_pressureEnd,
+                profile.m_maximumFlow, profile.m_maximumFlowRangeDefault,
+                temp0, temp1, temp2, temp3,
+                profile.m_tempStepsEnabled);
+            qDebug() << "Generated" << profile.m_steps.size() << "frames from simple pressure profile (JSON)";
+        } else {
+            profile.m_steps = generateFlowProfileFrames(
+                profile.m_preinfusionTime, profile.m_preinfusionFlowRate, profile.m_preinfusionStopPressure,
+                profile.m_espressoHoldTime, profile.m_flowProfileHold,
+                profile.m_espressoDeclineTime, profile.m_flowProfileDecline,
+                profile.m_maximumPressure, profile.m_maximumPressureRangeDefault,
+                temp0, temp1, temp2, temp3,
+                profile.m_tempStepsEnabled);
+            qDebug() << "Generated" << profile.m_steps.size() << "frames from simple flow profile (JSON)";
+        }
+
+        // Set preinfuse frame count based on generated preinfusion frames
+        profile.m_preinfuseFrameCount = 0;
+        for (const auto& step : profile.m_steps) {
+            if (step.exitIf) {
+                profile.m_preinfuseFrameCount++;
+            } else {
+                break;
+            }
+        }
     }
 
     // Recipe mode data
@@ -567,6 +644,13 @@ Profile Profile::loadFromTclString(const QString& content) {
     }
     if (!val.isEmpty()) profile.m_targetVolume = val.toDouble();
 
+    // Infer stop-at type from which value is set
+    if (profile.m_targetVolume > 0 && profile.m_targetWeight <= 0) {
+        profile.m_stopAtType = StopAtType::Volume;
+    } else {
+        profile.m_stopAtType = StopAtType::Weight;
+    }
+
     val = extractValue("espresso_temperature");
     if (!val.isEmpty()) profile.m_espressoTemperature = val.toDouble();
 
@@ -576,6 +660,15 @@ Profile Profile::loadFromTclString(const QString& content) {
 
     val = extractValue("maximum_pressure");
     if (!val.isEmpty()) profile.m_maximumPressure = val.toDouble();
+
+    val = extractValue("tank_desired_water_temperature");
+    if (!val.isEmpty()) profile.m_tankDesiredWaterTemperature = val.toDouble();
+
+    val = extractValue("maximum_flow_range_advanced");
+    if (!val.isEmpty()) profile.m_maximumFlowRangeAdvanced = val.toDouble();
+
+    val = extractValue("maximum_pressure_range_advanced");
+    if (!val.isEmpty()) profile.m_maximumPressureRangeAdvanced = val.toDouble();
 
     // Extract temperature presets
     profile.m_temperaturePresets.clear();
@@ -624,15 +717,23 @@ Profile Profile::loadFromTclString(const QString& content) {
     // For simple profiles (settings_2a = pressure, settings_2b = flow), generate frames from
     // individual parameters if advanced_shot was empty
     if (profile.m_steps.isEmpty() && !isAdvancedProfile) {
-        // Extract simple profile parameters
+        // Extract simple profile parameters and store them for JSON serialization
         double preinfusionTime = extractValue("preinfusion_time").toDouble();
         double preinfusionFlowRate = extractValue("preinfusion_flow_rate").toDouble();
         double preinfusionStopPressure = extractValue("preinfusion_stop_pressure").toDouble();
         double holdTime = extractValue("espresso_hold_time").toDouble();
         double declineTime = extractValue("espresso_decline_time").toDouble();
+        bool tempStepsEnabled = extractValue("espresso_temperature_steps_enabled").toInt() == 1;
+
+        // Store scalar params so they persist when saved to JSON
+        profile.m_preinfusionTime = preinfusionTime;
+        profile.m_preinfusionFlowRate = preinfusionFlowRate;
+        profile.m_preinfusionStopPressure = preinfusionStopPressure;
+        profile.m_espressoHoldTime = holdTime;
+        profile.m_espressoDeclineTime = declineTime;
+        profile.m_tempStepsEnabled = tempStepsEnabled;
 
         // Temperature presets
-        bool tempStepsEnabled = extractValue("espresso_temperature_steps_enabled").toInt() == 1;
         double temp0 = profile.m_espressoTemperature;
         double temp1 = temp0, temp2 = temp0, temp3 = temp0;
         if (!profile.m_temperaturePresets.isEmpty()) {
@@ -649,6 +750,11 @@ Profile Profile::loadFromTclString(const QString& content) {
             double maximumFlow = profile.m_maximumFlow;
             double maximumFlowRange = extractValue("maximum_flow_range_default").toDouble();
             if (maximumFlowRange == 0) maximumFlowRange = 1.0;
+
+            // Store pressure-specific params
+            profile.m_espressoPressure = espressoPressure;
+            profile.m_pressureEnd = pressureEnd;
+            profile.m_maximumFlowRangeDefault = maximumFlowRange;
 
             profile.m_steps = generatePressureProfileFrames(
                 preinfusionTime, preinfusionFlowRate, preinfusionStopPressure,
@@ -667,6 +773,11 @@ Profile Profile::loadFromTclString(const QString& content) {
             double maximumPressureRange = extractValue("maximum_pressure_range_default").toDouble();
             if (maximumPressureRange == 0) maximumPressureRange = 0.9;
 
+            // Store flow-specific params
+            profile.m_flowProfileHold = flowHold;
+            profile.m_flowProfileDecline = flowDecline;
+            profile.m_maximumPressureRangeDefault = maximumPressureRange;
+
             profile.m_steps = generateFlowProfileFrames(
                 preinfusionTime, preinfusionFlowRate, preinfusionStopPressure,
                 holdTime, flowHold,
@@ -684,14 +795,21 @@ Profile Profile::loadFromTclString(const QString& content) {
         profile.m_espressoTemperature = profile.m_steps.first().temperature;
     }
 
-    // Determine preinfuse frame count (steps before extraction phase)
-    // Usually the first step(s) with exit conditions
-    profile.m_preinfuseFrameCount = 0;
-    for (const auto& step : profile.m_steps) {
-        if (step.exitIf && (step.exitType == "pressure_over" || step.exitType == "flow_over")) {
-            profile.m_preinfuseFrameCount++;
-        } else {
-            break;
+    // Read preinfuse frame count from TCL data
+    // de1app stores this as "final_desired_shot_volume_advanced_count_start"
+    // which tells the machine when to start counting pour volume
+    val = extractValue("final_desired_shot_volume_advanced_count_start");
+    if (!val.isEmpty()) {
+        profile.m_preinfuseFrameCount = val.toInt();
+    } else {
+        // Fallback: count consecutive leading steps with exit conditions
+        profile.m_preinfuseFrameCount = 0;
+        for (const auto& step : profile.m_steps) {
+            if (step.exitIf) {
+                profile.m_preinfuseFrameCount++;
+            } else {
+                break;
+            }
         }
     }
 
@@ -742,6 +860,31 @@ Profile Profile::loadFromDE1AppJson(const QString& jsonContent) {
 
     profile.m_targetWeight = toDouble(json["target_weight"], 36.0);
     profile.m_targetVolume = toDouble(json["target_volume"], 0.0);
+
+    // Extract temperature
+    if (json.contains("espresso_temperature")) {
+        profile.m_espressoTemperature = toDouble(json["espresso_temperature"], 93.0);
+    }
+
+    // Extract limit fields
+    if (json.contains("tank_desired_water_temperature")) {
+        profile.m_tankDesiredWaterTemperature = toDouble(json["tank_desired_water_temperature"], 0.0);
+    }
+    if (json.contains("maximum_flow_range_advanced")) {
+        profile.m_maximumFlowRangeAdvanced = toDouble(json["maximum_flow_range_advanced"], 0.6);
+    }
+    if (json.contains("maximum_pressure_range_advanced")) {
+        profile.m_maximumPressureRangeAdvanced = toDouble(json["maximum_pressure_range_advanced"], 0.6);
+    }
+    if (json.contains("maximum_pressure")) {
+        profile.m_maximumPressure = toDouble(json["maximum_pressure"], 12.0);
+    }
+    if (json.contains("maximum_flow")) {
+        profile.m_maximumFlow = toDouble(json["maximum_flow"], 6.0);
+    }
+    if (json.contains("minimum_pressure")) {
+        profile.m_minimumPressure = toDouble(json["minimum_pressure"], 0.0);
+    }
 
     // Parse steps array
     QJsonArray stepsArray = json["steps"].toArray();
@@ -823,13 +966,18 @@ Profile Profile::loadFromDE1AppJson(const QString& jsonContent) {
         profile.m_espressoTemperature = profile.m_steps.first().temperature;
     }
 
-    // Count preinfusion frames
-    profile.m_preinfuseFrameCount = 0;
-    for (const auto& step : profile.m_steps) {
-        if (step.exitIf) {
-            profile.m_preinfuseFrameCount++;
-        } else {
-            break;
+    // Read preinfuse frame count from JSON (Visualizer stores this explicitly)
+    if (json.contains("number_of_preinfuse_frames")) {
+        profile.m_preinfuseFrameCount = static_cast<int>(toDouble(json["number_of_preinfuse_frames"], 0));
+    } else {
+        // Fallback: count consecutive leading steps with exit conditions
+        profile.m_preinfuseFrameCount = 0;
+        for (const auto& step : profile.m_steps) {
+            if (step.exitIf) {
+                profile.m_preinfuseFrameCount++;
+            } else {
+                break;
+            }
         }
     }
 
@@ -902,8 +1050,8 @@ QByteArray Profile::toHeaderBytes() const {
     header[0] = 1;  // HeaderV
     header[1] = static_cast<char>(m_steps.size());  // NumberOfFrames
     header[2] = static_cast<char>(m_preinfuseFrameCount);  // NumberOfPreinfuseFrames
-    header[3] = BinaryCodec::encodeU8P4(0.0);  // MinimumPressure (0 = no limit)
-    header[4] = BinaryCodec::encodeU8P4(6.0);  // MaximumFlow (6 mL/s default)
+    header[3] = BinaryCodec::encodeU8P4(m_minimumPressure);  // MinimumPressure
+    header[4] = BinaryCodec::encodeU8P4(m_maximumFlow);  // MaximumFlow
 
     return header;
 }

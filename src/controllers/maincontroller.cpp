@@ -687,6 +687,12 @@ QVariantMap MainController::getCurrentProfile() const {
     profile["mode"] = m_currentProfile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
     profile["has_recommended_dose"] = m_currentProfile.hasRecommendedDose();
     profile["recommended_dose"] = m_currentProfile.recommendedDose();
+    profile["tank_desired_water_temperature"] = m_currentProfile.tankDesiredWaterTemperature();
+    profile["maximum_flow_range_advanced"] = m_currentProfile.maximumFlowRangeAdvanced();
+    profile["maximum_pressure_range_advanced"] = m_currentProfile.maximumPressureRangeAdvanced();
+    profile["maximum_pressure"] = m_currentProfile.maximumPressure();
+    profile["maximum_flow"] = m_currentProfile.maximumFlow();
+    profile["preinfuse_frame_count"] = m_currentProfile.preinfuseFrameCount();
 
     QVariantList steps;
     for (const auto& frame : m_currentProfile.steps()) {
@@ -784,6 +790,12 @@ QVariantMap MainController::getProfileByFilename(const QString& filename) const 
     result["mode"] = profile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
     result["has_recommended_dose"] = profile.hasRecommendedDose();
     result["recommended_dose"] = profile.recommendedDose();
+    result["tank_desired_water_temperature"] = profile.tankDesiredWaterTemperature();
+    result["maximum_flow_range_advanced"] = profile.maximumFlowRangeAdvanced();
+    result["maximum_pressure_range_advanced"] = profile.maximumPressureRangeAdvanced();
+    result["maximum_pressure"] = profile.maximumPressure();
+    result["maximum_flow"] = profile.maximumFlow();
+    result["preinfuse_frame_count"] = profile.preinfuseFrameCount();
 
     QVariantList steps;
     for (const auto& frame : profile.steps()) {
@@ -1346,6 +1358,18 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
     }
     if (profileData.contains("recommended_dose")) {
         m_currentProfile.setRecommendedDose(profileData["recommended_dose"].toDouble());
+    }
+    if (profileData.contains("tank_desired_water_temperature")) {
+        m_currentProfile.setTankDesiredWaterTemperature(profileData["tank_desired_water_temperature"].toDouble());
+    }
+    if (profileData.contains("maximum_flow_range_advanced")) {
+        m_currentProfile.setMaximumFlowRangeAdvanced(profileData["maximum_flow_range_advanced"].toDouble());
+    }
+    if (profileData.contains("maximum_pressure_range_advanced")) {
+        m_currentProfile.setMaximumPressureRangeAdvanced(profileData["maximum_pressure_range_advanced"].toDouble());
+    }
+    if (profileData.contains("preinfuse_frame_count")) {
+        m_currentProfile.setPreinfuseFrameCount(profileData["preinfuse_frame_count"].toInt());
     }
 
     // Update steps/frames - build new list atomically to avoid any reference issues

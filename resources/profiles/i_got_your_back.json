@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "The goal of this profile is to never fail to make an acceptable espresso, at any grinder dial setting. The profile detects the resistance by looking at the pressure. It then either it transitions to a flat 2.2ml/s flow shot at the low resistance (low pressure) or to bloom at the high resistance (high pressure/low flow rate).  Profile created by Shin.",
-    "preinfuse_frame_count": 0,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "steps": [
         {

@@ -2132,7 +2132,7 @@ void Settings::setBrewYieldOverride(double yield) {
             changed = true;
         }
     } else {
-        if (!qFuzzyCompare(m_brewYieldOverride, yield) || !m_hasBrewYieldOverride) {
+        if (!qFuzzyCompare(1.0 + m_brewYieldOverride, 1.0 + yield) || !m_hasBrewYieldOverride) {
             m_brewYieldOverride = yield;
             m_hasBrewYieldOverride = true;
             m_settings.setValue("brew/brewYieldOverride", yield);
@@ -2162,16 +2162,21 @@ void Settings::clearAllBrewOverrides() {
     }
 
     // Clear temperature override
+    bool tempChanged = false;
     if (m_hasTemperatureOverride || !qFuzzyIsNull(m_temperatureOverride)) {
         m_temperatureOverride = 0.0;
         m_hasTemperatureOverride = false;
         m_settings.remove("brew/temperatureOverride");
         m_settings.remove("brew/hasTemperatureOverride");
         changed = true;
+        tempChanged = true;
     }
 
     if (changed) {
         emit brewOverridesChanged();
+    }
+    if (tempChanged) {
+        emit temperatureOverrideChanged();
     }
 }
 

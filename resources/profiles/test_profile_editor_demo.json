@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "THIS IS NOT AN EDITABLE PROFILE - Although it will run a copy of D-FLow Q.\n        It is a dummy profile to test the profile_editor framework, this profile has a variable 'profile_editor demo'.    By Damian Nov 2025",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 0,
     "profile_type": "settings_2c",
     "recipe": {
         "bloomEnabled": false,

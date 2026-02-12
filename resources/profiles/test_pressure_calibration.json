@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "You will need a portafilter fitted with a pressure gauge that leaks or has a slow flow rate.  This profile will slowly rise to 9 bar and hold it.  Compare what is on the screen with what your analog pressure gauge tells you.  Go to Settings->Machine->Calibrate and enter the held pressure value, and then retest until the pressure until the two agree.",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "steps": [
         {

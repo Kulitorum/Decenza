@@ -147,6 +147,8 @@ Dialog {
                 anchors.fill: parent
                 frames: []
                 selectedFrameIndex: -1  // No selection in preview mode
+                targetWeight: root.profileData ? (root.profileData.target_weight || 0) : 0
+                targetVolume: root.profileData ? (root.profileData.target_volume || 0) : 0
             }
 
             // No data message

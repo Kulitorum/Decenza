@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "Put a 0.3mm puck simulator basket into a portafilter. Connect a bluetooth scale.  Run this profile. Change the Flow value on the Calibration page, and rerun this profile.  Repeat until the blue and brown lines follow each other.",
-    "preinfuse_frame_count": 0,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "steps": [
         {

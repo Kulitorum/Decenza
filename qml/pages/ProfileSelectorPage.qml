@@ -687,8 +687,9 @@ Page {
 
                                         onReleased: {
                                             favoritePill.anchors.fill = favoriteDelegate
-                                            // Calculate new position based on Y
-                                            var newIndex = Math.floor((favoritePill.y + favoritePill.height/2) / (Theme.scaled(60) + Theme.scaled(8)))
+                                            // Calculate new position based on Y (pill.y is relative to delegate, so add delegate.y for list position)
+                                            var contentPos = favoriteDelegate.y + favoritePill.y
+                                            var newIndex = Math.floor((contentPos + favoritePill.height/2) / (Theme.scaled(60) + Theme.scaled(8)))
                                             newIndex = Math.max(0, Math.min(newIndex, Settings.favoriteProfiles.length - 1))
                                             if (newIndex !== startIndex && startIndex >= 0) {
                                                 Settings.moveFavoriteProfile(startIndex, newIndex)

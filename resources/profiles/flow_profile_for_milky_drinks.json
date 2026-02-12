@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "John Buckman, the founder of Decent Espresso, finds that this flow profile produces the best espresso shots for milky drinks in the widest variety of circumstances. It is especially tolerant of not-yet-very-good barista technique.",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 0,
     "profile_type": "settings_2b",
     "recipe": {
         "bloomEnabled": false,

@@ -92,6 +92,16 @@ public:
     double minimumPressure() const { return m_minimumPressure; }
     void setMinimumPressure(double pressure) { m_minimumPressure = pressure; }
 
+    // === Advanced Limits (de1app settings_2c2) ===
+    double tankDesiredWaterTemperature() const { return m_tankDesiredWaterTemperature; }
+    void setTankDesiredWaterTemperature(double temp) { m_tankDesiredWaterTemperature = temp; }
+
+    double maximumFlowRangeAdvanced() const { return m_maximumFlowRangeAdvanced; }
+    void setMaximumFlowRangeAdvanced(double range) { m_maximumFlowRangeAdvanced = range; }
+
+    double maximumPressureRangeAdvanced() const { return m_maximumPressureRangeAdvanced; }
+    void setMaximumPressureRangeAdvanced(double range) { m_maximumPressureRangeAdvanced = range; }
+
     // === Steps/Frames ===
     const QList<ProfileFrame>& steps() const { return m_steps; }
     QList<ProfileFrame>& steps() { return m_steps; }
@@ -183,6 +193,26 @@ private:
     double m_maximumPressure = 12.0;
     double m_maximumFlow = 6.0;
     double m_minimumPressure = 0.0;
+
+    // Advanced limits (de1app settings_2c2)
+    double m_tankDesiredWaterTemperature = 0.0;
+    double m_maximumFlowRangeAdvanced = 0.6;
+    double m_maximumPressureRangeAdvanced = 0.6;
+
+    // Simple profile parameters (settings_2a/2b scalar params for frame generation)
+    // Stored in JSON so frames can be regenerated when loading profiles with empty steps
+    double m_preinfusionTime = 5.0;
+    double m_preinfusionFlowRate = 4.0;
+    double m_preinfusionStopPressure = 4.0;
+    double m_espressoPressure = 9.2;        // settings_2a only
+    double m_espressoHoldTime = 10.0;
+    double m_espressoDeclineTime = 25.0;
+    double m_pressureEnd = 4.0;             // settings_2a only
+    double m_flowProfileHold = 2.0;         // settings_2b only
+    double m_flowProfileDecline = 1.2;      // settings_2b only
+    double m_maximumFlowRangeDefault = 1.0; // settings_2a limiter range
+    double m_maximumPressureRangeDefault = 0.9; // settings_2b limiter range
+    bool m_tempStepsEnabled = false;
 
     // Frames
     int m_preinfuseFrameCount = 0;

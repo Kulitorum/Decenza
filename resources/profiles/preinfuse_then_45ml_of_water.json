@@ -10,6 +10,15 @@
     "notes": "Australian barista Matt Perger suggested this technique to us. The idea is to fully saturate your puck, and then squeeze the brewed coffee out using a calculated water volume.  This results in consistently brewed espresso without needing to use a scale.",
     "preinfuse_frame_count": 0,
     "profile_type": "settings_2b",
+    "preinfusion_time": 25,
+    "preinfusion_flow_rate": 8.0,
+    "preinfusion_stop_pressure": 4.0,
+    "espresso_hold_time": 20,
+    "espresso_decline_time": 0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_decline": 1.0,
+    "maximum_pressure_range_default": 0.9,
+    "temp_steps_enabled": false,
     "steps": [
         {
             "exit_flow_over": 6,

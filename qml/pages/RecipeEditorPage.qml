@@ -155,6 +155,11 @@ Page {
         }
     }
 
+    KeyboardAwareContainer {
+        id: keyboardContainer
+        anchors.fill: parent
+        textFields: [recipeNotesField]
+
     // Editor mode header
     Rectangle {
         id: editorModeHeader
@@ -221,6 +226,8 @@ Page {
                         anchors.margins: Theme.scaled(10)
                         frames: []  // Loaded via loadCurrentProfile()
                         selectedFrameIndex: recipeEditorPage.selectedFrameIndex
+                        targetWeight: profile ? (profile.target_weight || 0) : 0
+                        targetVolume: profile ? (profile.target_volume || 0) : 0
 
                         onFrameSelected: function(index) {
                             recipeEditorPage.selectedFrameIndex = index
@@ -610,6 +617,8 @@ Page {
         }
     }
 
+    } // KeyboardAwareContainer
+
     // Save error dialog
     Dialog {
         id: saveErrorDialog
@@ -672,7 +681,7 @@ Page {
         title: TranslationManager.translate("recipeEditor.saveRecipeAs", "Save Recipe As")
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
-        width: Theme.scaled(400)
+        width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
         standardButtons: Dialog.Save | Dialog.Cancel
 
@@ -755,7 +764,7 @@ Page {
         title: TranslationManager.translate("recipeEditor.profileExists", "Profile Exists")
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
-        width: Theme.scaled(400)
+        width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
         standardButtons: Dialog.Yes | Dialog.No
 

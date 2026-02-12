@@ -7,11 +7,16 @@
     "target_weight": 135.0,
     "target_volume": 180.0,
     "espresso_temperature": 95.0,
-    "temperature_presets": [91.0, 93.0, 95.0, 97.0],
+    "temperature_presets": [
+        91.0,
+        93.0,
+        95.0,
+        97.0
+    ],
     "maximum_pressure": 0,
     "maximum_flow": 0,
     "minimum_pressure": 0.0,
-    "preinfuse_frame_count": 2,
+    "preinfuse_frame_count": 0,
     "mode": "frame_based",
     "steps": [
         {

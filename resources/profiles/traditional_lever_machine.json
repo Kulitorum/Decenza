@@ -10,6 +10,15 @@
     "notes": "Lever espresso machines are why we refer to pulling an espresso.  You pull a spring-loaded lever by hand to create pressure on the coffee puck.  This 9 bar espresso is the most common type of classic lever espresso you'll have, and many fans consider lever shots to be the best espresso they've ever had.",
     "preinfuse_frame_count": 0,
     "profile_type": "settings_2a",
+    "preinfusion_time": 20,
+    "preinfusion_flow_rate": 8.0,
+    "preinfusion_stop_pressure": 4.0,
+    "espresso_pressure": 9.0,
+    "espresso_hold_time": 8,
+    "espresso_decline_time": 27,
+    "pressure_end": 0.0,
+    "maximum_flow_range_default": 1.0,
+    "temp_steps_enabled": true,
     "steps": [
         {
             "exit_flow_over": 6,

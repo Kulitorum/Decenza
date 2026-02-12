@@ -80,6 +80,8 @@ Page {
                     anchors.margins: Theme.scaled(8)
                     frames: []
                     selectedFrameIndex: -1
+                    targetWeight: profileData ? (profileData.target_weight || 0) : 0
+                    targetVolume: profileData ? (profileData.target_volume || 0) : 0
                 }
 
                 // No data message

@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 0,
     "profile_type": "settings_2a",
     "steps": [
         {

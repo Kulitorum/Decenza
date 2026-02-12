@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 3rd edition. By Damian Brakel",
-    "preinfuse_frame_count": 0,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "steps": [
         {

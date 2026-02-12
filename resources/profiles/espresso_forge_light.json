@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "A light roast pressure profile that emulates the flow and temperature characteristics of the Espresso Forge manual machine. Good for medium to light roasts where you want to mute the fruit flavors and up extraction to balance the shot more in comparison to a standard flat or lever profile.",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 0,
     "profile_type": "settings_2c",
     "steps": [
         {

@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "A very popular profile made with D-Flow, spun out as its own profile.  Optimized for medium-light beans. By Damian Brakel",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "recipe": {
         "bloomEnabled": false,

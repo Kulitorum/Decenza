@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "Use this profile with some cleaning product in a blind (no hole) portafilter basket, to thoroughly clean the inside of the group head.",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "steps": [
         {

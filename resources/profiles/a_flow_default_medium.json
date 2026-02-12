@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "A-Flow: an alternative profile for D-Flow",
-    "preinfuse_frame_count": 1,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "recipe": {
         "bloomEnabled": false,

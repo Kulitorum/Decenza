@@ -8,7 +8,7 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "Put a blank (no hole) basket into a portafilter, and run this program to stress test all the O-rings and water connections.  The intent of this test is to cause a water leak at any connection, if there is a weak spot.",
-    "preinfuse_frame_count": 0,
+    "preinfuse_frame_count": 2,
     "profile_type": "settings_2c",
     "steps": [
         {
