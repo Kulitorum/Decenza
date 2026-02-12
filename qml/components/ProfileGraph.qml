@@ -131,7 +131,7 @@ ChartView {
         id: pressureSeries0
         name: "Pressure"
         color: Theme.pressureGoalColor
-        width: Math.max(3, Theme.graphLineWidth)
+        width: Math.max(Theme.scaled(3), Theme.graphLineWidth)
         axisX: timeAxis
         axisY: pressureAxis
     }
@@ -141,7 +141,7 @@ ChartView {
         id: flowSeries0
         name: "Flow"
         color: Theme.flowGoalColor
-        width: Math.max(3, Theme.graphLineWidth)
+        width: Math.max(Theme.scaled(3), Theme.graphLineWidth)
         axisX: timeAxis
         axisY: pressureAxis
     }
@@ -151,7 +151,7 @@ ChartView {
         id: temperatureGoalSeries
         name: "Temperature"
         color: Theme.temperatureGoalColor
-        width: Math.max(2, Theme.graphLineWidth - 1)
+        width: Math.max(Theme.scaled(2), Theme.graphLineWidth - Theme.scaled(1))
         style: Qt.DashLine
         axisX: timeAxis
         axisYRight: tempAxis

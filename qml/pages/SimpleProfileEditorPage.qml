@@ -128,7 +128,6 @@ Page {
         if (loadedProfile && loadedProfile.steps) {
             profile = loadedProfile
             profileGraph.frames = profile.steps.slice()
-            profileGraph.refresh()
         }
     }
 
@@ -146,7 +145,6 @@ Page {
         if (loadedProfile && loadedProfile.steps) {
             profile = loadedProfile
             profileGraph.frames = profile.steps.slice()
-            profileGraph.refresh()
         }
     }
 
@@ -1222,7 +1220,6 @@ Page {
         onTriggered: {
             if (profile && profile.steps) {
                 profileGraph.frames = profile.steps.slice()
-                profileGraph.refresh()
             }
         }
     }
