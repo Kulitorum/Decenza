@@ -955,7 +955,7 @@ QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profil
     obj["tank_temperature"] = "0";
     obj["target_weight"] = QString::number(profile->targetWeight(), 'f', 0);
     obj["target_volume"] = QString::number(profile->targetVolume(), 'f', 0);
-    obj["target_volume_count_start"] = "2";
+    obj["target_volume_count_start"] = QString::number(profile->preinfuseFrameCount());
     obj["legacy_profile_type"] = profile->profileType();
     obj["type"] = "advanced";
     obj["lang"] = "en";

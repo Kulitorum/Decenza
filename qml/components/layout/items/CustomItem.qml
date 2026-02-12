@@ -50,6 +50,7 @@ Item {
         if (typeof MachineState !== "undefined") {
             void(MachineState.scaleWeight); void(MachineState.shotTime)
             void(MachineState.cumulativeVolume)
+            void(MachineState.preinfusionVolume); void(MachineState.pourVolume)
         }
         if (typeof MainController !== "undefined") {
             void(MainController.targetWeight); void(MainController.currentProfileName)
@@ -110,6 +111,8 @@ Item {
         result = result.replace(/%WEIGHT%/g, typeof MachineState !== "undefined" ? MachineState.scaleWeight.toFixed(1) : "—")
         result = result.replace(/%SHOT_TIME%/g, typeof MachineState !== "undefined" ? MachineState.shotTime.toFixed(1) : "—")
         result = result.replace(/%VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.cumulativeVolume.toFixed(0) : "—")
+        result = result.replace(/%POUR_VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.pourVolume.toFixed(0) : "—")
+        result = result.replace(/%PREINFUSION_VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.preinfusionVolume.toFixed(0) : "—")
         // Controller
         result = result.replace(/%TARGET_WEIGHT%/g, typeof MainController !== "undefined" ? MainController.targetWeight.toFixed(1) : "—")
         result = result.replace(/%PROFILE%/g, typeof MainController !== "undefined" ? MainController.currentProfileName : "—")

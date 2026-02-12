@@ -252,7 +252,9 @@ void MachineState::updatePhase() {
                 m_stopAtWeightTriggered = false;
                 m_stopAtVolumeTriggered = false;
                 m_stopAtTimeTriggered = false;
-                m_cumulativeVolume = 0.0;  // Reset volume tracking
+                m_preinfusionVolume = 0.0;
+                m_pourVolume = 0.0;
+                m_cumulativeVolume = 0.0;
 
                 // CRITICAL: Clear any pending BLE commands to prevent stale profile uploads
                 // from executing during active operations. This fixes a bug where queued
@@ -452,11 +454,12 @@ void MachineState::checkStopAtVolume() {
     double lagSeconds = 0.5;
     double lagCompensation = flowRate * lagSeconds;
 
-    if (m_cumulativeVolume >= (target - lagCompensation)) {
+    if (m_pourVolume >= (target - lagCompensation)) {
         m_stopAtVolumeTriggered = true;
         emit targetVolumeReached();
 
-        qDebug() << "MachineState: Target volume reached -" << m_cumulativeVolume << "ml /" << target << "ml";
+        qDebug() << "MachineState: Target pour volume reached -" << m_pourVolume
+                 << "ml (preinfusion:" << m_preinfusionVolume << "ml, total:" << m_cumulativeVolume << "ml) /" << target << "ml";
 
         // Stop the operation
         if (m_device) {
@@ -479,11 +482,20 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
         m_scale->addFlowSample(flowRate, deltaTime);
     }
 
-    // Integrate flow to track cumulative volume (ml)
+    // Integrate flow to track volume (ml), split by phase like de1app
     // flowRate is in ml/s, deltaTime is in seconds
     double volumeDelta = flowRate * deltaTime;
     if (volumeDelta > 0) {
-        m_cumulativeVolume += volumeDelta;
+        // Split volume by phase: preinfusion vs pouring (matches de1app behavior)
+        if (m_phase == Phase::Preinfusion) {
+            m_preinfusionVolume += volumeDelta;
+            emit preinfusionVolumeChanged();
+        } else {
+            // Pouring, HotWater, and all other flowing states count as pour volume
+            m_pourVolume += volumeDelta;
+            emit pourVolumeChanged();
+        }
+        m_cumulativeVolume = m_preinfusionVolume + m_pourVolume;
         emit cumulativeVolumeChanged();
 
         // Check if we should stop at volume (only during espresso)

@@ -23,6 +23,8 @@ class MachineState : public QObject {
     Q_PROPERTY(double scaleWeight READ scaleWeight NOTIFY scaleWeightChanged)
     Q_PROPERTY(double scaleFlowRate READ scaleFlowRate NOTIFY scaleWeightChanged)
     Q_PROPERTY(double cumulativeVolume READ cumulativeVolume NOTIFY cumulativeVolumeChanged)
+    Q_PROPERTY(double preinfusionVolume READ preinfusionVolume NOTIFY preinfusionVolumeChanged)
+    Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged)
     Q_PROPERTY(StopAtType stopAtType READ stopAtType NOTIFY stopAtTypeChanged)
 
 public:
@@ -63,6 +65,8 @@ public:
     double targetWeight() const { return m_targetWeight; }
     double targetVolume() const { return m_targetVolume; }
     double cumulativeVolume() const { return m_cumulativeVolume; }
+    double preinfusionVolume() const { return m_preinfusionVolume; }
+    double pourVolume() const { return m_pourVolume; }
     StopAtType stopAtType() const { return m_stopAtType; }
 
     void setScale(ScaleDevice* scale);
@@ -88,6 +92,8 @@ signals:
     void targetWeightChanged();
     void targetVolumeChanged();
     void cumulativeVolumeChanged();
+    void preinfusionVolumeChanged();
+    void pourVolumeChanged();
     void stopAtTypeChanged();
     void scaleWeightChanged();
     void espressoCycleStarted();  // When entering espresso preheating (clear graph here)
@@ -121,7 +127,9 @@ private:
     double m_shotTime = 0.0;
     double m_targetWeight = 36.0;
     double m_targetVolume = 36.0;
-    double m_cumulativeVolume = 0.0;  // Integrated volume from flow meter (ml)
+    double m_cumulativeVolume = 0.0;    // Total volume from flow meter (preinfusion + pour)
+    double m_preinfusionVolume = 0.0;   // Volume during preinfusion substate (ml)
+    double m_pourVolume = 0.0;          // Volume during pouring substate (ml)
     StopAtType m_stopAtType = StopAtType::Weight;
 
     QTimer* m_shotTimer = nullptr;

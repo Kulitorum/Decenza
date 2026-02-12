@@ -41,7 +41,7 @@ Page {
                 return "Temperature: " + DE1Device.temperature.toFixed(1) + " degrees"
             case 5: // Weight or Volume
                 if (MachineState.stopAtType === MachineStateType.StopAtType.Volume) {
-                    return "Volume: " + MachineState.cumulativeVolume.toFixed(1) + " of " + MachineState.targetVolume.toFixed(0) + " milliliters"
+                    return "Volume: " + MachineState.pourVolume.toFixed(1) + " of " + MachineState.targetVolume.toFixed(0) + " milliliters"
                 }
                 return "Weight: " + espressoPage.currentWeight.toFixed(1) + " of " + MainController.targetWeight.toFixed(0) + " grams"
             default:
@@ -475,7 +475,7 @@ Page {
 
                 // Helper properties for weight vs volume mode
                 readonly property bool isVolumeMode: MachineState.stopAtType === MachineStateType.StopAtType.Volume
-                readonly property double currentValue: isVolumeMode ? MachineState.cumulativeVolume : espressoPage.currentWeight
+                readonly property double currentValue: isVolumeMode ? MachineState.pourVolume : espressoPage.currentWeight
                 readonly property double targetValue: isVolumeMode ? MachineState.targetVolume : MainController.targetWeight
                 readonly property string unit: isVolumeMode ? "ml" : "g"
                 readonly property color displayColor: isVolumeMode ? Theme.flowColor : Theme.weightColor
