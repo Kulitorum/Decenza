@@ -1158,7 +1158,7 @@ void MainController::refreshProfiles() {
                 // Override built-in entry so list matches what loadProfile() actually loads
                 for (int i = 0; i < m_allProfiles.size(); ++i) {
                     if (m_allProfiles[i].filename == name) {
-                        m_allProfiles[i].source = ProfileSource::UserCreated;
+                        m_allProfiles[i] = info;
                         break;
                     }
                 }

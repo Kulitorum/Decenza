@@ -43,7 +43,7 @@ Page {
         if (!profile || !profile.steps || frameIndex < 0 || frameIndex >= profile.steps.length)
             return "preinfusion"
         var name = (profile.steps[frameIndex].name || "").toLowerCase()
-        if (name.indexOf("preinfusion") !== -1) return "preinfusion"
+        if (name.indexOf("preinfusion") !== -1 || name.indexOf("temp boost") !== -1) return "preinfusion"
         if (isFlow) {
             if (name.indexOf("hold") !== -1) return "hold"
         } else {
@@ -51,6 +51,10 @@ Page {
             if (name.indexOf("rise and hold") !== -1) return "hold"
         }
         if (name.indexOf("decline") !== -1) return "decline"
+        // Position-based fallback for profiles with non-standard frame names
+        var totalFrames = profile.steps.length
+        if (frameIndex === 0) return "preinfusion"
+        if (frameIndex >= totalFrames - 1) return "decline"
         return "hold"
     }
 
@@ -62,6 +66,7 @@ Page {
             case "decline": targetY = declineSection.y; break
             default: return
         }
+        scrollUpdateTimer.stop()  // Prevent race with pending timer
         scrollingFromSelection = true
         var scrollTarget = Math.max(0, targetY - editorScrollView.height / 4)
         editorScrollView.contentItem.contentY = scrollTarget
@@ -417,7 +422,7 @@ Page {
                                     Text { text: tr("preinfuse", "Preinfuse"); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     Item { Layout.fillWidth: true }
                                     Rectangle {
-                                        Layout.preferredWidth: tempPreinfuseLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(24)
+                                        Layout.preferredWidth: tempPreinfuseLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(32)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Text { id: tempPreinfuseLabel; anchors.centerIn: parent; text: stepTemp("tempStart").toFixed(1) + "/" + stepTemp("tempPreinfuse").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
                                         MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit preinfuse temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
@@ -473,7 +478,7 @@ Page {
                                     Text { text: isFlow ? tr("hold", "Hold") : tr("riseAndHold", "Rise and Hold"); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     Item { Layout.fillWidth: true }
                                     Rectangle {
-                                        Layout.preferredWidth: tempHoldLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(24)
+                                        Layout.preferredWidth: tempHoldLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(32)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Text { id: tempHoldLabel; anchors.centerIn: parent; text: stepTemp("tempHold").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
                                         MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit hold temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
@@ -559,7 +564,7 @@ Page {
                                     Text { text: tr("decline", "Decline"); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     Item { Layout.fillWidth: true }
                                     Rectangle {
-                                        Layout.preferredWidth: tempDeclineLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(24)
+                                        Layout.preferredWidth: tempDeclineLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(32)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Text { id: tempDeclineLabel; anchors.centerIn: parent; text: stepTemp("tempDecline").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
                                         MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit decline temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }

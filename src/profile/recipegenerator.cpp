@@ -84,7 +84,7 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     if (recipe.editorType == "pressure" || recipe.editorType == "flow") {
         // Simple profiles: count preinfusion frames (1 or 2 with temp boost)
         if (recipe.preinfusionTime > 0) {
-            bool hasTempBoost = (recipe.tempStart != recipe.tempPreinfuse);
+            bool hasTempBoost = !qFuzzyCompare(1.0 + recipe.tempStart, 1.0 + recipe.tempPreinfuse);
             if (hasTempBoost && recipe.preinfusionTime > 2.0) {
                 preinfuseCount = 2;  // boost + preinfusion
             } else {
@@ -409,7 +409,7 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
     // When tempStart != tempPreinfuse, split into a 2-second temp boost at tempStart
     // followed by remaining time at tempPreinfuse (matches de1app's temp_bump_time_seconds)
     if (recipe.preinfusionTime > 0) {
-        bool needTempBoost = (tempStart != tempPreinfuse);
+        bool needTempBoost = !qFuzzyCompare(1.0 + tempStart, 1.0 + tempPreinfuse);
         double boostDuration = 2.0;  // de1app: temp_bump_time_seconds
 
         if (needTempBoost) {
@@ -579,7 +579,7 @@ QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& reci
     // When tempStart != tempPreinfuse, split into a 2-second temp boost at tempStart
     // followed by remaining time at tempPreinfuse (matches de1app's temp_bump_time_seconds)
     if (recipe.preinfusionTime > 0) {
-        bool needTempBoost = (tempStart != tempPreinfuse);
+        bool needTempBoost = !qFuzzyCompare(1.0 + tempStart, 1.0 + tempPreinfuse);
         double boostDuration = 2.0;  // de1app: temp_bump_time_seconds
 
         if (needTempBoost) {

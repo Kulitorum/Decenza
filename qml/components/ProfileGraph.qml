@@ -131,7 +131,7 @@ ChartView {
         id: pressureSeries0
         name: "Pressure"
         color: Theme.pressureGoalColor
-        width: Math.max(Theme.scaled(3), Theme.graphLineWidth)
+        width: 3
         axisX: timeAxis
         axisY: pressureAxis
     }
@@ -141,7 +141,7 @@ ChartView {
         id: flowSeries0
         name: "Flow"
         color: Theme.flowGoalColor
-        width: Math.max(Theme.scaled(3), Theme.graphLineWidth)
+        width: 3
         axisX: timeAxis
         axisY: pressureAxis
     }
@@ -151,7 +151,7 @@ ChartView {
         id: temperatureGoalSeries
         name: "Temperature"
         color: Theme.temperatureGoalColor
-        width: Math.max(Theme.scaled(2), Theme.graphLineWidth - Theme.scaled(1))
+        width: 2
         style: Qt.DashLine
         axisX: timeAxis
         axisYRight: tempAxis
@@ -277,12 +277,13 @@ ChartView {
         var lastFlow = 0       // last flow value for curve continuity
         var hadPreinfusionSim = false  // whether we've shown the absorption curve
 
-        // Hardcoded preinfusion simulation data (from de1app D-Flow demo_graph).
-        // Time fractions (0-1) across the frame duration
+        // Preinfusion simulation data from de1app D-Flow demo_graph
+        // (de1plus/plugins/D_Flow_Espresso_Profile/demo_graph.tcl)
+        // simTimeFracs: normalized time positions within the frame
+        // simPressureFactors: pressure build-up (0→1) as puck saturates
+        // simFlowValues: flow absorption curve (mL/s) — water rushes in then drops as puck resists
         var simTimeFracs = [0, 0.067, 0.133, 0.2, 0.267, 0.333, 0.4, 0.467, 0.6, 0.7, 1.0]
-        // Pressure build-up factors (0-1 of target pressure)
         var simPressureFactors = [0, 0, 0, 0, 0.7, 0.93, 1.0, 1.0, 1.0, 1.0, 1.0]
-        // Flow absorption curve (mL/s) — water rushes into dry puck then drops
         var simFlowValues = [0, 5.6, 7.6, 8.3, 8.2, 6.0, 2.9, 1.3, 0.6, 0.4, 0.3]
 
         for (var i = 0; i < frames.length; i++) {

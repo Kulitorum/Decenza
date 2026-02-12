@@ -64,6 +64,7 @@ Page {
             default: return
         }
 
+        scrollUpdateTimer.stop()  // Prevent race with pending timer
         scrollingFromSelection = true
         // Center the section in the view
         var scrollTarget = Math.max(0, targetY - recipeScrollView.height / 4)

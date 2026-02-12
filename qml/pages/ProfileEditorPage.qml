@@ -1495,7 +1495,7 @@ Page {
         // This ensures the new step's data is properly bound
         stepVersion++
 
-        selectedStepIndex = insertIndex
+        Qt.callLater(function() { selectedStepIndex = insertIndex })
         // Force graph update by reassigning frames array
         profileGraph.frames = []
         profileGraph.frames = profile.steps
@@ -1515,7 +1515,7 @@ Page {
         // Force step editor bindings to re-evaluate BEFORE changing selection
         stepVersion++
 
-        selectedStepIndex = index + 1
+        Qt.callLater(function() { selectedStepIndex = index + 1 })
         // Force graph update by reassigning frames array
         profileGraph.frames = []
         profileGraph.frames = profile.steps

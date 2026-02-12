@@ -43,17 +43,17 @@ Item {
         anchors.fill: parent
 
         onPressed: function(mouse) {
-            var handleWidth = slider.handle ? slider.handle.width : 28
+            var handleWidth = slider.handle && slider.handle.width > 0 ? slider.handle.width : Theme.scaled(28)
             var handleCenterX = slider.leftPadding + slider.visualPosition * (slider.availableWidth - handleWidth) + handleWidth / 2
             // If click is near the handle, let slider handle it for dragging
-            if (Math.abs(mouse.x - handleCenterX) <= handleWidth / 2 + 8) {
+            if (Math.abs(mouse.x - handleCenterX) <= handleWidth / 2 + Theme.scaled(10)) {
                 mouse.accepted = false
                 return
             }
         }
 
         onClicked: function(mouse) {
-            var handleWidth = slider.handle ? slider.handle.width : 28
+            var handleWidth = slider.handle && slider.handle.width > 0 ? slider.handle.width : Theme.scaled(28)
             var handleCenterX = slider.leftPadding + slider.visualPosition * (slider.availableWidth - handleWidth) + handleWidth / 2
             if (mouse.x < handleCenterX) {
                 slider.decrease()
