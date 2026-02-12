@@ -357,6 +357,7 @@ set(QML_FILES
     qml/pages/SettingsPage.qml
     qml/pages/ProfileEditorPage.qml
     qml/pages/RecipeEditorPage.qml
+    qml/pages/SimpleProfileEditorPage.qml
     qml/pages/PressureEditorPage.qml
     qml/pages/FlowEditorPage.qml
     qml/pages/ProfileSelectorPage.qml
