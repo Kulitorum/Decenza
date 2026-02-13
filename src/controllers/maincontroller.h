@@ -162,7 +162,7 @@ public:
 
     // Recipe Editor methods
     Q_INVOKABLE void uploadRecipeProfile(const QVariantMap& recipeParams);
-    Q_INVOKABLE QVariantMap getCurrentRecipeParams();
+    Q_INVOKABLE QVariantMap getOrConvertRecipeParams();
     Q_INVOKABLE void createNewRecipe(const QString& title = "New Recipe");
     Q_INVOKABLE void createNewAFlowRecipe(const QString& title = "New A-Flow Recipe");
     Q_INVOKABLE void createNewPressureProfile(const QString& title = "New Pressure Profile");
@@ -259,6 +259,7 @@ private slots:
 private:
     void loadDefaultProfile();
     void migrateProfileFolders();
+    void createNewProfileWithEditorType(EditorType type, const QString& title);
     QString profilesPath() const;
     QString userProfilesPath() const;
     QString downloadedProfilesPath() const;

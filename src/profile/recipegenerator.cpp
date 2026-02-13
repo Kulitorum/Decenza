@@ -1,45 +1,61 @@
 #include "recipegenerator.h"
 #include "profile.h"
+#include <QDebug>
 
 QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) {
     // Branch on editor type
-    if (recipe.editorType == "pressure") {
+    switch (recipe.editorType) {
+    case EditorType::Pressure:
         return generatePressureFrames(recipe);
-    }
-    if (recipe.editorType == "flow") {
+    case EditorType::Flow:
         return generateFlowFrames(recipe);
-    }
-    if (recipe.editorType == "aflow") {
+    case EditorType::AFlow:
         return generateAFlowFrames(recipe);
+    case EditorType::DFlow:
+        break;  // Fall through to D-Flow generation below
     }
 
     // D-Flow frame generation
     QList<ProfileFrame> frames;
 
-    // Frame 0: Fill - flow mode to saturate puck
+    // Fill - flow mode to saturate puck (always first)
     frames.append(createFillFrame(recipe));
 
-    // Frame 1: Bloom - optional pause for CO2 release (before infuse)
+    // Bloom - optional pause for CO2 release
     if (recipe.bloomEnabled && recipe.bloomTime > 0) {
         frames.append(createBloomFrame(recipe));
     }
 
-    // Frame 2: Infuse - hold at soak pressure (if enabled)
+    // Infuse - hold at soak pressure (if enabled)
     if (recipe.infuseEnabled) {
         frames.append(createInfuseFrame(recipe));
     }
 
-    // Frame 3: Ramp - smooth transition to pour setpoint (if enabled and has duration)
+    // Ramp - smooth transition to pour setpoint (if enabled and has duration)
     if (recipe.rampEnabled && recipe.rampTime > 0) {
         frames.append(createRampFrame(recipe));
     }
 
-    // Frame 4: Pour - main extraction phase
+    // Pour - main extraction phase
     frames.append(createPourFrame(recipe));
 
-    // Frame 5: Decline - optional flow decline
+    // Decline - optional flow decline
     if (recipe.declineEnabled) {
         frames.append(createDeclineFrame(recipe));
+    }
+
+    // Fallback: add empty frame if no frames were created (consistency with other generators)
+    if (frames.isEmpty()) {
+        qWarning() << "RecipeGenerator: D-Flow generateFrames produced 0 frames, adding fallback";
+        ProfileFrame empty;
+        empty.name = "empty";
+        empty.temperature = 90.0;
+        empty.sensor = "coffee";
+        empty.pump = "flow";
+        empty.transition = "fast";
+        empty.flow = 0.0;
+        empty.seconds = 0.0;
+        frames.append(empty);
     }
 
     return frames;
@@ -54,9 +70,9 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     profile.setBeverageType("espresso");
 
     // Set profile type based on editor type
-    if (recipe.editorType == "pressure") {
+    if (recipe.editorType == EditorType::Pressure) {
         profile.setProfileType("settings_2a");
-    } else if (recipe.editorType == "flow") {
+    } else if (recipe.editorType == EditorType::Flow) {
         profile.setProfileType("settings_2b");
     } else {
         profile.setProfileType("settings_2c");
@@ -67,7 +83,7 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     profile.setTargetVolume(recipe.targetVolume > 0 ? recipe.targetVolume : 100.0);
     // For pressure/flow profiles, use tempHold as the machine's baseline temp
     // (tempStart is a 2-second boost and doesn't represent the main extraction temp)
-    if (recipe.editorType == "pressure" || recipe.editorType == "flow") {
+    if (recipe.editorType == EditorType::Pressure || recipe.editorType == EditorType::Flow) {
         profile.setEspressoTemperature(recipe.tempHold);
     } else {
         profile.setEspressoTemperature(recipe.pourTemperature);
@@ -79,28 +95,12 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     // Generate and set frames
     profile.setSteps(generateFrames(recipe));
 
-    // Calculate preinfuse frame count
-    int preinfuseCount = 1;  // Preinfusion is always first
-    if (recipe.editorType == "pressure" || recipe.editorType == "flow") {
-        // Simple profiles: count preinfusion frames (1 or 2 with temp boost)
-        if (recipe.preinfusionTime > 0) {
-            bool hasTempBoost = !qFuzzyCompare(1.0 + recipe.tempStart, 1.0 + recipe.tempPreinfuse);
-            if (hasTempBoost && recipe.preinfusionTime > 2.0) {
-                preinfuseCount = 2;  // boost + preinfusion
-            } else {
-                preinfuseCount = 1;  // single frame (preinfusion or boost only)
-            }
-        } else {
-            preinfuseCount = 0;
-        }
-    } else if (recipe.editorType == "aflow") {
-        // A-Flow: only Fill counts as preinfuse (matches de1plus profiles)
-    } else {
-        if (recipe.bloomEnabled && recipe.bloomTime > 0) preinfuseCount++;
-        if (recipe.infuseEnabled) preinfuseCount++;
-        if (recipe.rampEnabled && recipe.rampTime > 0) preinfuseCount++;
+    if (profile.steps().size() == 1 && profile.steps()[0].name == "empty") {
+        qWarning() << "RecipeGenerator::createProfile: recipe produced fallback empty frame for" << title;
     }
-    profile.setPreinfuseFrameCount(preinfuseCount);
+
+    // Count preinfuse frames from actual generated frames (authoritative)
+    profile.setPreinfuseFrameCount(Profile::countPreinfuseFrames(profile.steps()));
 
     // Store recipe params for re-editing
     profile.setRecipeMode(true);
@@ -178,13 +178,15 @@ ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
 
     // Duration depends on mode
     if (recipe.infuseByWeight) {
-        // Long timeout, actual exit handled by weight popup
+        // Long timeout: app monitors scale weight and sends SkipToNext when target is reached
         frame.seconds = 60.0;
+        // Set exit weight for app-side SkipToNext (independent of exitIf per CLAUDE.md)
+        frame.exitWeight = recipe.infuseWeight;
     } else {
         frame.seconds = recipe.infuseTime;
     }
 
-    // No exit condition for time-based, or weight-based handled by popup
+    // No machine-side exit condition; time-based exits via frame timeout, weight-based exits via app-side SkipToNext
     frame.exitIf = false;
     frame.exitType = "";
     frame.exitPressureOver = 0.0;
@@ -391,6 +393,20 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(extraction);
     }
 
+    // Fallback: add empty frame if no frames were created
+    if (frames.isEmpty()) {
+        qWarning() << "RecipeGenerator: generateAFlowFrames produced 0 frames, adding fallback";
+        ProfileFrame empty;
+        empty.name = "empty";
+        empty.temperature = 90.0;
+        empty.sensor = "coffee";
+        empty.pump = "flow";
+        empty.transition = "fast";
+        empty.flow = 0.0;
+        empty.seconds = 0.0;
+        frames.append(empty);
+    }
+
     return frames;
 }
 
@@ -538,7 +554,6 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         decline.seconds = declineTime;
         decline.volume = 0;
         decline.exitIf = false;
-        decline.exitFlowOver = 6.0;
         if (recipe.limiterValue > 0) {
             decline.maxFlowOrPressure = recipe.limiterValue;
             decline.maxFlowOrPressureRange = recipe.limiterRange;
@@ -548,6 +563,7 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
+        qWarning() << "generatePressureFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -683,6 +699,7 @@ QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& reci
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
+        qWarning() << "generateFlowFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;

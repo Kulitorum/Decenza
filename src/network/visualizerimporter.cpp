@@ -770,15 +770,7 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
         profile.setEspressoTemperature(profile.steps().first().temperature);
     }
 
-    int preinfuseCount = 0;
-    for (const auto& step : profile.steps()) {
-        if (step.exitIf) {
-            preinfuseCount++;
-        } else {
-            break;
-        }
-    }
-    profile.setPreinfuseFrameCount(preinfuseCount);
+    profile.setPreinfuseFrameCount(Profile::countPreinfuseFrames(profile.steps()));
 
     qDebug() << "Parsed Visualizer profile:" << profile.title()
              << "with" << profile.steps().size() << "steps";

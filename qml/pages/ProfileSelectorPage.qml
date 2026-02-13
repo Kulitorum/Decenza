@@ -858,6 +858,8 @@ Page {
                     Layout.preferredHeight: Theme.scaled(48)
                     radius: Theme.scaled(6)
                     color: typeMouseArea.containsMouse ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : Theme.backgroundColor
+                    Accessible.role: Accessible.Button
+                    Accessible.name: modelData.label
 
                     Text {
                         anchors.fill: parent
@@ -872,6 +874,7 @@ Page {
                         id: typeMouseArea
                         anchors.fill: parent
                         hoverEnabled: true
+                        Accessible.ignored: true
                         onClicked: {
                             newProfileDialog.close()
                             var profileType = modelData.type

@@ -21,12 +21,15 @@ Item {
 
     signal moved()
 
-    implicitHeight: slider.implicitHeight
+    implicitHeight: Math.max(slider.implicitHeight, Theme.touchTargetMin)
     implicitWidth: 200
 
     Accessible.role: Accessible.Slider
     Accessible.name: root.accessibleName
+    Accessible.description: root.value.toFixed(root.stepSize < 1 ? 1 : 0)
     Accessible.focusable: true
+    Accessible.onIncreaseAction: { slider.increase(); root.value = slider.value; root.moved() }
+    Accessible.onDecreaseAction: { slider.decrease(); root.value = slider.value; root.moved() }
 
     // Slider is visual-only; the MouseArea handles all input
     Slider {
@@ -42,19 +45,27 @@ Item {
 
     MouseArea {
         anchors.fill: parent
-        preventStealing: true
+        preventStealing: isDrag
 
         property real pressX: 0
+        property real pressY: 0
         property bool isDrag: false
+
+        Accessible.ignored: true
 
         onPressed: function(mouse) {
             pressX = mouse.x
+            pressY = mouse.y
             isDrag = false
         }
 
         onPositionChanged: function(mouse) {
-            if (!isDrag && Math.abs(mouse.x - pressX) > Theme.scaled(4)) {
-                isDrag = true
+            var deltaX = Math.abs(mouse.x - pressX)
+            var deltaY = Math.abs(mouse.y - pressY)
+            if (!isDrag && deltaX > Theme.scaled(4)) {
+                if (deltaX > deltaY * 1.5) {
+                    isDrag = true
+                }
             }
             if (isDrag) {
                 var trackWidth = slider.availableWidth

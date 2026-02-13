@@ -1,20 +1,47 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <QJsonObject>
 #include <QVariantMap>
+
+/**
+ * EditorType determines which frame generation strategy is used.
+ */
+enum class EditorType {
+    DFlow,      // D-Flow (Damian Brakel): Fill → Infuse → Pour
+    AFlow,      // A-Flow (Janek): Fill → Infuse → Pressure Ramp → Pour
+    Pressure,   // Simple pressure profile (settings_2a)
+    Flow        // Simple flow profile (settings_2b)
+};
+
+inline QString editorTypeToString(EditorType type) {
+    switch (type) {
+    case EditorType::DFlow:    return QStringLiteral("dflow");
+    case EditorType::AFlow:    return QStringLiteral("aflow");
+    case EditorType::Pressure: return QStringLiteral("pressure");
+    case EditorType::Flow:     return QStringLiteral("flow");
+    }
+    return QStringLiteral("dflow");
+}
+
+inline EditorType editorTypeFromString(const QString& str) {
+    if (str == QLatin1String("aflow"))    return EditorType::AFlow;
+    if (str == QLatin1String("pressure")) return EditorType::Pressure;
+    if (str == QLatin1String("flow"))     return EditorType::Flow;
+    return EditorType::DFlow;  // Default fallback
+}
 
 /**
  * RecipeParams holds the high-level "coffee concept" parameters
  * for the Recipe Editor. These parameters are converted to DE1
  * frames by RecipeGenerator.
  *
- * Supports two editor types:
- * - D-Flow (by Damian Brakel): Fill → Infuse → Pour (flow-driven with pressure limit)
- * - A-Flow (by Janek, forked from D-Flow): Fill → Infuse → Pressure Ramp → Pour
- *
- * Editor type is determined by profile title prefix ("D-Flow" or "A-Flow"),
- * matching de1app behavior.
+ * Supports four editor types via EditorType enum:
+ * - DFlow: Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
+ * - AFlow: Fill → [Infuse] → Pressure Up → Pressure Decline → Flow Start → Flow Extraction
+ * - Pressure: Preinfusion → [Forced Rise] → Hold → Decline (settings_2a)
+ * - Flow: Preinfusion → Hold → Decline (settings_2b)
  */
 struct RecipeParams {
     // === Core Parameters ===
@@ -48,7 +75,7 @@ struct RecipeParams {
     bool rampEnabled = true;            // Enable ramp transition phase
     double rampTime = 5.0;              // Transition ramp duration (seconds)
 
-    // === Decline Phase (D-Flow only) ===
+    // === Decline Phase (D-Flow/A-Flow recipes — simple profiles use simpleDeclineTime below) ===
     bool declineEnabled = false;        // Enable flow decline during extraction
     double declineTo = 1.0;             // Target flow to decline to (mL/s)
     double declineTime = 30.0;          // Decline duration (seconds)
@@ -74,7 +101,14 @@ struct RecipeParams {
     double tempDecline = 90.0;           // Decline temperature (Celsius)
 
     // === Editor Type ===
-    QString editorType = "dflow";       // "dflow", "aflow", "pressure", or "flow" — determines frame generation
+    EditorType editorType = EditorType::DFlow;  // Determines frame generation strategy
+
+    // === Validation ===
+    // Returns list of issues found (empty = valid)
+    QStringList validate() const;
+
+    // Clamp all values to hardware-safe ranges
+    void clamp();
 
     // === Serialization ===
     QJsonObject toJson() const;

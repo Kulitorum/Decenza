@@ -16,9 +16,14 @@ Page {
     background: Rectangle { color: Theme.backgroundColor }
 
     property var profile: null
-    property var recipe: MainController.getCurrentRecipeParams()
+    property var recipe: MainController.getOrConvertRecipeParams()
     property bool recipeModified: MainController.profileModified
     property string originalProfileName: MainController.baseProfileName
+
+    // Helper: get value with fallback, safe for 0 values (avoids JS falsy coercion)
+    function val(v, fallback) {
+        return (v !== undefined && v !== null) ? v : fallback
+    }
 
     // Track selected frame for scroll synchronization
     property int selectedFrameIndex: -1
@@ -64,12 +69,12 @@ Page {
             default: return
         }
 
-        scrollUpdateTimer.stop()  // Prevent race with pending timer
         scrollingFromSelection = true
         // Center the section in the view
         var scrollTarget = Math.max(0, targetY - recipeScrollView.height / 4)
         recipeScrollView.contentItem.contentY = scrollTarget
-        scrollResetTimer.restart()
+        // Clear flag after synchronous binding updates have propagated
+        Qt.callLater(function() { scrollingFromSelection = false })
     }
 
     // Find which section is most centered in the scroll view
@@ -113,15 +118,10 @@ Page {
         return -1
     }
 
-    Timer {
-        id: scrollResetTimer
-        interval: 300
-        onTriggered: scrollingFromSelection = false
-    }
 
     // Load profile data from MainController
     function loadCurrentProfile() {
-        recipe = MainController.getCurrentRecipeParams()
+        recipe = MainController.getOrConvertRecipeParams()
 
         // Regenerate profile from recipe params to ensure frames match.
         // Preserve modified state — this is just syncing, not a user edit.
@@ -186,6 +186,9 @@ Page {
                 font.pixelSize: Theme.titleFont.pixelSize
                 font.bold: true
                 color: "white"
+                Accessible.role: Accessible.Heading
+                Accessible.name: text
+                Accessible.focusable: true
             }
 
             Item { Layout.fillWidth: true }
@@ -310,25 +313,22 @@ Page {
                     contentWidth: availableWidth
 
                     // Monitor scroll position to update selected frame
+                    // Use onMovingChanged instead of onMovementEnded because
+                    // movementEnded does not fire for mouse wheel scrolling on desktop
                     Connections {
                         target: recipeScrollView.contentItem
-                        function onContentYChanged() {
-                            if (!scrollingFromSelection) {
-                                scrollUpdateTimer.restart()
-                            }
-                        }
-                    }
-
-                    Timer {
-                        id: scrollUpdateTimer
-                        interval: 150  // Debounce scroll events
-                        onTriggered: {
-                            if (!scrollingFromSelection) {
+                        function onMovingChanged() {
+                            if (!recipeScrollView.contentItem.moving && !scrollingFromSelection) {
                                 var section = findCenteredSection()
                                 var frameIdx = sectionToFrame(section)
                                 if (frameIdx >= 0 && frameIdx !== selectedFrameIndex) {
                                     selectedFrameIndex = frameIdx
                                 }
+                            }
+                        }
+                        function onDraggingChanged() {
+                            if (recipeScrollView.contentItem.dragging) {
+                                scrollingFromSelection = false
                             }
                         }
                     }
@@ -347,14 +347,14 @@ Page {
                             RowLayout { Layout.fillWidth: true
                                 Text { text: TranslationManager.translate("recipeEditor.dose", "Dose"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                 Item { Layout.fillWidth: true }
-                                Text { text: (recipe.dose || 18).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
+                                Text { text: (val(recipe.dose, 18)).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                             }
-                            StepSlider { Layout.fillWidth: true; accessibleName: "Dose"; from: 3; to: 40; stepSize: 0.5; value: recipe.dose || 18; onMoved: updateRecipe("dose", Math.round(value * 10) / 10) }
+                            StepSlider { Layout.fillWidth: true; accessibleName: "Dose"; from: 3; to: 40; stepSize: 0.5; value: val(recipe.dose, 18); onMoved: updateRecipe("dose", Math.round(value * 10) / 10) }
 
                             // Display ratio (weight is set in Pour section)
                             Text {
                                 Layout.fillWidth: true
-                                text: TranslationManager.translate("recipeEditor.ratio", "Ratio: 1:") + ((recipe.targetWeight || 36) / (recipe.dose || 18)).toFixed(1)
+                                text: { var d = val(recipe.dose, 18); return TranslationManager.translate("recipeEditor.ratio", "Ratio: 1:") + (d > 0 ? (val(recipe.targetWeight, 36) / d).toFixed(1) : "--") }
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 horizontalAlignment: Text.AlignRight
@@ -371,9 +371,9 @@ Page {
                             RowLayout { Layout.fillWidth: true
                                 Text { text: TranslationManager.translate("recipeEditor.infuseTemp", "Temp"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                 Item { Layout.fillWidth: true }
-                                Text { text: (recipe.fillTemperature || 88).toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                                Text { text: (val(recipe.fillTemperature, 88)).toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                             }
-                            StepSlider { Layout.fillWidth: true; accessibleName: "Infuse temperature"; from: 80; to: 100; stepSize: 0.5; value: recipe.fillTemperature || 88; onMoved: updateRecipe("fillTemperature", Math.round(value * 10) / 10) }
+                            StepSlider { Layout.fillWidth: true; accessibleName: "Infuse temperature"; from: 80; to: 100; stepSize: 0.5; value: val(recipe.fillTemperature, 88); onMoved: updateRecipe("fillTemperature", Math.round(value * 10) / 10) }
 
                             // Pressure
                             RowLayout { Layout.fillWidth: true
@@ -418,25 +418,25 @@ Page {
                                     RowLayout { Layout.fillWidth: true
                                         Text { text: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                         Item { Layout.fillWidth: true }
-                                        Text { text: Math.round(recipe.infuseTime || 20) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
+                                        Text { text: Math.round(val(recipe.infuseTime, 20)) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     }
-                                    StepSlider { Layout.fillWidth: true; accessibleName: "Infuse time"; from: 0; to: 60; stepSize: 1; value: recipe.infuseTime || 20; onMoved: updateRecipe("infuseTime", Math.round(value)) }
+                                    StepSlider { Layout.fillWidth: true; accessibleName: "Infuse time"; from: 0; to: 60; stepSize: 1; value: val(recipe.infuseTime, 20); onMoved: updateRecipe("infuseTime", Math.round(value)) }
 
                                     // Volume
                                     RowLayout { Layout.fillWidth: true
                                         Text { text: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                         Item { Layout.fillWidth: true }
-                                        Text { text: Math.round(recipe.infuseVolume || 100) + " mL"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
+                                        Text { text: Math.round(val(recipe.infuseVolume, 100)) + " mL"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     }
-                                    StepSlider { Layout.fillWidth: true; accessibleName: "Infuse volume"; from: 10; to: 200; stepSize: 10; value: recipe.infuseVolume || 100; onMoved: updateRecipe("infuseVolume", Math.round(value)) }
+                                    StepSlider { Layout.fillWidth: true; accessibleName: "Infuse volume"; from: 10; to: 200; stepSize: 10; value: val(recipe.infuseVolume, 100); onMoved: updateRecipe("infuseVolume", Math.round(value)) }
 
                                     // Weight
                                     RowLayout { Layout.fillWidth: true
                                         Text { text: TranslationManager.translate("recipeEditor.infuseWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                         Item { Layout.fillWidth: true }
-                                        Text { text: (recipe.infuseWeight || 4.0).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
+                                        Text { text: (val(recipe.infuseWeight, 4.0)).toFixed(1) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                                     }
-                                    StepSlider { Layout.fillWidth: true; accessibleName: "Infuse weight"; from: 0; to: 20; stepSize: 0.5; value: recipe.infuseWeight || 4.0; onMoved: updateRecipe("infuseWeight", Math.round(value * 10) / 10) }
+                                    StepSlider { Layout.fillWidth: true; accessibleName: "Infuse weight"; from: 0; to: 20; stepSize: 0.5; value: val(recipe.infuseWeight, 4.0); onMoved: updateRecipe("infuseWeight", Math.round(value * 10) / 10) }
                                 }
                             }
                         }
@@ -467,9 +467,9 @@ Page {
                             RowLayout { Layout.fillWidth: true
                                 Text { text: TranslationManager.translate("recipeEditor.pourTemp", "Temp"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                 Item { Layout.fillWidth: true }
-                                Text { text: (recipe.pourTemperature || 93).toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                                Text { text: (val(recipe.pourTemperature, 93)).toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                             }
-                            StepSlider { Layout.fillWidth: true; accessibleName: "Pour temperature"; from: 80; to: 100; stepSize: 0.5; value: recipe.pourTemperature || 93; onMoved: updateRecipe("pourTemperature", Math.round(value * 10) / 10) }
+                            StepSlider { Layout.fillWidth: true; accessibleName: "Pour temperature"; from: 80; to: 100; stepSize: 0.5; value: val(recipe.pourTemperature, 93); onMoved: updateRecipe("pourTemperature", Math.round(value * 10) / 10) }
 
                             // Grouped: flow, pressure, and time (ramp time for A-Flow)
                             Item {
@@ -505,25 +505,25 @@ Page {
                                     RowLayout { Layout.fillWidth: true
                                         Text { text: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                         Item { Layout.fillWidth: true }
-                                        Text { text: (recipe.pourFlow || 2.0).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.flowColor }
+                                        Text { text: (val(recipe.pourFlow, 2.0)).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.flowColor }
                                     }
-                                    StepSlider { Layout.fillWidth: true; accessibleName: "Pour flow"; from: 0.1; to: 8; stepSize: 0.1; value: recipe.pourFlow || 2.0; onMoved: updateRecipe("pourFlow", Math.round(value * 10) / 10) }
+                                    StepSlider { Layout.fillWidth: true; accessibleName: "Pour flow"; from: 0.1; to: 8; stepSize: 0.1; value: val(recipe.pourFlow, 2.0); onMoved: updateRecipe("pourFlow", Math.round(value * 10) / 10) }
 
                                     // Pressure limit
                                     RowLayout { Layout.fillWidth: true
                                         Text { text: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                         Item { Layout.fillWidth: true }
-                                        Text { text: (recipe.pourPressure || 9.0).toFixed(1) + " bar"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.pressureColor }
+                                        Text { text: (val(recipe.pourPressure, 9.0)).toFixed(1) + " bar"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.pressureColor }
                                     }
-                                    StepSlider { Layout.fillWidth: true; accessibleName: "Pour pressure limit"; from: 1; to: 12; stepSize: 0.1; value: recipe.pourPressure || 9.0; onMoved: updateRecipe("pourPressure", Math.round(value * 10) / 10) }
+                                    StepSlider { Layout.fillWidth: true; accessibleName: "Pour pressure limit"; from: 1; to: 12; stepSize: 0.1; value: val(recipe.pourPressure, 9.0); onMoved: updateRecipe("pourPressure", Math.round(value * 10) / 10) }
 
                                     // Ramp time (A-Flow only — pressure ramp up duration)
                                     RowLayout { Layout.fillWidth: true; visible: recipe.editorType === "aflow"
                                         Text { text: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                         Item { Layout.fillWidth: true }
-                                        Text { text: (recipe.rampTime || 5).toFixed(1) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
+                                        Text { text: (val(recipe.rampTime, 5)).toFixed(1) + "s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                                     }
-                                    StepSlider { Layout.fillWidth: true; accessibleName: "Ramp time"; visible: recipe.editorType === "aflow"; from: 0; to: 30; stepSize: 0.5; value: recipe.rampTime || 5; onMoved: updateRecipe("rampTime", Math.round(value * 10) / 10) }
+                                    StepSlider { Layout.fillWidth: true; accessibleName: "Ramp time"; visible: recipe.editorType === "aflow"; from: 0; to: 30; stepSize: 0.5; value: val(recipe.rampTime, 5); onMoved: updateRecipe("rampTime", Math.round(value * 10) / 10) }
                                 }
                             }
 
@@ -531,17 +531,17 @@ Page {
                             RowLayout { Layout.fillWidth: true
                                 Text { text: TranslationManager.translate("recipeEditor.pourWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                 Item { Layout.fillWidth: true }
-                                Text { text: Math.round(recipe.targetWeight || 36) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
+                                Text { text: Math.round(val(recipe.targetWeight, 36)) + "g"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.weightColor }
                             }
-                            StepSlider { Layout.fillWidth: true; accessibleName: "Target weight"; from: 0; to: 100; stepSize: 1; value: recipe.targetWeight || 36; onMoved: updateRecipe("targetWeight", Math.round(value)) }
+                            StepSlider { Layout.fillWidth: true; accessibleName: "Target weight"; from: 0; to: 100; stepSize: 1; value: val(recipe.targetWeight, 36); onMoved: updateRecipe("targetWeight", Math.round(value)) }
 
                             // Volume stop condition (D-Flow only)
                             RowLayout { Layout.fillWidth: true; visible: recipe.editorType !== "aflow"
                                 Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                                 Item { Layout.fillWidth: true }
-                                Text { text: Math.round(recipe.targetVolume || 0) + " mL"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
+                                Text { text: Math.round(val(recipe.targetVolume, 0)) + " mL"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.textColor }
                             }
-                            StepSlider { Layout.fillWidth: true; accessibleName: "Target volume"; visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 5; value: recipe.targetVolume || 0; onMoved: updateRecipe("targetVolume", Math.round(value)) }
+                            StepSlider { Layout.fillWidth: true; accessibleName: "Target volume"; visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 5; value: val(recipe.targetVolume, 0); onMoved: updateRecipe("targetVolume", Math.round(value)) }
                         }
 
                         // Spacer
@@ -567,7 +567,7 @@ Page {
         // Modified indicator
         Text {
             text: "\u2022 Modified"
-            color: "#FFCC00"
+            color: Theme.warningColor
             font: Theme.bodyFont
             visible: recipeModified
         }
@@ -583,7 +583,7 @@ Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
 
         Text {
-            text: (recipe.targetWeight || 36).toFixed(0) + "g"
+            text: (val(recipe.targetWeight, 36)).toFixed(0) + "g"
             color: "white"
             font: Theme.bodyFont
         }
@@ -709,15 +709,14 @@ Page {
                     verticalAlignment: Text.AlignVCenter
                 }
 
-                TextField {
+                StyledTextField {
                     id: saveAsTitleField
                     Accessible.name: "Profile name"
                     Layout.fillWidth: true
                     text: "New Recipe"
                     font: Theme.bodyFont
                     color: Theme.textColor
-                    placeholderText: TranslationManager.translate("recipeEditor.namePlaceholder", "Enter recipe name")
-                    placeholderTextColor: Theme.textSecondaryColor
+                    placeholder: TranslationManager.translate("recipeEditor.namePlaceholder", "Enter recipe name")
                     leftPadding: Theme.scaled(12)
                     rightPadding: Theme.scaled(12)
                     topPadding: Theme.scaled(12)
@@ -786,14 +785,10 @@ Page {
         }
     }
 
-    // Timer for delayed graph refresh after page loads
-    Timer {
-        id: delayedRefreshTimer
-        interval: 200
-        onTriggered: {
-            if (profile && profile.steps) {
-                profileGraph.frames = profile.steps.slice()
-            }
+    // Deferred graph refresh function (replaces timer guard per CLAUDE.md)
+    function deferredGraphRefresh() {
+        if (profile && profile.steps) {
+            profileGraph.frames = profile.steps.slice()
         }
     }
 
@@ -813,7 +808,7 @@ Page {
         }
         loadCurrentProfile()
         root.currentPageTitle = MainController.currentProfileName || TranslationManager.translate("recipeEditor.title", "Recipe Editor")
-        // Schedule a delayed refresh to ensure chart is ready
-        delayedRefreshTimer.start()
+        // Deferred refresh to ensure chart is ready (per CLAUDE.md: no timer guards)
+        Qt.callLater(deferredGraphRefresh)
     }
 }

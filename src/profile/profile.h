@@ -4,6 +4,7 @@
 #include <QList>
 #include <QJsonDocument>
 #include <QByteArray>
+#include <QDebug>
 #include "profileframe.h"
 #include "recipeparams.h"
 
@@ -27,6 +28,7 @@ public:
     };
 
     // Stop-at modes (what triggers end of shot)
+    // NOTE: Must stay in sync with MachineState::StopAtType
     enum class StopAtType {
         Weight,         // Stop when scale reaches target weight (brown curve)
         Volume          // Stop when flow meter reaches target volume (blue curve)
@@ -104,14 +106,49 @@ public:
 
     // === Steps/Frames ===
     const QList<ProfileFrame>& steps() const { return m_steps; }
-    QList<ProfileFrame>& steps() { return m_steps; }
-    void setSteps(const QList<ProfileFrame>& steps) { m_steps = steps; }
-    void addStep(const ProfileFrame& step) { m_steps.append(step); }
-    void insertStep(int index, const ProfileFrame& step) { m_steps.insert(index, step); }
-    void removeStep(int index) { m_steps.removeAt(index); }
+    void setSteps(const QList<ProfileFrame>& steps) {
+        if (steps.size() > MAX_FRAMES) {
+            qWarning() << "Profile::setSteps: truncating" << steps.size() << "frames to MAX_FRAMES" << MAX_FRAMES;
+            m_steps = steps.mid(0, MAX_FRAMES);
+        } else {
+            m_steps = steps;
+        }
+    }
+    bool addStep(const ProfileFrame& step) {
+        if (m_steps.size() >= MAX_FRAMES) {
+            qWarning() << "Profile::addStep: already at MAX_FRAMES" << MAX_FRAMES;
+            return false;
+        }
+        m_steps.append(step);
+        return true;
+    }
+    bool insertStep(int index, const ProfileFrame& step) {
+        if (m_steps.size() >= MAX_FRAMES) {
+            qWarning() << "Profile::insertStep: already at MAX_FRAMES" << MAX_FRAMES;
+            return false;
+        }
+        if (index < 0 || index > m_steps.size()) {
+            qWarning() << "Profile::insertStep: index" << index << "out of range [0," << m_steps.size() << "]";
+            return false;
+        }
+        m_steps.insert(index, step);
+        return true;
+    }
+    bool removeStep(int index) {
+        if (index < 0 || index >= m_steps.size()) {
+            qWarning() << "Profile::removeStep: index" << index << "out of range [0," << m_steps.size() << ")";
+            return false;
+        }
+        m_steps.removeAt(index);
+        return true;
+    }
     void moveStep(int from, int to);
     void setStepAt(int index, const ProfileFrame& step) {
-        if (index >= 0 && index < m_steps.size()) m_steps[index] = step;
+        if (index < 0 || index >= m_steps.size()) {
+            qWarning() << "Profile::setStepAt: index" << index << "out of range [0," << m_steps.size() << ")";
+            return;
+        }
+        m_steps[index] = step;
     }
 
     int preinfuseFrameCount() const { return m_preinfuseFrameCount; }
@@ -167,6 +204,9 @@ public:
     // === Validation ===
     bool isValid() const;
     QStringList validationErrors() const;
+
+    // Count consecutive leading frames with exit conditions (preinfusion frames)
+    static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
 private:
     // Metadata

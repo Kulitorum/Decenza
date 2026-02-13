@@ -346,10 +346,7 @@ bool MainController::isCurrentProfileRecipe() const {
 
 QString MainController::currentEditorType() const {
     if (m_currentProfile.isRecipeMode()) {
-        QString type = m_currentProfile.recipeParams().editorType;
-        if (type == "pressure" || type == "flow" || type == "aflow" || type == "dflow") {
-            return type;
-        }
+        return editorTypeToString(m_currentProfile.recipeParams().editorType);
     }
     // Detect by profile type for non-recipe-mode profiles
     QString profileType = m_currentProfile.profileType();
@@ -1418,8 +1415,9 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
 
     // Save to temp file for persistence across restarts
     QString tempPath = profilesPath() + "/_current.json";
-    m_currentProfile.saveToFile(tempPath);
-    qDebug() << "Saved modified profile to temp file:" << tempPath;
+    if (!m_currentProfile.saveToFile(tempPath)) {
+        qWarning() << "Failed to save modified profile to temp file:" << tempPath;
+    }
 
     // Upload to machine
     uploadCurrentProfile();
@@ -1497,6 +1495,13 @@ void MainController::markProfileClean() {
 void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     RecipeParams recipe = RecipeParams::fromVariantMap(recipeParams);
 
+    // Validate recipe parameters before generating frames
+    QStringList issues = recipe.validate();
+    if (!issues.isEmpty()) {
+        qWarning() << "RecipeParams validation issues:" << issues.join("; ");
+    }
+    recipe.clamp();  // Ensure values are within hardware limits
+
     // Update current profile's recipe params and regenerate frames
     m_currentProfile.setRecipeMode(true);
     m_currentProfile.setRecipeParams(recipe);
@@ -1516,7 +1521,7 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     qDebug() << "Recipe profile uploaded with" << m_currentProfile.steps().size() << "frames";
 }
 
-QVariantMap MainController::getCurrentRecipeParams() {
+QVariantMap MainController::getOrConvertRecipeParams() {
     if (!m_currentProfile.isRecipeMode() && isDFlowTitle(m_currentProfile.title())) {
         // Auto-convert D-Flow profiles (detected by title prefix, matching de1app behavior)
         RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
@@ -1527,15 +1532,15 @@ QVariantMap MainController::getCurrentRecipeParams() {
         RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
         // Set editor type to aflow for A-Flow title-detected profiles
         RecipeParams params = m_currentProfile.recipeParams();
-        params.editorType = "aflow";
+        params.editorType = EditorType::AFlow;
         m_currentProfile.setRecipeParams(params);
         qDebug() << "Auto-converted A-Flow profile to recipe mode:" << m_currentProfile.title();
     }
     if (m_currentProfile.isRecipeMode()) {
         // Always ensure editorType matches title (handles profiles saved with wrong type)
         RecipeParams params = m_currentProfile.recipeParams();
-        if (isAFlowTitle(m_currentProfile.title()) && params.editorType != "aflow") {
-            params.editorType = "aflow";
+        if (isAFlowTitle(m_currentProfile.title()) && params.editorType != EditorType::AFlow) {
+            params.editorType = EditorType::AFlow;
             m_currentProfile.setRecipeParams(params);
             qDebug() << "Corrected editorType to aflow for:" << m_currentProfile.title();
         }
@@ -1546,101 +1551,29 @@ QVariantMap MainController::getCurrentRecipeParams() {
 }
 
 void MainController::createNewRecipe(const QString& title) {
-    RecipeParams recipe;
-    recipe.editorType = "dflow";  // Explicit for consistency with other create functions
-
-    // Preserve notes from original profile
-    QString notes = m_currentProfile.profileNotes();
-
-    // Create new profile from recipe
-    m_currentProfile = RecipeGenerator::createProfile(recipe, title);
-    m_currentProfile.setProfileNotes(notes);
-    m_baseProfileName = "";  // New profile, no base filename yet
-    m_profileModified = true;
-
-    if (m_settings) {
-        m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
-        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
-        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
-    }
-
-    emit currentProfileChanged();
-    emit profileModifiedChanged();
-    emit targetWeightChanged();
-    emit profilesChanged();
-
-    // Upload to machine
-    uploadCurrentProfile();
-
-    qDebug() << "Created new recipe profile:" << title;
+    createNewProfileWithEditorType(EditorType::DFlow, title);
 }
 
 void MainController::createNewAFlowRecipe(const QString& title) {
-    RecipeParams recipe;
-    recipe.editorType = "aflow";
-
-    // Preserve notes from original profile
-    QString notes = m_currentProfile.profileNotes();
-
-    // Create new profile from A-Flow recipe
-    m_currentProfile = RecipeGenerator::createProfile(recipe, title);
-    m_currentProfile.setProfileNotes(notes);
-    m_baseProfileName = "";  // New profile, no base filename yet
-    m_profileModified = true;
-
-    if (m_settings) {
-        m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
-        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
-        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
-    }
-
-    emit currentProfileChanged();
-    emit profileModifiedChanged();
-    emit targetWeightChanged();
-    emit profilesChanged();
-
-    // Upload to machine
-    uploadCurrentProfile();
-
-    qDebug() << "Created new A-Flow recipe profile:" << title;
+    createNewProfileWithEditorType(EditorType::AFlow, title);
 }
 
 void MainController::createNewPressureProfile(const QString& title) {
-    RecipeParams recipe;
-    recipe.editorType = "pressure";
-
-    // Preserve notes from original profile
-    QString notes = m_currentProfile.profileNotes();
-
-    // Create new profile from pressure recipe
-    m_currentProfile = RecipeGenerator::createProfile(recipe, title);
-    m_currentProfile.setProfileNotes(notes);
-    m_baseProfileName = "";
-    m_profileModified = true;
-
-    if (m_settings) {
-        m_settings->setSelectedFavoriteProfile(-1);
-        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
-        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
-    }
-
-    emit currentProfileChanged();
-    emit profileModifiedChanged();
-    emit targetWeightChanged();
-    emit profilesChanged();
-
-    uploadCurrentProfile();
-    qDebug() << "Created new pressure profile:" << title;
+    createNewProfileWithEditorType(EditorType::Pressure, title);
 }
 
 void MainController::createNewFlowProfile(const QString& title) {
+    createNewProfileWithEditorType(EditorType::Flow, title);
+}
+
+void MainController::createNewProfileWithEditorType(EditorType type, const QString& title) {
     RecipeParams recipe;
-    recipe.editorType = "flow";
+    recipe.editorType = type;
+    recipe.clamp();  // Ensure values are within hardware limits
 
     // Preserve notes from original profile
     QString notes = m_currentProfile.profileNotes();
 
-    // Create new profile from flow recipe
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
     m_currentProfile.setProfileNotes(notes);
     m_baseProfileName = "";
@@ -1658,7 +1591,7 @@ void MainController::createNewFlowProfile(const QString& title) {
     emit profilesChanged();
 
     uploadCurrentProfile();
-    qDebug() << "Created new flow profile:" << title;
+    qDebug() << "Created new" << editorTypeToString(type) << "profile:" << title;
 }
 
 void MainController::convertCurrentProfileToRecipe() {
@@ -1722,12 +1655,17 @@ void MainController::addFrame(int afterIndex) {
     newFrame.volume = 0;
     newFrame.exitIf = false;
 
+    bool added = false;
     if (afterIndex < 0 || afterIndex >= m_currentProfile.steps().size()) {
         // Add at end
-        m_currentProfile.addStep(newFrame);
+        added = m_currentProfile.addStep(newFrame);
     } else {
         // Insert after specified index
-        m_currentProfile.insertStep(afterIndex + 1, newFrame);
+        added = m_currentProfile.insertStep(afterIndex + 1, newFrame);
+    }
+    if (!added) {
+        qWarning() << "Failed to add frame: maximum frame count reached (" << Profile::MAX_FRAMES << ")";
+        return;
     }
 
     // Disable recipe mode - we're now in frame editing mode
@@ -1755,7 +1693,10 @@ void MainController::deleteFrame(int index) {
         return;
     }
 
-    m_currentProfile.removeStep(index);
+    if (!m_currentProfile.removeStep(index)) {
+        qWarning() << "deleteFrame: removeStep failed for index" << index;
+        return;
+    }
     m_currentProfile.setRecipeMode(false);
 
     if (!m_profileModified) {
@@ -1817,7 +1758,10 @@ void MainController::duplicateFrame(int index) {
 
     ProfileFrame copy = m_currentProfile.steps().at(index);
     copy.name = copy.name + " (copy)";
-    m_currentProfile.insertStep(index + 1, copy);
+    if (!m_currentProfile.insertStep(index + 1, copy)) {
+        qWarning() << "duplicateFrame: insertStep failed at index" << (index + 1);
+        return;
+    }
     m_currentProfile.setRecipeMode(false);
 
     if (!m_profileModified) {
@@ -1945,7 +1889,9 @@ void MainController::createNewProfile(const QString& title) {
     defaultFrame.seconds = 60.0;
     defaultFrame.volume = 0;
     defaultFrame.exitIf = false;
-    m_currentProfile.addStep(defaultFrame);
+    if (!m_currentProfile.addStep(defaultFrame)) {
+        qWarning() << "createNewBlankProfile: failed to add default frame";
+    }
 
     m_baseProfileName = "";
     m_profileModified = true;
@@ -3034,8 +2980,12 @@ void MainController::loadDefaultProfile() {
     extraction.temperature = 93.0;
     extraction.seconds = 30.0;
 
-    m_currentProfile.addStep(preinfusion);
-    m_currentProfile.addStep(extraction);
+    if (!m_currentProfile.addStep(preinfusion)) {
+        qWarning() << "loadDefaultProfile: failed to add preinfusion frame";
+    }
+    if (!m_currentProfile.addStep(extraction)) {
+        qWarning() << "loadDefaultProfile: failed to add extraction frame";
+    }
     m_currentProfile.setPreinfuseFrameCount(1);
 
     if (m_settings) {

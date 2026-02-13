@@ -15,6 +15,9 @@ Item {
     property bool sectionEnabled: true  // Section enabled state (when canEnable is true)
     default property alias content: contentColumn.children
 
+    Accessible.role: Accessible.Section
+    Accessible.name: root.title
+
     signal sectionToggled(bool enabled)
 
     implicitHeight: contentColumn.implicitHeight + (title ? headerRow.height + Theme.scaled(8) : 0)

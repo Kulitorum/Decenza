@@ -1,5 +1,122 @@
 #include "recipeparams.h"
 
+// Shared legacy migration for old pourStyle/flowLimit/pressureLimit fields
+static void migratePourStyle(RecipeParams& params, const QString& oldStyle,
+                             double pourPressure, double pourFlow,
+                             double flowLimit, bool hasFlowLimit,
+                             double pressureLimit, bool hasPressureLimit)
+{
+    if (!oldStyle.isEmpty()) {
+        if (oldStyle == "pressure") {
+            params.pourPressure = pourPressure;
+            params.pourFlow = (hasFlowLimit && flowLimit > 0) ? flowLimit : pourFlow;
+        } else {
+            params.pourFlow = pourFlow;
+            params.pourPressure = hasPressureLimit ? pressureLimit : pourPressure;
+        }
+    } else {
+        params.pourPressure = pourPressure;
+        params.pourFlow = pourFlow;
+    }
+}
+
+QStringList RecipeParams::validate() const {
+    QStringList issues;
+
+    // Physical range bounds (DE1 hardware limits)
+    if (targetWeight < 0 || targetWeight > 500)
+        issues << "targetWeight out of range [0, 500]";
+    if (targetVolume < 0 || targetVolume > 500)
+        issues << "targetVolume out of range [0, 500]";
+    if (dose < 0 || dose > 100)
+        issues << "dose out of range [0, 100]";
+
+    // Temperature bounds
+    auto checkTemp = [&](double temp, const char* name) {
+        if (temp < 0 || temp > 110)
+            issues << QString("%1 out of range [0, 110]: %2").arg(name).arg(temp);
+    };
+    checkTemp(fillTemperature, "fillTemperature");
+    checkTemp(pourTemperature, "pourTemperature");
+    checkTemp(tempStart, "tempStart");
+    checkTemp(tempPreinfuse, "tempPreinfuse");
+    checkTemp(tempHold, "tempHold");
+    checkTemp(tempDecline, "tempDecline");
+
+    // Pressure bounds (0-12 bar)
+    auto checkPressure = [&](double p, const char* name) {
+        if (p < 0 || p > 12)
+            issues << QString("%1 out of range [0, 12]: %2").arg(name).arg(p);
+    };
+    checkPressure(fillPressure, "fillPressure");
+    checkPressure(fillExitPressure, "fillExitPressure");
+    checkPressure(infusePressure, "infusePressure");
+    checkPressure(pourPressure, "pourPressure");
+    checkPressure(espressoPressure, "espressoPressure");
+    checkPressure(pressureEnd, "pressureEnd");
+
+    // Flow bounds (0-10 mL/s)
+    auto checkFlow = [&](double f, const char* name) {
+        if (f < 0 || f > 10)
+            issues << QString("%1 out of range [0, 10]: %2").arg(name).arg(f);
+    };
+    checkFlow(fillFlow, "fillFlow");
+    checkFlow(pourFlow, "pourFlow");
+    checkFlow(holdFlow, "holdFlow");
+    checkFlow(flowEnd, "flowEnd");
+    checkFlow(preinfusionFlowRate, "preinfusionFlowRate");
+    checkFlow(declineTo, "declineTo");
+
+    // Time bounds (non-negative)
+    if (fillTimeout < 0) issues << "fillTimeout is negative";
+    if (infuseTime < 0) issues << "infuseTime is negative";
+    if (bloomTime < 0) issues << "bloomTime is negative";
+    if (rampTime < 0) issues << "rampTime is negative";
+    if (declineTime < 0) issues << "declineTime is negative";
+    if (preinfusionTime < 0) issues << "preinfusionTime is negative";
+    if (holdTime < 0) issues << "holdTime is negative";
+    if (simpleDeclineTime < 0) issues << "simpleDeclineTime is negative";
+
+    // Weight bounds
+    if (infuseWeight < 0) issues << "infuseWeight is negative";
+
+    // Limiter bounds
+    if (limiterValue < 0 || limiterValue > 12)
+        issues << "limiterValue out of range [0, 12]";
+    if (limiterRange < 0 || limiterRange > 10)
+        issues << "limiterRange out of range [0, 10]";
+
+    return issues;
+}
+
+void RecipeParams::clamp() {
+    auto clampVal = [](double& v, double lo, double hi) { v = qBound(lo, v, hi); };
+
+    clampVal(targetWeight, 0.0, 500.0);
+    clampVal(targetVolume, 0.0, 500.0);
+    clampVal(dose, 0.0, 100.0);
+
+    // Temperatures (0-110)
+    for (double* t : {&fillTemperature, &pourTemperature, &tempStart, &tempPreinfuse, &tempHold, &tempDecline})
+        clampVal(*t, 0.0, 110.0);
+
+    // Pressures (0-12)
+    for (double* p : {&fillPressure, &fillExitPressure, &infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
+        clampVal(*p, 0.0, 12.0);
+
+    // Flows (0-10)
+    for (double* f : {&fillFlow, &pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate, &declineTo})
+        clampVal(*f, 0.0, 10.0);
+
+    // Times (non-negative)
+    for (double* t : {&fillTimeout, &infuseTime, &bloomTime, &rampTime, &declineTime, &preinfusionTime, &holdTime, &simpleDeclineTime})
+        if (*t < 0) *t = 0;
+
+    if (infuseWeight < 0) infuseWeight = 0;
+    clampVal(limiterValue, 0.0, 12.0);
+    clampVal(limiterRange, 0.0, 10.0);
+}
+
 QJsonObject RecipeParams::toJson() const {
     QJsonObject obj;
 
@@ -57,7 +174,7 @@ QJsonObject RecipeParams::toJson() const {
     obj["tempDecline"] = tempDecline;
 
     // Editor type
-    obj["editorType"] = editorType;
+    obj["editorType"] = editorTypeToString(editorType);
 
     return obj;
 }
@@ -99,29 +216,14 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     }
 
     // Backward compatibility: migrate old pourStyle/flowLimit/pressureLimit fields
-    QString oldStyle = json["pourStyle"].toString("");
-    if (!oldStyle.isEmpty()) {
-        // Old format had pourStyle = "pressure" or "flow"
-        if (oldStyle == "pressure") {
-            // Pressure mode: pourPressure was the setpoint, flowLimit was the cap
-            // New model: always flow-driven, so old pressure setpoint becomes the cap
-            params.pourPressure = json["pourPressure"].toDouble(9.0);
-            // Use flowLimit if present, otherwise default
-            params.pourFlow = json.contains("flowLimit") && json["flowLimit"].toDouble(0.0) > 0
-                ? json["flowLimit"].toDouble(2.0)
-                : json["pourFlow"].toDouble(2.0);
-        } else {
-            // Flow mode: pourFlow was the setpoint, pressureLimit was the cap
-            params.pourFlow = json["pourFlow"].toDouble(2.0);
-            params.pourPressure = json.contains("pressureLimit")
-                ? json["pressureLimit"].toDouble(6.0)
-                : json["pourPressure"].toDouble(9.0);
-        }
-    } else {
-        // New format: pourPressure is always the pressure cap, pourFlow is the flow setpoint
-        params.pourPressure = json["pourPressure"].toDouble(9.0);
-        params.pourFlow = json["pourFlow"].toDouble(2.0);
-    }
+    migratePourStyle(params,
+        json["pourStyle"].toString(""),
+        json["pourPressure"].toDouble(9.0),
+        json["pourFlow"].toDouble(2.0),
+        json["flowLimit"].toDouble(0.0),
+        json.contains("flowLimit"),
+        json["pressureLimit"].toDouble(6.0),
+        json.contains("pressureLimit"));
 
     params.rampEnabled = json["rampEnabled"].toBool(true);  // Default true for legacy
     params.rampTime = json["rampTime"].toDouble(5.0);
@@ -151,7 +253,7 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     params.tempDecline = json["tempDecline"].toDouble(json["pourTemperature"].toDouble(90.0));
 
     // Editor type
-    params.editorType = json["editorType"].toString("dflow");
+    params.editorType = editorTypeFromString(json["editorType"].toString("dflow"));
 
     return params;
 }
@@ -213,7 +315,7 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["tempDecline"] = tempDecline;
 
     // Editor type
-    map["editorType"] = editorType;
+    map["editorType"] = editorTypeToString(editorType);
 
     return map;
 }
@@ -255,25 +357,14 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     }
 
     // Backward compatibility: migrate old pourStyle/flowLimit/pressureLimit fields
-    QString oldStyle = map.value("pourStyle", "").toString();
-    if (!oldStyle.isEmpty()) {
-        if (oldStyle == "pressure") {
-            params.pourPressure = map.value("pourPressure", 9.0).toDouble();
-            // Use flowLimit if present, otherwise default
-            double oldFlowLimit = map.value("flowLimit", 0.0).toDouble();
-            params.pourFlow = (map.contains("flowLimit") && oldFlowLimit > 0)
-                ? oldFlowLimit
-                : map.value("pourFlow", 2.0).toDouble();
-        } else {
-            params.pourFlow = map.value("pourFlow", 2.0).toDouble();
-            params.pourPressure = map.contains("pressureLimit")
-                ? map.value("pressureLimit", 6.0).toDouble()
-                : map.value("pourPressure", 9.0).toDouble();
-        }
-    } else {
-        params.pourPressure = map.value("pourPressure", 9.0).toDouble();
-        params.pourFlow = map.value("pourFlow", 2.0).toDouble();
-    }
+    migratePourStyle(params,
+        map.value("pourStyle", "").toString(),
+        map.value("pourPressure", 9.0).toDouble(),
+        map.value("pourFlow", 2.0).toDouble(),
+        map.value("flowLimit", 0.0).toDouble(),
+        map.contains("flowLimit"),
+        map.value("pressureLimit", 6.0).toDouble(),
+        map.contains("pressureLimit"));
 
     params.rampEnabled = map.value("rampEnabled", true).toBool();  // Default true for legacy
     params.rampTime = map.value("rampTime", 5.0).toDouble();
@@ -304,7 +395,7 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     params.tempDecline = map.value("tempDecline", defaultTemp).toDouble();
 
     // Editor type
-    params.editorType = map.value("editorType", "dflow").toString();
+    params.editorType = editorTypeFromString(map.value("editorType", "dflow").toString());
 
     return params;
 }

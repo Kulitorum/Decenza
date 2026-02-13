@@ -48,6 +48,7 @@ public:
     Q_ENUM(Phase)
 
     // Stop-at modes (what triggers end of shot)
+    // NOTE: Must stay in sync with Profile::StopAtType
     enum class StopAtType {
         Weight,         // Stop when scale reaches target weight (brown curve)
         Volume          // Stop when flow meter reaches target volume (blue curve)

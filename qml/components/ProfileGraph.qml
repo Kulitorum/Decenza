@@ -8,6 +8,8 @@ ChartView {
     backgroundColor: Qt.darker(Theme.surfaceColor, 1.3)
     plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
     legend.visible: false
+    Accessible.role: Accessible.Graphic
+    Accessible.name: "Profile graph"
 
     margins.top: 0
     margins.bottom: Theme.scaled(32)
@@ -131,7 +133,7 @@ ChartView {
         id: pressureSeries0
         name: "Pressure"
         color: Theme.pressureGoalColor
-        width: 3
+        width: Theme.graphLineWidth * 3
         axisX: timeAxis
         axisY: pressureAxis
     }
@@ -141,7 +143,7 @@ ChartView {
         id: flowSeries0
         name: "Flow"
         color: Theme.flowGoalColor
-        width: 3
+        width: Theme.graphLineWidth * 3
         axisX: timeAxis
         axisY: pressureAxis
     }
@@ -151,7 +153,7 @@ ChartView {
         id: temperatureGoalSeries
         name: "Temperature"
         color: Theme.temperatureGoalColor
-        width: 2
+        width: Theme.graphLineWidth * 2
         style: Qt.DashLine
         axisX: timeAxis
         axisYRight: tempAxis
@@ -231,6 +233,7 @@ ChartView {
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
+                        Accessible.ignored: true
                         onClicked: {
                             selectedFrameIndex = index
                             frameSelected(index)
@@ -244,6 +247,7 @@ ChartView {
                 MouseArea {
                     anchors.fill: parent
                     z: -1
+                    Accessible.ignored: true
                     onClicked: {
                         selectedFrameIndex = index
                         frameSelected(index)
@@ -418,17 +422,10 @@ ChartView {
         updateCurves()
     }
 
-    // Timer for delayed initial update (ensures chart is fully ready)
-    Timer {
-        id: initialUpdateTimer
-        interval: 100
-        onTriggered: updateCurves()
-    }
-
     Component.onCompleted: {
         updateCurves()
-        // Also schedule a delayed update to catch any initialization issues
-        initialUpdateTimer.start()
+        // Deferred update to catch initialization timing (per CLAUDE.md: no timer guards)
+        Qt.callLater(updateCurves)
     }
 
     // Custom legend - horizontal, below graph

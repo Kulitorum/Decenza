@@ -168,6 +168,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
 
     // Add empty frame if no frames were created
     if (frames.isEmpty()) {
+        qWarning() << "generatePressureProfileFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -310,6 +311,7 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
 
     // Add empty frame if no frames were created
     if (frames.isEmpty()) {
+        qWarning() << "generateFlowProfileFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -475,14 +477,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         }
 
         // Set preinfuse frame count based on generated preinfusion frames
-        profile.m_preinfuseFrameCount = 0;
-        for (const auto& step : profile.m_steps) {
-            if (step.exitIf) {
-                profile.m_preinfuseFrameCount++;
-            } else {
-                break;
-            }
-        }
+        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
     }
 
     // Recipe mode data
@@ -493,9 +488,9 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         // (handles profiles created before editorType was introduced)
         if (!obj["recipe"].toObject().contains("editorType")) {
             if (profile.m_profileType == "settings_2a") {
-                profile.m_recipeParams.editorType = "pressure";
+                profile.m_recipeParams.editorType = EditorType::Pressure;
             } else if (profile.m_profileType == "settings_2b") {
-                profile.m_recipeParams.editorType = "flow";
+                profile.m_recipeParams.editorType = EditorType::Flow;
             }
         }
     }
@@ -522,11 +517,19 @@ Profile Profile::loadFromFile(const QString& filePath) {
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Profile::loadFromFile: Failed to open file:" << filePath
+                   << "- Error:" << file.errorString();
         return Profile();
     }
 
     QByteArray data = file.readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (doc.isNull()) {
+        qWarning() << "Profile::loadFromFile: JSON parse error:" << parseError.errorString()
+                   << "at offset" << parseError.offset << "in file:" << filePath;
+        return Profile();
+    }
 
     // Detect de1app v2 JSON format by checking for v2-specific fields.
     // The de1app v2 format uses "version", "legacy_profile_type", and/or "type"
@@ -562,7 +565,13 @@ bool Profile::saveToFile(const QString& filePath) const {
 }
 
 Profile Profile::loadFromJsonString(const QString& jsonContent) {
-    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8(), &parseError);
+    if (doc.isNull()) {
+        qWarning() << "Profile::loadFromJsonString: JSON parse error:" << parseError.errorString()
+                   << "at offset" << parseError.offset;
+        return Profile();
+    }
     return fromJson(doc);
 }
 
@@ -749,7 +758,7 @@ Profile Profile::loadFromTclString(const QString& content) {
             double pressureEnd = extractValue("pressure_end").toDouble();
             double maximumFlow = profile.m_maximumFlow;
             double maximumFlowRange = extractValue("maximum_flow_range_default").toDouble();
-            if (maximumFlowRange == 0) maximumFlowRange = 1.0;
+            if (qFuzzyIsNull(maximumFlowRange)) maximumFlowRange = 1.0;
 
             // Store pressure-specific params
             profile.m_espressoPressure = espressoPressure;
@@ -771,7 +780,7 @@ Profile Profile::loadFromTclString(const QString& content) {
             double flowDecline = extractValue("flow_profile_decline").toDouble();
             double maximumPressure = profile.m_maximumPressure;
             double maximumPressureRange = extractValue("maximum_pressure_range_default").toDouble();
-            if (maximumPressureRange == 0) maximumPressureRange = 0.9;
+            if (qFuzzyIsNull(maximumPressureRange)) maximumPressureRange = 0.9;
 
             // Store flow-specific params
             profile.m_flowProfileHold = flowHold;
@@ -791,7 +800,7 @@ Profile Profile::loadFromTclString(const QString& content) {
     }
 
     // Set espresso temperature from first step if not set
-    if (profile.m_espressoTemperature == 0 && !profile.m_steps.isEmpty()) {
+    if (qFuzzyIsNull(profile.m_espressoTemperature) && !profile.m_steps.isEmpty()) {
         profile.m_espressoTemperature = profile.m_steps.first().temperature;
     }
 
@@ -989,6 +998,7 @@ Profile Profile::loadFromDE1AppJson(const QString& jsonContent) {
 
 void Profile::moveStep(int from, int to) {
     if (from < 0 || from >= m_steps.size() || to < 0 || to >= m_steps.size()) {
+        qWarning() << "Cannot move step: invalid indices from" << from << "to" << to << "(size:" << m_steps.size() << ")";
         return;
     }
     m_steps.move(from, to);
@@ -1011,8 +1021,8 @@ QStringList Profile::validationErrors() const {
 
     for (int i = 0; i < m_steps.size(); i++) {
         const auto& step = m_steps[i];
-        if (step.seconds <= 0) {
-            errors << QString("Step %1 has invalid duration").arg(i + 1);
+        if (step.seconds < 0) {
+            errors << QString("Step %1 has negative duration").arg(i + 1);
         }
         if (step.temperature < 70 || step.temperature > 100) {
             errors << QString("Step %1 temperature out of range (70-100°C)").arg(i + 1);
@@ -1020,6 +1030,18 @@ QStringList Profile::validationErrors() const {
     }
 
     return errors;
+}
+
+int Profile::countPreinfuseFrames(const QList<ProfileFrame>& steps) {
+    int count = 0;
+    for (const auto& step : steps) {
+        if (step.exitIf) {
+            count++;
+        } else {
+            break;
+        }
+    }
+    return count;
 }
 
 QByteArray Profile::toDirectControlFrame(int frameIndex, const ProfileFrame& frame) const {
@@ -1119,38 +1141,21 @@ void Profile::regenerateFromRecipe() {
     // Regenerate frames from recipe parameters
     m_steps = RecipeGenerator::generateFrames(m_recipeParams);
 
+    if (m_steps.size() == 1 && m_steps[0].name == "empty") {
+        qWarning() << "regenerateFromRecipe: recipe produced fallback empty frame"
+                   << "- check recipe parameters for" << m_title;
+    }
+
     // Update profile metadata from recipe
     m_targetWeight = m_recipeParams.targetWeight;
     // For pressure/flow profiles, use tempHold as the machine's baseline temp
     // (must match RecipeGenerator::createProfile logic)
-    if (m_recipeParams.editorType == "pressure" || m_recipeParams.editorType == "flow") {
+    if (m_recipeParams.editorType == EditorType::Pressure || m_recipeParams.editorType == EditorType::Flow) {
         m_espressoTemperature = m_recipeParams.tempHold;
     } else {
         m_espressoTemperature = m_recipeParams.pourTemperature;
     }
 
-    // Calculate preinfuse frame count (must match RecipeGenerator::createProfile logic)
-    int preinfuseCount = 1;  // Fill/preinfusion is always first
-    if (m_recipeParams.editorType == "pressure" || m_recipeParams.editorType == "flow") {
-        // Simple profiles: count preinfusion frames (1 or 2 with temp boost)
-        if (m_recipeParams.preinfusionTime > 0) {
-            bool hasTempBoost = (m_recipeParams.tempStart != m_recipeParams.tempPreinfuse);
-            if (hasTempBoost && m_recipeParams.preinfusionTime > 2.0) {
-                preinfuseCount = 2;
-            } else {
-                preinfuseCount = 1;
-            }
-        } else {
-            preinfuseCount = 0;
-        }
-    } else if (m_recipeParams.editorType == "aflow") {
-        // A-Flow: only Fill counts as preinfuse
-        preinfuseCount = 1;
-    } else {
-        // D-Flow: Fill + Bloom + Infuse + Ramp
-        if (m_recipeParams.bloomEnabled && m_recipeParams.bloomTime > 0) preinfuseCount++;
-        if (m_recipeParams.infuseEnabled) preinfuseCount++;
-        if (m_recipeParams.rampEnabled && m_recipeParams.rampTime > 0) preinfuseCount++;
-    }
-    m_preinfuseFrameCount = preinfuseCount;
+    // Count preinfuse frames from actual generated frames (authoritative)
+    m_preinfuseFrameCount = countPreinfuseFrames(m_steps);
 }

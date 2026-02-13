@@ -120,7 +120,7 @@ Page {
     KeyboardAwareContainer {
         id: keyboardContainer
         anchors.fill: parent
-        textFields: [profileNotesFieldInline]
+        textFields: [profileNotesFieldInline, profileNameField]
 
     // Editor mode header
     Rectangle {
@@ -146,6 +146,9 @@ Page {
                 font.pixelSize: Theme.titleFont.pixelSize
                 font.bold: true
                 color: "white"
+                Accessible.role: Accessible.Heading
+                Accessible.name: text
+                Accessible.focusable: true
             }
 
             Text {
@@ -310,6 +313,7 @@ Page {
                                     font.pixelSize: Theme.scaled(10)
                                     color: Theme.textColor
                                     wrapMode: TextArea.Wrap
+                                    Accessible.name: "Profile description"
                                     leftPadding: Theme.scaled(8)
                                     rightPadding: Theme.scaled(8)
                                     topPadding: Theme.scaled(4)
@@ -362,7 +366,7 @@ Page {
                             accessibleName: TranslationManager.translate("profileEditor.openProfileSettings", "Open profile settings")
                             onClicked: profileSettingsPopup.open()
                             background: Rectangle {
-                                color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(255, 255, 255, 0.05)
+                                color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
                                 radius: Theme.scaled(8)
                                 border.width: 1
                                 border.color: Theme.textSecondaryColor
@@ -389,7 +393,7 @@ Page {
                             accessibleName: TranslationManager.translate("profileEditor.openLimits", "Open limits settings")
                             onClicked: limitsPopup.open()
                             background: Rectangle {
-                                color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(255, 255, 255, 0.05)
+                                color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
                                 radius: Theme.scaled(8)
                                 border.width: 1
                                 border.color: Theme.textSecondaryColor
@@ -452,14 +456,14 @@ Page {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(2)
                 Text { text: TranslationManager.translate("profileEditor.name", "Name"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                TextField {
+                StyledTextField {
                     id: profileNameField
+                    Accessible.name: "Profile name"
                     Layout.fillWidth: true
                     text: profile ? profile.title : ""
                     font: Theme.bodyFont
                     color: Theme.textColor
-                    placeholderText: TranslationManager.translate("profileEditor.profileNamePlaceholder", "Profile name")
-                    placeholderTextColor: Theme.textSecondaryColor
+                    placeholder: TranslationManager.translate("profileEditor.profileNamePlaceholder", "Profile name")
                     leftPadding: Theme.scaled(12)
                     rightPadding: Theme.scaled(12)
                     topPadding: Theme.scaled(10)
@@ -521,6 +525,7 @@ Page {
                         id: recommendedDoseSwitch
                         checked: profile ? !!profile.has_recommended_dose : false
                         onToggled: { if (profile) { profile.has_recommended_dose = checked; uploadProfile() } }
+                        Accessible.name: "Toggle recommended dose"
                     }
                 }
                 ColumnLayout {
@@ -939,13 +944,13 @@ Page {
                 color: Theme.textSecondaryColor
             }
 
-            TextField {
+            StyledTextField {
                 id: saveAsTitleField
+                Accessible.name: "Profile name"
                 Layout.fillWidth: true
                 text: profile ? profile.title : ""
                 font: Theme.bodyFont
                 color: Theme.textColor
-                placeholderTextColor: Theme.textSecondaryColor
                 leftPadding: Theme.scaled(12)
                 rightPadding: Theme.scaled(12)
                 topPadding: Theme.scaled(12)
@@ -1102,7 +1107,8 @@ Page {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
                     Text { text: TranslationManager.translate("profileEditor.frameName", "Frame Name"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                    TextField {
+                    StyledTextField {
+                        Accessible.name: "Frame name"
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
                         text: { var v = stepVersion; return step ? step.name : "" }
@@ -1110,7 +1116,6 @@ Page {
                         font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                         color: Theme.textColor
-                        placeholderTextColor: Theme.textSecondaryColor
                         leftPadding: Theme.scaled(12); rightPadding: Theme.scaled(12); topPadding: Theme.scaled(10); bottomPadding: Theme.scaled(10)
                         background: Rectangle { color: Theme.backgroundColor; radius: Theme.scaled(4); border.color: parent.activeFocus ? Theme.primaryColor : Theme.borderColor; border.width: 1 }
                         onEditingFinished: { if (profile && selectedStepIndex >= 0 && profile.steps[selectedStepIndex].name !== text) { profile.steps[selectedStepIndex].name = text; uploadProfile() } }
@@ -1285,6 +1290,7 @@ Page {
                         id: exitIfSwitch
                         checked: { var v = stepVersion; return step ? step.exit_if : false }
                         onToggled: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_if = checked; uploadProfile() } }
+                        Accessible.name: "Move on if condition met"
                     }
                 }
 
@@ -1372,13 +1378,13 @@ Page {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
                     Text { text: TranslationManager.translate("profileEditor.popupMessage", "Popup Message"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                    TextField {
+                    StyledTextField {
+                        Accessible.name: "Popup message"
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
                         text: { var v = stepVersion; return step ? (step.popup || "") : "" }
                         font: Theme.bodyFont; color: Theme.textColor
-                        placeholderText: TranslationManager.translate("profileEditor.popupMessagePlaceholder", "e.g., Swirl now, $weight")
-                        placeholderTextColor: Theme.textSecondaryColor
+                        placeholder: TranslationManager.translate("profileEditor.popupMessagePlaceholder", "e.g., Swirl now, $weight")
                         leftPadding: Theme.scaled(12); rightPadding: Theme.scaled(12); topPadding: Theme.scaled(10); bottomPadding: Theme.scaled(10)
                         background: Rectangle { color: Theme.backgroundColor; radius: Theme.scaled(4); border.color: parent.activeFocus ? Theme.primaryColor : Theme.borderColor; border.width: 1 }
                         onEditingFinished: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].popup = text; uploadProfile() } }
@@ -1399,13 +1405,13 @@ Page {
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
 
-        TextField {
+        StyledTextField {
             id: nameField
+            Accessible.name: "Profile name"
             width: parent.width
             text: profile ? profile.title : ""
             font: Theme.bodyFont
             color: Theme.textColor
-            placeholderTextColor: Theme.textSecondaryColor
             leftPadding: Theme.scaled(12)
             rightPadding: Theme.scaled(12)
             topPadding: Theme.scaled(12)

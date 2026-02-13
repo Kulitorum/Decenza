@@ -139,7 +139,7 @@ ChartView {
         id: weight1
         name: "Weight 1"
         color: "#A5D6A7"
-        width: Theme.graphLineWidth - 1
+        width: Math.max(1, Theme.graphLineWidth - 1)
         style: Qt.DotLine
         axisX: timeAxis
         axisY: weightAxis
@@ -170,7 +170,7 @@ ChartView {
         id: weight2
         name: "Weight 2"
         color: "#90CAF9"
-        width: Theme.graphLineWidth - 1
+        width: Math.max(1, Theme.graphLineWidth - 1)
         style: Qt.DotLine
         axisX: timeAxis
         axisY: weightAxis
@@ -201,7 +201,7 @@ ChartView {
         id: weight3
         name: "Weight 3"
         color: "#FFCC80"
-        width: Theme.graphLineWidth - 1
+        width: Math.max(1, Theme.graphLineWidth - 1)
         style: Qt.DotLine
         axisX: timeAxis
         axisY: weightAxis

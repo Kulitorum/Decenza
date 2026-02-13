@@ -9,23 +9,23 @@ class Profile;
 /**
  * RecipeGenerator converts high-level RecipeParams into DE1 frames.
  *
- * Supports two editor types:
+ * Supports four editor types:
  *
  * D-Flow (Damian Brakel):
- *   Frame 0: Fill      - Flow mode fill to saturate puck
- *   Frame 1: Bloom     - Optional pause for CO2 release
- *   Frame 2: Infuse    - Hold at low pressure (preinfusion/soak)
- *   Frame 3: Ramp      - Smooth transition to pour setpoint
- *   Frame 4: Pour      - Flow-driven extraction with pressure limit
- *   Frame 5: Decline   - Optional flow decline
+ *   Fill -> [Bloom] -> [Infuse] -> [Ramp] -> Pour -> [Decline]
+ *   Flow-driven extraction with pressure limit.
  *
  * A-Flow (Janek, forked from D-Flow):
- *   Frame 0: Fill              - Same as D-Flow
- *   Frame 1: Infuse            - Same as D-Flow
- *   Frame 2: Pressure Up       - Smooth ramp to pour pressure
- *   Frame 3: Pressure Decline  - Decline to 1 bar, exit on flow_under
- *   Frame 4: Flow Start        - Transition to flow control
- *   Frame 5: Flow Extraction   - Flow-driven extraction with pressure limiter
+ *   Fill -> [Infuse] -> Pressure Up -> Pressure Decline -> Flow Start -> Flow Extraction
+ *   Hybrid pressure-then-flow extraction.
+ *
+ * Pressure (settings_2a):
+ *   Preinfusion -> [Forced Rise] -> Hold -> Decline
+ *   Matches de1app's pressure_to_advanced_list().
+ *
+ * Flow (settings_2b):
+ *   Preinfusion -> Hold -> Decline
+ *   Matches de1app's flow_to_advanced_list().
  */
 class RecipeGenerator {
 public:
