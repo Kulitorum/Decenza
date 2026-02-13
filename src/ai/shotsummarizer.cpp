@@ -30,6 +30,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.profileNotes = profile->profileNotes();
         summary.profileAuthor = profile->author();
         summary.beverageType = profile->beverageType();
+        summary.profileRecipeDescription = profile->describeFrames();
     }
 
     // Get the data vectors
@@ -245,6 +246,11 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     }
     out << "\n";
 
+    // Profile recipe (frame sequence)
+    if (!summary.profileRecipeDescription.isEmpty()) {
+        out << summary.profileRecipeDescription << "\n";
+    }
+
     // Phase breakdown with start/middle/end samples
     out << "## Phase Data\n\n";
     out << "Each phase shows samples at start, middle, and end. Values: actual (target).\n\n";
@@ -303,6 +309,16 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         out << "- No tasting feedback provided\n";
     }
     out << "\n";
+
+    // Observations (anomaly flags)
+    if (summary.channelingDetected || summary.temperatureUnstable) {
+        out << "## Observations\n\n";
+        if (summary.channelingDetected)
+            out << "- **Channeling detected**: Sudden flow spike (>50% increase) during extraction\n";
+        if (summary.temperatureUnstable)
+            out << "- **Temperature unstable**: Average deviation from target exceeds 2\u00B0C\n";
+        out << "\n";
+    }
 
     out << "Analyze the curve data and sensory feedback. Provide ONE specific, evidence-based recommendation.\n";
 

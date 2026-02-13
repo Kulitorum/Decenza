@@ -50,6 +50,7 @@ struct ShotSummary {
     QString profileNotes;   // Author's description of profile intent/design
     QString profileAuthor;
     QString beverageType;   // "espresso", "filter", etc.
+    QString profileRecipeDescription;  // Compact text description of frame sequence
 
     // Overall metrics
     double totalDuration = 0;

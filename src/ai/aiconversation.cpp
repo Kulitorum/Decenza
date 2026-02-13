@@ -1,5 +1,6 @@
 #include "aiconversation.h"
 #include "aimanager.h"
+#include "shotsummarizer.h"
 
 #include <QDebug>
 #include <QSettings>
@@ -227,26 +228,7 @@ void AIConversation::addShotContext(const QString& shotSummary, int shotId, cons
 
     // If no existing conversation, set up the system prompt based on beverage type
     if (m_systemPrompt.isEmpty()) {
-        if (beverageType.toLower() == "filter" || beverageType.toLower() == "pourover") {
-            m_systemPrompt = "You are an expert filter coffee consultant helping a user optimise brews made on a Decent DE1 profiling machine over multiple attempts. "
-                             "Key principles: Taste is king — numbers serve taste, not the other way around. "
-                             "Profile intent is the reference frame — evaluate actual vs. what the profile intended, not pour-over or drip norms. "
-                             "DE1 filter uses low pressure (1-3 bar), high flow, and long ratios (1:10-1:17) — these are all intentional, not problems. "
-                             "One variable at a time — never recommend changing multiple things at once. "
-                             "Track progress across brews and reference previous brews to identify trends. "
-                             "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. "
-                             "Focus on clarity, sweetness, and balance rather than espresso-style body and intensity.";
-        } else {
-            m_systemPrompt = "You are an expert espresso consultant helping a user dial in their shots on a Decent DE1 profiling machine over multiple attempts. "
-                             "Key principles: Taste is king — numbers serve taste, not the other way around. "
-                             "Profile intent is the reference frame — evaluate actual vs. what the profile intended, not generic espresso norms. "
-                             "A Blooming Espresso at 2 bar or a turbo shot at 15 seconds are not problems — they're by design. "
-                             "The DE1 controls either pressure or flow (never both); when one is the target, the other is a result of puck resistance. "
-                             "One variable at a time — never recommend changing multiple things at once. "
-                             "Track progress across shots and reference previous shots to identify trends. "
-                             "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. "
-                             "Never default to generic rules like 'grind finer', 'aim for 9 bar', or '25-30 seconds' without evidence from the data.";
-        }
+        m_systemPrompt = multiShotSystemPrompt(beverageType);
     }
 
     // Add the new shot as context with the app's shot ID
@@ -258,6 +240,118 @@ void AIConversation::addShotContext(const QString& shotSummary, int shotId, cons
 
     emit historyChanged();
     qDebug() << "AIConversation: Added new shot context, now have" << m_messages.size() << "messages";
+}
+
+QString AIConversation::processShotForConversation(const QString& shotSummary, int shotId)
+{
+    QString processed = shotSummary;
+
+    // Find previous shot in conversation
+    QString prevContent = findPreviousShotMessage();
+    int prevShotId = findPreviousShotId();
+
+    if (!prevContent.isEmpty()) {
+        // === Recipe dedup: skip recipe if same profile ===
+        QString newProfile = extractMetric(processed, "\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
+        QString prevProfile = extractMetric(prevContent, "\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
+
+        if (!newProfile.isEmpty() && newProfile == prevProfile) {
+            // Remove the "## Profile Recipe" section — it's identical
+            QRegularExpression recipeRe("## Profile Recipe[^\\n]*\\n(?:(?!## ).+\\n)*\\n?");
+            processed.replace(recipeRe, "(Same profile recipe as previous shot)\n\n");
+        }
+
+        // === Change detection ===
+        QStringList changes;
+
+        QString newDose = extractMetric(processed, "\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
+        QString prevDose = extractMetric(prevContent, "\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
+        if (!newDose.isEmpty() && !prevDose.isEmpty() && newDose != prevDose)
+            changes << "Dose " + prevDose + "g\u2192" + newDose + "g";
+
+        QString newYield = extractMetric(processed, "\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
+        QString prevYield = extractMetric(prevContent, "\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
+        if (!newYield.isEmpty() && !prevYield.isEmpty() && newYield != prevYield)
+            changes << "Yield " + prevYield + "g\u2192" + newYield + "g";
+
+        QString newGrinder = extractMetric(processed, "\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
+        QString prevGrinder = extractMetric(prevContent, "\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
+        if (!newGrinder.isEmpty() && !prevGrinder.isEmpty() && newGrinder != prevGrinder)
+            changes << "Grinder " + prevGrinder + " \u2192 " + newGrinder;
+
+        QString newDuration = extractMetric(processed, "\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
+        QString prevDuration = extractMetric(prevContent, "\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
+        if (!newDuration.isEmpty() && !prevDuration.isEmpty() && newDuration != prevDuration)
+            changes << "Duration " + prevDuration + "s\u2192" + newDuration + "s";
+
+        // Prepend changes section
+        QString changesSection;
+        if (prevShotId > 0) {
+            if (!changes.isEmpty()) {
+                changesSection = "**Changes from Shot #" + QString::number(prevShotId) + "**: " + changes.join(", ") + "\n\n";
+            } else {
+                changesSection = "**No parameter changes from Shot #" + QString::number(prevShotId) + "**\n\n";
+            }
+        }
+
+        if (!changesSection.isEmpty()) {
+            processed = changesSection + processed;
+        }
+    }
+
+    return processed;
+}
+
+QString AIConversation::multiShotSystemPrompt(const QString& beverageType)
+{
+    // Use the full single-shot system prompt (has all patterns, guidelines, target vs limiter explanation)
+    QString base = ShotSummarizer::systemPrompt(beverageType);
+    base += QStringLiteral(
+        "\n\n## Multi-Shot Context\n\n"
+        "You are helping the user dial in across multiple shots in a single session. "
+        "Track progress across shots and reference previous attempts to identify trends. "
+        "When the same profile is used across shots, focus on what changed (grind, dose, temperature) and how it affected the outcome. "
+        "When the profile recipe is marked as 'same as previous shot', don't re-explain the profile — focus on differences in execution and results. "
+        "Keep advice to ONE specific change per shot — don't overload with multiple adjustments.");
+    return base;
+}
+
+QString AIConversation::extractMetric(const QString& content, const QString& pattern)
+{
+    QRegularExpression re(pattern);
+    QRegularExpressionMatch match = re.match(content);
+    return match.hasMatch() ? match.captured(1).trimmed() : QString();
+}
+
+QString AIConversation::findPreviousShotMessage() const
+{
+    // Walk backwards to find the most recent user message containing shot data
+    for (int i = m_messages.size() - 1; i >= 0; i--) {
+        QJsonObject msg = m_messages[i].toObject();
+        if (msg["role"].toString() == "user") {
+            QString content = msg["content"].toString();
+            if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
+                return content;
+            }
+        }
+    }
+    return QString();
+}
+
+int AIConversation::findPreviousShotId() const
+{
+    // Walk backwards to find the most recent shot ID
+    QRegularExpression shotIdRe("## Shot #(\\d+)");
+    for (int i = m_messages.size() - 1; i >= 0; i--) {
+        QJsonObject msg = m_messages[i].toObject();
+        if (msg["role"].toString() == "user") {
+            QRegularExpressionMatch match = shotIdRe.match(msg["content"].toString());
+            if (match.hasMatch()) {
+                return match.captured(1).toInt();
+            }
+        }
+    }
+    return 0;
 }
 
 void AIConversation::saveToStorage()
@@ -429,18 +523,39 @@ QString AIConversation::summarizeShotMessage(const QString& content)
     m = notesRe.match(content);
     if (m.hasMatch()) notes = m.captured(1);
 
+    // Extract profile name
+    QRegularExpression profileRe("\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
+    QRegularExpressionMatch pm = profileRe.match(content);
+    QString profile = pm.hasMatch() ? pm.captured(1).trimmed() : QString();
+
+    // Extract grinder info
+    QRegularExpression grinderRe("\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
+    QRegularExpressionMatch gm = grinderRe.match(content);
+    QString grinder = gm.hasMatch() ? gm.captured(1).trimmed() : QString();
+
+    // Detect anomaly flags
+    bool channeling = content.contains("Channeling detected");
+    bool tempUnstable = content.contains("Temperature unstable");
+
     // Build compact summary
     QString summary = "- Shot";
     if (!shotNum.isEmpty()) summary += " #" + shotNum;
     summary += ":";
-    if (!dose.isEmpty() && !yield.isEmpty()) summary += " " + dose + "g→" + yield + "g";
+    if (!profile.isEmpty()) summary += " \"" + profile + "\"";
+    if (!dose.isEmpty() && !yield.isEmpty()) summary += " " + dose + "g\u2192" + yield + "g";
     if (!duration.isEmpty()) summary += ", " + duration + "s";
+    if (!grinder.isEmpty()) {
+        QString truncGrinder = grinder.length() > 30 ? grinder.left(27) + "..." : grinder;
+        summary += ", " + truncGrinder;
+    }
     if (!score.isEmpty()) summary += ", " + score + "/100";
     if (!notes.isEmpty()) {
         // Truncate long notes
         QString truncated = notes.length() > 40 ? notes.left(37) + "..." : notes;
-        summary += ", " + truncated;
+        summary += ", \"" + truncated + "\"";
     }
+    if (channeling) summary += " [channeling]";
+    if (tempUnstable) summary += " [temp unstable]";
 
     return summary;
 }

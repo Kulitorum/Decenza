@@ -1032,6 +1032,69 @@ QStringList Profile::validationErrors() const {
     return errors;
 }
 
+QString Profile::describeFrames() const
+{
+    if (m_steps.isEmpty()) return QString();
+
+    QString result;
+    QTextStream out(&result);
+    out << "## Profile Recipe (" << m_steps.size() << " frames)\n";
+
+    for (int i = 0; i < m_steps.size(); i++) {
+        const auto& f = m_steps[i];
+        bool isFlow = f.isFlowControl();
+
+        out << (i + 1) << ". ";
+        if (!f.name.isEmpty())
+            out << "\"" << f.name << "\" ";
+        out << "(" << QString::number(f.seconds, 'f', 0) << "s) - ";
+        if (isFlow)
+            out << "FLOW " << QString::number(f.flow, 'f', 1) << " ml/s";
+        else
+            out << "PRESSURE " << QString::number(f.pressure, 'f', 1) << " bar";
+        out << ", " << QString::number(f.temperature, 'f', 0) << "\u00B0C";
+        out << ", " << f.transition << " transition";
+
+        // Exit conditions (machine-side)
+        if (f.exitIf) {
+            if (f.exitType == "pressure_over" && f.exitPressureOver > 0)
+                out << ", exit when pressure > " << QString::number(f.exitPressureOver, 'f', 1) << " bar";
+            else if (f.exitType == "pressure_under" && f.exitPressureUnder > 0)
+                out << ", exit when pressure < " << QString::number(f.exitPressureUnder, 'f', 1) << " bar";
+            else if (f.exitType == "flow_over" && f.exitFlowOver > 0)
+                out << ", exit when flow > " << QString::number(f.exitFlowOver, 'f', 1) << " ml/s";
+            else if (f.exitType == "flow_under" && f.exitFlowUnder > 0)
+                out << ", exit when flow < " << QString::number(f.exitFlowUnder, 'f', 1) << " ml/s";
+        }
+
+        // Weight exit (independent of exitIf)
+        if (f.exitWeight > 0)
+            out << ", exit at weight " << QString::number(f.exitWeight, 'f', 1) << "g";
+
+        // Limiter
+        if (f.maxFlowOrPressure > 0) {
+            if (isFlow)
+                out << ", limiter: " << QString::number(f.maxFlowOrPressure, 'f', 1)
+                    << " bar (range " << QString::number(f.maxFlowOrPressureRange, 'f', 1) << ")";
+            else
+                out << ", limiter: " << QString::number(f.maxFlowOrPressure, 'f', 1)
+                    << " ml/s (range " << QString::number(f.maxFlowOrPressureRange, 'f', 1) << ")";
+        }
+
+        out << "\n";
+    }
+
+    return result;
+}
+
+QString Profile::describeFramesFromJson(const QString& json)
+{
+    if (json.isEmpty()) return QString();
+    Profile p = Profile::loadFromJsonString(json);
+    if (p.steps().isEmpty()) return QString();
+    return p.describeFrames();
+}
+
 int Profile::countPreinfuseFrames(const QList<ProfileFrame>& steps) {
     int count = 0;
     for (const auto& step : steps) {

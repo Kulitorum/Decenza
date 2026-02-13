@@ -13,6 +13,7 @@
 #include <QFile>
 #include <QDateTime>
 #include <QDebug>
+#include <cmath>
 
 AIManager::AIManager(Settings* settings, QObject* parent)
     : QObject(parent)
@@ -295,7 +296,60 @@ QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
     QString prompt;
     QTextStream out(&prompt);
 
-    // Shot summary
+    // === Helper lambdas ===
+
+    // Find value at a given time via linear interpolation
+    auto findValueAtTime = [](const QVariantList& data, double targetTime) -> double {
+        if (data.isEmpty()) return 0;
+        for (int i = 0; i < data.size(); i++) {
+            QVariantMap p = data[i].toMap();
+            double t = p.value("x", 0.0).toDouble();
+            if (t >= targetTime) {
+                if (i == 0) return p.value("y", 0.0).toDouble();
+                QVariantMap prev = data[i - 1].toMap();
+                double t0 = prev.value("x", 0.0).toDouble();
+                double y0 = prev.value("y", 0.0).toDouble();
+                double y1 = p.value("y", 0.0).toDouble();
+                double frac = (t - t0 > 0.001) ? (targetTime - t0) / (t - t0) : 0;
+                return y0 + frac * (y1 - y0);
+            }
+        }
+        return data.last().toMap().value("y", 0.0).toDouble();
+    };
+
+    // Detect channeling: flow spike >50% during extraction
+    auto detectChanneling = [](const QVariantList& flowData, double afterTime) -> bool {
+        if (flowData.size() < 10) return false;
+        for (int i = 5; i < flowData.size() - 5; i++) {
+            QVariantMap curr = flowData[i].toMap();
+            if (curr.value("x", 0.0).toDouble() < afterTime) continue;
+            QVariantMap prev = flowData[i - 5].toMap();
+            double prevFlow = prev.value("y", 0.0).toDouble();
+            double currFlow = curr.value("y", 0.0).toDouble();
+            if (prevFlow > 0.5 && currFlow > prevFlow * 1.5) return true;
+        }
+        return false;
+    };
+
+    // Detect temperature instability: avg deviation from goal >2°C
+    auto detectTempInstability = [&findValueAtTime](const QVariantList& tempData, const QVariantList& tempGoal) -> bool {
+        if (tempData.isEmpty() || tempGoal.isEmpty()) return false;
+        double deviationSum = 0;
+        int count = 0;
+        for (const QVariant& point : tempData) {
+            QVariantMap p = point.toMap();
+            double t = p.value("x", 0.0).toDouble();
+            double actual = p.value("y", 0.0).toDouble();
+            double target = findValueAtTime(tempGoal, t);
+            if (target > 0) {
+                deviationSum += std::abs(actual - target);
+                count++;
+            }
+        }
+        return count > 0 && (deviationSum / count) > 2.0;
+    };
+
+    // === Shot Summary ===
     out << "## Shot Summary\n\n";
     QString beverageType = shotData.value("beverageType", "espresso").toString();
     out << "- **Beverage type**: " << beverageType << "\n";
@@ -332,59 +386,126 @@ QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
     QString beanNotes = shotData.value("beanNotes").toString();
     if (!beanNotes.isEmpty())
         out << "- **Bean notes**: " << beanNotes << "\n";
+
+    // Profile description (prominently labeled so AI understands intent)
     QString profileNotes = shotData.value("profileNotes").toString();
     if (!profileNotes.isEmpty())
-        out << "- **Profile notes**: " << profileNotes << "\n";
+        out << "- **Profile description**: " << profileNotes << "\n";
     out << "\n";
 
-    // Extract curve data for analysis
+    // TDS/EY
+    double drinkTds = shotData.value("drinkTds", 0.0).toDouble();
+    double drinkEy = shotData.value("drinkEy", 0.0).toDouble();
+    if (drinkTds > 0 || drinkEy > 0) {
+        out << "- **Extraction**: ";
+        if (drinkTds > 0) out << "TDS " << QString::number(drinkTds, 'f', 2) << "%";
+        if (drinkTds > 0 && drinkEy > 0) out << ", ";
+        if (drinkEy > 0) out << "EY " << QString::number(drinkEy, 'f', 1) << "%";
+        out << "\n\n";
+    }
+
+    // === Profile Recipe ===
+    QString profileJson = shotData.value("profileJson").toString();
+    if (!profileJson.isEmpty()) {
+        QString recipe = Profile::describeFramesFromJson(profileJson);
+        if (!recipe.isEmpty()) {
+            out << recipe << "\n";
+        }
+    }
+
+    // === Phase Data ===
     QVariantList pressureData = shotData.value("pressure").toList();
     QVariantList flowData = shotData.value("flow").toList();
     QVariantList tempData = shotData.value("temperature").toList();
     QVariantList weightData = shotData.value("weight").toList();
-
-    // Sample curve data at key points for AI analysis
+    QVariantList pressureGoal = shotData.value("pressureGoal").toList();
+    QVariantList flowGoal = shotData.value("flowGoal").toList();
+    QVariantList tempGoal = shotData.value("temperatureGoal").toList();
+    QVariantList phases = shotData.value("phases").toList();
     double duration = shotData.value("duration", 60.0).toDouble();
-    out << "## Curve Samples\n\n";
-    out << "Sample points from the extraction curves:\n\n";
 
-    // Helper lambda to find value at time
-    auto findValueAtTime = [](const QVariantList& data, double targetTime) -> double {
-        if (data.isEmpty()) return 0;
-        for (const QVariant& point : data) {
-            QVariantMap p = point.toMap();
-            double t = p.value("x", 0.0).toDouble();
-            if (t >= targetTime) {
-                return p.value("y", 0.0).toDouble();
-            }
-        }
-        // Return last value if past end
-        if (!data.isEmpty()) {
-            return data.last().toMap().value("y", 0.0).toDouble();
-        }
-        return 0;
+    out << "## Phase Data\n\n";
+    out << "Each phase shows samples at start, middle, and end. Values: actual (target).\n\n";
+
+    // Build phase list — fall back to single "Extraction" phase if no markers
+    struct PhaseInfo {
+        QString label;
+        double startTime;
+        double endTime;
+        bool isFlowMode;
     };
+    QList<PhaseInfo> phaseList;
 
-    // Sample at 25%, 50%, 75% of extraction
-    double times[] = { duration * 0.25, duration * 0.5, duration * 0.75 };
-    const char* labels[] = { "Early", "Middle", "Late" };
-
-    for (int i = 0; i < 3; i++) {
-        double t = times[i];
-        double pressure = findValueAtTime(pressureData, t);
-        double flow = findValueAtTime(flowData, t);
-        double temp = findValueAtTime(tempData, t);
-        double weight = findValueAtTime(weightData, t);
-
-        out << "- **" << labels[i] << "** @" << QString::number(t, 'f', 0) << "s: ";
-        out << QString::number(pressure, 'f', 1) << " bar, ";
-        out << QString::number(flow, 'f', 1) << " ml/s, ";
-        out << QString::number(temp, 'f', 0) << " C, ";
-        out << QString::number(weight, 'f', 1) << "g\n";
+    if (!phases.isEmpty()) {
+        for (int i = 0; i < phases.size(); i++) {
+            QVariantMap marker = phases[i].toMap();
+            double startTime = marker.value("time", 0.0).toDouble();
+            double endTime = (i + 1 < phases.size())
+                ? phases[i + 1].toMap().value("time", 0.0).toDouble()
+                : duration;
+            if (endTime <= startTime) continue;
+            phaseList.append({
+                marker.value("label", "Phase").toString(),
+                startTime,
+                endTime,
+                marker.value("isFlowMode", false).toBool()
+            });
+        }
     }
-    out << "\n";
 
-    // Tasting feedback
+    if (phaseList.isEmpty()) {
+        // Fallback: single "Extraction" phase spanning the whole shot
+        phaseList.append({"Extraction", 0.0, duration, false});
+    }
+
+    // Determine extraction start time for channeling detection
+    double extractionStartTime = 3.0;  // fallback
+    for (const auto& ph : phaseList) {
+        QString lower = ph.label.toLower();
+        if (lower.contains("extract") || lower.contains("pour") ||
+            lower.contains("hold") || lower == "main") {
+            extractionStartTime = ph.startTime;
+            break;
+        }
+    }
+
+    // Output each phase
+    for (const auto& ph : phaseList) {
+        QString controlMode = ph.isFlowMode
+            ? "FLOW-CONTROLLED - pressure is just a result of resistance"
+            : "PRESSURE-CONTROLLED - flow is just a result of resistance";
+
+        out << "### " << ph.label << " (" << QString::number(ph.endTime - ph.startTime, 'f', 0) << "s) - " << controlMode << "\n";
+
+        double times[3] = { ph.startTime, (ph.startTime + ph.endTime) / 2, ph.endTime - 0.1 };
+        const char* labels[3] = { "Start", "Middle", "End" };
+
+        for (int i = 0; i < 3; i++) {
+            double t = times[i];
+            double pressure = findValueAtTime(pressureData, t);
+            double flow = findValueAtTime(flowData, t);
+            double temp = findValueAtTime(tempData, t);
+            double weight = findValueAtTime(weightData, t);
+            double pTarget = findValueAtTime(pressureGoal, t);
+            double fTarget = findValueAtTime(flowGoal, t);
+            double tTarget = findValueAtTime(tempGoal, t);
+
+            out << "- **" << labels[i] << "** @" << QString::number(t, 'f', 0) << "s: ";
+            out << QString::number(pressure, 'f', 1);
+            if (pTarget > 0.1) out << "(" << QString::number(pTarget, 'f', 0) << ")";
+            out << " bar, ";
+            out << QString::number(flow, 'f', 1);
+            if (fTarget > 0.1) out << "(" << QString::number(fTarget, 'f', 1) << ")";
+            out << " ml/s, ";
+            out << QString::number(temp, 'f', 0);
+            if (tTarget > 0) out << "(" << QString::number(tTarget, 'f', 0) << ")";
+            out << "\u00B0C, ";
+            out << QString::number(weight, 'f', 1) << "g\n";
+        }
+        out << "\n";
+    }
+
+    // === Tasting Feedback ===
     out << "## Tasting Feedback\n\n";
     int enjoyment = shotData.value("enjoyment", 0).toInt();
     QString notes = shotData.value("espressoNotes").toString();
@@ -404,6 +525,19 @@ QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
         out << "- No tasting feedback provided\n";
     }
     out << "\n";
+
+    // === Observations (anomaly detection) ===
+    bool channeling = detectChanneling(flowData, extractionStartTime);
+    bool tempUnstable = detectTempInstability(tempData, tempGoal);
+
+    if (channeling || tempUnstable) {
+        out << "## Observations\n\n";
+        if (channeling)
+            out << "- **Channeling detected**: Sudden flow spike (>50% increase) during extraction\n";
+        if (tempUnstable)
+            out << "- **Temperature unstable**: Average deviation from target exceeds 2\u00B0C\n";
+        out << "\n";
+    }
 
     out << "Analyze the curve data and sensory feedback. Provide ONE specific, evidence-based recommendation.\n";
 

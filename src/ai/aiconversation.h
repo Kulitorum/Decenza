@@ -68,6 +68,19 @@ public:
     Q_INVOKABLE void addShotContext(const QString& shotSummary, int shotId, const QString& beverageType = "espresso");
 
     /**
+     * Process a shot summary for conversation: deduplicates profile recipe if same
+     * profile as previous shot, and prepends a "changes from previous" section.
+     * Call this before sending via ask()/followUp() to avoid redundant data.
+     */
+    Q_INVOKABLE QString processShotForConversation(const QString& shotSummary, int shotId);
+
+    /**
+     * Get the full system prompt for multi-shot conversations.
+     * Uses the rich single-shot system prompt plus multi-shot guidance.
+     */
+    Q_INVOKABLE QString multiShotSystemPrompt(const QString& beverageType = "espresso");
+
+    /**
      * Save conversation history to persistent storage
      */
     Q_INVOKABLE void saveToStorage();
@@ -101,6 +114,9 @@ private:
     void trimHistory();
     static QString summarizeShotMessage(const QString& content);
     static QString summarizeAdvice(const QString& response);
+    static QString extractMetric(const QString& content, const QString& pattern);
+    QString findPreviousShotMessage() const;
+    int findPreviousShotId() const;
 
     static constexpr int MAX_VERBATIM_PAIRS = 5;
 

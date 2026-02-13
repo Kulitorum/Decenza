@@ -959,8 +959,9 @@ Page {
                 anchors.fill: parent
                 enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
                 onClicked: {
-                    // Generate shot summary from history shot data
-                    postShotReviewPage.pendingShotSummary = MainController.aiManager.generateHistoryShotSummary(editShotData)
+                    // Generate shot summary from history shot data, with recipe dedup and change detection
+                    var raw = MainController.aiManager.generateHistoryShotSummary(editShotData)
+                    postShotReviewPage.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, editShotId)
                     // Open conversation overlay so user can type their question
                     conversationOverlay.visible = true
                 }
@@ -1380,19 +1381,7 @@ Page {
                                 // Use ask() for new conversation, followUp() for existing
                                 if (!conversation.hasHistory) {
                                     var bevType = (editBeverageType || "espresso").toLowerCase()
-                                    var isFilter = bevType === "filter" || bevType === "pourover"
-                                    var systemPrompt = isFilter
-                                        ? "You are an expert filter coffee consultant helping a user optimise brews made on a Decent DE1 profiling machine over multiple attempts. " +
-                                          "Key principles: Taste is king — numbers serve taste, not the other way around. " +
-                                          "Profile intent is the reference frame — evaluate actual vs. what the profile intended, not pour-over or drip norms. " +
-                                          "DE1 filter uses low pressure (1-3 bar), high flow, and long ratios (1:10-1:17) — these are all intentional, not problems. " +
-                                          "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. " +
-                                          "Provide specific, actionable advice. Focus on one variable at a time."
-                                        : "You are an expert espresso consultant helping a user dial in their shots. " +
-                                          "The user has a Decent Espresso machine. " +
-                                          "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. " +
-                                          "Provide specific, actionable advice. Focus on one variable at a time. " +
-                                          "Follow James Hoffmann's methodology for dialing in espresso."
+                                    var systemPrompt = conversation.multiShotSystemPrompt(bevType)
                                     conversation.ask(systemPrompt, message)
                                 } else {
                                     conversation.followUp(message)
