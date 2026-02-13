@@ -568,7 +568,7 @@ public:
     // SAW (Stop-at-Weight) learning
     double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
     double getExpectedDrip(double currentFlowRate) const;  // Predicts drip based on flow and history
-    void addSawLearningPoint(double drip, double flowRate, const QString& scaleType);
+    void addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot);
     Q_INVOKABLE void resetSawLearning();
 
     // Layout configuration (dynamic IdlePage layout)
@@ -707,6 +707,9 @@ private:
     QJsonObject getLayoutObject() const;
     void saveLayoutObject(const QJsonObject& layout);
     QString generateItemId(const QString& type) const;
+
+    // SAW convergence detection helper
+    bool isSawConverged(const QString& scaleType) const;
 
     QSettings m_settings;
     mutable QJsonObject m_layoutCache;

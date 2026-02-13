@@ -177,7 +177,7 @@ int main(int argc, char *argv[])
     QObject::connect(&timingController, &ShotTimingController::sawLearningComplete,
                      [&settings](double drip, double flowAtStop, double overshoot) {
                          QString scaleType = settings.scaleType();
-                         settings.addSawLearningPoint(drip, flowAtStop, scaleType);
+                         settings.addSawLearningPoint(drip, flowAtStop, scaleType, overshoot);
                          qDebug() << "[SAW] Learning point saved: drip=" << drip
                                   << "flow=" << flowAtStop << "overshoot=" << overshoot
                                   << "scale=" << scaleType;
