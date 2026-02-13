@@ -36,23 +36,62 @@ KeyboardAwareContainer {
                     font.bold: true
                 }
 
-                // Server status
-                Rectangle {
+                // Server enable toggle
+                RowLayout {
                     Layout.fillWidth: true
-                    height: Theme.scaled(50)
-                    color: Theme.backgroundColor
-                    radius: Theme.scaled(8)
+                    spacing: Theme.scaled(8)
 
-                    Tr {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(8)
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        key: MainController.shotServer.running ? "settings.data.serverready" : "settings.data.enableinhistory"
-                        fallback: MainController.shotServer.running ? "Server is ready for connections." : "Enable 'Remote Access' in the Shot History tab to share data."
-                        color: MainController.shotServer.running ? Theme.successColor : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.WordWrap
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+
+                        Tr {
+                            key: "settings.history.enableserver"
+                            fallback: "Enable Server"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        Tr {
+                            key: "settings.data.enableserverdesc"
+                            fallback: "Required for data sharing and remote access"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(9)
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    StyledSwitch {
+                        checked: Settings.shotServerEnabled
+                        accessibleName: TranslationManager.translate("settings.history.enableserver", "Enable Server")
+                        onToggled: Settings.shotServerEnabled = checked
+                    }
+                }
+
+                // Server status indicator
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+                    visible: Settings.shotServerEnabled
+
+                    Rectangle {
+                        width: Theme.scaled(8)
+                        height: Theme.scaled(8)
+                        radius: Theme.scaled(4)
+                        color: MainController.shotServer && MainController.shotServer.running ?
+                               Theme.successColor : Theme.errorColor
+                    }
+
+                    Text {
+                        text: MainController.shotServer && MainController.shotServer.running ?
+                              (MainController.shotServer.url || "") :
+                              TranslationManager.translate("settings.data.serverstarting", "Starting...")
+                        color: MainController.shotServer && MainController.shotServer.running ?
+                               Theme.successColor : Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(10)
+                        Layout.fillWidth: true
+                        elide: Text.ElideMiddle
                     }
                 }
 

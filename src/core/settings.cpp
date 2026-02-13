@@ -1969,29 +1969,7 @@ void Settings::setShotServerPort(int port) {
     }
 }
 
-bool Settings::showHistoryButton() const {
-    return m_settings.value("shotHistory/showButton", false).toBool();
-}
-
-void Settings::setShowHistoryButton(bool show) {
-    if (showHistoryButton() != show) {
-        m_settings.setValue("shotHistory/showButton", show);
-        emit showHistoryButtonChanged();
-    }
-}
-
 // Auto-favorites settings
-bool Settings::autoFavoritesEnabled() const {
-    return m_settings.value("autoFavorites/enabled", false).toBool();
-}
-
-void Settings::setAutoFavoritesEnabled(bool enabled) {
-    if (autoFavoritesEnabled() != enabled) {
-        m_settings.setValue("autoFavorites/enabled", enabled);
-        emit autoFavoritesEnabledChanged();
-    }
-}
-
 QString Settings::autoFavoritesGroupBy() const {
     return m_settings.value("autoFavorites/groupBy", "bean_profile").toString();
 }

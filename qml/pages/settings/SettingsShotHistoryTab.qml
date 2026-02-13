@@ -63,57 +63,6 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                // Show on idle screen toggle
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    Text {
-                        text: "Show on Idle screen"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Layout.fillWidth: true
-                    }
-
-                    StyledSwitch {
-                        checked: Settings.showHistoryButton
-                        accessibleName: "Show on Idle screen"
-                        onToggled: Settings.showHistoryButton = checked
-                    }
-                }
-
-                // Auto-Favorites toggle
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-
-                        Text {
-                            text: TranslationManager.translate("settings.history.autofavorites", "Auto-Favorites")
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(11)
-                        }
-
-                        Text {
-                            text: TranslationManager.translate("settings.history.autofavoritesdesc",
-                                  "Show button for recent bean+profile combinations")
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    StyledSwitch {
-                        checked: Settings.autoFavoritesEnabled
-                        accessibleName: "Auto-Favorites"
-                        onToggled: Settings.autoFavoritesEnabled = checked
-                    }
-                }
-
                 // Divider
                 Rectangle {
                     Layout.fillWidth: true

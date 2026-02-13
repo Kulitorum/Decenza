@@ -145,7 +145,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     QJsonObject ui;
     ui["skin"] = settings->skin();
     ui["screenBrightness"] = settings->screenBrightness();
-    ui["showHistoryButton"] = settings->showHistoryButton();
     ui["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
     root["ui"] = ui;
 
@@ -400,7 +399,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         QJsonObject ui = json["ui"].toObject();
         if (ui.contains("skin")) settings->setSkin(ui["skin"].toString());
         if (ui.contains("screenBrightness")) settings->setScreenBrightness(ui["screenBrightness"].toDouble());
-        if (ui.contains("showHistoryButton")) settings->setShowHistoryButton(ui["showHistoryButton"].toBool());
         if (ui.contains("waterLevelDisplayUnit")) settings->setWaterLevelDisplayUnit(ui["waterLevelDisplayUnit"].toString());
     }
 
