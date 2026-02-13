@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QSettings>
 #include <QJsonDocument>
+#include <QRegularExpression>
 
 AIConversation::AIConversation(AIManager* aiManager, QObject* parent)
     : QObject(parent)
@@ -101,26 +102,10 @@ void AIConversation::sendRequest()
     m_busy = true;
     emit busyChanged();
 
-    // Build the full prompt with conversation history
-    // For now, we concatenate messages into a single user prompt
-    // since the current AIManager::analyze() doesn't support message arrays
-    QString fullPrompt;
-
-    for (int i = 0; i < m_messages.size(); i++) {
-        QJsonObject msg = m_messages[i].toObject();
-        QString role = msg["role"].toString();
-        QString content = msg["content"].toString();
-
-        if (role == "user") {
-            if (i > 0) fullPrompt += "\n\n[User follow-up]:\n";
-            fullPrompt += content;
-        } else if (role == "assistant") {
-            fullPrompt += "\n\n[Your previous response]:\n" + content;
-        }
-    }
+    trimHistory();
 
     qDebug() << "AIConversation: Sending request with" << m_messages.size() << "messages";
-    m_aiManager->analyze(m_systemPrompt, fullPrompt);
+    m_aiManager->analyzeConversation(m_systemPrompt, m_messages);
 }
 
 void AIConversation::onAnalysisComplete(const QString& response)
@@ -209,10 +194,19 @@ QString AIConversation::getConversationText() const
                     }
                 }
 
-                // Format: [Shot Data] or [Coffee Data] depending on beverage type
+                // Format: [Shot #N] or [Coffee #N] depending on beverage type
                 bool isFilter = content.contains("Beverage type**: filter", Qt::CaseInsensitive) ||
                                content.contains("Beverage type**: pourover", Qt::CaseInsensitive);
-                text += isFilter ? "**[Coffee Data]**" : "**[Shot Data]**";
+
+                // Extract shot number from "## Shot #N" prefix if present
+                QRegularExpression shotNumRe("^## Shot #(\\d+)");
+                QRegularExpressionMatch shotNumMatch = shotNumRe.match(content);
+                if (shotNumMatch.hasMatch()) {
+                    QString num = shotNumMatch.captured(1);
+                    text += isFilter ? "**[Coffee #" + num + "]**" : "**[Shot #" + num + "]**";
+                } else {
+                    text += isFilter ? "**[Coffee Data]**" : "**[Shot Data]**";
+                }
                 if (!userQuestion.isEmpty()) {
                     text += "\n**You:** " + userQuestion;
                 }
@@ -227,7 +221,7 @@ QString AIConversation::getConversationText() const
     return text;
 }
 
-void AIConversation::addShotContext(const QString& shotSummary, const QString& beverageType)
+void AIConversation::addShotContext(const QString& shotSummary, int shotId, const QString& beverageType)
 {
     if (m_busy) return;
 
@@ -255,8 +249,9 @@ void AIConversation::addShotContext(const QString& shotSummary, const QString& b
         }
     }
 
-    // Add the new shot as context
-    QString contextMessage = "Here's my latest shot:\n\n" + shotSummary +
+    // Add the new shot as context with the app's shot ID
+    QString contextMessage = "## Shot #" + QString::number(shotId) +
+                            "\n\nHere's my latest shot:\n\n" + shotSummary +
                             "\n\nPlease analyze this shot and provide recommendations, considering any previous shots we've discussed.";
     addUserMessage(contextMessage);
     sendRequest();
@@ -320,4 +315,156 @@ bool AIConversation::hasSavedConversation() const
 
     QJsonDocument doc = QJsonDocument::fromJson(messagesJson);
     return doc.isArray() && !doc.array().isEmpty();
+}
+
+void AIConversation::trimHistory()
+{
+    // Keep last MAX_VERBATIM_PAIRS user+assistant pairs + the pending user message verbatim.
+    // Older shot messages get summarized into a compact context block.
+    // Older non-shot messages (plain follow-ups) are dropped.
+
+    // Threshold: MAX_VERBATIM_PAIRS pairs = 2*MAX_VERBATIM_PAIRS messages, plus 1 pending user message
+    int maxVerbatim = MAX_VERBATIM_PAIRS * 2 + 1;
+    if (m_messages.size() <= maxVerbatim) return;
+
+    // Split messages: everything before the last maxVerbatim are "old"
+    int oldCount = static_cast<int>(m_messages.size()) - maxVerbatim;
+    QStringList summaries;
+    int droppedFollowUps = 0;
+
+    for (int i = 0; i < oldCount; i++) {
+        QJsonObject msg = m_messages[i].toObject();
+        if (msg["role"].toString() == "user") {
+            QString content = msg["content"].toString();
+            QString summary = summarizeShotMessage(content);
+            if (!summary.isEmpty()) {
+                // Look ahead for the assistant response to include recommendation context
+                if (i + 1 < oldCount) {
+                    QJsonObject nextMsg = m_messages[i + 1].toObject();
+                    if (nextMsg["role"].toString() == "assistant") {
+                        QString advice = summarizeAdvice(nextMsg["content"].toString());
+                        if (!advice.isEmpty()) {
+                            summary += " → Advice: " + advice;
+                        }
+                    }
+                }
+                summaries.append(summary);
+            } else {
+                droppedFollowUps++;
+            }
+        }
+    }
+
+    // Build trimmed array
+    QJsonArray trimmed;
+
+    if (!summaries.isEmpty() || droppedFollowUps > 0) {
+        // Prepend a summary context message
+        QString summaryContent;
+        if (!summaries.isEmpty()) {
+            summaryContent = "Previous shots summary:\n" + summaries.join("\n");
+        }
+        if (droppedFollowUps > 0) {
+            if (!summaryContent.isEmpty()) summaryContent += "\n";
+            summaryContent += QString("(%1 earlier follow-up message(s) omitted for brevity)").arg(droppedFollowUps);
+        }
+
+        QJsonObject summaryMsg;
+        summaryMsg["role"] = QString("user");
+        summaryMsg["content"] = summaryContent;
+        trimmed.append(summaryMsg);
+
+        // Add a synthetic assistant acknowledgment
+        QJsonObject ackMsg;
+        ackMsg["role"] = QString("assistant");
+        ackMsg["content"] = QString("Got it, I have context from your previous shots and messages. Let's continue.");
+        trimmed.append(ackMsg);
+    }
+
+    // Append the verbatim recent messages
+    for (int i = oldCount; i < m_messages.size(); i++) {
+        trimmed.append(m_messages[i]);
+    }
+
+    int removed = static_cast<int>(m_messages.size()) - static_cast<int>(trimmed.size());
+    m_messages = trimmed;
+
+    if (removed > 0) {
+        qDebug() << "AIConversation: Trimmed history, removed" << removed << "messages,"
+                 << summaries.size() << "shots summarized," << m_messages.size() << "messages remaining";
+    }
+}
+
+QString AIConversation::summarizeShotMessage(const QString& content)
+{
+    // Detect shot messages by content markers
+    if (!content.contains("Shot Summary") && !content.contains("Here's my latest shot"))
+        return QString();
+
+    // Extract shot number from "## Shot #N" prefix
+    QString shotNum;
+    QRegularExpression shotNumRe("## Shot #(\\d+)");
+    QRegularExpressionMatch numMatch = shotNumRe.match(content);
+    if (numMatch.hasMatch()) {
+        shotNum = numMatch.captured(1);
+    }
+
+    // Extract key metrics using regex
+    QRegularExpression doseRe("\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
+    QRegularExpression yieldRe("\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
+    QRegularExpression durationRe("\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
+    QRegularExpression scoreRe("\\*\\*Score\\*\\*:\\s*(\\d+)");
+    QRegularExpression notesRe("\\*\\*Notes\\*\\*:\\s*\"([^\"]+)\"");
+
+    QString dose, yield, duration, score, notes;
+
+    QRegularExpressionMatch m = doseRe.match(content);
+    if (m.hasMatch()) dose = m.captured(1);
+    m = yieldRe.match(content);
+    if (m.hasMatch()) yield = m.captured(1);
+    m = durationRe.match(content);
+    if (m.hasMatch()) duration = m.captured(1);
+    m = scoreRe.match(content);
+    if (m.hasMatch()) score = m.captured(1);
+    m = notesRe.match(content);
+    if (m.hasMatch()) notes = m.captured(1);
+
+    // Build compact summary
+    QString summary = "- Shot";
+    if (!shotNum.isEmpty()) summary += " #" + shotNum;
+    summary += ":";
+    if (!dose.isEmpty() && !yield.isEmpty()) summary += " " + dose + "g→" + yield + "g";
+    if (!duration.isEmpty()) summary += ", " + duration + "s";
+    if (!score.isEmpty()) summary += ", " + score + "/100";
+    if (!notes.isEmpty()) {
+        // Truncate long notes
+        QString truncated = notes.length() > 40 ? notes.left(37) + "..." : notes;
+        summary += ", " + truncated;
+    }
+
+    return summary;
+}
+
+QString AIConversation::summarizeAdvice(const QString& response)
+{
+    // Extract the first actionable sentence from the AI's response.
+    // Look for common recommendation patterns.
+    // We take the first sentence that contains an action verb related to espresso dialing.
+
+    // Try to find a line that starts with a recommendation keyword
+    QRegularExpression recRe("(?:^|\\n)\\s*(?:[-•*]\\s*)?(?:Try|Adjust|Grind|Increase|Decrease|Lower|Raise|Change|Move|Use|Reduce|Extend|Shorten)\\s[^\\n]{5,}",
+                              QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch m = recRe.match(response);
+    if (m.hasMatch()) {
+        QString advice = m.captured(0).trimmed();
+        // Strip leading bullet markers
+        if (advice.startsWith('-') || advice.startsWith(QChar(0x2022)) || advice.startsWith('*')) {
+            advice = advice.mid(1).trimmed();
+        }
+        // Truncate to keep compact
+        if (advice.length() > 80) advice = advice.left(77) + "...";
+        return advice;
+    }
+
+    return QString();
 }

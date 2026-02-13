@@ -24,6 +24,25 @@ void AIProvider::setStatus(Status status)
     }
 }
 
+void AIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    // Default fallback: flatten messages into a single string and call analyze()
+    QString flatPrompt;
+    for (int i = 0; i < messages.size(); i++) {
+        QJsonObject msg = messages[i].toObject();
+        QString role = msg["role"].toString();
+        QString content = msg["content"].toString();
+
+        if (role == "user") {
+            if (i > 0) flatPrompt += "\n\n[User follow-up]:\n";
+            flatPrompt += content;
+        } else if (role == "assistant") {
+            flatPrompt += "\n\n[Your previous response]:\n" + content;
+        }
+    }
+    analyze(systemPrompt, flatPrompt);
+}
+
 // ============================================================================
 // OpenAI Provider
 // ============================================================================
@@ -57,6 +76,41 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     userMsg["content"] = userPrompt;
     messages.append(userMsg);
     requestBody["messages"] = messages;
+    requestBody["max_tokens"] = 1024;
+
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
+void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("OpenAI API key not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+
+    QJsonObject requestBody;
+    requestBody["model"] = QString::fromLatin1(MODEL);
+    QJsonArray apiMessages;
+    QJsonObject sysMsg;
+    sysMsg["role"] = QString("system");
+    sysMsg["content"] = systemPrompt;
+    apiMessages.append(sysMsg);
+    for (const auto& msg : messages) {
+        apiMessages.append(msg);
+    }
+    requestBody["messages"] = apiMessages;
     requestBody["max_tokens"] = 1024;
 
     QUrl url(QString::fromLatin1(API_URL));
@@ -169,6 +223,35 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     userMsg["role"] = QString("user");
     userMsg["content"] = userPrompt;
     messages.append(userMsg);
+    requestBody["messages"] = messages;
+
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("x-api-key", m_apiKey.toUtf8());
+    req.setRawHeader("anthropic-version", "2023-06-01");
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
+void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("Anthropic API key not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+
+    QJsonObject requestBody;
+    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["max_tokens"] = 1024;
+    requestBody["system"] = systemPrompt;
     requestBody["messages"] = messages;
 
     QUrl url(QString::fromLatin1(API_URL));
@@ -330,6 +413,55 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
     });
 }
 
+void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("Gemini API key not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+
+    QJsonObject requestBody;
+
+    // system_instruction
+    QJsonObject sysInstruction;
+    QJsonArray sysParts;
+    QJsonObject sysTextPart;
+    sysTextPart["text"] = systemPrompt;
+    sysParts.append(sysTextPart);
+    sysInstruction["parts"] = sysParts;
+    requestBody["system_instruction"] = sysInstruction;
+
+    // contents — map from OpenAI roles to Gemini roles
+    QJsonArray contents;
+    for (const auto& msg : messages) {
+        QJsonObject m = msg.toObject();
+        QJsonObject content;
+        QString role = m["role"].toString();
+        content["role"] = (role == "assistant") ? QString("model") : role;
+        QJsonArray parts;
+        QJsonObject textPart;
+        textPart["text"] = m["content"].toString();
+        parts.append(textPart);
+        content["parts"] = parts;
+        contents.append(content);
+    }
+    requestBody["contents"] = contents;
+
+    QUrl url(apiUrl());
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
 {
     reply->deleteLater();
@@ -471,6 +603,43 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     });
 }
 
+void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("OpenRouter API key or model not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    QJsonArray apiMessages;
+    QJsonObject sysMsg;
+    sysMsg["role"] = QString("system");
+    sysMsg["content"] = systemPrompt;
+    apiMessages.append(sysMsg);
+    for (const auto& msg : messages) {
+        apiMessages.append(msg);
+    }
+    requestBody["messages"] = apiMessages;
+    requestBody["max_tokens"] = 1024;
+
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
+    req.setRawHeader("X-Title", "Decenza DE1");
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
 {
     reply->deleteLater();
@@ -597,6 +766,46 @@ void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPro
     });
 }
 
+void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("Ollama not configured (need endpoint and model)");
+        return;
+    }
+
+    setStatus(Status::Busy);
+
+    // Use /api/chat which supports messages array natively
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    requestBody["stream"] = false;
+
+    QJsonArray apiMessages;
+    QJsonObject sysMsg;
+    sysMsg["role"] = QString("system");
+    sysMsg["content"] = systemPrompt;
+    apiMessages.append(sysMsg);
+    for (const auto& msg : messages) {
+        apiMessages.append(msg);
+    }
+    requestBody["messages"] = apiMessages;
+
+    QString urlStr = m_endpoint;
+    if (!urlStr.endsWith(QString("/"))) urlStr += QString("/");
+    urlStr += QString("api/chat");
+
+    QUrl url(urlStr);
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
 {
     reply->deleteLater();
@@ -615,7 +824,11 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
-    QString response = root["response"].toString();
+    // Support both /api/chat (message.content) and /api/generate (response) formats
+    QString response = root["message"].toObject()["content"].toString();
+    if (response.isEmpty()) {
+        response = root["response"].toString();
+    }
     if (response.isEmpty()) {
         emit analysisFailed("Ollama returned empty response");
         return;

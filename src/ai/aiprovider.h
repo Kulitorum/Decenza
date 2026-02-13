@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QJsonArray>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 
@@ -25,6 +26,9 @@ public:
 
     // Main analysis method
     virtual void analyze(const QString& systemPrompt, const QString& userPrompt) = 0;
+
+    // Multi-turn conversation method (messages = array of {role, content} objects)
+    virtual void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
 
     // Test connection
     virtual void testConnection() = 0;
@@ -57,6 +61,7 @@ public:
     void setApiKey(const QString& key) { m_apiKey = key; }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
+    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     void testConnection() override;
 
 private slots:
@@ -85,6 +90,7 @@ public:
     void setApiKey(const QString& key) { m_apiKey = key; }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
+    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     void testConnection() override;
 
 private slots:
@@ -113,6 +119,7 @@ public:
     void setApiKey(const QString& key) { m_apiKey = key; }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
+    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     void testConnection() override;
 
 private slots:
@@ -143,6 +150,7 @@ public:
     void setModel(const QString& model) { m_model = model; }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
+    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     void testConnection() override;
 
 private slots:
@@ -174,6 +182,7 @@ public:
     void setModel(const QString& model) { m_model = model; }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
+    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     void testConnection() override;
 
     // Get available models from Ollama

@@ -764,8 +764,8 @@ Page {
 
                                 // If there's a pending shot, include it with the user's question
                                 if (shotDetailPage.pendingShotSummary.length > 0) {
-                                    message = "Here's my latest shot:\n\n" + shotDetailPage.pendingShotSummary +
-                                              "\n\n" + text
+                                    message = "## Shot #" + shotDetailPage.shotId + "\n\nHere's my latest shot:\n\n" +
+                                              shotDetailPage.pendingShotSummary + "\n\n" + text
                                     shotDetailPage.pendingShotSummary = ""  // Clear after sending
                                 }
 
