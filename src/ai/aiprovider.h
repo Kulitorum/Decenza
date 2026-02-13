@@ -19,6 +19,7 @@ public:
 
     virtual QString name() const = 0;
     virtual QString id() const = 0;  // "openai", "anthropic", "gemini", "ollama"
+    virtual QString modelName() const = 0;
     virtual bool isConfigured() const = 0;
     virtual bool isLocal() const { return false; }
 
@@ -56,6 +57,7 @@ public:
 
     QString name() const override { return "OpenAI"; }
     QString id() const override { return "openai"; }
+    QString modelName() const override { return MODEL; }
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
 
     void setApiKey(const QString& key) { m_apiKey = key; }
@@ -71,7 +73,7 @@ private slots:
 private:
     QString m_apiKey;
     static constexpr const char* API_URL = "https://api.openai.com/v1/chat/completions";
-    static constexpr const char* MODEL = "gpt-4o";
+    static constexpr const char* MODEL = "gpt-4.1";
 };
 
 // Anthropic Claude Sonnet provider
@@ -85,6 +87,7 @@ public:
 
     QString name() const override { return "Anthropic"; }
     QString id() const override { return "anthropic"; }
+    QString modelName() const override { return MODEL; }
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
 
     void setApiKey(const QString& key) { m_apiKey = key; }
@@ -114,6 +117,7 @@ public:
 
     QString name() const override { return "Google Gemini"; }
     QString id() const override { return "gemini"; }
+    QString modelName() const override { return MODEL; }
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
 
     void setApiKey(const QString& key) { m_apiKey = key; }
@@ -128,7 +132,7 @@ private slots:
 
 private:
     QString m_apiKey;
-    static constexpr const char* MODEL = "gemini-2.0-flash";
+    static constexpr const char* MODEL = "gemini-2.5-flash";
     QString apiUrl() const;
 };
 
@@ -144,6 +148,7 @@ public:
 
     QString name() const override { return "OpenRouter"; }
     QString id() const override { return "openrouter"; }
+    QString modelName() const override { return m_model; }
     bool isConfigured() const override { return !m_apiKey.isEmpty() && !m_model.isEmpty(); }
 
     void setApiKey(const QString& key) { m_apiKey = key; }
@@ -175,6 +180,7 @@ public:
 
     QString name() const override { return "Ollama"; }
     QString id() const override { return "ollama"; }
+    QString modelName() const override { return m_model; }
     bool isConfigured() const override { return !m_endpoint.isEmpty() && !m_model.isEmpty(); }
     bool isLocal() const override { return true; }
 
