@@ -7,7 +7,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
+#if !defined(Q_OS_IOS)
 #include <QProcess>
+#endif
 #include <QDebug>
 
 #ifdef Q_OS_ANDROID
@@ -182,6 +184,12 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
         QJniObject::fromString(zipPath).object<jstring>(),
         QJniObject::fromString(destDir).object<jstring>());
     return result;
+#elif defined(Q_OS_IOS)
+    // iOS doesn't support QProcess - zip extraction not available
+    Q_UNUSED(zipPath);
+    Q_UNUSED(destDir);
+    qWarning() << "DatabaseBackupManager: ZIP extraction not supported on iOS";
+    return false;
 #else
     QProcess unzipProcess;
     unzipProcess.setWorkingDirectory(destDir);
@@ -248,9 +256,13 @@ bool DatabaseBackupManager::createBackup(bool force)
 
     // Generate backup filename with date
     QString dateStr = QDate::currentDate().toString("yyyyMMdd");
+#ifdef Q_OS_IOS
+    QString zipPath = backupDir + "/shots_backup_" + dateStr + ".db";
+#else
     QString zipPath = backupDir + "/shots_backup_" + dateStr + ".zip";
+#endif
 
-    // Check if ZIP backup already exists for today
+    // Check if backup already exists for today
     QFileInfo existingZip(zipPath);
     if (!force && existingZip.exists() && existingZip.size() > 0) {
         // Automatic backup - skip if valid backup exists
@@ -333,8 +345,21 @@ bool DatabaseBackupManager::createBackup(bool force)
         zipSuccess = true;
         qDebug() << "DatabaseBackupManager: ZIP created via Java:" << zipPath;
     }
+#elif defined(Q_OS_IOS)
+    // iOS: No QProcess available, save .db file directly (no zip compression)
+    {
+        QString dbFileName = QDir(stagingDir).entryList({"*.db"}, QDir::Files).value(0);
+        if (!dbFileName.isEmpty()) {
+            QString dbPath = backupDir + "/" + QFileInfo(dbFileName).fileName();
+            if (QFile::copy(stagingDir + "/" + dbFileName, dbPath)) {
+                zipSuccess = true;
+                finalPath = dbPath;
+                qDebug() << "DatabaseBackupManager: Saved backup as .db (no zip on iOS):" << dbPath;
+            }
+        }
+    }
 #else
-    // Desktop/iOS: Use system zip command
+    // Desktop: Use system zip command
     QProcess zipProcess;
     zipProcess.setWorkingDirectory(stagingDir);
 
@@ -461,9 +486,9 @@ QStringList DatabaseBackupManager::getAvailableBackups() const
         return QStringList();
     }
 
-    // Get all backup ZIP files
+    // Get all backup files (ZIP on most platforms, .db on iOS)
     QStringList filters;
-    filters << "shots_backup_*.zip";
+    filters << "shots_backup_*.zip" << "shots_backup_*.db";
     QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time | QDir::Reversed);
 
     QStringList result;
@@ -520,36 +545,44 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
         return false;
     }
 
-    // Extract ZIP to temporary directory
+    // Get the .db file from the backup
     QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_restore_temp";
     QDir(tempDir).removeRecursively();
     QDir().mkpath(tempDir);
 
-    qDebug() << "DatabaseBackupManager: Extracting" << zipPath << "to" << tempDir;
-
-    if (!extractZip(zipPath, tempDir)) {
-        QString error = "Failed to extract backup file";
-        qWarning() << "DatabaseBackupManager:" << error;
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
-
-    // Find the .db file in the extracted contents
-    QDir tempDirObj(tempDir);
-    QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
     QString tempDbPath;
-    if (!dbFiles.isEmpty()) {
-        tempDbPath = tempDir + "/" + dbFiles.first();
-        qDebug() << "DatabaseBackupManager: Found DB file:" << tempDbPath;
+
+    if (filename.endsWith(".db")) {
+        // Raw .db backup (iOS) - use directly
+        tempDbPath = zipPath;
+        qDebug() << "DatabaseBackupManager: Using raw .db backup:" << tempDbPath;
     } else {
-        QString error = "No database file found in backup";
-        qWarning() << "DatabaseBackupManager:" << error;
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
+        // ZIP backup - extract first
+        qDebug() << "DatabaseBackupManager: Extracting" << zipPath << "to" << tempDir;
+
+        if (!extractZip(zipPath, tempDir)) {
+            QString error = "Failed to extract backup file";
+            qWarning() << "DatabaseBackupManager:" << error;
+            QDir(tempDir).removeRecursively();
+            m_restoreInProgress = false;
+            emit restoreFailed(error);
+            return false;
+        }
+
+        // Find the .db file in the extracted contents
+        QDir tempDirObj(tempDir);
+        QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
+        if (!dbFiles.isEmpty()) {
+            tempDbPath = tempDir + "/" + dbFiles.first();
+            qDebug() << "DatabaseBackupManager: Found DB file:" << tempDbPath;
+        } else {
+            QString error = "No database file found in backup";
+            qWarning() << "DatabaseBackupManager:" << error;
+            QDir(tempDir).removeRecursively();
+            m_restoreInProgress = false;
+            emit restoreFailed(error);
+            return false;
+        }
     }
 
     // Validate extracted file exists and is a valid SQLite database

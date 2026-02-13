@@ -782,18 +782,42 @@ Page {
         id: deleteDialog
         anchors.centerIn: parent
         width: Theme.scaled(350)
+        padding: 0
         modal: true
-        title: TranslationManager.translate("profileselector.dialog.delete_title", "Delete Profile")
 
         property string profileName: ""
         property string profileTitle: ""
         property bool isFavorite: false
+
+        header: Item {
+            implicitHeight: Theme.scaled(50)
+
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                text: TranslationManager.translate("profileselector.dialog.delete_title", "Delete Profile")
+                font: Theme.titleFont
+                color: Theme.textColor
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
 
         contentItem: ColumnLayout {
             spacing: Theme.scaled(15)
 
             Text {
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(15)
                 text: deleteDialog.isFavorite ?
                       "\"" + deleteDialog.profileTitle + "\" " + TranslationManager.translate("profileselector.dialog.delete_favorite_msg", "is in your favorites.\n\nDeleting will also remove it from favorites.\n\nAre you sure you want to delete this profile?") :
                       TranslationManager.translate("profileselector.dialog.delete_confirm_prefix", "Are you sure you want to delete") + " \"" + deleteDialog.profileTitle + "\"?\n\n" + TranslationManager.translate("profileselector.dialog.delete_confirm_suffix", "This cannot be undone.")
@@ -804,6 +828,9 @@ Page {
 
             RowLayout {
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(15)
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
@@ -836,10 +863,31 @@ Page {
     // New profile type picker dialog
     Dialog {
         id: newProfileDialog
-        title: TranslationManager.translate("profileselector.newProfile.title", "New Profile")
         anchors.centerIn: parent
         width: Theme.scaled(350)
+        padding: 0
         modal: true
+
+        header: Item {
+            implicitHeight: Theme.scaled(50)
+
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                text: TranslationManager.translate("profileselector.newProfile.title", "New Profile")
+                font: Theme.titleFont
+                color: Theme.textColor
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
 
         contentItem: ColumnLayout {
             spacing: Theme.scaled(8)
@@ -855,6 +903,8 @@ Page {
 
                 delegate: Rectangle {
                     Layout.fillWidth: true
+                    Layout.leftMargin: Theme.scaled(12)
+                    Layout.rightMargin: Theme.scaled(12)
                     Layout.preferredHeight: Theme.scaled(48)
                     radius: Theme.scaled(6)
                     color: typeMouseArea.containsMouse ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : Theme.backgroundColor
@@ -898,6 +948,8 @@ Page {
                     }
                 }
             }
+
+            Item { Layout.preferredHeight: Theme.scaled(4) }
         }
 
         background: Rectangle {

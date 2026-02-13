@@ -41,7 +41,8 @@ public:
     Q_INVOKABLE void registerSeries(QLineSeries* pressure, QLineSeries* flow, QLineSeries* temperature,
                                      const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
                                      QLineSeries* temperatureGoal,
-                                     QLineSeries* weight, QLineSeries* extractionMarker,
+                                     QLineSeries* weight, QLineSeries* weightFlow,
+                                     QLineSeries* extractionMarker,
                                      QLineSeries* stopMarker,
                                      const QVariantList& frameMarkers);
 
@@ -109,6 +110,7 @@ private:
     QList<QPointer<QLineSeries>> m_flowGoalSeriesList;      // One per segment
     QPointer<QLineSeries> m_temperatureGoalSeries;
     QPointer<QLineSeries> m_weightSeries;
+    QPointer<QLineSeries> m_weightFlowSeries;
     QPointer<QLineSeries> m_extractionMarkerSeries;
     QPointer<QLineSeries> m_stopMarkerSeries;
     QList<QPointer<QLineSeries>> m_frameMarkerSeries;

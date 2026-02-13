@@ -22,7 +22,7 @@ ChartView {
             [pressureGoal1, pressureGoal2, pressureGoal3, pressureGoal4, pressureGoal5],
             [flowGoal1, flowGoal2, flowGoal3, flowGoal4, flowGoal5],
             temperatureGoalSeries,
-            weightSeries, extractionStartMarker, stopMarker,
+            weightSeries, weightFlowSeries, extractionStartMarker, stopMarker,
             [frameMarker1, frameMarker2, frameMarker3, frameMarker4, frameMarker5,
              frameMarker6, frameMarker7, frameMarker8, frameMarker9, frameMarker10]
         )
@@ -62,7 +62,7 @@ ChartView {
         labelFormat: "%.0f"
         labelsColor: Theme.textSecondaryColor
         gridLineColor: Qt.rgba(255, 255, 255, 0.1)
-        titleText: "bar / mL/s"
+        titleText: "bar / mL·g/s"
         titleBrush: Theme.textSecondaryColor
     }
 
@@ -179,6 +179,15 @@ ChartView {
         width: Theme.scaled(3)
         axisX: timeAxis
         axisYRight: tempAxis
+    }
+
+    LineSeries {
+        id: weightFlowSeries
+        name: "Weight Flow"
+        color: Theme.weightFlowColor
+        width: Theme.scaled(2)
+        axisX: timeAxis
+        axisY: pressureAxis
     }
 
     LineSeries {
@@ -334,6 +343,11 @@ ChartView {
                 spacing: Theme.spacingSmall
                 Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.weightColor; anchors.verticalCenter: parent.verticalCenter }
                 Text { text: "Weight"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+            }
+            Row {
+                spacing: Theme.spacingSmall
+                Rectangle { width: Theme.scaled(16); height: Theme.scaled(2); radius: Theme.scaled(1); color: Theme.weightFlowColor; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "Weight flow"; color: Theme.textSecondaryColor; font: Theme.captionFont }
             }
 
             // Solid/dashed indicator

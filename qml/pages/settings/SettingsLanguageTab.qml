@@ -320,8 +320,6 @@ Item {
                     onClicked: pageStack.push("StringBrowserPage.qml")
                 }
 
-                Item { Layout.fillHeight: true }
-
                 // Submit to community button (not for English, developer mode only)
                 AccessibleButton {
                     Layout.fillWidth: true
@@ -334,6 +332,8 @@ Item {
                     enabled: !TranslationManager.uploading
                     onClicked: TranslationManager.submitTranslation()
                 }
+
+                Item { Layout.fillHeight: true }
             }
         }
     }

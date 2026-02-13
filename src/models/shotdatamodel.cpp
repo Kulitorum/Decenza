@@ -38,7 +38,8 @@ ShotDataModel::~ShotDataModel() {
 void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLineSeries* temperature,
                                     const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
                                     QLineSeries* temperatureGoal,
-                                    QLineSeries* weight, QLineSeries* extractionMarker,
+                                    QLineSeries* weight, QLineSeries* weightFlow,
+                                    QLineSeries* extractionMarker,
                                     QLineSeries* stopMarker,
                                     const QVariantList& frameMarkers) {
     m_pressureSeries = pressure;
@@ -46,6 +47,7 @@ void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLi
     m_temperatureSeries = temperature;
     m_temperatureGoalSeries = temperatureGoal;
     m_weightSeries = weight;
+    m_weightFlowSeries = weightFlow;
     m_extractionMarkerSeries = extractionMarker;
     m_stopMarkerSeries = stopMarker;
 
@@ -82,6 +84,7 @@ void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLi
     if (m_flowSeries) m_flowSeries->setUseOpenGL(true);
     if (m_temperatureSeries) m_temperatureSeries->setUseOpenGL(true);
     if (m_weightSeries) m_weightSeries->setUseOpenGL(true);
+    if (m_weightFlowSeries) m_weightFlowSeries->setUseOpenGL(true);
     qDebug() << "ShotDataModel: Registered series with OpenGL acceleration";
 #else
     qDebug() << "ShotDataModel: Registered series (OpenGL disabled for iOS/Metal)";
@@ -96,7 +99,8 @@ void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLi
         qDebug() << "ShotDataModel: Populating new series with existing data ("
                  << m_pressurePoints.size() << " pressure points,"
                  << m_flowPoints.size() << " flow points,"
-                 << m_weightPoints.size() << " weight points)";
+                 << m_weightPoints.size() << " weight points,"
+                 << m_weightFlowRatePoints.size() << " weight flow points)";
         m_dirty = true;
         flushToChart();
     }
@@ -136,6 +140,7 @@ void ShotDataModel::clear() {
     if (m_temperatureSeries) m_temperatureSeries->clear();
     if (m_temperatureGoalSeries) m_temperatureGoalSeries->clear();
     if (m_weightSeries) m_weightSeries->clear();
+    if (m_weightFlowSeries) m_weightFlowSeries->clear();
     if (m_extractionMarkerSeries) m_extractionMarkerSeries->clear();
     if (m_stopMarkerSeries) m_stopMarkerSeries->clear();
     m_pendingStopTime = -1;
@@ -180,6 +185,9 @@ void ShotDataModel::clearWeightData() {
     m_weightFlowRatePoints.clear();
     if (m_weightSeries) {
         m_weightSeries->clear();
+    }
+    if (m_weightFlowSeries) {
+        m_weightFlowSeries->clear();
     }
     qDebug() << "ShotDataModel: Cleared pre-tare weight data";
 }
@@ -390,6 +398,9 @@ void ShotDataModel::flushToChart() {
     }
     if (m_weightSeries && !m_weightPoints.isEmpty()) {
         m_weightSeries->replace(m_weightPoints);
+    }
+    if (m_weightFlowSeries && !m_weightFlowRatePoints.isEmpty()) {
+        m_weightFlowSeries->replace(m_weightFlowRatePoints);
     }
 
     // Process pending vertical markers

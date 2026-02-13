@@ -458,6 +458,7 @@ ApplicationWindow {
         z: 10000  // Above everything
         enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
         propagateComposedEvents: true
+        Accessible.ignored: true
 
         // Check if an item or any ancestor is interactive (Button, focusable, etc.)
         function isInsideInteractive(item) {
@@ -2362,33 +2363,45 @@ ApplicationWindow {
     }
 
     // ============ GLOBAL HIDE KEYBOARD BUTTON ============
-    // Appears when soft keyboard is visible - positioned at top right below status bar
+    // Appears when a text input has focus (= keyboard should be showing).
+    // Qt.inputMethod.visible is unreliable on Android (goes false after 1s),
+    // so we check if the active focus item has a text property instead.
+    property bool _textInputFocused: {
+        var item = root.activeFocusItem
+        if (!item) return false
+        return "cursorPosition" in item
+    }
     Rectangle {
         id: globalHideKeyboardButton
-        visible: Qt.inputMethod.visible
+        visible: _textInputFocused
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.standardMargin
         anchors.topMargin: Theme.pageTopMargin + 4
-        width: hideKeyboardText.width + 24
-        height: 28
-        radius: 14
+        width: Theme.scaled(36)
+        height: Theme.scaled(36)
+        radius: Theme.scaled(18)
         color: Theme.primaryColor
         z: 9999  // Above everything
 
-        Tr {
-            id: hideKeyboardText
+        Image {
             anchors.centerIn: parent
-            key: "main.button.hideKeyboard"
-            fallback: "Hide keyboard"
-            color: "white"
-            font.pixelSize: 13
-            font.bold: true
+            width: Theme.scaled(20)
+            height: Theme.scaled(20)
+            source: "qrc:/icons/hide-keyboard.svg"
+            sourceSize: Qt.size(width, height)
         }
 
         MouseArea {
             anchors.fill: parent
-            onClicked: Qt.inputMethod.hide()
+            onClicked: {
+                // Must clear focus BEFORE hiding keyboard, otherwise
+                // KeyboardAwareContainer sees focus + no keyboard and reopens it
+                var window = globalHideKeyboardButton.Window.window
+                if (window && window.activeFocusItem)
+                    window.activeFocusItem.focus = false
+                Qt.inputMethod.hide()
+            }
         }
     }
 

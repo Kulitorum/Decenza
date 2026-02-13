@@ -2,7 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import DecenzaDE1
 
-// Container that shifts content up when keyboard appears
+// Container that shifts content up when a text field has focus.
+// Uses focus state (not Qt.inputMethod which is unreliable on Android).
+// When keyboard height is unknown, estimates 50% of screen height.
+//
 // Usage:
 //   KeyboardAwareContainer {
 //       textFields: [myTextField1, myTextField2]
@@ -12,78 +15,71 @@ import DecenzaDE1
 Item {
     id: root
 
-    // List of text fields to track for keyboard offset
+    // List of text fields to track
     property var textFields: []
 
-    // Current keyboard offset
+    // Current shift amount
     property real keyboardOffset: 0
+
+    // True when a registered text field has focus
+    property bool textFieldFocused: false
 
     // Content is the default property so children go inside automatically
     default property alias content: contentContainer.data
 
-    // Delay timer to prevent jumpy behavior when switching fields
-    Timer {
-        id: keyboardResetTimer
-        interval: 300
-        onTriggered: {
-            if (!Qt.inputMethod.visible && !hasActiveFocus()) {
-                root.keyboardOffset = 0
-            }
-        }
-    }
-
-    // Check if any registered text field has focus
     function hasActiveFocus() {
         for (var i = 0; i < textFields.length; i++) {
-            if (textFields[i] && textFields[i].activeFocus) {
+            if (textFields[i] && textFields[i].activeFocus)
                 return true
-            }
         }
         return false
     }
 
-    // Get the currently focused text field
     function getActiveFocusField() {
         for (var i = 0; i < textFields.length; i++) {
-            if (textFields[i] && textFields[i].activeFocus) {
+            if (textFields[i] && textFields[i].activeFocus)
                 return textFields[i]
-            }
         }
         return null
     }
 
-    // Calculate keyboard offset for a given field
-    function updateKeyboardOffset(focusedField) {
-        if (!focusedField) return
+    function updateKeyboardOffset() {
+        var focusedField = getActiveFocusField()
+        if (!focusedField) {
+            keyboardOffset = 0
+            return
+        }
 
-        // Calculate based on field position - shift to top 30% of screen
-        // Add current offset back to get ORIGINAL position (before any shift)
+        // Use real keyboard height if available, otherwise estimate 50%
+        var kbHeight = Qt.inputMethod.keyboardRectangle.height
+        if (kbHeight <= 0)
+            kbHeight = root.height * 0.5
+
+        var visibleBottom = root.height - kbHeight
+
+        // Get field's original position (undo current shift)
         var fieldPos = focusedField.mapToItem(root, 0, 0)
         var fieldBottomOriginal = fieldPos.y + focusedField.height + keyboardOffset
-        var safeZone = root.height * 0.30
-        var newOffset = Math.max(0, fieldBottomOriginal - safeZone)
+        var margin = root.height * 0.05
 
-        keyboardOffset = newOffset
+        keyboardOffset = Math.max(0, fieldBottomOriginal - visibleBottom + margin)
     }
 
-    // Track keyboard visibility
-    Connections {
-        target: Qt.inputMethod
-        function onVisibleChanged() {
-            if (Qt.inputMethod.visible) {
-                keyboardResetTimer.stop()
-                var focusedField = root.getActiveFocusField()
-                if (focusedField) {
-                    root.updateKeyboardOffset(focusedField)
-                }
-            } else {
-                // Keyboard hidden - but if field still has focus, try to re-show it
-                if (root.hasActiveFocus()) {
-                    Qt.inputMethod.show()
-                } else {
-                    keyboardResetTimer.restart()
-                }
-            }
+    // Connect to each text field's focus signal
+    onTextFieldsChanged: {
+        for (var i = 0; i < textFields.length; i++) {
+            textFields[i].activeFocusChanged.connect(_updateFocusState)
+        }
+    }
+
+    function _updateFocusState() {
+        var wasFocused = textFieldFocused
+        textFieldFocused = hasActiveFocus()
+
+        if (textFieldFocused) {
+            updateKeyboardOffset()
+        } else if (wasFocused) {
+            keyboardOffset = 0
         }
     }
 
@@ -100,7 +96,7 @@ Item {
         }
     }
 
-    // Content container that shifts with keyboard
+    // Content container — shifts up when keyboard is showing
     Item {
         id: contentContainer
         width: parent.width
@@ -109,21 +105,6 @@ Item {
 
         Behavior on y {
             NumberAnimation { duration: 250; easing.type: Easing.OutQuad }
-        }
-    }
-
-    // Helper function to register a text field for keyboard handling
-    // Call this from Component.onCompleted of your text fields
-    function registerTextField(field) {
-        if (field && textFields.indexOf(field) === -1) {
-            textFields.push(field)
-
-            // Connect to activeFocusChanged
-            field.activeFocusChanged.connect(function() {
-                if (field.activeFocus && Qt.inputMethod.visible) {
-                    root.updateKeyboardOffset(field)
-                }
-            })
         }
     }
 }

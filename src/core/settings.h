@@ -126,11 +126,7 @@ class Settings : public QObject {
     Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged)
     Q_PROPERTY(int shotServerPort READ shotServerPort WRITE setShotServerPort NOTIFY shotServerPortChanged)
 
-    // Shot history settings
-    Q_PROPERTY(bool showHistoryButton READ showHistoryButton WRITE setShowHistoryButton NOTIFY showHistoryButtonChanged)
-
     // Auto-favorites settings
-    Q_PROPERTY(bool autoFavoritesEnabled READ autoFavoritesEnabled WRITE setAutoFavoritesEnabled NOTIFY autoFavoritesEnabledChanged)
     Q_PROPERTY(QString autoFavoritesGroupBy READ autoFavoritesGroupBy WRITE setAutoFavoritesGroupBy NOTIFY autoFavoritesGroupByChanged)
     Q_PROPERTY(int autoFavoritesMaxItems READ autoFavoritesMaxItems WRITE setAutoFavoritesMaxItems NOTIFY autoFavoritesMaxItemsChanged)
 
@@ -484,13 +480,7 @@ public:
     int shotServerPort() const;
     void setShotServerPort(int port);
 
-    // Shot history settings
-    bool showHistoryButton() const;
-    void setShowHistoryButton(bool show);
-
     // Auto-favorites settings
-    bool autoFavoritesEnabled() const;
-    void setAutoFavoritesEnabled(bool enabled);
     QString autoFavoritesGroupBy() const;
     void setAutoFavoritesGroupBy(const QString& groupBy);
     int autoFavoritesMaxItems() const;
@@ -677,8 +667,6 @@ signals:
     void shotServerEnabledChanged();
     void shotServerHostnameChanged();
     void shotServerPortChanged();
-    void showHistoryButtonChanged();
-    void autoFavoritesEnabledChanged();
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();
     void autoCheckUpdatesChanged();

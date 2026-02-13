@@ -240,6 +240,7 @@ Page {
                             Accessible.role: Accessible.EditableText
                             Accessible.name: "Search strings"
                             Accessible.description: "Type to filter the list of translatable strings"
+                            Accessible.focusable: true
 
                             Text {
                                 anchors.fill: parent
@@ -684,6 +685,7 @@ Page {
                             readOnly: !activeFocus
 
                             Accessible.role: Accessible.EditableText
+                            Accessible.focusable: true
                             Accessible.name: isEnglish
                                 ? "Custom text for: " + model.fallback
                                 : "Translation for: " + model.fallback
