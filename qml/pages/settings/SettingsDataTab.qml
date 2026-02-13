@@ -108,28 +108,27 @@ KeyboardAwareContainer {
             radius: Theme.cardRadius
 
             ColumnLayout {
+                id: backupColumn
                 anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(10)
+                anchors.margins: Theme.scaled(10)
+                spacing: Theme.scaled(4)
 
                 Tr {
                     key: "settings.data.dailybackup"
-                    fallback: "Daily Backup"
+                    fallback: "Daily Shots Database Backup"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
+                    font.pixelSize: Theme.scaled(13)
                     font.bold: true
                 }
 
                 Tr {
                     key: "settings.data.dailybackupdesc"
-                    fallback: "Automatically backup your shot history database once per day. Backups are saved to your Documents folder and kept for 5 days."
+                    fallback: "Auto-backup shot history daily. Saved to Documents folder, kept for 5 days."
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
+                    font.pixelSize: Theme.scaled(10)
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
-
-                Item { height: Theme.scaled(5) }
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -187,7 +186,7 @@ KeyboardAwareContainer {
                 // Permission warning (Android only)
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(60)
+                    Layout.preferredHeight: Theme.scaled(50)
                     visible: Qt.platform.os === "android" &&
                              MainController.backupManager &&
                              !MainController.backupManager.hasStoragePermission()
@@ -235,8 +234,6 @@ KeyboardAwareContainer {
                     }
                 }
 
-                Item { Layout.fillHeight: true }
-
                 // Manual backup button with loading indicator
                 RowLayout {
                     Layout.alignment: Qt.AlignLeft
@@ -267,8 +264,6 @@ KeyboardAwareContainer {
                         implicitHeight: Theme.scaled(20)
                     }
                 }
-
-                Item { height: Theme.scaled(10) }
 
                 // Restore from backup section
                 Tr {
@@ -318,13 +313,13 @@ KeyboardAwareContainer {
                 }
 
                 AccessibleButton {
-                    Layout.alignment: Qt.AlignLeft
-                    text: TranslationManager.translate("settings.data.restorebutton", "Restore Selected Backup")
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.data.restorebutton", "Restore Shots")
                     enabled: MainController.backupManager &&
                              restoreBackupCombo.availableBackups.length > 0 &&
                              restoreBackupCombo.currentIndex >= 0
                     accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
-                        "Restore selected backup and replace current shot history")
+                        "Restore shot history from selected backup")
                     onClicked: {
                         if (MainController.backupManager && restoreBackupCombo.currentIndex >= 0) {
                             restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupFilenames[restoreBackupCombo.currentIndex];
@@ -990,170 +985,229 @@ KeyboardAwareContainer {
     // Restore confirmation dialog
     Dialog {
         id: restoreConfirmDialog
+        parent: Overlay.overlay
         anchors.centerIn: parent
+        width: Theme.scaled(400)
+        padding: 0
         modal: true
-        title: TranslationManager.translate("settings.data.restoredialog", "Restore Backup?")
 
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
-            border.width: 2
-            border.color: "white"
+            border.width: 1
+            border.color: Theme.borderColor
         }
 
         property string selectedBackup: ""
         property string displayName: ""
         property bool mergeMode: true  // Default to merge
 
-        contentItem: FocusScope {
-            implicitWidth: Theme.scaled(400)
-            implicitHeight: dialogColumn.implicitHeight
-
-            Component.onCompleted: {
-                // Set initial focus to first radio button
-                mergeRadio.forceActiveFocus()
+        // Short delay so the scene graph renders the progress state before blocking
+        Timer {
+            id: restoreDelayTimer
+            interval: 100
+            onTriggered: {
+                MainController.backupManager.restoreBackup(
+                    restoreConfirmDialog.selectedBackup,
+                    restoreConfirmDialog.mergeMode
+                );
             }
+        }
 
-            ColumnLayout {
-                id: dialogColumn
-                anchors.fill: parent
-                spacing: Theme.scaled(15)
+        // Prevent closing while restore is running
+        closePolicy: dataTab.restoreInProgress ? Popup.NoAutoClose : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+                visible: !dataTab.restoreInProgress
 
                 Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.data.restorewarning",
-                        "Are you sure you want to restore this backup?")
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("settings.data.restoredialog", "Restore Backup?")
+                    font: Theme.titleFont
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-
-                    Accessible.role: Accessible.StaticText
-                    Accessible.name: text
                 }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Restoring state — replaces dialog content
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: restoreProgressCol.implicitHeight + Theme.scaled(60)
+                visible: dataTab.restoreInProgress
+
+                ColumnLayout {
+                    id: restoreProgressCol
+                    anchors.centerIn: parent
+                    spacing: Theme.scaled(16)
+
+                    BusyIndicator {
+                        Layout.alignment: Qt.AlignHCenter
+                        running: dataTab.restoreInProgress
+                        implicitWidth: Theme.scaled(48)
+                        implicitHeight: Theme.scaled(48)
+                    }
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: TranslationManager.translate("settings.data.restoring", "Restoring shots...")
+                        color: Theme.textColor
+                        font: Theme.titleFont
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: TranslationManager.translate("settings.data.restoringdesc", "Please wait, this may take a moment.")
+                        color: Theme.textSecondaryColor
+                        font: Theme.bodyFont
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+
+            // Content
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(12)
+                visible: !dataTab.restoreInProgress
 
                 Text {
                     Layout.fillWidth: true
                     text: restoreConfirmDialog.displayName
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font: Theme.bodyFont
                     wrapMode: Text.WordWrap
 
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("settings.data.backupfile", "Backup file: ") + text
                 }
 
-            // Restore mode selection
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: restoreModeColumn.implicitHeight + Theme.scaled(16)
-                color: Theme.backgroundColor
-                radius: Theme.scaled(6)
+                // Merge option
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: mergeContent.implicitHeight + Theme.scaled(20)
+                    radius: Theme.scaled(8)
+                    color: restoreConfirmDialog.mergeMode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                    border.color: restoreConfirmDialog.mergeMode ? Theme.primaryColor : Theme.borderColor
+                    border.width: 1
 
-                ColumnLayout {
-                    id: restoreModeColumn
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(8)
-                    spacing: Theme.scaled(8)
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Behavior on border.color { ColorAnimation { duration: 150 } }
 
-                    Text {
-                        text: TranslationManager.translate("settings.data.restoremode", "Restore Mode:")
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        font.bold: true
-                    }
+                    ColumnLayout {
+                        id: mergeContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(4)
 
-                    RadioButton {
-                        id: mergeRadio
-                        text: TranslationManager.translate("settings.data.mergemode", "Merge with existing shots")
-                        checked: true
-                        font.pixelSize: Theme.scaled(11)
-                        onCheckedChanged: {
-                            if (checked) restoreConfirmDialog.mergeMode = true
-                        }
-
-                        Accessible.role: Accessible.RadioButton
-                        Accessible.name: text + ". " + TranslationManager.translate("settings.data.mergemodedesc",
-                            "Adds shots from backup to your current history. Existing shots are preserved.")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: { checked = true }
-
-                        KeyNavigation.tab: replaceRadio
-                        KeyNavigation.backtab: confirmButton
-
-                        contentItem: Text {
-                            text: mergeRadio.text
-                            font: mergeRadio.font
+                        Text {
+                            text: TranslationManager.translate("settings.data.mergemode", "Merge with existing shots")
                             color: Theme.textColor
-                            leftPadding: mergeRadio.indicator.width + mergeRadio.spacing
-                            verticalAlignment: Text.AlignVCenter
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(13)
+                            font.bold: restoreConfirmDialog.mergeMode
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.data.mergemodedesc",
+                                "Adds shots from backup to your current history. Existing shots are preserved.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.WordWrap
                         }
                     }
 
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.scaled(28)
-                        text: TranslationManager.translate("settings.data.mergemodedesc",
-                            "Adds shots from backup to your current history. Existing shots are preserved.")
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
-                        wrapMode: Text.WordWrap
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: restoreConfirmDialog.mergeMode = true
                     }
 
-                    RadioButton {
-                        id: replaceRadio
-                        text: TranslationManager.translate("settings.data.replacemode", "Replace all shots")
-                        checked: false
-                        font.pixelSize: Theme.scaled(11)
-                        onCheckedChanged: {
-                            if (checked) restoreConfirmDialog.mergeMode = false
-                        }
-
-                        Accessible.role: Accessible.RadioButton
-                        Accessible.name: text + ". " + TranslationManager.translate("settings.data.replacewarning",
-                            "Warning: Deletes ALL current shots and replaces with backup. Cannot be undone!")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: { checked = true }
-
-                        KeyNavigation.tab: cancelButton
-                        KeyNavigation.backtab: mergeRadio
-
-                        contentItem: Text {
-                            text: replaceRadio.text
-                            font: replaceRadio.font
-                            color: Theme.textColor
-                            leftPadding: replaceRadio.indicator.width + replaceRadio.spacing
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.scaled(28)
-                        text: TranslationManager.translate("settings.data.replacemodedesc",
-                            "⚠️ Deletes ALL current shots and replaces with backup. Cannot be undone!")
-                        color: Theme.warningColor
-                        font.pixelSize: Theme.scaled(10)
-                        wrapMode: Text.WordWrap
-                    }
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: TranslationManager.translate("settings.data.mergemode", "Merge with existing shots")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: restoreConfirmDialog.mergeMode = true
                 }
-            }
 
-            RowLayout {
-                Layout.alignment: Qt.AlignRight
-                spacing: Theme.scaled(10)
+                // Replace option
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: replaceContent.implicitHeight + Theme.scaled(20)
+                    radius: Theme.scaled(8)
+                    color: !restoreConfirmDialog.mergeMode ? Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15) : "transparent"
+                    border.color: !restoreConfirmDialog.mergeMode ? Theme.warningColor : Theme.borderColor
+                    border.width: 1
 
-                AccessibleButton {
-                    id: cancelButton
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Behavior on border.color { ColorAnimation { duration: 150 } }
+
+                    ColumnLayout {
+                        id: replaceContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(4)
+
+                        Text {
+                            text: TranslationManager.translate("settings.data.replacemode", "Replace all shots")
+                            color: !restoreConfirmDialog.mergeMode ? Theme.warningColor : Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(13)
+                            font.bold: !restoreConfirmDialog.mergeMode
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.data.replacemodedesc",
+                                "Deletes ALL current shots and replaces with backup. Cannot be undone!")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: restoreConfirmDialog.mergeMode = false
+                    }
+
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: TranslationManager.translate("settings.data.replacemode", "Replace all shots")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: restoreConfirmDialog.mergeMode = false
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        id: cancelButton
                         text: TranslationManager.translate("common.cancel", "Cancel")
                         accessibleName: TranslationManager.translate("settings.data.cancelrestore", "Cancel restore operation")
-
-                        KeyNavigation.tab: confirmButton
-                        KeyNavigation.backtab: replaceRadio
-
                         onClicked: {
-                            // Reset to merge mode for next time
-                            mergeRadio.checked = true
+                            restoreConfirmDialog.mergeMode = true
                             restoreConfirmDialog.close()
                         }
                     }
@@ -1163,21 +1217,11 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("common.restore", "Restore")
                         primary: true
                         accessibleName: TranslationManager.translate("settings.data.confirmrestore", "Confirm restore backup")
-
-                        KeyNavigation.tab: mergeRadio
-                        KeyNavigation.backtab: cancelButton
-
                         onClicked: {
                             if (MainController.backupManager) {
                                 dataTab.restoreInProgress = true;
-                                MainController.backupManager.restoreBackup(
-                                    restoreConfirmDialog.selectedBackup,
-                                    restoreConfirmDialog.mergeMode
-                                );
+                                restoreDelayTimer.start();
                             }
-                            // Reset to merge mode for next time
-                            mergeRadio.checked = true
-                            restoreConfirmDialog.close();
                         }
                     }
                 }
@@ -1188,24 +1232,32 @@ KeyboardAwareContainer {
     // Restore result handlers
     Connections {
         target: MainController.backupManager
-        enabled: (dataTab.visible || dataTab.restoreInProgress) && !root.firstRunRestoreActive
+        enabled: dataTab.visible || dataTab.restoreInProgress
 
         function onRestoreCompleted(filename) {
             dataTab.restoreInProgress = false;
+            restoreConfirmDialog.mergeMode = true;
+            restoreConfirmDialog.close();
             console.log("Restore completed:", filename);
-            restartDialog.open();
+            backupStatusText.text = TranslationManager.translate("settings.data.restoresuccess",
+                "✓ Shots restored successfully");
+            backupStatusText.color = Theme.successColor;
+            backupStatusBackground.visible = true;
+            backupStatusTimer.restart();
 
             // TTS announcement for accessibility
             if (MainController.accessibilityManager) {
                 MainController.accessibilityManager.announce(
                     TranslationManager.translate("settings.data.restorecompletedAccessible",
-                        "Backup restored successfully. Restart required.")
+                        "Shots restored successfully.")
                 );
             }
         }
 
         function onRestoreFailed(error) {
             dataTab.restoreInProgress = false;
+            restoreConfirmDialog.mergeMode = true;
+            restoreConfirmDialog.close();
             console.error("Restore failed:", error);
             backupStatusText.text = "✗ " + error;
             backupStatusText.color = Theme.errorColor;
@@ -1222,36 +1274,4 @@ KeyboardAwareContainer {
         }
     }
 
-    // Restart dialog after successful restore
-    Dialog {
-        id: restartDialog
-        anchors.centerIn: parent
-        width: Theme.scaled(350)
-        modal: true
-        title: TranslationManager.translate("settings.data.restartneeded", "Restart Required")
-        closePolicy: Popup.NoAutoClose
-
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(15)
-
-            Text {
-                Layout.fillWidth: true
-                text: TranslationManager.translate("settings.data.restartmessage",
-                    "Backup restored successfully! The app needs to restart to load the imported shots.")
-                color: Theme.textColor
-                font.pixelSize: Theme.scaled(13)
-                wrapMode: Text.WordWrap
-            }
-
-            AccessibleButton {
-                Layout.alignment: Qt.AlignHCenter
-                text: TranslationManager.translate("settings.data.restartnow", "Restart Now")
-                primary: true
-                accessibleName: TranslationManager.translate("settings.data.restartnowAccessible", "Restart application")
-                onClicked: {
-                    Qt.quit();
-                }
-            }
-        }
-    }
 }

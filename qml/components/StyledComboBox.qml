@@ -5,6 +5,7 @@ import DecenzaDE1
 ComboBox {
     id: control
 
+    implicitWidth: Theme.scaled(100)
     implicitHeight: Theme.scaled(36)
 
     // Calculate max width of all items for popup auto-sizing
@@ -60,7 +61,7 @@ ComboBox {
 
     popup: Popup {
         y: control.height
-        width: control.popupContentWidth
+        width: Math.max(control.width, Math.min(control.popupContentWidth, Theme.scaled(300)))
         padding: 1
 
         contentItem: ListView {
@@ -79,7 +80,7 @@ ComboBox {
     }
 
     delegate: ItemDelegate {
-        width: control.popupContentWidth
+        width: control.popup.width
         height: Theme.scaled(36)
 
         contentItem: Text {
@@ -93,6 +94,7 @@ ComboBox {
             font: Theme.bodyFont
             color: Theme.textColor
             verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
         }
 
         background: Rectangle {

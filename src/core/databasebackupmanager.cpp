@@ -172,6 +172,42 @@ void DatabaseBackupManager::onTimerFired()
     }
 }
 
+bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& destDir) const
+{
+#ifdef Q_OS_ANDROID
+    jboolean result = QJniObject::callStaticMethod<jboolean>(
+        "io/github/kulitorum/decenza_de1/StorageHelper",
+        "unzipToDirectory",
+        "(Ljava/lang/String;Ljava/lang/String;)Z",
+        QJniObject::fromString(zipPath).object<jstring>(),
+        QJniObject::fromString(destDir).object<jstring>());
+    return result;
+#else
+    QProcess unzipProcess;
+    unzipProcess.setWorkingDirectory(destDir);
+
+#ifdef Q_OS_WIN
+    QStringList args;
+    args << "-NoProfile" << "-NonInteractive" << "-Command";
+    QString escapedZipPath = QString(zipPath).replace("'", "''");
+    QString escapedDestDir = QString(destDir).replace("'", "''");
+    args << QString("Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force")
+            .arg(escapedZipPath)
+            .arg(escapedDestDir);
+    unzipProcess.start("powershell", args);
+#else
+    QStringList args;
+    args << "-o" << zipPath << "-d" << destDir;
+    unzipProcess.start("unzip", args);
+#endif
+
+    if (unzipProcess.waitForFinished(30000)) {
+        return unzipProcess.exitCode() == 0;
+    }
+    return false;
+#endif
+}
+
 bool DatabaseBackupManager::createBackup(bool force)
 {
     // Prevent concurrent backups
@@ -212,7 +248,6 @@ bool DatabaseBackupManager::createBackup(bool force)
 
     // Generate backup filename with date
     QString dateStr = QDate::currentDate().toString("yyyyMMdd");
-    QString destPath = backupDir + "/shots_backup_" + dateStr + ".db";
     QString zipPath = backupDir + "/shots_backup_" + dateStr + ".zip";
 
     // Check if ZIP backup already exists for today
@@ -248,120 +283,119 @@ bool DatabaseBackupManager::createBackup(bool force)
         qDebug() << "DatabaseBackupManager: Removed existing backup to create fresh one:" << zipPath;
     }
 
-    // Create the backup (temporary .db file)
-    QString result = m_storage->createBackup(destPath);
+    // Create staging directory in temp for assembling all backup data
+    QString stagingDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_backup_staging";
+    QDir(stagingDir).removeRecursively();
+    QDir().mkpath(stagingDir);
 
-    if (!result.isEmpty()) {
-        m_lastBackupDate = QDate::currentDate();
+    // Create the backup .db file into staging directory
+    QString dbDestPath = stagingDir + "/shots_backup_" + dateStr + ".db";
+    QString result = m_storage->createBackup(dbDestPath);
 
-        // Verify DB file exists
-        QFileInfo fileInfo(result);
-        if (fileInfo.exists()) {
-            qDebug() << "DatabaseBackupManager: DB file created:" << result;
-            qDebug() << "DatabaseBackupManager: File size:" << fileInfo.size() << "bytes";
-        } else {
-            qWarning() << "DatabaseBackupManager: DB file not found at:" << result;
-            m_backupInProgress = false;
-            emit backupFailed("Failed to create backup file");
-            return false;
-        }
-
-        // Create ZIP file from the DB backup (all platforms)
-        QString finalPath = zipPath;
-        bool zipSuccess = false;
-
-#ifdef Q_OS_ANDROID
-        // Android: Use Java ZipOutputStream
-        QJniObject javaZipPath = QJniObject::callStaticObjectMethod(
-            "io/github/kulitorum/decenza_de1/StorageHelper",
-            "zipFile",
-            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
-            QJniObject::fromString(result).object<jstring>(),
-            QJniObject::fromString(zipPath).object<jstring>());
-
-        if (javaZipPath.isValid() && !javaZipPath.toString().isEmpty()) {
-            zipSuccess = true;
-            qDebug() << "DatabaseBackupManager: ZIP created via Java:" << zipPath;
-        }
-#else
-        // Desktop/iOS: Use system zip command
-        QProcess zipProcess;
-        zipProcess.setWorkingDirectory(backupDir);
-
-        // Get just the filename without path
-        QFileInfo dbFileInfo(result);
-        QString dbFileName = dbFileInfo.fileName();
-        QString zipFileName = QFileInfo(zipPath).fileName();
-
-#ifdef Q_OS_WIN
-        // Windows: Use PowerShell Compress-Archive with proper escaping
-        QStringList args;
-        args << "-NoProfile" << "-NonInteractive" << "-Command";
-        // Use PowerShell's literal string syntax to avoid injection
-        // Note: Compress-Archive always uses optimal compression, no level parameter needed
-        QString escapedDbFileName = QString(dbFileName).replace("'", "''");
-        QString escapedZipFileName = QString(zipFileName).replace("'", "''");
-        args << QString("Compress-Archive -LiteralPath '%1' -DestinationPath '%2' -Force -CompressionLevel Optimal")
-                .arg(escapedDbFileName)
-                .arg(escapedZipFileName);
-        zipProcess.start("powershell", args);
-#else
-        // macOS/Linux: Use zip command
-        QStringList args;
-        args << "-9" << "-j" << zipFileName << dbFileName; // -9 = maximum compression, -j = junk directory paths
-        zipProcess.start("zip", args);
-#endif
-
-        if (zipProcess.waitForFinished(10000)) { // 10 second timeout
-            if (zipProcess.exitCode() == 0) {
-                zipSuccess = true;
-                qDebug() << "DatabaseBackupManager: ZIP created via system command:" << zipPath;
-            } else {
-                qWarning() << "DatabaseBackupManager: zip command failed:" << zipProcess.readAllStandardError();
-            }
-        } else {
-            qWarning() << "DatabaseBackupManager: zip command timeout";
-        }
-#endif
-
-        if (zipSuccess) {
-            // Delete the temporary .db file
-            if (QFile::remove(result)) {
-                qDebug() << "DatabaseBackupManager: Removed temporary .db file";
-            }
-
-            // Verify ZIP file
-            QFileInfo zipInfo(zipPath);
-            qDebug() << "DatabaseBackupManager: ZIP size:" << zipInfo.size() << "bytes";
-
-#ifdef Q_OS_ANDROID
-            // Scan the ZIP file
-            QJniObject::callStaticMethod<void>(
-                "io/github/kulitorum/decenza_de1/StorageHelper",
-                "scanFile",
-                "(Ljava/lang/String;)V",
-                QJniObject::fromString(zipPath).object<jstring>());
-            qDebug() << "DatabaseBackupManager: Triggered media scan for ZIP";
-#endif
-        } else {
-            qWarning() << "DatabaseBackupManager: Failed to create ZIP, keeping .db file";
-            finalPath = result;
-        }
-
-        m_backupInProgress = false;
-        emit backupCreated(finalPath);
-
-        // Clean up old backups after successful backup
-        cleanOldBackups(backupDir);
-
-        return true;
-    } else {
+    if (result.isEmpty()) {
         QString error = "Failed to create backup";
         qWarning() << "DatabaseBackupManager:" << error;
+        QDir(stagingDir).removeRecursively();
         m_backupInProgress = false;
         emit backupFailed(error);
         return false;
     }
+
+    m_lastBackupDate = QDate::currentDate();
+
+    // Verify DB file exists
+    QFileInfo fileInfo(result);
+    if (fileInfo.exists()) {
+        qDebug() << "DatabaseBackupManager: DB file created:" << result;
+        qDebug() << "DatabaseBackupManager: File size:" << fileInfo.size() << "bytes";
+    } else {
+        qWarning() << "DatabaseBackupManager: DB file not found at:" << result;
+        QDir(stagingDir).removeRecursively();
+        m_backupInProgress = false;
+        emit backupFailed("Failed to create backup file");
+        return false;
+    }
+
+    // Create ZIP from the staging directory contents
+    QString finalPath = zipPath;
+    bool zipSuccess = false;
+
+#ifdef Q_OS_ANDROID
+    // Android: Use Java to zip the directory
+    QJniObject javaZipPath = QJniObject::callStaticObjectMethod(
+        "io/github/kulitorum/decenza_de1/StorageHelper",
+        "zipDirectory",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        QJniObject::fromString(stagingDir).object<jstring>(),
+        QJniObject::fromString(zipPath).object<jstring>());
+
+    if (javaZipPath.isValid() && !javaZipPath.toString().isEmpty()) {
+        zipSuccess = true;
+        qDebug() << "DatabaseBackupManager: ZIP created via Java:" << zipPath;
+    }
+#else
+    // Desktop/iOS: Use system zip command
+    QProcess zipProcess;
+    zipProcess.setWorkingDirectory(stagingDir);
+
+#ifdef Q_OS_WIN
+    // Windows: Use PowerShell Compress-Archive
+    QStringList args;
+    args << "-NoProfile" << "-NonInteractive" << "-Command";
+    QString escapedStagingDir = QString(stagingDir).replace("'", "''");
+    QString escapedZipPath = QString(zipPath).replace("'", "''");
+    args << QString("Compress-Archive -Path '%1/*' -DestinationPath '%2' -Force -CompressionLevel Optimal")
+            .arg(escapedStagingDir)
+            .arg(escapedZipPath);
+    zipProcess.start("powershell", args);
+#else
+    // macOS/Linux: Use zip command from within staging dir
+    QStringList args;
+    args << "-r" << zipPath << ".";
+    zipProcess.start("zip", args);
+#endif
+
+    if (zipProcess.waitForFinished(30000)) { // 30 second timeout for larger backups
+        if (zipProcess.exitCode() == 0) {
+            zipSuccess = true;
+            qDebug() << "DatabaseBackupManager: ZIP created via system command:" << zipPath;
+        } else {
+            qWarning() << "DatabaseBackupManager: zip command failed:" << zipProcess.readAllStandardError();
+        }
+    } else {
+        qWarning() << "DatabaseBackupManager: zip command timeout";
+    }
+#endif
+
+    // Clean up staging directory
+    QDir(stagingDir).removeRecursively();
+
+    if (zipSuccess) {
+        // Verify ZIP file
+        QFileInfo zipInfo(zipPath);
+        qDebug() << "DatabaseBackupManager: ZIP size:" << zipInfo.size() << "bytes";
+
+#ifdef Q_OS_ANDROID
+        // Scan the ZIP file
+        QJniObject::callStaticMethod<void>(
+            "io/github/kulitorum/decenza_de1/StorageHelper",
+            "scanFile",
+            "(Ljava/lang/String;)V",
+            QJniObject::fromString(zipPath).object<jstring>());
+        qDebug() << "DatabaseBackupManager: Triggered media scan for ZIP";
+#endif
+    } else {
+        qWarning() << "DatabaseBackupManager: Failed to create ZIP";
+        finalPath = result;
+    }
+
+    m_backupInProgress = false;
+    emit backupCreated(finalPath);
+
+    // Clean up old backups after successful backup
+    cleanOldBackups(backupDir);
+
+    return true;
 }
 
 bool DatabaseBackupManager::shouldOfferFirstRunRestore() const
@@ -486,91 +520,36 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
         return false;
     }
 
-    // Extract ZIP to temporary location
-    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    QString tempDbPath = tempDir + "/restore_temp.db";
+    // Extract ZIP to temporary directory
+    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_restore_temp";
+    QDir(tempDir).removeRecursively();
+    QDir().mkpath(tempDir);
 
-    // Remove any existing temp file
-    if (QFile::exists(tempDbPath) && !QFile::remove(tempDbPath)) {
-        QString error = "Failed to remove existing temp file (may be locked): " + tempDbPath;
-        qWarning() << "DatabaseBackupManager:" << error;
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
+    qDebug() << "DatabaseBackupManager: Extracting" << zipPath << "to" << tempDir;
 
-    qDebug() << "DatabaseBackupManager: Extracting" << zipPath << "to" << tempDbPath;
-
-    // Extract the ZIP file
-    bool extractSuccess = false;
-
-#ifdef Q_OS_ANDROID
-    // Android: Use Java to unzip
-    QJniObject javaResult = QJniObject::callStaticObjectMethod(
-        "io/github/kulitorum/decenza_de1/StorageHelper",
-        "unzipFile",
-        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
-        QJniObject::fromString(zipPath).object<jstring>(),
-        QJniObject::fromString(tempDbPath).object<jstring>());
-
-    if (javaResult.isValid() && !javaResult.toString().isEmpty()) {
-        extractSuccess = true;
-        qDebug() << "DatabaseBackupManager: Extracted via Java";
-    }
-#else
-    // Desktop/iOS: Use system unzip command
-    QProcess unzipProcess;
-    unzipProcess.setWorkingDirectory(tempDir);
-
-#ifdef Q_OS_WIN
-    // Windows: Use PowerShell Expand-Archive with proper escaping
-    QStringList args;
-    args << "-NoProfile" << "-NonInteractive" << "-Command";
-    // Use PowerShell's literal string syntax to avoid injection
-    QString escapedZipPath = QString(zipPath).replace("'", "''");
-    QString escapedTempDir = QString(tempDir).replace("'", "''");
-    args << QString("Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force")
-            .arg(escapedZipPath)
-            .arg(escapedTempDir);
-    unzipProcess.start("powershell", args);
-#else
-    // macOS/Linux: Use unzip command
-    QStringList args;
-    args << "-o" << zipPath << "-d" << tempDir;  // -o = overwrite
-    unzipProcess.start("unzip", args);
-#endif
-
-    if (unzipProcess.waitForFinished(10000)) {
-        if (unzipProcess.exitCode() == 0) {
-            extractSuccess = true;
-            qDebug() << "DatabaseBackupManager: Extracted via system command";
-        }
-    }
-#endif
-
-    if (!extractSuccess) {
+    if (!extractZip(zipPath, tempDir)) {
         QString error = "Failed to extract backup file";
         qWarning() << "DatabaseBackupManager:" << error;
+        QDir(tempDir).removeRecursively();
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
     }
 
-    // On desktop, the ZIP extracts with its original filename (not restore_temp.db).
-    // Find the actual .db file if restore_temp.db doesn't exist.
-    if (!QFile::exists(tempDbPath)) {
-        QDir tempDirObj(tempDir);
-        QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
-        if (!dbFiles.isEmpty()) {
-            QString extractedPath = tempDir + "/" + dbFiles.first();
-            if (QFile::rename(extractedPath, tempDbPath)) {
-                qDebug() << "DatabaseBackupManager: Renamed" << dbFiles.first() << "to restore_temp.db";
-            } else {
-                // Rename failed, use the extracted path directly
-                tempDbPath = extractedPath;
-                qDebug() << "DatabaseBackupManager: Using extracted file directly:" << tempDbPath;
-            }
-        }
+    // Find the .db file in the extracted contents
+    QDir tempDirObj(tempDir);
+    QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
+    QString tempDbPath;
+    if (!dbFiles.isEmpty()) {
+        tempDbPath = tempDir + "/" + dbFiles.first();
+        qDebug() << "DatabaseBackupManager: Found DB file:" << tempDbPath;
+    } else {
+        QString error = "No database file found in backup";
+        qWarning() << "DatabaseBackupManager:" << error;
+        QDir(tempDir).removeRecursively();
+        m_restoreInProgress = false;
+        emit restoreFailed(error);
+        return false;
     }
 
     // Validate extracted file exists and is a valid SQLite database
@@ -578,6 +557,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
     if (!extractedFileInfo.exists()) {
         QString error = "Extracted file not found: " + tempDbPath;
         qWarning() << "DatabaseBackupManager:" << error;
+        QDir(tempDir).removeRecursively();
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
@@ -586,7 +566,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
     if (extractedFileInfo.size() < 100) {
         QString error = "Extracted file is too small to be a valid database: " + QString::number(extractedFileInfo.size()) + " bytes";
         qWarning() << "DatabaseBackupManager:" << error;
-        QFile::remove(tempDbPath);
+        QDir(tempDir).removeRecursively();
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
@@ -597,7 +577,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
     if (!dbFile.open(QIODevice::ReadOnly)) {
         QString error = "Cannot open extracted file for validation: " + dbFile.errorString();
         qWarning() << "DatabaseBackupManager:" << error;
-        QFile::remove(tempDbPath);
+        QDir(tempDir).removeRecursively();
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
@@ -610,7 +590,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
         QString error = "Extracted file is not a valid SQLite database (invalid magic header)";
         qWarning() << "DatabaseBackupManager:" << error;
         qWarning() << "DatabaseBackupManager: Header bytes:" << header.toHex();
-        QFile::remove(tempDbPath);
+        QDir(tempDir).removeRecursively();
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
@@ -624,15 +604,15 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
     bool importSuccess = m_storage->importDatabase(tempDbPath, merge);
 
     if (importSuccess) {
-        // Clean up temp file on success
-        QFile::remove(tempDbPath);
         qDebug() << "DatabaseBackupManager: Restore completed successfully";
+        QDir(tempDir).removeRecursively();
         m_restoreInProgress = false;
         emit restoreCompleted(filename);
         return true;
     } else {
-        QString error = "Failed to import backup database. Temp file kept at: " + tempDbPath;
+        QString error = "Failed to import backup database";
         qWarning() << "DatabaseBackupManager:" << error;
+        QDir(tempDir).removeRecursively();
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;

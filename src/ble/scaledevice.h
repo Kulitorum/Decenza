@@ -26,8 +26,8 @@ public:
     double weight() const { return m_weight; }
     double flowRate() const { return m_flowRate; }
     int batteryLevel() const { return m_batteryLevel; }
-    virtual QString name() const = 0;
-    virtual QString type() const = 0;
+    virtual QString name() const { return QString(); }
+    virtual QString type() const { return QString(); }
 
     bool simulationMode() const { return m_simulationMode; }
     void setSimulationMode(bool enabled);

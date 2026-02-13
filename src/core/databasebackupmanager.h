@@ -73,6 +73,7 @@ private:
     bool shouldBackupNow() const;
     QString getBackupDirectory() const;
     void cleanOldBackups(const QString& backupDir);
+    bool extractZip(const QString& zipPath, const QString& destDir) const;
 
     Settings* m_settings;
     ShotHistoryStorage* m_storage;

@@ -352,4 +352,191 @@ public class StorageHelper {
             }
         }
     }
+
+    /**
+     * Recursively zip all files in a directory into a ZIP archive.
+     * Preserves subdirectory structure within the ZIP.
+     * Returns the zip path on success, or empty string on failure.
+     */
+    public static String zipDirectory(String dirPath, String zipPath) {
+        java.io.FileOutputStream fos = null;
+        java.util.zip.ZipOutputStream zos = null;
+
+        try {
+            java.io.File dir = new java.io.File(dirPath);
+            if (!dir.exists() || !dir.isDirectory()) {
+                Log.e(TAG, "Directory does not exist or is not a directory: " + dirPath);
+                return "";
+            }
+
+            fos = new java.io.FileOutputStream(zipPath);
+            zos = new java.util.zip.ZipOutputStream(fos);
+
+            // Set maximum compression level (9 = best compression, slower)
+            zos.setLevel(java.util.zip.Deflater.BEST_COMPRESSION);
+
+            addDirectoryToZip(zos, dir, "");
+
+            Log.i(TAG, "Created ZIP from directory: " + dirPath + " -> " + zipPath);
+            return zipPath;
+
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to zip directory: " + e.getMessage());
+            return "";
+        } finally {
+            try {
+                if (zos != null) zos.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to close zip stream: " + e.getMessage());
+            }
+            try {
+                if (fos != null) fos.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Recursively add files from a directory to a ZipOutputStream.
+     * @param zos the ZipOutputStream to write to
+     * @param dir the current directory being processed
+     * @param parentPath the relative path prefix for entries (empty for root)
+     */
+    private static void addDirectoryToZip(java.util.zip.ZipOutputStream zos,
+                                           java.io.File dir, String parentPath)
+            throws java.io.IOException {
+        java.io.File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+
+        byte[] buffer = new byte[4096];
+
+        for (java.io.File file : files) {
+            String entryName = parentPath.isEmpty()
+                    ? file.getName()
+                    : parentPath + "/" + file.getName();
+
+            if (file.isDirectory()) {
+                addDirectoryToZip(zos, file, entryName);
+            } else {
+                java.io.FileInputStream fis = null;
+                try {
+                    java.util.zip.ZipEntry zipEntry = new java.util.zip.ZipEntry(entryName);
+                    zos.putNextEntry(zipEntry);
+
+                    fis = new java.io.FileInputStream(file);
+                    int length;
+                    while ((length = fis.read(buffer)) > 0) {
+                        zos.write(buffer, 0, length);
+                    }
+
+                    zos.closeEntry();
+                } finally {
+                    try {
+                        if (fis != null) fis.close();
+                    } catch (Exception e) {
+                        Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Extract all files from a ZIP archive to a destination directory.
+     * Preserves subdirectory structure from the ZIP.
+     * Returns true on success, false on error.
+     */
+    public static boolean unzipToDirectory(String zipPath, String destDir) {
+        java.io.FileInputStream fis = null;
+        java.util.zip.ZipInputStream zis = null;
+
+        try {
+            java.io.File zipFile = new java.io.File(zipPath);
+            if (!zipFile.exists()) {
+                Log.e(TAG, "ZIP file does not exist: " + zipPath);
+                return false;
+            }
+
+            java.io.File destDirFile = new java.io.File(destDir);
+            if (!destDirFile.exists()) {
+                if (!destDirFile.mkdirs()) {
+                    Log.e(TAG, "Failed to create destination directory: " + destDir);
+                    return false;
+                }
+            }
+
+            fis = new java.io.FileInputStream(zipFile);
+            zis = new java.util.zip.ZipInputStream(fis);
+
+            java.util.zip.ZipEntry entry;
+            byte[] buffer = new byte[4096];
+
+            while ((entry = zis.getNextEntry()) != null) {
+                java.io.File outFile = new java.io.File(destDirFile, entry.getName());
+
+                // Guard against zip slip (path traversal) attacks
+                String canonicalDest = destDirFile.getCanonicalPath();
+                String canonicalOut = outFile.getCanonicalPath();
+                if (!canonicalOut.startsWith(canonicalDest + java.io.File.separator)
+                        && !canonicalOut.equals(canonicalDest)) {
+                    Log.e(TAG, "ZIP entry outside target directory: " + entry.getName());
+                    return false;
+                }
+
+                if (entry.isDirectory()) {
+                    if (!outFile.exists() && !outFile.mkdirs()) {
+                        Log.e(TAG, "Failed to create directory: " + outFile.getAbsolutePath());
+                        return false;
+                    }
+                } else {
+                    // Ensure parent directories exist
+                    java.io.File parent = outFile.getParentFile();
+                    if (parent != null && !parent.exists()) {
+                        if (!parent.mkdirs()) {
+                            Log.e(TAG, "Failed to create parent directory: " + parent.getAbsolutePath());
+                            return false;
+                        }
+                    }
+
+                    java.io.FileOutputStream fos = null;
+                    try {
+                        fos = new java.io.FileOutputStream(outFile);
+                        int length;
+                        while ((length = zis.read(buffer)) > 0) {
+                            fos.write(buffer, 0, length);
+                        }
+                    } finally {
+                        try {
+                            if (fos != null) fos.close();
+                        } catch (Exception e) {
+                            Log.w(TAG, "Failed to close output stream: " + e.getMessage());
+                        }
+                    }
+                }
+
+                zis.closeEntry();
+            }
+
+            Log.i(TAG, "Extracted ZIP to directory: " + zipPath + " -> " + destDir);
+            return true;
+
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to extract ZIP to directory: " + e.getMessage());
+            return false;
+        } finally {
+            try {
+                if (zis != null) zis.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to close zip stream: " + e.getMessage());
+            }
+            try {
+                if (fis != null) fis.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to close input stream: " + e.getMessage());
+            }
+        }
+    }
 }
