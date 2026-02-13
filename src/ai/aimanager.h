@@ -47,6 +47,7 @@ public:
     bool lastTestSuccess() const { return m_lastTestSuccess; }
     QStringList ollamaModels() const { return m_ollamaModels; }
     QString currentModelName() const;
+    Q_INVOKABLE QString modelDisplayName(const QString& providerId) const;
     AIConversation* conversation() const { return m_conversation; }
 
     // Main analysis entry point - simple version for QML

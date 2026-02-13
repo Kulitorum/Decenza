@@ -54,11 +54,11 @@ KeyboardAwareContainer {
 
                         Repeater {
                             model: [
-                                { id: "openai", name: "OpenAI", desc: "GPT-4o" },
-                                { id: "anthropic", name: "Anthropic", desc: "Claude" },
-                                { id: "gemini", name: "Gemini", desc: "Flash" },
-                                { id: "openrouter", name: "OpenRouter", desc: "Multi" },
-                                { id: "ollama", name: "Ollama", desc: "Local" }
+                                { id: "openai", name: "OpenAI" },
+                                { id: "anthropic", name: "Anthropic" },
+                                { id: "gemini", name: "Gemini" },
+                                { id: "openrouter", name: "OpenRouter" },
+                                { id: "ollama", name: "Ollama" }
                             ]
 
                             delegate: Rectangle {
@@ -94,7 +94,7 @@ KeyboardAwareContainer {
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        text: modelData.desc
+                                        text: MainController.aiManager ? MainController.aiManager.modelDisplayName(modelData.id) : ""
                                         font.pixelSize: Theme.scaled(11)
                                         color: isSelected ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
                                     }

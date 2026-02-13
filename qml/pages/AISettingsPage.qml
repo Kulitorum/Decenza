@@ -309,10 +309,11 @@ Page {
 
                     Text {
                         text: {
+                            var modelName = MainController.aiManager ? MainController.aiManager.currentModelName : ""
                             switch(Settings.aiProvider) {
-                                case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.01-0.02 per analysis (GPT-4.1)")
-                                case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.01-0.03 per analysis (Claude Sonnet 4.5)")
-                                case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "~$0.001 per analysis (Gemini 2.5 Flash)")
+                                case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.01-0.02 per analysis") + " (" + modelName + ")"
+                                case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.01-0.03 per analysis") + " (" + modelName + ")"
+                                case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "~$0.001 per analysis") + " (" + modelName + ")"
                                 case "ollama": return TranslationManager.translate("aisettings.cost.ollama", "Free (runs locally on your computer)")
                                 default: return ""
                             }
