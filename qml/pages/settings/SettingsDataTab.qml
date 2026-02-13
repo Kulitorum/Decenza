@@ -291,7 +291,7 @@ KeyboardAwareContainer {
                         onClicked: {
                             if (MainController.backupManager) {
                                 dataTab.backupInProgress = true;
-                                MainController.backupManager.createBackup(true); // force=true for manual backup
+                                backupDeferTimer.start();
                             }
                         }
                     }
@@ -319,34 +319,38 @@ KeyboardAwareContainer {
                     model: availableBackups.length > 0 ? availableBackups : [TranslationManager.translate("settings.data.nobackups", "No backups available")]
                     currentIndex: 0
 
-                    property var availableBackups: MainController.backupManager ? getBackupList() : []
+                    property var availableBackups: []
+                    property var backupFilenames: []
 
-                    function getBackupList() {
+                    function refreshBackupList() {
+                        if (!MainController.backupManager) {
+                            availableBackups = [];
+                            backupFilenames = [];
+                            return;
+                        }
                         var backups = MainController.backupManager.getAvailableBackups();
                         var displayList = [];
-                        backupFilenames = [];  // Store actual filenames separately
+                        var filenames = [];
 
                         for (var i = 0; i < backups.length; i++) {
                             var parts = backups[i].split("|");
                             if (parts.length === 2) {
-                                displayList.push(parts[0]);  // Display name
-                                backupFilenames.push(parts[1]);  // Actual filename
+                                displayList.push(parts[0]);
+                                filenames.push(parts[1]);
                             }
                         }
 
-                        return displayList.length > 0 ? displayList : [];
+                        backupFilenames = filenames;
+                        availableBackups = displayList;
                     }
 
-                    property var backupFilenames: []
+                    Component.onCompleted: refreshBackupList()
 
                     // Refresh list when backup is created
                     Connections {
                         target: MainController.backupManager
                         function onBackupCreated() {
-                            restoreBackupCombo.availableBackups = restoreBackupCombo.getBackupList();
-                            restoreBackupCombo.model = restoreBackupCombo.availableBackups.length > 0 ?
-                                restoreBackupCombo.availableBackups :
-                                [TranslationManager.translate("settings.data.nobackups", "No backups available")];
+                            restoreBackupCombo.refreshBackupList();
                         }
                     }
                 }
@@ -1011,6 +1015,17 @@ KeyboardAwareContainer {
             id: backupStatusText
             anchors.centerIn: parent
             font.pixelSize: Theme.scaled(12)
+        }
+    }
+
+    // Let the renderer flush "Creating Backup..." before the synchronous backup blocks the thread
+    Timer {
+        id: backupDeferTimer
+        interval: 100
+        onTriggered: {
+            if (MainController.backupManager) {
+                MainController.backupManager.createBackup(true);
+            }
         }
     }
 

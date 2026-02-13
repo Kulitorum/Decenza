@@ -63,6 +63,7 @@ QtObject {
     property color temperatureColor: Settings.customThemeColors.temperatureColor || "#e73249"
     property color temperatureGoalColor: Settings.customThemeColors.temperatureGoalColor || "#ffa5a6"
     property color weightColor: Settings.customThemeColors.weightColor || "#a2693d"
+    property color weightFlowColor: Settings.customThemeColors.weightFlowColor || "#d4a574"
 
     // DYE measurement colors (Shot Info page)
     property color dyeDoseColor: Settings.customThemeColors.dyeDoseColor || "#6F4E37"      // Coffee brown
