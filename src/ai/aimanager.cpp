@@ -432,6 +432,32 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
     provider->analyze(systemPrompt, userPrompt);
 }
 
+void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    AIProvider* provider = currentProvider();
+    if (!provider) {
+        m_lastError = "No AI provider configured";
+        emit errorOccurred(m_lastError);
+        return;
+    }
+
+    if (!isConfigured()) {
+        m_lastError = "AI provider not configured";
+        emit errorOccurred(m_lastError);
+        return;
+    }
+
+    m_analyzing = true;
+    emit analyzingChanged();
+
+    // Store for logging — flatten for the log file
+    m_lastSystemPrompt = systemPrompt;
+    m_lastUserPrompt = QString("[Conversation with %1 messages]").arg(messages.size());
+
+    logPrompt(selectedProvider(), systemPrompt, m_lastUserPrompt);
+    provider->analyzeConversation(systemPrompt, messages);
+}
+
 void AIManager::refreshOllamaModels()
 {
     auto* ollama = dynamic_cast<OllamaProvider*>(m_ollamaProvider.get());

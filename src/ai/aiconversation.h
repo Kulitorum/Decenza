@@ -62,9 +62,10 @@ public:
 
     /**
      * Add new shot context to existing conversation (for multi-shot dialing)
-     * This appends shot data as a new user message without clearing history
+     * This appends shot data as a new user message without clearing history.
+     * shotId is the app's database shot ID used to label the shot in the conversation.
      */
-    Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& beverageType = "espresso");
+    Q_INVOKABLE void addShotContext(const QString& shotSummary, int shotId, const QString& beverageType = "espresso");
 
     /**
      * Save conversation history to persistent storage
@@ -97,6 +98,11 @@ private:
     void sendRequest();
     void addUserMessage(const QString& message);
     void addAssistantMessage(const QString& message);
+    void trimHistory();
+    static QString summarizeShotMessage(const QString& content);
+    static QString summarizeAdvice(const QString& response);
+
+    static constexpr int MAX_VERBATIM_PAIRS = 5;
 
     AIManager* m_aiManager;
     QString m_systemPrompt;

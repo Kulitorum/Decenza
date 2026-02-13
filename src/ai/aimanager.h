@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QJsonArray>
 #include <QVariantMap>
 #include <memory>
 
@@ -90,6 +91,9 @@ public:
 
     // Generic analysis - sends system prompt and user prompt to current provider
     Q_INVOKABLE void analyze(const QString& systemPrompt, const QString& userPrompt);
+
+    // Multi-turn conversation - sends system prompt and full message array to current provider
+    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
 
     // Ollama-specific
     Q_INVOKABLE void refreshOllamaModels();
