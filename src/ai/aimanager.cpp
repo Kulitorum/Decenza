@@ -88,6 +88,12 @@ QString AIManager::selectedProvider() const
     return m_settings->value("ai/provider", "openai").toString();
 }
 
+QString AIManager::currentModelName() const
+{
+    AIProvider* provider = currentProvider();
+    return provider ? provider->modelName() : QString();
+}
+
 void AIManager::setSelectedProvider(const QString& provider)
 {
     if (selectedProvider() != provider) {

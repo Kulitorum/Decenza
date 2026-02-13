@@ -28,6 +28,7 @@ class AIManager : public QObject {
     Q_PROPERTY(QString lastTestResult READ lastTestResult NOTIFY testResultChanged)
     Q_PROPERTY(bool lastTestSuccess READ lastTestSuccess NOTIFY testResultChanged)
     Q_PROPERTY(QStringList ollamaModels READ ollamaModels NOTIFY ollamaModelsChanged)
+    Q_PROPERTY(QString currentModelName READ currentModelName NOTIFY providerChanged)
     Q_PROPERTY(AIConversation* conversation READ conversation CONSTANT)
 
 public:
@@ -45,6 +46,7 @@ public:
     QString lastTestResult() const { return m_lastTestResult; }
     bool lastTestSuccess() const { return m_lastTestSuccess; }
     QStringList ollamaModels() const { return m_ollamaModels; }
+    QString currentModelName() const;
     AIConversation* conversation() const { return m_conversation; }
 
     // Main analysis entry point - simple version for QML
