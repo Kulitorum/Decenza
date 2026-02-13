@@ -14,6 +14,7 @@ import DecenzaDE1
 
 Item {
     id: root
+    clip: true
 
     // List of text fields to track
     property var textFields: []

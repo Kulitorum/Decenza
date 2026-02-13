@@ -94,6 +94,17 @@ QString AIManager::currentModelName() const
     return provider ? provider->modelName() : QString();
 }
 
+QString AIManager::modelDisplayName(const QString& providerId) const
+{
+    AIProvider* provider = nullptr;
+    if (providerId == "openai") provider = m_openaiProvider.get();
+    else if (providerId == "anthropic") provider = m_anthropicProvider.get();
+    else if (providerId == "gemini") provider = m_geminiProvider.get();
+    else if (providerId == "openrouter") provider = m_openrouterProvider.get();
+    else if (providerId == "ollama") provider = m_ollamaProvider.get();
+    return provider ? provider->shortModelName() : QString();
+}
+
 void AIManager::setSelectedProvider(const QString& provider)
 {
     if (selectedProvider() != provider) {
