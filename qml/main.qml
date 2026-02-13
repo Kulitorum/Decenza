@@ -19,6 +19,9 @@ ApplicationWindow {
     // Debug flag to force live view on operation pages (for development)
     property bool debugLiveView: false
 
+    // True while the first-run restore dialog is active (prevents SettingsDataTab from also handling restore signals)
+    property bool firstRunRestoreActive: false
+
     // Global accessibility: find closest Text within radius of tap
     // Use physical units: 10mm (~1cm) converted to pixels
     property real accessibilitySearchRadius: Screen.pixelDensity * 10  // 10mm in pixels
@@ -2442,6 +2445,8 @@ ApplicationWindow {
         modal: true
         title: TranslationManager.translate("main.firstrun.title", "Welcome to Decenza!")
         closePolicy: Popup.CloseOnEscape
+        onOpened: root.firstRunRestoreActive = true
+        onClosed: root.firstRunRestoreActive = false
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -2516,7 +2521,7 @@ ApplicationWindow {
 
                 background: Rectangle {
                     implicitHeight: Theme.scaled(36)
-                    color: Qt.rgba(255, 255, 255, 0.1)
+                    color: Qt.rgba(1.0, 1.0, 1.0, 0.1)
                     radius: Theme.scaled(6)
                     border.color: firstRunBackupCombo.activeFocus ? Theme.primaryColor : "transparent"
                     border.width: firstRunBackupCombo.activeFocus ? 1 : 0
@@ -2558,7 +2563,10 @@ ApplicationWindow {
                 AccessibleButton {
                     text: TranslationManager.translate("main.firstrun.skip", "Skip")
                     accessibleName: TranslationManager.translate("main.firstrun.skipAccessible", "Skip restore and start fresh")
-                    onClicked: firstRunRestoreDialog.close()
+                    onClicked: {
+                        firstRunRestoreDialog.close()
+                        startBluetoothScan()
+                    }
                 }
 
                 AccessibleButton {

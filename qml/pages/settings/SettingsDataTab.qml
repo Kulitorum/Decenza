@@ -154,7 +154,7 @@ KeyboardAwareContainer {
                             return times;
                         }
                         currentIndex: Settings.dailyBackupHour + 1  // +1 because "Off" is index 0
-                        onCurrentIndexChanged: {
+                        onActivated: {
                             Settings.dailyBackupHour = currentIndex - 1;  // -1 to map back to hour (-1 = off)
                         }
                     }
@@ -191,8 +191,7 @@ KeyboardAwareContainer {
                     visible: Qt.platform.os === "android" &&
                              MainController.backupManager &&
                              !MainController.backupManager.hasStoragePermission()
-                    color: Theme.warningColor
-                    opacity: 0.1
+                    color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.1)
                     radius: Theme.scaled(4)
 
                     ColumnLayout {
@@ -245,7 +244,7 @@ KeyboardAwareContainer {
 
                     AccessibleButton {
                         id: backupNowButton
-                        enabled: (!Qt.platform.os === "android" ||
+                        enabled: (Qt.platform.os !== "android" ||
                                  (MainController.backupManager && MainController.backupManager.hasStoragePermission())) &&
                                  !dataTab.backupInProgress
                         text: dataTab.backupInProgress ?

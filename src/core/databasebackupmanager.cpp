@@ -110,12 +110,22 @@ QString DatabaseBackupManager::getBackupDirectory() const
         return QString();
     }
 
-    // Verify directory exists (Java should have created it)
+    // Ensure directory exists
     QDir dir(backupDir);
     if (!dir.exists()) {
+#ifdef Q_OS_ANDROID
+        // On Android, Java's mkdirs() should have created it — missing means permission issue
         qWarning() << "DatabaseBackupManager: Backup directory does not exist:" << backupDir;
         qWarning() << "DatabaseBackupManager: This may be due to missing storage permissions";
         return QString();
+#else
+        // On desktop/iOS, create the directory
+        if (!dir.mkpath(".")) {
+            qWarning() << "DatabaseBackupManager: Failed to create backup directory:" << backupDir;
+            return QString();
+        }
+        qDebug() << "DatabaseBackupManager: Created backup directory:" << backupDir;
+#endif
     }
 
     qDebug() << "DatabaseBackupManager: Using backup directory:" << backupDir;
@@ -289,9 +299,11 @@ bool DatabaseBackupManager::createBackup(bool force)
         args << "-NoProfile" << "-NonInteractive" << "-Command";
         // Use PowerShell's literal string syntax to avoid injection
         // Note: Compress-Archive always uses optimal compression, no level parameter needed
+        QString escapedDbFileName = QString(dbFileName).replace("'", "''");
+        QString escapedZipFileName = QString(zipFileName).replace("'", "''");
         args << QString("Compress-Archive -LiteralPath '%1' -DestinationPath '%2' -Force -CompressionLevel Optimal")
-                .arg(dbFileName.replace("'", "''"))  // Escape single quotes
-                .arg(zipFileName.replace("'", "''"));
+                .arg(escapedDbFileName)
+                .arg(escapedZipFileName);
         zipProcess.start("powershell", args);
 #else
         // macOS/Linux: Use zip command
@@ -515,9 +527,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
     QStringList args;
     args << "-NoProfile" << "-NonInteractive" << "-Command";
     // Use PowerShell's literal string syntax to avoid injection
+    QString escapedZipPath = QString(zipPath).replace("'", "''");
+    QString escapedTempDir = QString(tempDir).replace("'", "''");
     args << QString("Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force")
-            .arg(zipPath.replace("'", "''"))  // Escape single quotes
-            .arg(tempDir.replace("'", "''"));
+            .arg(escapedZipPath)
+            .arg(escapedTempDir);
     unzipProcess.start("powershell", args);
 #else
     // macOS/Linux: Use unzip command
@@ -540,6 +554,23 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
         m_restoreInProgress = false;
         emit restoreFailed(error);
         return false;
+    }
+
+    // On desktop, the ZIP extracts with its original filename (not restore_temp.db).
+    // Find the actual .db file if restore_temp.db doesn't exist.
+    if (!QFile::exists(tempDbPath)) {
+        QDir tempDirObj(tempDir);
+        QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
+        if (!dbFiles.isEmpty()) {
+            QString extractedPath = tempDir + "/" + dbFiles.first();
+            if (QFile::rename(extractedPath, tempDbPath)) {
+                qDebug() << "DatabaseBackupManager: Renamed" << dbFiles.first() << "to restore_temp.db";
+            } else {
+                // Rename failed, use the extracted path directly
+                tempDbPath = extractedPath;
+                qDebug() << "DatabaseBackupManager: Using extracted file directly:" << tempDbPath;
+            }
+        }
     }
 
     // Validate extracted file exists and is a valid SQLite database
