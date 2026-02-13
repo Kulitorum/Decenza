@@ -279,56 +279,35 @@ Page {
                     }
 
                     // Profile description
-                    Item {
+                    Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(90)
+                        Layout.preferredHeight: Theme.scaled(80)
+                        color: Theme.surfaceColor
+                        radius: Theme.cardRadius
+                        clip: true
 
-                        Text {
-                            id: profileDescLabel
-                            anchors.top: parent.top
-                            anchors.left: parent.left
-                            anchors.leftMargin: Theme.scaled(4)
-                            text: TranslationManager.translate("profileEditor.descriptionLabel", "Description")
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                        }
+                        ScrollView {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(6)
+                            contentWidth: availableWidth
+                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-                        Rectangle {
-                            anchors.top: profileDescLabel.bottom
-                            anchors.topMargin: Theme.scaled(2)
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            color: Theme.surfaceColor
-                            radius: Theme.cardRadius
-
-                            ScrollView {
-                                anchors.fill: parent
-                                anchors.margins: Theme.scaled(6)
-                                ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-                                TextArea {
-                                    id: profileNotesFieldInline
-                                    text: profile ? (profile.profile_notes || "") : ""
-                                    font.pixelSize: Theme.scaled(10)
-                                    color: Theme.textColor
-                                    wrapMode: TextArea.Wrap
-                                    Accessible.name: "Profile description"
-                                    leftPadding: Theme.scaled(8)
-                                    rightPadding: Theme.scaled(8)
-                                    topPadding: Theme.scaled(4)
-                                    bottomPadding: Theme.scaled(4)
-                                    background: Rectangle {
-                                        color: Theme.backgroundColor
-                                        radius: Theme.scaled(4)
-                                        border.color: profileNotesFieldInline.activeFocus ? Theme.primaryColor : Theme.borderColor
-                                        border.width: 1
-                                    }
-                                    onEditingFinished: {
-                                        if (profile && text !== (profile.profile_notes || "")) {
-                                            profile.profile_notes = text
-                                            uploadProfile()
-                                        }
+                            TextArea {
+                                id: profileNotesFieldInline
+                                Accessible.name: "Profile description"
+                                text: profile ? (profile.profile_notes || "") : ""
+                                font: Theme.labelFont
+                                color: Theme.textColor
+                                wrapMode: TextArea.Wrap
+                                leftPadding: Theme.scaled(8)
+                                rightPadding: Theme.scaled(8)
+                                topPadding: Theme.scaled(4)
+                                bottomPadding: Theme.scaled(4)
+                                background: Rectangle { color: "transparent" }
+                                onEditingFinished: {
+                                    if (profile && text !== (profile.profile_notes || "")) {
+                                        profile.profile_notes = text
+                                        uploadProfile()
                                     }
                                 }
                             }
@@ -851,9 +830,10 @@ Page {
         }
     }
 
-    // Bottom bar
+    // Bottom bar — counteract keyboard shift so it stays at screen bottom (behind keyboard)
     BottomBar {
         id: bottomBar
+        transform: Translate { y: keyboardContainer.keyboardOffset }
         title: profile ? profile.title : TranslationManager.translate("profileEditor.profile", "Profile")
         onBackClicked: {
             if (profileModified) {
@@ -998,7 +978,7 @@ Page {
         modal: true
         standardButtons: Dialog.Yes | Dialog.No
 
-        contentItem: Tr {
+        Tr {
             width: overwriteDialog.availableWidth
             key: "profileeditor.dialog.overwriteconfirm"
             fallback: "A profile with this name already exists.\nDo you want to overwrite it?"
@@ -1026,7 +1006,7 @@ Page {
         modal: true
         standardButtons: Dialog.Ok
 
-        contentItem: Tr {
+        Tr {
             width: saveErrorDialog.availableWidth
             key: "profileeditor.dialog.saveerror"
             fallback: "Could not save the profile. Please try again or use Save As with a different name."
