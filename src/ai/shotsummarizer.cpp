@@ -5,6 +5,9 @@
 
 #include <cmath>
 #include <algorithm>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 ShotSummarizer::ShotSummarizer(QObject* parent)
     : QObject(parent)
@@ -26,11 +29,31 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     // Profile info
     if (profile) {
         summary.profileTitle = profile->title();
-        summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
         summary.profileNotes = profile->profileNotes();
         summary.profileAuthor = profile->author();
         summary.beverageType = profile->beverageType();
         summary.profileRecipeDescription = profile->describeFrames();
+        summary.targetWeight = profile->targetWeight();
+
+        // Profile style from editor type — tells the AI what kind of extraction curve to expect
+        if (profile->isRecipeMode()) {
+            switch (profile->recipeParams().editorType) {
+            case EditorType::DFlow:
+                summary.profileType = "D-Flow (lever-style: pressure peaks then declines during flow extraction)";
+                break;
+            case EditorType::AFlow:
+                summary.profileType = "A-Flow (pressure ramp into flow extraction)";
+                break;
+            case EditorType::Pressure:
+                summary.profileType = "Pressure profile (pressure-controlled extraction)";
+                break;
+            case EditorType::Flow:
+                summary.profileType = "Flow profile (flow-controlled extraction)";
+                break;
+            }
+        } else {
+            summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
+        }
     }
 
     // Get the data vectors
@@ -188,19 +211,176 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         }
     }
 
-    // Now detect channeling - find actual extraction phase start time
-    // Look for phases named "Extraction", "Pour", "Hold" etc.
-    double extractionStartTime = summary.timeToFirstDrip + 3.0;  // Default fallback
-    for (const auto& phase : summary.phases) {
-        QString lowerName = phase.name.toLower();
-        // Skip preparatory phases - only check during actual extraction
-        if (lowerName.contains("extract") || lowerName.contains("pour") ||
-            lowerName.contains("hold") || lowerName == "main") {
-            extractionStartTime = phase.startTime;
-            break;
+    // Detect channeling only during FLOW-CONTROLLED phases where flow should be stable.
+    // During pressure-controlled phases, flow variations are normal (puck resistance changes).
+    // Skip for filter/pourover — at high flow rates (5-8+ ml/s), normal turbulence causes
+    // fluctuations that look like "spikes" but are not channeling.
+    summary.channelingDetected = false;
+    bool isFilter = summary.beverageType.toLower() == "filter" ||
+                    summary.beverageType.toLower() == "pourover";
+    if (!isFilter) {
+        for (const auto& phase : summary.phases) {
+            if (!phase.isFlowMode) continue;  // Skip pressure-controlled phases
+            if (phase.duration < 3.0) continue;  // Skip very short phases
+            if (detectChanneling(flowData, phase.startTime, phase.endTime)) {
+                summary.channelingDetected = true;
+                break;
+            }
         }
     }
-    summary.channelingDetected = detectChanneling(flowData, extractionStartTime);
+
+    return summary;
+}
+
+// Helper to convert QVariantList of {x, y} maps to QVector<QPointF>
+static QVector<QPointF> variantListToPoints(const QVariantList& list)
+{
+    QVector<QPointF> points;
+    points.reserve(list.size());
+    for (const QVariant& v : list) {
+        QVariantMap p = v.toMap();
+        points.append(QPointF(p.value("x", 0.0).toDouble(), p.value("y", 0.0).toDouble()));
+    }
+    return points;
+}
+
+ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) const
+{
+    ShotSummary summary;
+
+    // Profile info
+    summary.profileTitle = shotData.value("profileName", "Unknown").toString();
+    summary.beverageType = shotData.value("beverageType", "espresso").toString();
+    summary.profileNotes = shotData.value("profileNotes").toString();
+
+    // Extract profile type from stored profile JSON
+    QString profileJson = shotData.value("profileJson").toString();
+    if (!profileJson.isEmpty()) {
+        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+        if (profileDoc.isObject()) {
+            QJsonObject profileObj = profileDoc.object();
+            bool isRecipeMode = profileObj["is_recipe_mode"].toBool(false);
+            if (isRecipeMode && profileObj.contains("recipe")) {
+                QString editorType = profileObj["recipe"].toObject()["editorType"].toString();
+                if (editorType == "dflow") summary.profileType = "D-Flow (lever-style: pressure peaks then declines during flow extraction)";
+                else if (editorType == "aflow") summary.profileType = "A-Flow (pressure ramp into flow extraction)";
+                else if (editorType == "pressure") summary.profileType = "Pressure profile (pressure-controlled extraction)";
+                else if (editorType == "flow") summary.profileType = "Flow profile (flow-controlled extraction)";
+            } else {
+                QString profileType = profileObj["profile_type"].toString();
+                if (profileType == "settings_2a") summary.profileType = "Pressure profile";
+                else if (profileType == "settings_2b") summary.profileType = "Flow profile";
+            }
+        }
+        summary.profileRecipeDescription = Profile::describeFramesFromJson(profileJson);
+    }
+
+    // Overall metrics
+    summary.doseWeight = shotData.value("doseWeight", 0.0).toDouble();
+    summary.finalWeight = shotData.value("finalWeight", 0.0).toDouble();
+    summary.totalDuration = shotData.value("duration", 0.0).toDouble();
+    summary.ratio = summary.doseWeight > 0 ? summary.finalWeight / summary.doseWeight : 0;
+
+    // DYE metadata
+    summary.beanBrand = shotData.value("beanBrand").toString();
+    summary.beanType = shotData.value("beanType").toString();
+    summary.roastLevel = shotData.value("roastLevel").toString();
+    summary.grinderModel = shotData.value("grinderModel").toString();
+    summary.grinderSetting = shotData.value("grinderSetting").toString();
+    summary.drinkTds = shotData.value("drinkTds", 0.0).toDouble();
+    summary.drinkEy = shotData.value("drinkEy", 0.0).toDouble();
+    summary.enjoymentScore = shotData.value("enjoyment", 0).toInt();
+    summary.tastingNotes = shotData.value("espressoNotes").toString();
+
+    // Convert curve data
+    summary.pressureCurve = variantListToPoints(shotData.value("pressure").toList());
+    summary.flowCurve = variantListToPoints(shotData.value("flow").toList());
+    summary.tempCurve = variantListToPoints(shotData.value("temperature").toList());
+    summary.weightCurve = variantListToPoints(shotData.value("weight").toList());
+    summary.pressureGoalCurve = variantListToPoints(shotData.value("pressureGoal").toList());
+    summary.flowGoalCurve = variantListToPoints(shotData.value("flowGoal").toList());
+    summary.tempGoalCurve = variantListToPoints(shotData.value("temperatureGoal").toList());
+
+    if (summary.pressureCurve.isEmpty()) return summary;
+
+    // Temperature stability
+    if (!summary.tempGoalCurve.isEmpty()) {
+        double deviationSum = 0;
+        int count = 0;
+        for (const auto& point : summary.tempCurve) {
+            double target = findValueAtTime(summary.tempGoalCurve, point.x());
+            if (target > 0) {
+                deviationSum += std::abs(point.y() - target);
+                count++;
+            }
+        }
+        summary.temperatureUnstable = count > 0 && (deviationSum / count) > 2.0;
+    }
+
+    // Phase markers
+    QVariantList phases = shotData.value("phases").toList();
+    if (!phases.isEmpty()) {
+        for (int i = 0; i < phases.size(); i++) {
+            QVariantMap marker = phases[i].toMap();
+            double startTime = marker.value("time", 0.0).toDouble();
+            double endTime = (i + 1 < phases.size())
+                ? phases[i + 1].toMap().value("time", 0.0).toDouble()
+                : summary.totalDuration;
+            if (endTime <= startTime) continue;
+
+            PhaseSummary phase;
+            phase.name = marker.value("label", "Phase").toString();
+            phase.startTime = startTime;
+            phase.endTime = endTime;
+            phase.duration = endTime - startTime;
+            phase.isFlowMode = marker.value("isFlowMode", false).toBool();
+
+            phase.pressureAtStart = findValueAtTime(summary.pressureCurve, startTime);
+            phase.pressureAtMiddle = findValueAtTime(summary.pressureCurve, (startTime + endTime) / 2);
+            phase.pressureAtEnd = findValueAtTime(summary.pressureCurve, endTime);
+            phase.flowAtStart = findValueAtTime(summary.flowCurve, startTime);
+            phase.flowAtMiddle = findValueAtTime(summary.flowCurve, (startTime + endTime) / 2);
+            phase.flowAtEnd = findValueAtTime(summary.flowCurve, endTime);
+            phase.avgTemperature = calculateAverage(summary.tempCurve, startTime, endTime);
+
+            double startWeight = findValueAtTime(summary.weightCurve, startTime);
+            double endWeight = findValueAtTime(summary.weightCurve, endTime);
+            phase.weightGained = endWeight - startWeight;
+
+            summary.phases.append(phase);
+        }
+    }
+
+    if (summary.phases.isEmpty()) {
+        PhaseSummary phase;
+        phase.name = "Extraction";
+        phase.startTime = 0;
+        phase.endTime = summary.totalDuration;
+        phase.duration = summary.totalDuration;
+
+        phase.pressureAtStart = findValueAtTime(summary.pressureCurve, 0);
+        phase.pressureAtMiddle = findValueAtTime(summary.pressureCurve, summary.totalDuration / 2);
+        phase.pressureAtEnd = findValueAtTime(summary.pressureCurve, summary.totalDuration);
+        phase.flowAtStart = findValueAtTime(summary.flowCurve, 0);
+        phase.flowAtMiddle = findValueAtTime(summary.flowCurve, summary.totalDuration / 2);
+        phase.flowAtEnd = findValueAtTime(summary.flowCurve, summary.totalDuration);
+
+        summary.phases.append(phase);
+    }
+
+    // Channeling detection (skip for filter/pourover)
+    bool isFilter = summary.beverageType.toLower() == "filter" ||
+                    summary.beverageType.toLower() == "pourover";
+    if (!isFilter) {
+        for (const auto& phase : summary.phases) {
+            if (!phase.isFlowMode) continue;
+            if (phase.duration < 3.0) continue;
+            if (detectChanneling(summary.flowCurve, phase.startTime, phase.endTime)) {
+                summary.channelingDetected = true;
+                break;
+            }
+        }
+    }
 
     return summary;
 }
@@ -214,13 +394,23 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     out << "## Shot Summary\n\n";
     out << "- **Profile**: " << (summary.profileTitle.isEmpty() ? "Unknown" : summary.profileTitle);
     if (!summary.profileAuthor.isEmpty()) out << " (by " << summary.profileAuthor << ")";
+    if (!summary.profileType.isEmpty()) out << " — " << summary.profileType;
     out << "\n";
     if (!summary.profileNotes.isEmpty()) {
         out << "- **Profile intent**: " << summary.profileNotes << "\n";
     }
     out << "- **Dose**: " << QString::number(summary.doseWeight, 'f', 1) << "g → ";
-    out << "**Yield**: " << QString::number(summary.finalWeight, 'f', 1) << "g ";
-    out << "(ratio 1:" << QString::number(summary.ratio, 'f', 1) << ")\n";
+    out << "**Yield**: " << QString::number(summary.finalWeight, 'f', 1) << "g";
+    if (summary.targetWeight > 0) {
+        out << " (target " << QString::number(summary.targetWeight, 'f', 0) << "g, ";
+        double diff = summary.finalWeight - summary.targetWeight;
+        if (std::abs(diff) >= 0.5)
+            out << (diff > 0 ? "+" : "") << QString::number(diff, 'f', 1) << "g";
+        else
+            out << "on target";
+        out << ")";
+    }
+    out << " ratio 1:" << QString::number(summary.ratio, 'f', 1) << "\n";
     out << "- **Duration**: " << QString::number(summary.totalDuration, 'f', 0) << "s\n";
 
     // Coffee info
@@ -251,23 +441,44 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         out << summary.profileRecipeDescription << "\n";
     }
 
-    // Phase breakdown with start/middle/end samples
+    // Phase breakdown: start, peak-deviation (most diagnostic), end
     out << "## Phase Data\n\n";
-    out << "Each phase shows samples at start, middle, and end. Values: actual (target).\n\n";
+    out << "Each phase shows start, peak deviation from target (most diagnostic point), and end. Values: actual(target).\n\n";
 
     for (const auto& phase : summary.phases) {
-        // Use actual control mode from profile frame data
         QString controlMode = phase.isFlowMode
-            ? "FLOW-CONTROLLED - pressure is just a result of resistance"
-            : "PRESSURE-CONTROLLED - flow is just a result of resistance";
+            ? "FLOW-CONTROLLED"
+            : "PRESSURE-CONTROLLED";
 
-        out << "### " << phase.name << " (" << QString::number(phase.duration, 'f', 0) << "s) - " << controlMode << "\n";
+        out << "### " << phase.name << " (" << QString::number(phase.duration, 'f', 0) << "s) " << controlMode << "\n";
 
-        // Get samples at start, middle, end of phase
-        double times[3] = { phase.startTime, (phase.startTime + phase.endTime) / 2, phase.endTime - 0.1 };
-        const char* labels[3] = { "Start", "Middle", "End" };
+        // Find time of max deviation from target for the controlled variable
+        double peakDevTime = (phase.startTime + phase.endTime) / 2;  // fallback to middle
+        double maxDev = 0;
+        const auto& actualCurve = phase.isFlowMode ? summary.flowCurve : summary.pressureCurve;
+        const auto& goalCurve = phase.isFlowMode ? summary.flowGoalCurve : summary.pressureGoalCurve;
+
+        for (const auto& pt : actualCurve) {
+            if (pt.x() < phase.startTime || pt.x() > phase.endTime) continue;
+            double target = findValueAtTime(goalCurve, pt.x());
+            double dev = std::abs(pt.y() - target);
+            if (dev > maxDev) {
+                maxDev = dev;
+                peakDevTime = pt.x();
+            }
+        }
+
+        // Sample at start, peak-deviation, end
+        double times[3] = { phase.startTime, peakDevTime, phase.endTime - 0.1 };
+        const char* labels[3] = { "Start", "Peak\u0394", "End" };
+
+        // Skip peak-deviation if it's too close to start or end (within 1s)
+        bool showPeak = std::abs(peakDevTime - phase.startTime) > 1.0 &&
+                        std::abs(peakDevTime - (phase.endTime - 0.1)) > 1.0;
 
         for (int i = 0; i < 3; i++) {
+            if (i == 1 && !showPeak) continue;
+
             double t = times[i];
             double pressure = findValueAtTime(summary.pressureCurve, t);
             double flow = findValueAtTime(summary.flowCurve, t);
@@ -277,16 +488,16 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
             double fTarget = findValueAtTime(summary.flowGoalCurve, t);
             double tTarget = findValueAtTime(summary.tempGoalCurve, t);
 
-            out << "- **" << labels[i] << "** @" << QString::number(t, 'f', 0) << "s: ";
+            out << "- " << labels[i] << " @" << QString::number(t, 'f', 0) << "s: ";
             out << QString::number(pressure, 'f', 1);
             if (pTarget > 0.1) out << "(" << QString::number(pTarget, 'f', 0) << ")";
-            out << " bar, ";
+            out << "bar ";
             out << QString::number(flow, 'f', 1);
             if (fTarget > 0.1) out << "(" << QString::number(fTarget, 'f', 1) << ")";
-            out << " ml/s, ";
+            out << "ml/s ";
             out << QString::number(temp, 'f', 0);
             if (tTarget > 0) out << "(" << QString::number(tTarget, 'f', 0) << ")";
-            out << "°C, ";
+            out << "\u00B0C ";
             out << QString::number(weight, 'f', 1) << "g\n";
         }
         out << "\n";
@@ -314,7 +525,7 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     if (summary.channelingDetected || summary.temperatureUnstable) {
         out << "## Observations\n\n";
         if (summary.channelingDetected)
-            out << "- **Channeling detected**: Sudden flow spike (>50% increase) during extraction\n";
+            out << "- **Flow instability**: Sudden flow spike during flow-controlled extraction phase — verify against profile intent before diagnosing channeling\n";
         if (summary.temperatureUnstable)
             out << "- **Temperature unstable**: Average deviation from target exceeds 2\u00B0C\n";
         out << "\n";
@@ -369,6 +580,10 @@ The data shows actual values with targets in parentheses. Here's how to interpre
 
 **Key insight**: When actual pressure differs greatly from "target" during a flow-controlled phase, that's normal — check if FLOW matched its target instead. The machine achieved what it was trying to do.
 
+**Declining pressure during flow phases is normal.** As the coffee puck erodes during extraction, resistance drops, so pressure naturally declines even at constant flow. This is especially pronounced in lever-style and D-Flow profiles that transition from pressure control to flow control (shown as "from PRESSURE X bar" in the recipe). A pressure curve that peaks early and gradually declines is the expected signature of these profiles — do NOT flag it as a problem.
+
+**Flow variation during pressure-controlled phases is normal.** When the machine controls PRESSURE, flow is just a passive result of puck resistance. As the puck saturates, compresses, and erodes, flow will naturally spike and settle. This is NOT channeling — channeling can only be diagnosed during FLOW-CONTROLLED phases where the machine is actively targeting stable flow. High flow during a pressure ramp-up (e.g., Filling at 6 bar) is simply water pushing through a dry puck.
+
 ## Grinder & Burr Geometry
 
 If the user shares their grinder model, consider burr geometry:
@@ -382,11 +597,12 @@ If grinder info is not provided, do not assume a specific grinder type.
 
 You'll receive:
 1. **Shot summary**: dose, yield, ratio, time, profile name
-2. **Phase breakdown**: each phase with start/middle/end samples showing pressure, flow, temp, weight
-3. **Extraction measurements**: TDS and EY if available (refractometer data)
-4. **Tasting notes**: the user's flavor perception (most important!)
+2. **Profile recipe**: frame-by-frame intent (control mode, setpoints, exit conditions)
+3. **Phase breakdown**: each phase with start, peak-deviation, and end samples
+4. **Extraction measurements**: TDS and EY if available (refractometer data)
+5. **Tasting notes**: the user's flavor perception (most important!)
 
-The phase data shows actual values with targets in parentheses. The target tells you what the profile intended — compare actual vs target to assess if the machine achieved what it was trying to do.
+Phase data shows actual values with targets in parentheses. The "Peak delta" sample is the moment of maximum deviation from target for the controlled variable — this is where problems show up. If no peak-delta is shown, the phase tracked its target well.
 
 ## Common Espresso Patterns
 
@@ -463,7 +679,9 @@ The Decent DE1 espresso machine can brew filter-style coffee by pushing water th
 
 **Taste is King.** Numbers are tools to understand taste, not goals in themselves.
 
-**Profile Intent is the Reference Frame.** Filter profiles on the DE1 are designed with specific flow, pressure, and temperature curves. Evaluate the brew against what the profile intended, not against pour-over or drip norms.
+**Profile Intent is the Reference Frame.** Each filter profile was designed with specific goals for flow rate, pressure, temperature, and grind size. The profile description (shown as "Profile intent" in the data) explains the author's design philosophy. **Always read and respect this.** If a profile says "grind as coarse as possible" or "use Turkish grind," that IS the intended operating point — do not recommend moving toward generic filter norms.
+
+**Grind advice must match the profile's design.** Some profiles are designed for very coarse grinds (near French press), others for finer filter grinds. The profile intent tells you which. If the user's grind setting seems extreme but matches what the profile calls for, it's correct — diagnose taste issues through temperature, ratio, or technique instead.
 
 ## How DE1 Filter Differs from Traditional Filter
 
@@ -471,8 +689,36 @@ The Decent DE1 espresso machine can brew filter-style coffee by pushing water th
 - **Brew time**: Typically 2-6 minutes depending on dose and profile.
 - **Ratios**: Typically 1:10 to 1:17 (similar to traditional filter).
 - **Temperature**: Typically 90-100°C, often higher than espresso.
-- **Grind size**: Coarser than espresso, similar to or slightly finer than pour-over.
+- **Grind size**: Varies widely by profile — from slightly finer than pour-over to as coarse as French press. **Read the profile description to know what grind the profile expects.**
 - **Dose**: Often 15-25g, similar to pour-over.
+
+## Reading Targets vs Limiters
+
+The data shows actual values with targets in parentheses. Filter profiles are almost entirely flow-controlled:
+
+**Flow-controlled phases** (most filter phases):
+- The machine pushes water at the target flow rate (often 4-8+ ml/s)
+- Pressure builds as a RESULT of puck resistance — it is NOT a target
+- The pressure value in parentheses is a LIMITER (safety cap), not a goal
+- Seeing pressure at 1.2 bar with a "target" of 3 bar is perfectly normal — the limiter was never reached
+- **Do not diagnose pressure as "low" or "off-target" during flow-controlled phases**
+
+**Pressure-controlled phases** (rare in filter, sometimes used for bloom):
+- The machine maintains target pressure (usually very low, 0.5-2 bar)
+- Flow is the RESULT of puck resistance
+
+**Key insight**: When actual pressure differs greatly from the shown "target" during a flow-controlled phase, that's expected behavior. The machine achieved what it was trying to do (the flow target). The pressure value shown is just a safety ceiling.
+
+## Bloom and Soak Phases
+
+Many filter profiles include an initial bloom or soak phase:
+- **Purpose**: Wet the coffee bed evenly and allow CO2 to escape (degassing), improving even extraction
+- **What it looks like**: Low or zero flow for 30-60+ seconds at the start of the brew
+- **This is intentional** — do not flag low flow or long pauses during bloom as problems
+- After bloom, the main pour phase begins with higher flow
+- Some profiles pulse water during bloom (on-off-on) — this is by design
+
+If a profile has a phase named "Bloom", "Soak", "Wet", or "Saturate", treat it as a preparation phase, not extraction.
 
 ## Reading the Data
 
@@ -482,6 +728,7 @@ The data shows the same format as espresso shots — phase breakdown with pressu
 - **High flow (3-8+ ml/s) is normal** — this is how filter profiles work
 - **Long brew times are normal** — a 4-minute brew is not a "choker"
 - **High ratios are normal** — 1:15 is standard, not excessive
+- **Flow variation at high flow rates is normal** — at 6+ ml/s, turbulence causes natural fluctuation that is NOT channeling
 
 ## Grinder & Burr Geometry
 
@@ -489,6 +736,7 @@ If the user shares their grinder model, consider burr geometry:
 - **Flat burrs**: Can produce exceptional clarity in filter. The bimodal distribution works well at filter concentration.
 - **Conical burrs**: More body and texture, less clarity. Both are valid for filter.
 - Filter grind is much coarser than espresso — grind settings are not comparable.
+- **Grind setting numbers are only meaningful within the same grinder.** A setting of 50 on a Niche may be coarse or medium depending on recalibration. Never assume a number is "too high" or "too low" without understanding the grinder and what the profile expects.
 
 ## Common Filter Issues
 
@@ -521,13 +769,23 @@ If the user shares their grinder model, consider burr geometry:
 - **Medium roasts**: Versatile, standard parameters (92-96°C)
 - **Dark roasts**: Lower temperature (88-93°C), shorter brew time, easy to over-extract
 
+## Forbidden Simplifications
+
+Never give these generic responses without evidence from the data AND checking profile intent:
+- **"Grind finer/coarser"** without checking what the profile description says about grind — if the profile calls for very coarse grind, don't recommend finer just because flow seems high or brew seems fast
+- **"Your grind setting is too high/low"** — grind numbers are grinder-specific and profile-specific; a setting of 50 may be exactly right for a coarse-grind profile
+- **"Typical filter grind is X"** — there is no universal filter grind; it depends entirely on the profile's design
+
+When taste is flat/thin but the profile calls for coarse grind, explore temperature, water quality, ratio, dose, and bean freshness BEFORE suggesting grind changes.
+
 ## Response Guidelines
 
 1. **Start with taste** — what did the user experience?
-2. **Check profile intent** — did the brew achieve what the profile was designed to do?
-3. **Identify ONE issue** — the most impactful thing to change
-4. **Recommend ONE adjustment** — specific and actionable, with reasoning
-5. **Explain what to look for** — how will we know if it worked?
+2. **Read the profile intent** — what grind, flow, and technique does the profile expect? State this so the user knows you understand their profile.
+3. **Check profile intent** — did the brew achieve what the profile was designed to do?
+4. **Identify ONE issue** — the most impactful thing to change
+5. **Recommend ONE adjustment** — specific and actionable, with reasoning
+6. **Explain what to look for** — how will we know if it worked?
 
 If the brew tasted good (score 80+), acknowledge success! Suggest only minor refinements if any.
 
@@ -621,20 +879,19 @@ double ShotSummarizer::findTimeToFirstDrip(const QVector<QPointF>& flowData) con
     return 0;
 }
 
-bool ShotSummarizer::detectChanneling(const QVector<QPointF>& flowData, double afterTime) const
+bool ShotSummarizer::detectChanneling(const QVector<QPointF>& flowData, double startTime, double endTime) const
 {
     if (flowData.size() < 10) return false;
 
-    // Look for sudden flow spikes (>50% increase in 0.5s) AFTER preinfusion
-    // During preinfusion, flow naturally ramps up as water saturates the puck - this is normal
+    // Look for sudden flow spikes (>50% increase in ~1s) within a flow-controlled phase.
+    // Only meaningful during flow-controlled phases where the machine targets stable flow.
     for (int i = 5; i < flowData.size() - 5; i++) {
-        // Skip preinfusion phase - flow variations are expected there
-        if (flowData[i].x() < afterTime) continue;
+        if (flowData[i].x() < startTime) continue;
+        if (flowData[i].x() > endTime) break;
 
         double prevFlow = flowData[i - 5].y();
         double currFlow = flowData[i].y();
 
-        // Only flag channeling if we see sudden spikes during main extraction
         if (prevFlow > 0.5 && currFlow > prevFlow * 1.5) {
             return true;
         }

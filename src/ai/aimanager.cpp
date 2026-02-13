@@ -13,6 +13,8 @@
 #include <QFile>
 #include <QDateTime>
 #include <QDebug>
+#include <QCryptographicHash>
+#include <QJsonDocument>
 #include <cmath>
 
 AIManager::AIManager(Settings* settings, QObject* parent)
@@ -26,11 +28,12 @@ AIManager::AIManager(Settings* settings, QObject* parent)
     // Create conversation handler for multi-turn interactions
     m_conversation = new AIConversation(this, this);
 
-    // Load any saved conversation from previous session
-    if (m_conversation->hasSavedConversation()) {
-        m_conversation->loadFromStorage();
-        qDebug() << "AIManager: Loaded saved conversation with" << m_conversation->messageCount() << "messages";
-    }
+    // Migrate legacy single-conversation storage if needed
+    migrateFromLegacyConversation();
+
+    // Load conversation index and restore most recent conversation
+    loadConversationIndex();
+    loadMostRecentConversation();
 
     // Connect to settings changes
     connect(m_settings, &Settings::valueChanged, this, &AIManager::onSettingsChanged);
@@ -293,255 +296,8 @@ QString AIManager::generateShotSummary(ShotDataModel* shotData,
 
 QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
 {
-    QString prompt;
-    QTextStream out(&prompt);
-
-    // === Helper lambdas ===
-
-    // Find value at a given time via linear interpolation
-    auto findValueAtTime = [](const QVariantList& data, double targetTime) -> double {
-        if (data.isEmpty()) return 0;
-        for (int i = 0; i < data.size(); i++) {
-            QVariantMap p = data[i].toMap();
-            double t = p.value("x", 0.0).toDouble();
-            if (t >= targetTime) {
-                if (i == 0) return p.value("y", 0.0).toDouble();
-                QVariantMap prev = data[i - 1].toMap();
-                double t0 = prev.value("x", 0.0).toDouble();
-                double y0 = prev.value("y", 0.0).toDouble();
-                double y1 = p.value("y", 0.0).toDouble();
-                double frac = (t - t0 > 0.001) ? (targetTime - t0) / (t - t0) : 0;
-                return y0 + frac * (y1 - y0);
-            }
-        }
-        return data.last().toMap().value("y", 0.0).toDouble();
-    };
-
-    // Detect channeling: flow spike >50% during extraction
-    auto detectChanneling = [](const QVariantList& flowData, double afterTime) -> bool {
-        if (flowData.size() < 10) return false;
-        for (int i = 5; i < flowData.size() - 5; i++) {
-            QVariantMap curr = flowData[i].toMap();
-            if (curr.value("x", 0.0).toDouble() < afterTime) continue;
-            QVariantMap prev = flowData[i - 5].toMap();
-            double prevFlow = prev.value("y", 0.0).toDouble();
-            double currFlow = curr.value("y", 0.0).toDouble();
-            if (prevFlow > 0.5 && currFlow > prevFlow * 1.5) return true;
-        }
-        return false;
-    };
-
-    // Detect temperature instability: avg deviation from goal >2°C
-    auto detectTempInstability = [&findValueAtTime](const QVariantList& tempData, const QVariantList& tempGoal) -> bool {
-        if (tempData.isEmpty() || tempGoal.isEmpty()) return false;
-        double deviationSum = 0;
-        int count = 0;
-        for (const QVariant& point : tempData) {
-            QVariantMap p = point.toMap();
-            double t = p.value("x", 0.0).toDouble();
-            double actual = p.value("y", 0.0).toDouble();
-            double target = findValueAtTime(tempGoal, t);
-            if (target > 0) {
-                deviationSum += std::abs(actual - target);
-                count++;
-            }
-        }
-        return count > 0 && (deviationSum / count) > 2.0;
-    };
-
-    // === Shot Summary ===
-    out << "## Shot Summary\n\n";
-    QString beverageType = shotData.value("beverageType", "espresso").toString();
-    out << "- **Beverage type**: " << beverageType << "\n";
-    out << "- **Profile**: " << shotData.value("profileName", "Unknown").toString() << "\n";
-
-    double doseWeight = shotData.value("doseWeight", 0.0).toDouble();
-    double finalWeight = shotData.value("finalWeight", 0.0).toDouble();
-    double ratio = doseWeight > 0 ? finalWeight / doseWeight : 0;
-
-    out << "- **Dose**: " << QString::number(doseWeight, 'f', 1) << "g -> ";
-    out << "**Yield**: " << QString::number(finalWeight, 'f', 1) << "g ";
-    out << "(ratio 1:" << QString::number(ratio, 'f', 1) << ")\n";
-    out << "- **Duration**: " << QString::number(shotData.value("duration", 0.0).toDouble(), 'f', 0) << "s\n";
-
-    // Coffee info
-    QString beanBrand = shotData.value("beanBrand").toString();
-    QString beanType = shotData.value("beanType").toString();
-    QString roastLevel = shotData.value("roastLevel").toString();
-    QString grinderModel = shotData.value("grinderModel").toString();
-    QString grinderSetting = shotData.value("grinderSetting").toString();
-
-    if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
-        out << "- **Coffee**: " << beanBrand;
-        if (!beanBrand.isEmpty() && !beanType.isEmpty()) out << " - ";
-        out << beanType;
-        if (!roastLevel.isEmpty()) out << " (" << roastLevel << ")";
-        out << "\n";
-    }
-    if (!grinderModel.isEmpty()) {
-        out << "- **Grinder**: " << grinderModel;
-        if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
-        out << "\n";
-    }
-    QString beanNotes = shotData.value("beanNotes").toString();
-    if (!beanNotes.isEmpty())
-        out << "- **Bean notes**: " << beanNotes << "\n";
-
-    // Profile description (prominently labeled so AI understands intent)
-    QString profileNotes = shotData.value("profileNotes").toString();
-    if (!profileNotes.isEmpty())
-        out << "- **Profile description**: " << profileNotes << "\n";
-    out << "\n";
-
-    // TDS/EY
-    double drinkTds = shotData.value("drinkTds", 0.0).toDouble();
-    double drinkEy = shotData.value("drinkEy", 0.0).toDouble();
-    if (drinkTds > 0 || drinkEy > 0) {
-        out << "- **Extraction**: ";
-        if (drinkTds > 0) out << "TDS " << QString::number(drinkTds, 'f', 2) << "%";
-        if (drinkTds > 0 && drinkEy > 0) out << ", ";
-        if (drinkEy > 0) out << "EY " << QString::number(drinkEy, 'f', 1) << "%";
-        out << "\n\n";
-    }
-
-    // === Profile Recipe ===
-    QString profileJson = shotData.value("profileJson").toString();
-    if (!profileJson.isEmpty()) {
-        QString recipe = Profile::describeFramesFromJson(profileJson);
-        if (!recipe.isEmpty()) {
-            out << recipe << "\n";
-        }
-    }
-
-    // === Phase Data ===
-    QVariantList pressureData = shotData.value("pressure").toList();
-    QVariantList flowData = shotData.value("flow").toList();
-    QVariantList tempData = shotData.value("temperature").toList();
-    QVariantList weightData = shotData.value("weight").toList();
-    QVariantList pressureGoal = shotData.value("pressureGoal").toList();
-    QVariantList flowGoal = shotData.value("flowGoal").toList();
-    QVariantList tempGoal = shotData.value("temperatureGoal").toList();
-    QVariantList phases = shotData.value("phases").toList();
-    double duration = shotData.value("duration", 60.0).toDouble();
-
-    out << "## Phase Data\n\n";
-    out << "Each phase shows samples at start, middle, and end. Values: actual (target).\n\n";
-
-    // Build phase list — fall back to single "Extraction" phase if no markers
-    struct PhaseInfo {
-        QString label;
-        double startTime;
-        double endTime;
-        bool isFlowMode;
-    };
-    QList<PhaseInfo> phaseList;
-
-    if (!phases.isEmpty()) {
-        for (int i = 0; i < phases.size(); i++) {
-            QVariantMap marker = phases[i].toMap();
-            double startTime = marker.value("time", 0.0).toDouble();
-            double endTime = (i + 1 < phases.size())
-                ? phases[i + 1].toMap().value("time", 0.0).toDouble()
-                : duration;
-            if (endTime <= startTime) continue;
-            phaseList.append({
-                marker.value("label", "Phase").toString(),
-                startTime,
-                endTime,
-                marker.value("isFlowMode", false).toBool()
-            });
-        }
-    }
-
-    if (phaseList.isEmpty()) {
-        // Fallback: single "Extraction" phase spanning the whole shot
-        phaseList.append({"Extraction", 0.0, duration, false});
-    }
-
-    // Determine extraction start time for channeling detection
-    double extractionStartTime = 3.0;  // fallback
-    for (const auto& ph : phaseList) {
-        QString lower = ph.label.toLower();
-        if (lower.contains("extract") || lower.contains("pour") ||
-            lower.contains("hold") || lower == "main") {
-            extractionStartTime = ph.startTime;
-            break;
-        }
-    }
-
-    // Output each phase
-    for (const auto& ph : phaseList) {
-        QString controlMode = ph.isFlowMode
-            ? "FLOW-CONTROLLED - pressure is just a result of resistance"
-            : "PRESSURE-CONTROLLED - flow is just a result of resistance";
-
-        out << "### " << ph.label << " (" << QString::number(ph.endTime - ph.startTime, 'f', 0) << "s) - " << controlMode << "\n";
-
-        double times[3] = { ph.startTime, (ph.startTime + ph.endTime) / 2, ph.endTime - 0.1 };
-        const char* labels[3] = { "Start", "Middle", "End" };
-
-        for (int i = 0; i < 3; i++) {
-            double t = times[i];
-            double pressure = findValueAtTime(pressureData, t);
-            double flow = findValueAtTime(flowData, t);
-            double temp = findValueAtTime(tempData, t);
-            double weight = findValueAtTime(weightData, t);
-            double pTarget = findValueAtTime(pressureGoal, t);
-            double fTarget = findValueAtTime(flowGoal, t);
-            double tTarget = findValueAtTime(tempGoal, t);
-
-            out << "- **" << labels[i] << "** @" << QString::number(t, 'f', 0) << "s: ";
-            out << QString::number(pressure, 'f', 1);
-            if (pTarget > 0.1) out << "(" << QString::number(pTarget, 'f', 0) << ")";
-            out << " bar, ";
-            out << QString::number(flow, 'f', 1);
-            if (fTarget > 0.1) out << "(" << QString::number(fTarget, 'f', 1) << ")";
-            out << " ml/s, ";
-            out << QString::number(temp, 'f', 0);
-            if (tTarget > 0) out << "(" << QString::number(tTarget, 'f', 0) << ")";
-            out << "\u00B0C, ";
-            out << QString::number(weight, 'f', 1) << "g\n";
-        }
-        out << "\n";
-    }
-
-    // === Tasting Feedback ===
-    out << "## Tasting Feedback\n\n";
-    int enjoyment = shotData.value("enjoyment", 0).toInt();
-    QString notes = shotData.value("espressoNotes").toString();
-
-    if (enjoyment > 0) {
-        out << "- **Score**: " << enjoyment << "/100";
-        if (enjoyment >= 80) out << " - Good shot!";
-        else if (enjoyment >= 60) out << " - Decent, room for improvement";
-        else if (enjoyment >= 40) out << " - Needs work";
-        else out << " - Problematic";
-        out << "\n";
-    }
-    if (!notes.isEmpty()) {
-        out << "- **Notes**: \"" << notes << "\"\n";
-    }
-    if (enjoyment == 0 && notes.isEmpty()) {
-        out << "- No tasting feedback provided\n";
-    }
-    out << "\n";
-
-    // === Observations (anomaly detection) ===
-    bool channeling = detectChanneling(flowData, extractionStartTime);
-    bool tempUnstable = detectTempInstability(tempData, tempGoal);
-
-    if (channeling || tempUnstable) {
-        out << "## Observations\n\n";
-        if (channeling)
-            out << "- **Channeling detected**: Sudden flow spike (>50% increase) during extraction\n";
-        if (tempUnstable)
-            out << "- **Temperature unstable**: Average deviation from target exceeds 2\u00B0C\n";
-        out << "\n";
-    }
-
-    out << "Analyze the curve data and sensory feedback. Provide ONE specific, evidence-based recommendation.\n";
-
-    return prompt;
+    ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
+    return m_summarizer->buildUserPrompt(summary);
 }
 
 void AIManager::testConnection()
@@ -686,6 +442,264 @@ void AIManager::onSettingsChanged()
     }
 
     emit configurationChanged();
+}
+
+// ============================================================================
+// Conversation Routing
+// ============================================================================
+
+QJsonObject AIManager::ConversationEntry::toJson() const
+{
+    QJsonObject obj;
+    obj["key"] = key;
+    obj["beanBrand"] = beanBrand;
+    obj["beanType"] = beanType;
+    obj["profileName"] = profileName;
+    obj["timestamp"] = timestamp;
+    return obj;
+}
+
+AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonObject& obj)
+{
+    ConversationEntry entry;
+    entry.key = obj["key"].toString();
+    entry.beanBrand = obj["beanBrand"].toString();
+    entry.beanType = obj["beanType"].toString();
+    entry.profileName = obj["profileName"].toString();
+    entry.timestamp = static_cast<qint64>(obj["timestamp"].toDouble());
+    return entry;
+}
+
+QString AIManager::conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName)
+{
+    QString normalized = beanBrand.toLower().trimmed() + "|" +
+                         beanType.toLower().trimmed() + "|" +
+                         profileName.toLower().trimmed();
+    QByteArray hash = QCryptographicHash::hash(normalized.toUtf8(), QCryptographicHash::Sha1);
+    return hash.toHex().left(16);
+}
+
+void AIManager::loadConversationIndex()
+{
+    QSettings settings;
+    QByteArray indexJson = settings.value("ai/conversations/index").toByteArray();
+    m_conversationIndex.clear();
+
+    if (!indexJson.isEmpty()) {
+        QJsonDocument doc = QJsonDocument::fromJson(indexJson);
+        if (doc.isArray()) {
+            QJsonArray arr = doc.array();
+            for (const QJsonValue& val : arr) {
+                m_conversationIndex.append(ConversationEntry::fromJson(val.toObject()));
+            }
+        }
+    }
+    qDebug() << "AIManager: Loaded conversation index with" << m_conversationIndex.size() << "entries";
+}
+
+void AIManager::saveConversationIndex()
+{
+    QJsonArray arr;
+    for (const auto& entry : m_conversationIndex) {
+        arr.append(entry.toJson());
+    }
+    QSettings settings;
+    settings.setValue("ai/conversations/index", QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    emit conversationIndexChanged();
+}
+
+void AIManager::touchConversationEntry(const QString& key)
+{
+    qint64 now = QDateTime::currentSecsSinceEpoch();
+    for (int i = 0; i < m_conversationIndex.size(); i++) {
+        if (m_conversationIndex[i].key == key) {
+            m_conversationIndex[i].timestamp = now;
+            // Move to front (most recent)
+            if (i > 0) {
+                auto entry = m_conversationIndex.takeAt(i);
+                m_conversationIndex.prepend(entry);
+            }
+            saveConversationIndex();
+            return;
+        }
+    }
+}
+
+void AIManager::evictOldestConversation()
+{
+    if (m_conversationIndex.size() < MAX_CONVERSATIONS) return;
+
+    // Remove the last (oldest) entry
+    ConversationEntry oldest = m_conversationIndex.takeLast();
+
+    // Remove its QSettings data
+    QSettings settings;
+    QString prefix = "ai/conversations/" + oldest.key + "/";
+    settings.remove(prefix + "systemPrompt");
+    settings.remove(prefix + "messages");
+    settings.remove(prefix + "timestamp");
+
+    qDebug() << "AIManager: Evicted oldest conversation:" << oldest.beanBrand << oldest.beanType << oldest.profileName;
+    saveConversationIndex();
+}
+
+void AIManager::migrateFromLegacyConversation()
+{
+    QSettings settings;
+
+    // Check if legacy data exists and new index doesn't
+    QByteArray legacyMessages = settings.value("ai/conversation/messages").toByteArray();
+    QByteArray existingIndex = settings.value("ai/conversations/index").toByteArray();
+
+    if (legacyMessages.isEmpty() || !existingIndex.isEmpty()) return;
+
+    QJsonDocument doc = QJsonDocument::fromJson(legacyMessages);
+    if (!doc.isArray() || doc.array().isEmpty()) return;
+
+    qDebug() << "AIManager: Migrating legacy conversation to keyed storage";
+
+    // Use a fixed key for the legacy conversation
+    QString legacyKey = "_legacy";
+
+    // Copy data to new keyed location
+    QString prefix = "ai/conversations/" + legacyKey + "/";
+    settings.setValue(prefix + "systemPrompt", settings.value("ai/conversation/systemPrompt"));
+    settings.setValue(prefix + "messages", legacyMessages);
+    settings.setValue(prefix + "timestamp", settings.value("ai/conversation/timestamp"));
+
+    // Create index entry
+    ConversationEntry entry;
+    entry.key = legacyKey;
+    entry.beanBrand = "";
+    entry.beanType = "";
+    entry.profileName = "(Previous conversation)";
+    entry.timestamp = QDateTime::currentSecsSinceEpoch();
+
+    QJsonArray indexArr;
+    indexArr.append(entry.toJson());
+    settings.setValue("ai/conversations/index", QJsonDocument(indexArr).toJson(QJsonDocument::Compact));
+
+    // Remove legacy keys
+    settings.remove("ai/conversation/systemPrompt");
+    settings.remove("ai/conversation/messages");
+    settings.remove("ai/conversation/timestamp");
+
+    qDebug() << "AIManager: Legacy conversation migrated to key:" << legacyKey;
+}
+
+QString AIManager::switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName)
+{
+    QString key = conversationKey(beanBrand, beanType, profileName);
+
+    // Already on this key — just touch LRU
+    if (m_conversation->storageKey() == key) {
+        touchConversationEntry(key);
+        return key;
+    }
+
+    // Refuse if busy
+    if (m_conversation->isBusy()) {
+        qDebug() << "AIManager: Cannot switch conversation while busy";
+        return m_conversation->storageKey();
+    }
+
+    // Save current conversation if it has history
+    if (m_conversation->hasHistory()) {
+        m_conversation->saveToStorage();
+    }
+
+    // Clear in-memory state without touching QSettings (clearHistory() would delete stored data)
+    // Set storage key to empty first so clearHistory() skips the QSettings removal
+    m_conversation->setStorageKey(QString());
+    m_conversation->clearHistory();
+
+    // Check if key exists in index
+    bool exists = false;
+    for (const auto& entry : m_conversationIndex) {
+        if (entry.key == key) {
+            exists = true;
+            break;
+        }
+    }
+
+    // Set new storage key and load if exists
+    m_conversation->setStorageKey(key);
+    m_conversation->setContextLabel(beanBrand, beanType, profileName);
+
+    if (exists) {
+        m_conversation->loadFromStorage();
+        touchConversationEntry(key);
+    } else {
+        // Evict oldest if at capacity
+        evictOldestConversation();
+
+        // Add new entry to front of index
+        ConversationEntry newEntry;
+        newEntry.key = key;
+        newEntry.beanBrand = beanBrand;
+        newEntry.beanType = beanType;
+        newEntry.profileName = profileName;
+        newEntry.timestamp = QDateTime::currentSecsSinceEpoch();
+        m_conversationIndex.prepend(newEntry);
+        saveConversationIndex();
+    }
+
+    emit m_conversation->savedConversationChanged();
+    qDebug() << "AIManager: Switched to conversation key:" << key
+             << "(" << beanBrand << beanType << "/" << profileName << ")";
+    return key;
+}
+
+void AIManager::loadMostRecentConversation()
+{
+    if (m_conversationIndex.isEmpty()) {
+        m_conversation->setStorageKey(QString());
+        m_conversation->setContextLabel(QString(), QString(), QString());
+        return;
+    }
+
+    const auto& entry = m_conversationIndex.first();
+    m_conversation->setStorageKey(entry.key);
+    m_conversation->setContextLabel(entry.beanBrand, entry.beanType, entry.profileName);
+    m_conversation->loadFromStorage();
+    qDebug() << "AIManager: Loaded most recent conversation:" << entry.key
+             << "(" << entry.beanBrand << entry.beanType << "/" << entry.profileName << ")";
+}
+
+void AIManager::clearCurrentConversation()
+{
+    QString key = m_conversation->storageKey();
+    m_conversation->clearHistory();
+
+    // Remove the entry from the conversation index
+    if (!key.isEmpty()) {
+        for (int i = 0; i < m_conversationIndex.size(); i++) {
+            if (m_conversationIndex[i].key == key) {
+                m_conversationIndex.removeAt(i);
+                saveConversationIndex();
+                break;
+            }
+        }
+    }
+}
+
+bool AIManager::isSupportedBeverageType(const QString& beverageType) const
+{
+    QString bev = beverageType.toLower().trimmed();
+    return bev.isEmpty() || bev == "espresso" || bev == "filter" || bev == "pourover";
+}
+
+bool AIManager::isMistakeShot(const QVariantMap& shotData) const
+{
+    double duration = shotData.value("duration", 0.0).toDouble();
+    double finalWeight = shotData.value("finalWeight", 0.0).toDouble();
+    double targetWeight = shotData.value("targetWeight", 0.0).toDouble();
+
+    if (duration < 10.0) return true;
+    if (finalWeight < 5.0) return true;
+    if (targetWeight > 0.0 && finalWeight < targetWeight / 3.0) return true;
+
+    return false;
 }
 
 // ============================================================================

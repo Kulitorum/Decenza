@@ -24,9 +24,25 @@ void AIProvider::setStatus(Status status)
     }
 }
 
+QJsonArray AIProvider::buildOpenAIMessages(const QString& systemPrompt, const QJsonArray& messages)
+{
+    QJsonArray apiMessages;
+    QJsonObject sysMsg;
+    sysMsg["role"] = QString("system");
+    sysMsg["content"] = systemPrompt;
+    apiMessages.append(sysMsg);
+    for (const auto& msg : messages) {
+        apiMessages.append(msg);
+    }
+    return apiMessages;
+}
+
 void AIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     // Default fallback: flatten messages into a single string and call analyze()
+    // This loses multi-turn context — providers should override for native support
+    qWarning() << "AIProvider::analyzeConversation: Using flatten fallback for provider"
+               << name() << "- consider implementing native multi-turn support";
     QString flatPrompt;
     for (int i = 0; i < messages.size(); i++) {
         QJsonObject msg = messages[i].toObject();
@@ -83,6 +99,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -102,15 +119,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
 
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
-    QJsonArray apiMessages;
-    QJsonObject sysMsg;
-    sysMsg["role"] = QString("system");
-    sysMsg["content"] = systemPrompt;
-    apiMessages.append(sysMsg);
-    for (const auto& msg : messages) {
-        apiMessages.append(msg);
-    }
-    requestBody["messages"] = apiMessages;
+    requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = 1024;
 
     QUrl url(QString::fromLatin1(API_URL));
@@ -118,6 +127,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -152,6 +162,10 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
     }
 
     QString content = choices[0].toObject()["message"].toObject()["content"].toString();
+    if (content.isEmpty()) {
+        emit analysisFailed("OpenAI returned empty response content");
+        return;
+    }
     emit analysisComplete(content);
 }
 
@@ -167,6 +181,7 @@ void OpenAIProvider::testConnection()
     QNetworkRequest req;
     req.setUrl(url);
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setTransferTimeout(TEST_TIMEOUT_MS);
 
     QNetworkReply* reply = m_networkManager->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -217,7 +232,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
     requestBody["max_tokens"] = 1024;
-    requestBody["system"] = systemPrompt;
+    requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
     userMsg["role"] = QString("user");
@@ -231,6 +246,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-api-key", m_apiKey.toUtf8());
     req.setRawHeader("anthropic-version", "2023-06-01");
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -251,7 +267,7 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     QJsonObject requestBody;
     requestBody["model"] = QString::fromLatin1(MODEL);
     requestBody["max_tokens"] = 1024;
-    requestBody["system"] = systemPrompt;
+    requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messages;
 
     QUrl url(QString::fromLatin1(API_URL));
@@ -260,12 +276,31 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-api-key", m_apiKey.toUtf8());
     req.setRawHeader("anthropic-version", "2023-06-01");
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
     });
+}
+
+QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPrompt)
+{
+    // Use structured system content with cache_control to enable prompt caching.
+    // Anthropic caches the system prompt for 5 minutes, reducing input cost by ~90%
+    // on repeated requests (e.g. multi-shot dialing sessions).
+    QJsonObject cacheControl;
+    cacheControl["type"] = QString("ephemeral");
+
+    QJsonObject block;
+    block["type"] = QString("text");
+    block["text"] = systemPrompt;
+    block["cache_control"] = cacheControl;
+
+    QJsonArray systemArray;
+    systemArray.append(block);
+    return systemArray;
 }
 
 void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
@@ -294,6 +329,10 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
     }
 
     QString text = content[0].toObject()["text"].toString();
+    if (text.isEmpty()) {
+        emit analysisFailed("Anthropic returned empty response content");
+        return;
+    }
     emit analysisComplete(text);
 }
 
@@ -321,6 +360,7 @@ void AnthropicProvider::testConnection()
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-api-key", m_apiKey.toUtf8());
     req.setRawHeader("anthropic-version", "2023-06-01");
+    req.setTransferTimeout(TEST_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -405,6 +445,7 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -454,6 +495,7 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -494,6 +536,10 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
     }
 
     QString text = parts[0].toObject()["text"].toString();
+    if (text.isEmpty()) {
+        emit analysisFailed("Gemini returned empty response content");
+        return;
+    }
     emit analysisComplete(text);
 }
 
@@ -522,6 +568,7 @@ void GeminiProvider::testConnection()
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
+    req.setTransferTimeout(TEST_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -595,6 +642,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     // Attribution headers for OpenRouter leaderboard
     req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
     req.setRawHeader("X-Title", "Decenza DE1");
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -614,15 +662,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
-    QJsonArray apiMessages;
-    QJsonObject sysMsg;
-    sysMsg["role"] = QString("system");
-    sysMsg["content"] = systemPrompt;
-    apiMessages.append(sysMsg);
-    for (const auto& msg : messages) {
-        apiMessages.append(msg);
-    }
-    requestBody["messages"] = apiMessages;
+    requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = 1024;
 
     QUrl url(QString::fromLatin1(API_URL));
@@ -632,6 +672,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
     req.setRawHeader("X-Title", "Decenza DE1");
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -666,6 +707,10 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
     }
 
     QString content = choices[0].toObject()["message"].toObject()["content"].toString();
+    if (content.isEmpty()) {
+        emit analysisFailed("OpenRouter returned empty response content");
+        return;
+    }
     emit analysisComplete(content);
 }
 
@@ -694,6 +739,7 @@ void OpenRouterProvider::testConnection()
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
     req.setRawHeader("X-Title", "Decenza DE1");
+    req.setTransferTimeout(TEST_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -758,6 +804,7 @@ void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPro
     QNetworkRequest req;
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setTransferTimeout(LOCAL_ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -779,16 +826,7 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["stream"] = false;
-
-    QJsonArray apiMessages;
-    QJsonObject sysMsg;
-    sysMsg["role"] = QString("system");
-    sysMsg["content"] = systemPrompt;
-    apiMessages.append(sysMsg);
-    for (const auto& msg : messages) {
-        apiMessages.append(msg);
-    }
-    requestBody["messages"] = apiMessages;
+    requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
 
     QString urlStr = m_endpoint;
     if (!urlStr.endsWith(QString("/"))) urlStr += QString("/");
@@ -798,6 +836,7 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
     QNetworkRequest req;
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setTransferTimeout(LOCAL_ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
@@ -828,6 +867,9 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
     QString response = root["message"].toObject()["content"].toString();
     if (response.isEmpty()) {
         response = root["response"].toString();
+        if (!response.isEmpty()) {
+            qDebug() << "OllamaProvider: Used /api/generate response format (fallback)";
+        }
     }
     if (response.isEmpty()) {
         emit analysisFailed("Ollama returned empty response");
@@ -869,6 +911,7 @@ void OllamaProvider::refreshModels()
     QUrl url(urlStr);
     QNetworkRequest req;
     req.setUrl(url);
+    req.setTransferTimeout(TEST_TIMEOUT_MS);
     QNetworkReply* reply = m_networkManager->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onModelsReply(reply);

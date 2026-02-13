@@ -428,6 +428,7 @@ set(QML_FILES
     qml/components/SuggestionField.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml
+    qml/components/ConversationOverlay.qml
     qml/components/Tr.qml
     qml/components/RecipeSection.qml
     qml/components/RecipeRow.qml

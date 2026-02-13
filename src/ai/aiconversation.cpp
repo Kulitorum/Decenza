@@ -67,13 +67,46 @@ void AIConversation::followUp(const QString& userMessage)
 
 void AIConversation::clearHistory()
 {
+    // Clear stored data for current key
+    if (!m_storageKey.isEmpty()) {
+        QSettings settings;
+        QString prefix = "ai/conversations/" + m_storageKey + "/";
+        settings.remove(prefix + "systemPrompt");
+        settings.remove(prefix + "messages");
+        settings.remove(prefix + "timestamp");
+    }
+
     m_messages = QJsonArray();
     m_systemPrompt.clear();
     m_lastResponse.clear();
     m_errorMessage.clear();
 
     emit historyChanged();
-    qDebug() << "AIConversation: History cleared";
+    emit savedConversationChanged();
+    qDebug() << "AIConversation: History cleared for key:" << m_storageKey;
+}
+
+void AIConversation::setStorageKey(const QString& key)
+{
+    m_storageKey = key;
+}
+
+void AIConversation::setContextLabel(const QString& brand, const QString& type, const QString& profile)
+{
+    QStringList parts;
+    QString bean;
+    if (!brand.isEmpty() && !type.isEmpty())
+        bean = brand + " " + type;
+    else if (!brand.isEmpty())
+        bean = brand;
+    else if (!type.isEmpty())
+        bean = type;
+
+    if (!bean.isEmpty()) parts << bean;
+    if (!profile.isEmpty()) parts << profile;
+
+    m_contextLabel = parts.join(" / ");
+    emit historyChanged();
 }
 
 void AIConversation::addUserMessage(const QString& message)
@@ -200,7 +233,7 @@ QString AIConversation::getConversationText() const
                                content.contains("Beverage type**: pourover", Qt::CaseInsensitive);
 
                 // Extract shot number from "## Shot #N" prefix if present
-                QRegularExpression shotNumRe("^## Shot #(\\d+)");
+                static const QRegularExpression shotNumRe("^## Shot #(\\d+)");
                 QRegularExpressionMatch shotNumMatch = shotNumRe.match(content);
                 if (shotNumMatch.hasMatch()) {
                     QString num = shotNumMatch.captured(1);
@@ -246,9 +279,9 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, i
 {
     QString processed = shotSummary;
 
-    // Find previous shot in conversation
-    QString prevContent = findPreviousShotMessage();
-    int prevShotId = findPreviousShotId();
+    // Find previous shot in conversation (exclude the current shotId to avoid self-comparison)
+    QString prevContent = findPreviousShotMessage(shotId);
+    int prevShotId = findPreviousShotId(shotId);
 
     if (!prevContent.isEmpty()) {
         // === Recipe dedup: skip recipe if same profile ===
@@ -257,7 +290,7 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, i
 
         if (!newProfile.isEmpty() && newProfile == prevProfile) {
             // Remove the "## Profile Recipe" section — it's identical
-            QRegularExpression recipeRe("## Profile Recipe[^\\n]*\\n(?:(?!## ).+\\n)*\\n?");
+            static const QRegularExpression recipeRe("## Profile Recipe[^\\n]*\\n(?:(?!## ).+\\n)*\\n?");
             processed.replace(recipeRe, "(Same profile recipe as previous shot)\n\n");
         }
 
@@ -286,7 +319,7 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, i
 
         // Prepend changes section
         QString changesSection;
-        if (prevShotId > 0) {
+        if (prevShotId >= 0) {
             if (!changes.isEmpty()) {
                 changesSection = "**Changes from Shot #" + QString::number(prevShotId) + "**: " + changes.join(", ") + "\n\n";
             } else {
@@ -323,14 +356,23 @@ QString AIConversation::extractMetric(const QString& content, const QString& pat
     return match.hasMatch() ? match.captured(1).trimmed() : QString();
 }
 
-QString AIConversation::findPreviousShotMessage() const
+QString AIConversation::findPreviousShotMessage(int excludeShotId) const
 {
-    // Walk backwards to find the most recent user message containing shot data
+    // Walk backwards to find the most recent user message containing shot data,
+    // excluding the shot with the given ID to avoid self-comparison
+    static const QRegularExpression shotIdRe("## Shot #(\\d+)");
     for (int i = m_messages.size() - 1; i >= 0; i--) {
         QJsonObject msg = m_messages[i].toObject();
         if (msg["role"].toString() == "user") {
             QString content = msg["content"].toString();
             if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
+                // Skip if this is the shot we're excluding
+                if (excludeShotId >= 0) {
+                    QRegularExpressionMatch match = shotIdRe.match(content);
+                    if (match.hasMatch() && match.captured(1).toInt() == excludeShotId) {
+                        continue;
+                    }
+                }
                 return content;
             }
         }
@@ -338,49 +380,54 @@ QString AIConversation::findPreviousShotMessage() const
     return QString();
 }
 
-int AIConversation::findPreviousShotId() const
+int AIConversation::findPreviousShotId(int excludeShotId) const
 {
-    // Walk backwards to find the most recent shot ID
-    QRegularExpression shotIdRe("## Shot #(\\d+)");
+    // Walk backwards to find the most recent shot ID, excluding the given ID
+    static const QRegularExpression shotIdRe("## Shot #(\\d+)");
     for (int i = m_messages.size() - 1; i >= 0; i--) {
         QJsonObject msg = m_messages[i].toObject();
         if (msg["role"].toString() == "user") {
             QRegularExpressionMatch match = shotIdRe.match(msg["content"].toString());
             if (match.hasMatch()) {
-                return match.captured(1).toInt();
+                int id = match.captured(1).toInt();
+                if (id != excludeShotId) {
+                    return id;
+                }
             }
         }
     }
-    return 0;
+    return -1;
 }
 
 void AIConversation::saveToStorage()
 {
+    if (m_storageKey.isEmpty()) return;
+
     QSettings settings;
+    QString prefix = "ai/conversations/" + m_storageKey + "/";
 
-    // Save system prompt
-    settings.setValue("ai/conversation/systemPrompt", m_systemPrompt);
+    settings.setValue(prefix + "systemPrompt", m_systemPrompt);
 
-    // Save messages as JSON
     QJsonDocument doc(m_messages);
-    settings.setValue("ai/conversation/messages", doc.toJson(QJsonDocument::Compact));
+    settings.setValue(prefix + "messages", doc.toJson(QJsonDocument::Compact));
 
-    // Save timestamp
-    settings.setValue("ai/conversation/timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
+    settings.setValue(prefix + "timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
 
     emit savedConversationChanged();
-    qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages";
+    qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages to key:" << m_storageKey;
 }
 
 void AIConversation::loadFromStorage()
 {
+    if (m_storageKey.isEmpty()) return;
+
     QSettings settings;
+    QString prefix = "ai/conversations/" + m_storageKey + "/";
 
-    // Load system prompt
-    m_systemPrompt = settings.value("ai/conversation/systemPrompt").toString();
+    m_systemPrompt = settings.value(prefix + "systemPrompt").toString();
 
-    // Load messages
-    QByteArray messagesJson = settings.value("ai/conversation/messages").toByteArray();
+    QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
+    m_messages = QJsonArray();
     if (!messagesJson.isEmpty()) {
         QJsonDocument doc = QJsonDocument::fromJson(messagesJson);
         if (doc.isArray()) {
@@ -389,6 +436,7 @@ void AIConversation::loadFromStorage()
     }
 
     // Update last response from the last assistant message
+    m_lastResponse.clear();
     for (int i = m_messages.size() - 1; i >= 0; i--) {
         QJsonObject msg = m_messages[i].toObject();
         if (msg["role"].toString() == "assistant") {
@@ -398,13 +446,17 @@ void AIConversation::loadFromStorage()
     }
 
     emit historyChanged();
-    qDebug() << "AIConversation: Loaded conversation with" << m_messages.size() << "messages";
+    emit savedConversationChanged();
+    qDebug() << "AIConversation: Loaded conversation with" << m_messages.size() << "messages from key:" << m_storageKey;
 }
 
 bool AIConversation::hasSavedConversation() const
 {
+    if (m_storageKey.isEmpty()) return false;
+
     QSettings settings;
-    QByteArray messagesJson = settings.value("ai/conversation/messages").toByteArray();
+    QString prefix = "ai/conversations/" + m_storageKey + "/";
+    QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
     if (messagesJson.isEmpty()) return false;
 
     QJsonDocument doc = QJsonDocument::fromJson(messagesJson);
@@ -423,6 +475,13 @@ void AIConversation::trimHistory()
 
     // Split messages: everything before the last maxVerbatim are "old"
     int oldCount = static_cast<int>(m_messages.size()) - maxVerbatim;
+    // Ensure oldCount lands on a pair boundary (even index) so verbatim
+    // messages start with a user message — required for Gemini role alternation
+    if (oldCount % 2 != 0) {
+        oldCount++;
+    }
+    if (oldCount >= static_cast<int>(m_messages.size())) return;
+
     QStringList summaries;
     int droppedFollowUps = 0;
 
@@ -444,6 +503,10 @@ void AIConversation::trimHistory()
                 }
                 summaries.append(summary);
             } else {
+                // Check if this looks like a shot message that we failed to summarize
+                if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
+                    qWarning() << "AIConversation::trimHistory: Shot message could not be summarized, metrics may have changed format";
+                }
                 droppedFollowUps++;
             }
         }
@@ -497,18 +560,18 @@ QString AIConversation::summarizeShotMessage(const QString& content)
 
     // Extract shot number from "## Shot #N" prefix
     QString shotNum;
-    QRegularExpression shotNumRe("## Shot #(\\d+)");
+    static const QRegularExpression shotNumRe("## Shot #(\\d+)");
     QRegularExpressionMatch numMatch = shotNumRe.match(content);
     if (numMatch.hasMatch()) {
         shotNum = numMatch.captured(1);
     }
 
     // Extract key metrics using regex
-    QRegularExpression doseRe("\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
-    QRegularExpression yieldRe("\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
-    QRegularExpression durationRe("\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
-    QRegularExpression scoreRe("\\*\\*Score\\*\\*:\\s*(\\d+)");
-    QRegularExpression notesRe("\\*\\*Notes\\*\\*:\\s*\"([^\"]+)\"");
+    static const QRegularExpression doseRe("\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
+    static const QRegularExpression yieldRe("\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
+    static const QRegularExpression durationRe("\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
+    static const QRegularExpression scoreRe("\\*\\*Score\\*\\*:\\s*(\\d+)");
+    static const QRegularExpression notesRe("\\*\\*Notes\\*\\*:\\s*\"([^\"]+)\"");
 
     QString dose, yield, duration, score, notes;
 
@@ -524,12 +587,12 @@ QString AIConversation::summarizeShotMessage(const QString& content)
     if (m.hasMatch()) notes = m.captured(1);
 
     // Extract profile name
-    QRegularExpression profileRe("\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
+    static const QRegularExpression profileRe("\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
     QRegularExpressionMatch pm = profileRe.match(content);
     QString profile = pm.hasMatch() ? pm.captured(1).trimmed() : QString();
 
     // Extract grinder info
-    QRegularExpression grinderRe("\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
+    static const QRegularExpression grinderRe("\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
     QRegularExpressionMatch gm = grinderRe.match(content);
     QString grinder = gm.hasMatch() ? gm.captured(1).trimmed() : QString();
 
@@ -567,8 +630,8 @@ QString AIConversation::summarizeAdvice(const QString& response)
     // We take the first sentence that contains an action verb related to espresso dialing.
 
     // Try to find a line that starts with a recommendation keyword
-    QRegularExpression recRe("(?:^|\\n)\\s*(?:[-•*]\\s*)?(?:Try|Adjust|Grind|Increase|Decrease|Lower|Raise|Change|Move|Use|Reduce|Extend|Shorten)\\s[^\\n]{5,}",
-                              QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression recRe("(?:^|\\n)\\s*(?:[-•*]\\s*)?(?:Try|Adjust|Grind|Increase|Decrease|Lower|Raise|Change|Move|Use|Reduce|Extend|Shorten)\\s[^\\n]{5,}",
+                                          QRegularExpression::CaseInsensitiveOption);
     QRegularExpressionMatch m = recRe.match(response);
     if (m.hasMatch()) {
         QString advice = m.captured(0).trimmed();

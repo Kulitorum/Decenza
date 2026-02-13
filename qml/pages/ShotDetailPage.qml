@@ -550,6 +550,7 @@ Page {
                 font.pixelSize: Theme.scaled(12)
                 color: Theme.textColor
                 readOnly: true
+                selectByMouse: true
                 wrapMode: Text.Wrap
                 background: Rectangle { color: "transparent" }
             }
@@ -586,257 +587,15 @@ Page {
         }
     }
 
-    // Conversation overlay panel - full screen with keyboard awareness
-    Rectangle {
+    ConversationOverlay {
         id: conversationOverlay
-        visible: false
         anchors.fill: parent
-        color: Theme.backgroundColor
-        z: 200
-
-        // Consume ALL mouse/touch events - prevent pass-through to background
-        MouseArea {
-            anchors.fill: parent
-            preventStealing: true
-        }
-
-        KeyboardAwareContainer {
-            id: conversationKeyboardContainer
-            anchors.fill: parent
-            anchors.topMargin: Theme.pageTopMargin
-            anchors.bottomMargin: Theme.bottomBarHeight
-            textFields: [conversationInput]
-
-            // Main conversation content
-            Rectangle {
-                anchors.fill: parent
-                color: Theme.backgroundColor
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.standardMargin
-                    spacing: Theme.spacingSmall
-
-                    // Clear button row at top
-                    RowLayout {
-                        Layout.fillWidth: true
-
-                        Item { Layout.fillWidth: true }
-
-                        // Clear conversation button
-                        Rectangle {
-                            width: clearText.width + Theme.scaled(16)
-                            height: Theme.scaled(32)
-                            radius: Theme.scaled(4)
-                            color: Theme.errorColor
-                            opacity: 0.8
-
-                            Text {
-                                id: clearText
-                                anchors.centerIn: parent
-                                text: TranslationManager.translate("shotdetail.conversation.clear", "Clear")
-                                font.pixelSize: Theme.scaled(12)
-                                color: "white"
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: {
-                                    if (MainController.aiManager && MainController.aiManager.conversation) {
-                                        MainController.aiManager.conversation.clearHistory()
-                                        MainController.aiManager.conversation.saveToStorage()
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Conversation history
-                    Flickable {
-                        id: conversationFlickable
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        contentHeight: conversationText.height
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-
-                        TextArea {
-                            id: conversationText
-                            width: parent.width
-                            text: MainController.aiManager && MainController.aiManager.conversation
-                                  ? MainController.aiManager.conversation.getConversationText()
-                                  : ""
-                            textFormat: Text.MarkdownText
-                            wrapMode: TextEdit.WordWrap
-                            readOnly: true
-                            font: Theme.bodyFont
-                            color: Theme.textColor
-                            background: null
-                            padding: 0
-                        }
-                    }
-
-                    // Loading indicator
-                    RowLayout {
-                        visible: MainController.aiManager && MainController.aiManager.conversation &&
-                                 MainController.aiManager.conversation.busy
-                        Layout.fillWidth: true
-
-                        BusyIndicator {
-                            running: true
-                            Layout.preferredWidth: Theme.scaled(24)
-                            Layout.preferredHeight: Theme.scaled(24)
-                            palette.dark: Theme.primaryColor
-                        }
-
-                        Text {
-                            text: TranslationManager.translate("shotdetail.conversation.thinking", "Thinking...")
-                            font: Theme.bodyFont
-                            color: Theme.textSecondaryColor
-                        }
-                    }
-
-                    // Shot data attached indicator
-                    Rectangle {
-                        visible: shotDetailPage.pendingShotSummary.length > 0
-                        Layout.fillWidth: true
-                        height: Theme.scaled(28)
-                        radius: Theme.scaled(4)
-                        color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-                        border.color: Theme.primaryColor
-                        border.width: 1
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(8)
-                            anchors.rightMargin: Theme.scaled(8)
-                            spacing: Theme.scaled(6)
-
-                            Text {
-                                text: "\uD83D\uDCCA"  // chart emoji
-                                font.pixelSize: Theme.scaled(12)
-                            }
-
-                            Text {
-                                text: TranslationManager.translate("shotdetail.conversation.shotattached", "Shot data will be included with your message")
-                                font.pixelSize: Theme.scaled(11)
-                                color: Theme.primaryColor
-                                Layout.fillWidth: true
-                            }
-
-                            Text {
-                                text: "\u2715"
-                                font.pixelSize: Theme.scaled(12)
-                                color: Theme.textSecondaryColor
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    anchors.margins: -Theme.scaled(4)
-                                    onClicked: shotDetailPage.pendingShotSummary = ""
-                                }
-                            }
-                        }
-                    }
-
-                    // Input row
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSmall
-
-                        StyledTextField {
-                            id: conversationInput
-                            Layout.fillWidth: true
-                            placeholder: shotDetailPage.pendingShotSummary.length > 0
-                                         ? TranslationManager.translate("shotdetail.conversation.placeholder.withshot", "Ask about this shot...")
-                                         : TranslationManager.translate("shotdetail.conversation.placeholder", "Ask a follow-up question...")
-                            enabled: MainController.aiManager && MainController.aiManager.conversation &&
-                                     !MainController.aiManager.conversation.busy
-
-                            Keys.onReturnPressed: sendFollowUp()
-                            Keys.onEnterPressed: sendFollowUp()
-
-                            function sendFollowUp() {
-                                if (text.length === 0) return
-                                if (!MainController.aiManager || !MainController.aiManager.conversation) return
-
-                                var conversation = MainController.aiManager.conversation
-                                var message = text
-
-                                // If there's a pending shot, include it with the user's question
-                                if (shotDetailPage.pendingShotSummary.length > 0) {
-                                    message = "## Shot #" + shotDetailPage.shotId + "\n\nHere's my latest shot:\n\n" +
-                                              shotDetailPage.pendingShotSummary + "\n\n" + text
-                                    shotDetailPage.pendingShotSummary = ""  // Clear after sending
-                                }
-
-                                // Use ask() for new conversation, followUp() for existing
-                                if (!conversation.hasHistory) {
-                                    var bevType = (shotData.beverageType || "espresso").toLowerCase()
-                                    var systemPrompt = conversation.multiShotSystemPrompt(bevType)
-                                    conversation.ask(systemPrompt, message)
-                                } else {
-                                    conversation.followUp(message)
-                                }
-                                text = ""
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.preferredWidth: Theme.scaled(60)
-                            Layout.preferredHeight: Theme.scaled(44)
-                            radius: Theme.scaled(6)
-                            color: conversationInput.text.length > 0 ? Theme.primaryColor : Theme.surfaceColor
-                            border.color: Theme.borderColor
-                            border.width: conversationInput.text.length > 0 ? 0 : 1
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: TranslationManager.translate("shotdetail.conversation.send", "Send")
-                                font: Theme.bodyFont
-                                color: conversationInput.text.length > 0 ? "white" : Theme.textSecondaryColor
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                enabled: conversationInput.text.length > 0 &&
-                                         MainController.aiManager && MainController.aiManager.conversation &&
-                                         !MainController.aiManager.conversation.busy
-                                onClicked: conversationInput.sendFollowUp()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Bottom bar for conversation overlay
-        BottomBar {
-            id: conversationBottomBar
-            title: TranslationManager.translate("shotdetail.conversation.title", "AI Conversation")
-            showBackButton: true
-            onBackClicked: {
-                // Save conversation before closing
-                if (MainController.aiManager && MainController.aiManager.conversation) {
-                    MainController.aiManager.conversation.saveToStorage()
-                }
-                conversationOverlay.visible = false
-            }
-        }
-
-        // Update conversation text when response received
-        Connections {
-            target: MainController.aiManager ? MainController.aiManager.conversation : null
-            function onResponseReceived(response) {
-                // Scroll to bottom when new response arrives
-                Qt.callLater(function() {
-                    conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
-                })
-            }
-            function onHistoryChanged() {
-                // Refresh conversation text
-                conversationText.text = MainController.aiManager.conversation.getConversationText()
-            }
-        }
+        pendingShotSummary: shotDetailPage.pendingShotSummary
+        shotId: shotDetailPage.shotId
+        beverageType: shotData.beverageType || "espresso"
+        isMistakeShot: MainController.aiManager ? MainController.aiManager.isMistakeShot(shotData) : false
+        overlayTitle: TranslationManager.translate("shotdetail.conversation.title", "AI Conversation")
+        onPendingShotSummaryCleared: shotDetailPage.pendingShotSummary = ""
     }
 
     // Bottom bar
@@ -949,11 +708,32 @@ Page {
                 id: aiButtonArea
                 anchors.fill: parent
                 onClicked: {
-                    // Generate shot summary from historical data, with recipe dedup and change detection
-                    var raw = MainController.aiManager.generateHistoryShotSummary(shotData)
-                    shotDetailPage.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, shotDetailPage.shotId)
+                    // Check beverage type is supported
+                    var bevType = (shotData.beverageType || "espresso")
+                    if (!MainController.aiManager.isSupportedBeverageType(bevType)) {
+                        unsupportedBeverageDialog.beverageType = bevType
+                        unsupportedBeverageDialog.open()
+                        return
+                    }
+
+                    // Switch to the right conversation for this bean+profile
+                    MainController.aiManager.switchConversation(
+                        shotData.beanBrand || "",
+                        shotData.beanType || "",
+                        shotData.profileName || ""
+                    )
+
+                    // Check for mistake shot
+                    if (MainController.aiManager.isMistakeShot(shotData)) {
+                        shotDetailPage.pendingShotSummary = ""
+                    } else {
+                        // Generate shot summary from historical data, with recipe dedup and change detection
+                        var raw = MainController.aiManager.generateHistoryShotSummary(shotData)
+                        shotDetailPage.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, shotDetailPage.shotId)
+                    }
+
                     // Open conversation overlay
-                    conversationOverlay.visible = true
+                    conversationOverlay.open()
                 }
             }
         }
@@ -1006,5 +786,30 @@ Page {
                 }
             }
         }
+    }
+
+    // Unsupported beverage type dialog
+    Dialog {
+        id: unsupportedBeverageDialog
+        property string beverageType: ""
+        title: TranslationManager.translate("shotdetail.unsupportedbeverage.title", "AI Not Available")
+        anchors.centerIn: parent
+        modal: true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+        }
+
+        Text {
+            text: TranslationManager.translate("shotdetail.unsupportedbeverage.message",
+                "AI analysis isn't available for %1 profiles yet \u2014 only espresso and filter are supported for now. Sorry about that!").arg(unsupportedBeverageDialog.beverageType)
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.Wrap
+            width: parent.width
+        }
+
+        standardButtons: Dialog.Ok
     }
 }

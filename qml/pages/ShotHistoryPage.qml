@@ -335,6 +335,7 @@ Page {
                 id: searchField
                 Layout.fillWidth: true
                 placeholderText: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
+                rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
                 // Disable predictive text / autocorrect — forces IME to commit each
                 // character individually. Without this, the IME holds composing text
                 // and commits the entire word at once on space, which triggers a blank screen.
@@ -345,6 +346,27 @@ Page {
                     if (trimmed !== lastTriggeredText) {
                         lastTriggeredText = trimmed
                         searchTimer.restart()
+                    }
+                }
+
+                // Clear button
+                Text {
+                    id: searchClearButton
+                    visible: searchField.text.length > 0
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.scaled(10)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "\u2715"
+                    font.pixelSize: Theme.scaled(16)
+                    color: Theme.textSecondaryColor
+
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -Theme.scaled(6)
+                        onClicked: {
+                            searchField.text = ""
+                            searchField.focus = false
+                        }
                     }
                 }
             }

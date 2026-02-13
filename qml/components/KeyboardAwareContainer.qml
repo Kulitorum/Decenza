@@ -51,10 +51,19 @@ Item {
             return
         }
 
-        // Use real keyboard height if available, otherwise estimate 50%
+        // Use real keyboard height if available; estimate only on mobile
         var kbHeight = Qt.inputMethod.keyboardRectangle.height
-        if (kbHeight <= 0)
-            kbHeight = root.height * 0.5
+        if (kbHeight <= 0) {
+            if (Qt.platform.os === "android" || Qt.platform.os === "ios")
+                kbHeight = root.height * 0.5
+            else
+                kbHeight = 0  // Desktop — no on-screen keyboard
+        }
+
+        if (kbHeight <= 0) {
+            keyboardOffset = 0
+            return
+        }
 
         var visibleBottom = root.height - kbHeight
 

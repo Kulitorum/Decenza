@@ -1036,9 +1036,11 @@ QString Profile::describeFrames() const
 {
     if (m_steps.isEmpty()) return QString();
 
+    // Compact format: one dense line per frame to minimise AI token usage
+    // while keeping diagnostically useful info (control mode, setpoint, temp, transitions, exits, limiters).
     QString result;
     QTextStream out(&result);
-    out << "## Profile Recipe (" << m_steps.size() << " frames)\n";
+    out << "## Profile Recipe (" << m_steps.size() << " frames)\n\n";
 
     for (int i = 0; i < m_steps.size(); i++) {
         const auto& f = m_steps[i];
@@ -1046,40 +1048,53 @@ QString Profile::describeFrames() const
 
         out << (i + 1) << ". ";
         if (!f.name.isEmpty())
-            out << "\"" << f.name << "\" ";
-        out << "(" << QString::number(f.seconds, 'f', 0) << "s) - ";
+            out << f.name << " ";
+        out << "(" << QString::number(f.seconds, 'f', 0) << "s) ";
         if (isFlow)
-            out << "FLOW " << QString::number(f.flow, 'f', 1) << " ml/s";
+            out << "FLOW " << QString::number(f.flow, 'f', 1) << "ml/s";
         else
-            out << "PRESSURE " << QString::number(f.pressure, 'f', 1) << " bar";
-        out << ", " << QString::number(f.temperature, 'f', 0) << "\u00B0C";
-        out << ", " << f.transition << " transition";
+            out << "PRESSURE " << QString::number(f.pressure, 'f', 1) << "bar";
+        out << " " << QString::number(f.temperature, 'f', 0) << "\u00B0C";
 
-        // Exit conditions (machine-side)
+        // Smooth transition from previous frame — shows intended ramp direction.
+        // Critical for lever/d-flow profiles where control mode switches (e.g. pressure→flow).
+        if (i > 0 && f.transition == "smooth") {
+            const auto& prev = m_steps[i - 1];
+            bool prevIsFlow = prev.isFlowControl();
+            if (prevIsFlow != isFlow) {
+                // Control mode switch: show what we're transitioning from
+                if (prevIsFlow)
+                    out << " (from FLOW " << QString::number(prev.flow, 'f', 1) << "ml/s)";
+                else
+                    out << " (from PRESSURE " << QString::number(prev.pressure, 'f', 1) << "bar)";
+            } else {
+                // Same control mode but ramping value
+                double prevVal = isFlow ? prev.flow : prev.pressure;
+                double curVal = isFlow ? f.flow : f.pressure;
+                if (std::abs(prevVal - curVal) > 0.1) {
+                    out << " (ramp from " << QString::number(prevVal, 'f', 1) << ")";
+                }
+            }
+        }
+
+        // Exit conditions — compact
         if (f.exitIf) {
             if (f.exitType == "pressure_over" && f.exitPressureOver > 0)
-                out << ", exit when pressure > " << QString::number(f.exitPressureOver, 'f', 1) << " bar";
+                out << " exit:p>" << QString::number(f.exitPressureOver, 'f', 1);
             else if (f.exitType == "pressure_under" && f.exitPressureUnder > 0)
-                out << ", exit when pressure < " << QString::number(f.exitPressureUnder, 'f', 1) << " bar";
+                out << " exit:p<" << QString::number(f.exitPressureUnder, 'f', 1);
             else if (f.exitType == "flow_over" && f.exitFlowOver > 0)
-                out << ", exit when flow > " << QString::number(f.exitFlowOver, 'f', 1) << " ml/s";
+                out << " exit:f>" << QString::number(f.exitFlowOver, 'f', 1);
             else if (f.exitType == "flow_under" && f.exitFlowUnder > 0)
-                out << ", exit when flow < " << QString::number(f.exitFlowUnder, 'f', 1) << " ml/s";
+                out << " exit:f<" << QString::number(f.exitFlowUnder, 'f', 1);
         }
-
-        // Weight exit (independent of exitIf)
         if (f.exitWeight > 0)
-            out << ", exit at weight " << QString::number(f.exitWeight, 'f', 1) << "g";
+            out << " exit:w" << QString::number(f.exitWeight, 'f', 1) << "g";
 
-        // Limiter
-        if (f.maxFlowOrPressure > 0) {
-            if (isFlow)
-                out << ", limiter: " << QString::number(f.maxFlowOrPressure, 'f', 1)
-                    << " bar (range " << QString::number(f.maxFlowOrPressureRange, 'f', 1) << ")";
-            else
-                out << ", limiter: " << QString::number(f.maxFlowOrPressure, 'f', 1)
-                    << " ml/s (range " << QString::number(f.maxFlowOrPressureRange, 'f', 1) << ")";
-        }
+        // Limiter — just the value, skip range
+        if (f.maxFlowOrPressure > 0)
+            out << " lim:" << QString::number(f.maxFlowOrPressure, 'f', 1)
+                << (isFlow ? "bar" : "ml/s");
 
         out << "\n";
     }
@@ -1091,7 +1106,14 @@ QString Profile::describeFramesFromJson(const QString& json)
 {
     if (json.isEmpty()) return QString();
     Profile p = Profile::loadFromJsonString(json);
-    if (p.steps().isEmpty()) return QString();
+    if (p.steps().isEmpty()) {
+        // Distinguish between valid profile with no steps vs parse failure
+        if (p.title().isEmpty()) {
+            qWarning() << "Profile::describeFramesFromJson: Could not parse profile JSON";
+            return QStringLiteral("(Profile recipe not available — stored profile data could not be parsed)\n");
+        }
+        return QString();
+    }
     return p.describeFrames();
 }
 

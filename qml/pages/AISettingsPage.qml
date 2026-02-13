@@ -311,9 +311,9 @@ Page {
                         text: {
                             var modelName = MainController.aiManager ? MainController.aiManager.currentModelName : ""
                             switch(Settings.aiProvider) {
-                                case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.01-0.02 per analysis") + " (" + modelName + ")"
-                                case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.01-0.03 per analysis") + " (" + modelName + ")"
-                                case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "~$0.001 per analysis") + " (" + modelName + ")"
+                                case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.006 per analysis") + " (" + modelName + ")"
+                                case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.01 per analysis") + " (" + modelName + ")"
+                                case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "<$0.001 per analysis") + " (" + modelName + ")"
                                 case "ollama": return TranslationManager.translate("aisettings.cost.ollama", "Free (runs locally on your computer)")
                                 default: return ""
                             }
@@ -326,9 +326,9 @@ Page {
                         visible: Settings.aiProvider !== "ollama"
                         text: {
                             switch(Settings.aiProvider) {
-                                case "openai": return TranslationManager.translate("aisettings.cost.monthly.openai", "About $1-2/month at 3 shots per day")
-                                case "anthropic": return TranslationManager.translate("aisettings.cost.monthly.anthropic", "About $1-3/month at 3 shots per day")
-                                case "gemini": return TranslationManager.translate("aisettings.cost.monthly.gemini", "About $0.10/month at 3 shots per day — practically free")
+                                case "openai": return TranslationManager.translate("aisettings.cost.monthly.openai", "Under $1/month at 3 shots per day")
+                                case "anthropic": return TranslationManager.translate("aisettings.cost.monthly.anthropic", "Under $1/month at 3 shots per day")
+                                case "gemini": return TranslationManager.translate("aisettings.cost.monthly.gemini", "About $0.05/month at 3 shots per day — practically free")
                                 default: return ""
                             }
                         }

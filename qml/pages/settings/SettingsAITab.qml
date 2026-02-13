@@ -278,6 +278,36 @@ KeyboardAwareContainer {
                     color: Theme.borderColor
                 }
 
+                // Cost info
+                Text {
+                    visible: Settings.aiProvider !== "ollama"
+                    text: {
+                        var perShot = TranslationManager.translate("settings.ai.pershot", "shot")
+                        switch(Settings.aiProvider) {
+                            case "openai": return TranslationManager.translate("settings.ai.cost.openai",
+                                "Estimated cost: ~$0.006/" + perShot + " — under $1/month at 3 shots per day")
+                            case "anthropic": return TranslationManager.translate("settings.ai.cost.anthropic",
+                                "Estimated cost: ~$0.01/" + perShot + " — under $1/month at 3 shots per day")
+                            case "gemini": return TranslationManager.translate("settings.ai.cost.gemini",
+                                "Estimated cost: <$0.001/" + perShot + " — about $0.05/month at 3 shots per day")
+                            case "openrouter": return TranslationManager.translate("settings.ai.cost.openrouter",
+                                "Cost varies by model")
+                            default: return ""
+                        }
+                    }
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    visible: Settings.aiProvider === "ollama"
+                    text: TranslationManager.translate("settings.ai.cost.ollama", "Free — runs locally on your computer")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                }
+
                 // Test connection row
                 RowLayout {
                     Layout.fillWidth: true
@@ -303,28 +333,11 @@ KeyboardAwareContainer {
                         elide: Text.ElideRight
                     }
 
-                    Text {
-                        visible: aiTab.testResultMessage.length === 0
-                        text: {
-                            switch(Settings.aiProvider) {
-                                case "openai": return "~$0.01/" + TranslationManager.translate("settings.ai.pershot", "shot")
-                                case "anthropic": return "~$0.003/" + TranslationManager.translate("settings.ai.pershot", "shot")
-                                case "gemini": return "~$0.002/" + TranslationManager.translate("settings.ai.pershot", "shot")
-                                case "openrouter": return TranslationManager.translate("settings.ai.variesbymodel", "Varies by model")
-                                case "ollama": return TranslationManager.translate("settings.ai.free", "Free")
-                                default: return ""
-                            }
-                        }
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                    }
-
                     Item { Layout.fillWidth: true }
 
                     AccessibleButton {
                         id: continueConversationBtn
-                        property bool hasConversation: MainController.aiManager && MainController.aiManager.conversation &&
-                                                       MainController.aiManager.conversation.hasSavedConversation
+                        property bool hasConversation: MainController.aiManager && MainController.aiManager.hasAnyConversation
                         visible: MainController.aiManager && MainController.aiManager.isConfigured
                         enabled: hasConversation
                         text: hasConversation
@@ -334,8 +347,11 @@ KeyboardAwareContainer {
                               ? TranslationManager.translate("settings.ai.continueConversationAccessible", "Continue previous AI conversation")
                               : TranslationManager.translate("settings.ai.noConversationAccessible", "No saved AI conversation")
                         onClicked: {
-                            MainController.aiManager.conversation.loadFromStorage()
+                            MainController.aiManager.loadMostRecentConversation()
                             conversationOverlay.visible = true
+                            Qt.callLater(function() {
+                                conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
+                            })
                         }
                     }
                 }
@@ -378,10 +394,20 @@ KeyboardAwareContainer {
                 RowLayout {
                     Layout.fillWidth: true
 
-                    Text {
-                        text: TranslationManager.translate("settings.ai.conversation.title", "AI Conversation")
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
+                    ColumnLayout {
+                        spacing: Theme.scaled(2)
+                        Text {
+                            text: TranslationManager.translate("settings.ai.conversation.title", "AI Conversation")
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                        }
+                        Text {
+                            visible: MainController.aiManager && MainController.aiManager.conversation &&
+                                     MainController.aiManager.conversation.contextLabel.length > 0
+                            text: MainController.aiManager ? (MainController.aiManager.conversation.contextLabel || "") : ""
+                            font.pixelSize: Theme.scaled(11)
+                            color: Theme.textSecondaryColor
+                        }
                     }
 
                     Item { Layout.fillWidth: true }
@@ -391,8 +417,7 @@ KeyboardAwareContainer {
                         accessibleName: TranslationManager.translate("settings.ai.clearConversation", "Clear entire AI conversation history")
                         destructive: true
                         onClicked: {
-                            MainController.aiManager?.conversation?.clearHistory()
-                            MainController.aiManager?.conversation?.saveToStorage()
+                            MainController.aiManager?.clearCurrentConversation()
                             conversationOverlay.visible = false
                         }
                     }
@@ -424,10 +449,43 @@ KeyboardAwareContainer {
                         textFormat: Text.MarkdownText
                         wrapMode: TextEdit.WordWrap
                         readOnly: true
+                        selectByMouse: true
                         font: Theme.bodyFont
                         color: Theme.textColor
                         background: null
                         padding: 0
+
+                        onCursorRectangleChanged: {
+                            if (selectedText.length === 0) {
+                                selectionScrollTimer.stop()
+                                return
+                            }
+                            var cursorViewY = cursorRectangle.y - conversationFlickable.contentY
+                            var margin = Theme.scaled(30)
+                            if (cursorViewY > conversationFlickable.height - margin) {
+                                selectionScrollTimer.scrollStep = Math.min(Theme.scaled(10), Math.max(2, (cursorViewY - conversationFlickable.height + margin) / 2))
+                                if (!selectionScrollTimer.running) selectionScrollTimer.start()
+                            } else if (cursorViewY < margin) {
+                                selectionScrollTimer.scrollStep = -Math.min(Theme.scaled(10), Math.max(2, (margin - cursorViewY) / 2))
+                                if (!selectionScrollTimer.running) selectionScrollTimer.start()
+                            } else {
+                                selectionScrollTimer.stop()
+                            }
+                        }
+                    }
+
+                    Timer {
+                        id: selectionScrollTimer
+                        property real scrollStep: 0
+                        interval: 30
+                        repeat: true
+                        onTriggered: {
+                            if (conversationText.selectedText.length === 0) { stop(); return }
+                            var newY = conversationFlickable.contentY + scrollStep
+                            newY = Math.max(0, Math.min(newY, conversationFlickable.contentHeight - conversationFlickable.height))
+                            if (newY === conversationFlickable.contentY) { stop(); return }
+                            conversationFlickable.contentY = newY
+                        }
                     }
                 }
 
@@ -480,15 +538,23 @@ KeyboardAwareContainer {
             }
         }
 
+        property real _preResponseHeight: 0
         Connections {
             target: MainController.aiManager?.conversation ?? null
             function onResponseReceived() {
+                // Scroll to top of the new response
                 Qt.callLater(function() {
-                    conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
+                    conversationFlickable.contentY = Math.max(0, conversationOverlay._preResponseHeight)
                 })
             }
             function onHistoryChanged() {
+                // Save height before updating — this is where the new response will start
+                conversationOverlay._preResponseHeight = conversationText.contentHeight
                 conversationText.text = MainController.aiManager?.conversation?.getConversationText() ?? ""
+                // Scroll to bottom to show user's message / thinking indicator
+                Qt.callLater(function() {
+                    conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
+                })
             }
         }
     }

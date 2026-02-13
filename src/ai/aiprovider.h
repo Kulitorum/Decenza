@@ -43,6 +43,13 @@ signals:
 
 protected:
     void setStatus(Status status);
+
+    // Build OpenAI-compatible messages array: system message + conversation messages
+    static QJsonArray buildOpenAIMessages(const QString& systemPrompt, const QJsonArray& messages);
+
+    static constexpr int ANALYSIS_TIMEOUT_MS = 60000;   // 60s for cloud AI analysis
+    static constexpr int TEST_TIMEOUT_MS = 15000;        // 15s for connection tests
+
     QNetworkAccessManager* m_networkManager = nullptr;
     Status m_status = Status::Ready;
 };
@@ -105,6 +112,8 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
+    static QJsonArray buildCachedSystemPrompt(const QString& systemPrompt);
+
     QString m_apiKey;
     static constexpr const char* API_URL = "https://api.anthropic.com/v1/messages";
     static constexpr const char* MODEL = "claude-sonnet-4-5";
@@ -212,6 +221,7 @@ private slots:
     void onModelsReply(QNetworkReply* reply);
 
 private:
+    static constexpr int LOCAL_ANALYSIS_TIMEOUT_MS = 120000;  // 120s for local models
     QString m_endpoint;
     QString m_model;
 };

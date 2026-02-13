@@ -27,6 +27,7 @@ class AIConversation : public QObject {
     Q_PROPERTY(QString providerName READ providerName NOTIFY providerChanged)
     Q_PROPERTY(int messageCount READ messageCount NOTIFY historyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorOccurred)
+    Q_PROPERTY(QString contextLabel READ contextLabel NOTIFY historyChanged)
 
 public:
     explicit AIConversation(AIManager* aiManager, QObject* parent = nullptr);
@@ -37,6 +38,11 @@ public:
     QString providerName() const;
     int messageCount() const { return static_cast<int>(m_messages.size()); }
     QString errorMessage() const { return m_errorMessage; }
+    QString contextLabel() const { return m_contextLabel; }
+
+    QString storageKey() const { return m_storageKey; }
+    void setStorageKey(const QString& key);
+    void setContextLabel(const QString& brand, const QString& type, const QString& profile);
 
     /**
      * Start a new conversation with system prompt and initial user message
@@ -115,10 +121,10 @@ private:
     static QString summarizeShotMessage(const QString& content);
     static QString summarizeAdvice(const QString& response);
     static QString extractMetric(const QString& content, const QString& pattern);
-    QString findPreviousShotMessage() const;
-    int findPreviousShotId() const;
+    QString findPreviousShotMessage(int excludeShotId = -1) const;
+    int findPreviousShotId(int excludeShotId = -1) const;
 
-    static constexpr int MAX_VERBATIM_PAIRS = 5;
+    static constexpr int MAX_VERBATIM_PAIRS = 2;
 
     AIManager* m_aiManager;
     QString m_systemPrompt;
@@ -126,4 +132,6 @@ private:
     QString m_lastResponse;
     QString m_errorMessage;
     bool m_busy = false;
+    QString m_storageKey;     // Current conversation's storage slot key
+    QString m_contextLabel;   // Display label e.g. "Ethiopian Sidamo / D-Flow"
 };

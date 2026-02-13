@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QVariantMap>
 #include <memory>
 
@@ -30,10 +31,24 @@ class AIManager : public QObject {
     Q_PROPERTY(QStringList ollamaModels READ ollamaModels NOTIFY ollamaModelsChanged)
     Q_PROPERTY(QString currentModelName READ currentModelName NOTIFY providerChanged)
     Q_PROPERTY(AIConversation* conversation READ conversation CONSTANT)
+    Q_PROPERTY(bool hasAnyConversation READ hasAnyConversation NOTIFY conversationIndexChanged)
 
 public:
     explicit AIManager(Settings* settings, QObject* parent = nullptr);
     ~AIManager();
+
+    static constexpr int MAX_CONVERSATIONS = 5;
+
+    struct ConversationEntry {
+        QString key;
+        QString beanBrand;
+        QString beanType;
+        QString profileName;
+        qint64 timestamp;
+
+        QJsonObject toJson() const;
+        static ConversationEntry fromJson(const QJsonObject& obj);
+    };
 
     // Properties
     QString selectedProvider() const;
@@ -49,6 +64,15 @@ public:
     QString currentModelName() const;
     Q_INVOKABLE QString modelDisplayName(const QString& providerId) const;
     AIConversation* conversation() const { return m_conversation; }
+    bool hasAnyConversation() const { return !m_conversationIndex.isEmpty(); }
+
+    // Conversation routing
+    Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName);
+    Q_INVOKABLE void loadMostRecentConversation();
+    Q_INVOKABLE void clearCurrentConversation();
+    Q_INVOKABLE bool isMistakeShot(const QVariantMap& shotData) const;
+    Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
+    static QString conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName);
 
     // Main analysis entry point - simple version for QML
     // Note: metadata must be passed (use {} for empty) to avoid QML overload confusion
@@ -109,6 +133,7 @@ signals:
     void errorOccurred(const QString& error);
     void testResultChanged();
     void ollamaModelsChanged();
+    void conversationIndexChanged();
 
 private slots:
     void onAnalysisComplete(const QString& response);
@@ -157,6 +182,14 @@ private:
     QString m_lastSystemPrompt;
     QString m_lastUserPrompt;
 
+    // Conversation routing
+    void loadConversationIndex();
+    void saveConversationIndex();
+    void touchConversationEntry(const QString& key);
+    void evictOldestConversation();
+    void migrateFromLegacyConversation();
+
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;
+    QList<ConversationEntry> m_conversationIndex;
 };
