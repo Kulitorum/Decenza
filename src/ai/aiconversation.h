@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QRegularExpression>
 
 class AIManager;
 
@@ -27,7 +28,7 @@ class AIConversation : public QObject {
     Q_PROPERTY(QString providerName READ providerName NOTIFY providerChanged)
     Q_PROPERTY(int messageCount READ messageCount NOTIFY historyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorOccurred)
-    Q_PROPERTY(QString contextLabel READ contextLabel NOTIFY historyChanged)
+    Q_PROPERTY(QString contextLabel READ contextLabel NOTIFY contextLabelChanged)
 
 public:
     explicit AIConversation(AIManager* aiManager, QObject* parent = nullptr);
@@ -54,12 +55,18 @@ public:
      * Continue the conversation with a follow-up message
      * Uses the existing system prompt and history
      */
-    Q_INVOKABLE void followUp(const QString& userMessage);
+    Q_INVOKABLE bool followUp(const QString& userMessage);
 
     /**
      * Clear conversation history
      */
     Q_INVOKABLE void clearHistory();
+
+    /**
+     * Clear in-memory state without touching QSettings.
+     * Used by switchConversation() to reset before loading a different conversation.
+     */
+    void resetInMemory();
 
     /**
      * Get full conversation as formatted text (for display)
@@ -106,6 +113,7 @@ signals:
     void errorOccurred(const QString& error);
     void busyChanged();
     void historyChanged();
+    void contextLabelChanged();
     void providerChanged();
     void savedConversationChanged();
 
@@ -120,11 +128,16 @@ private:
     void trimHistory();
     static QString summarizeShotMessage(const QString& content);
     static QString summarizeAdvice(const QString& response);
-    static QString extractMetric(const QString& content, const QString& pattern);
-    QString findPreviousShotMessage(int excludeShotId = -1) const;
-    int findPreviousShotId(int excludeShotId = -1) const;
+    static QString extractMetric(const QString& content, const QRegularExpression& re);
+
+    struct PreviousShotInfo { QString content; int shotId = -1; };
+    PreviousShotInfo findPreviousShot(int excludeShotId = -1) const;
 
     static constexpr int MAX_VERBATIM_PAIRS = 2;
+
+    // Shared regex constants for shot message parsing
+    static const QRegularExpression s_doseRe, s_yieldRe, s_durationRe,
+        s_grinderRe, s_profileRe, s_shotIdRe, s_scoreRe, s_notesRe;
 
     AIManager* m_aiManager;
     QString m_systemPrompt;
