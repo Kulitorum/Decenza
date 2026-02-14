@@ -2476,30 +2476,44 @@ ApplicationWindow {
     }
 
     // Empty database + backups exist: ask user if they want to restore
-    Dialog {
+    Popup {
         id: emptyDatabaseDialog
-        anchors.centerIn: parent
-        width: Theme.scaled(350)
         modal: true
-        title: TranslationManager.translate("main.emptydb.title", "Restore Backup?")
+        dim: true
+        anchors.centerIn: parent
+        padding: 24
+        closePolicy: Popup.NoAutoClose
 
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(15)
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: "white"
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingMedium
+            width: Theme.dialogWidth
 
             Text {
-                Layout.fillWidth: true
+                text: TranslationManager.translate("main.emptydb.title", "Restore Backup?")
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
                 text: TranslationManager.translate("main.emptydb.message",
                     "We found backups from a previous installation. Would you like to restore your data?")
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(13)
-                wrapMode: Text.WordWrap
+                font: Theme.bodyFont
+                wrapMode: Text.Wrap
+                width: parent.width
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(10)
-
-                Item { Layout.fillWidth: true }
+            Row {
+                spacing: Theme.spacingMedium
+                anchors.horizontalCenter: parent.horizontalCenter
 
                 AccessibleButton {
                     text: TranslationManager.translate("main.emptydb.skip", "Skip")
