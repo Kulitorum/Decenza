@@ -829,7 +829,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
 
                         Text {
-                            text: "Heater Calibration"
+                            text: TranslationManager.translate("settings.calibration.title", "Heater Calibration")
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
@@ -838,7 +838,7 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         Text {
-                            text: "Calibrate..."
+                            text: TranslationManager.translate("settings.calibration.calibrate", "Calibrate...")
                             color: Theme.primaryColor
                             font.pixelSize: Theme.scaled(12)
                             MouseArea {
@@ -846,7 +846,7 @@ KeyboardAwareContainer {
                                 anchors.margins: -Theme.scaled(4)
                                 onClicked: calibrationPopup.open()
                                 Accessible.role: Accessible.Button
-                                Accessible.name: "Open heater calibration"
+                                Accessible.name: TranslationManager.translate("settings.calibration.openCalibration", "Open heater calibration")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: calibrationPopup.open()
                             }
@@ -854,7 +854,7 @@ KeyboardAwareContainer {
                     }
 
                     Text {
-                        text: "Idle temp, warmup flow rates, timeout"
+                        text: TranslationManager.translate("settings.calibration.description", "Idle temp, warmup flow rates, timeout")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                     }
@@ -880,6 +880,7 @@ KeyboardAwareContainer {
         dim: true
         padding: Theme.scaled(20)
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onOpened: heaterIdleTempSlider.forceActiveFocus()
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -904,7 +905,7 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
 
                     Text {
-                        text: "Heater Calibration"
+                        text: TranslationManager.translate("settings.calibration.title", "Heater Calibration")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(18)
                         font.bold: true
@@ -931,7 +932,7 @@ KeyboardAwareContainer {
                             hoverEnabled: true
                             onClicked: calibrationPopup.close()
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Close"
+                            Accessible.name: TranslationManager.translate("settings.calibration.close", "Close")
                             Accessible.focusable: true
                             Accessible.onPressAction: calibrationPopup.close()
                         }
@@ -942,58 +943,62 @@ KeyboardAwareContainer {
 
                 // Heater idle temperature
                 RowLayout { Layout.fillWidth: true
-                    Text { text: "Heater idle temperature"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
                     Text { text: (Settings.heaterIdleTemp * 0.1).toFixed(1) + " °C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                 }
-                StepSlider { Layout.fillWidth: true; accessibleName: "Heater idle temperature"; from: 0; to: 990; stepSize: 5; value: Settings.heaterIdleTemp; onMoved: Settings.heaterIdleTemp = Math.round(value) }
+                StepSlider { id: heaterIdleTempSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; value: Settings.heaterIdleTemp; onMoved: Settings.heaterIdleTemp = Math.round(value); KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
 
                 // Heater warmup flow rate
                 RowLayout { Layout.fillWidth: true
-                    Text { text: "Heater warmup flow rate"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
                     Text { text: (Settings.heaterWarmupFlow * 0.1).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
                 }
-                StepSlider { Layout.fillWidth: true; accessibleName: "Heater warmup flow rate"; from: 5; to: 60; stepSize: 1; value: Settings.heaterWarmupFlow; onMoved: Settings.heaterWarmupFlow = Math.round(value) }
+                StepSlider { id: heaterWarmupFlowSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); from: 5; to: 60; stepSize: 1; value: Settings.heaterWarmupFlow; onMoved: Settings.heaterWarmupFlow = Math.round(value); KeyNavigation.tab: heaterTestFlowSlider; KeyNavigation.backtab: heaterIdleTempSlider }
 
                 // Heater test flow rate
                 RowLayout { Layout.fillWidth: true
-                    Text { text: "Heater test flow rate"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
                     Text { text: (Settings.heaterTestFlow * 0.1).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
                 }
-                StepSlider { Layout.fillWidth: true; accessibleName: "Heater test flow rate"; from: 5; to: 80; stepSize: 1; value: Settings.heaterTestFlow; onMoved: Settings.heaterTestFlow = Math.round(value) }
+                StepSlider { id: heaterTestFlowSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); from: 5; to: 80; stepSize: 1; value: Settings.heaterTestFlow; onMoved: Settings.heaterTestFlow = Math.round(value); KeyNavigation.tab: heaterTestTimeoutSlider; KeyNavigation.backtab: heaterWarmupFlowSlider }
 
                 // Heater test time-out
                 RowLayout { Layout.fillWidth: true
-                    Text { text: "Heater test time-out"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
                     Text { text: (Settings.heaterWarmupTimeout * 0.1).toFixed(1) + " s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
                 }
-                StepSlider { Layout.fillWidth: true; accessibleName: "Heater test time-out"; from: 10; to: 300; stepSize: 1; value: Settings.heaterWarmupTimeout; onMoved: Settings.heaterWarmupTimeout = Math.round(value) }
+                StepSlider { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; value: Settings.heaterWarmupTimeout; onMoved: Settings.heaterWarmupTimeout = Math.round(value); KeyNavigation.tab: hotWaterFlowRateSlider; KeyNavigation.backtab: heaterTestFlowSlider }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
                 // Hot water flow rate
                 RowLayout { Layout.fillWidth: true
-                    Text { text: "Hot water flow rate"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("settings.calibration.hotWaterFlowRate", "Hot water flow rate"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
                     Text { text: (Settings.hotWaterFlowRate * 0.1).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
                 }
-                StepSlider { Layout.fillWidth: true; accessibleName: "Hot water flow rate"; from: 5; to: 80; stepSize: 1; value: Settings.hotWaterFlowRate; onMoved: Settings.hotWaterFlowRate = Math.round(value) }
+                StepSlider { id: hotWaterFlowRateSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.hotWaterFlowRate", "Hot water flow rate"); from: 5; to: 80; stepSize: 1; value: Settings.hotWaterFlowRate; onMoved: Settings.hotWaterFlowRate = Math.round(value); KeyNavigation.tab: steamTwoTapSwitch; KeyNavigation.backtab: heaterTestTimeoutSlider }
 
                 // Steam two-tap stop
                 RowLayout { Layout.fillWidth: true
-                    Text { text: "Steam two-tap stop"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("settings.calibration.steamTwoTapStop", "Steam two-tap stop"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
-                    Switch {
+                    StyledSwitch {
+                        id: steamTwoTapSwitch
+                        accessibleName: TranslationManager.translate("settings.calibration.steamTwoTapStop", "Steam two-tap stop")
                         checked: Settings.steamTwoTapStop
                         onToggled: Settings.steamTwoTapStop = checked
+                        KeyNavigation.tab: defaultsButton
+                        KeyNavigation.backtab: hotWaterFlowRateSlider
                     }
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "First tap goes to puffs, second tap stops steam"
+                    text: TranslationManager.translate("settings.calibration.steamTwoTapStopDesc", "First tap goes to puffs, second tap stops steam")
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                     wrapMode: Text.WordWrap
@@ -1002,35 +1007,33 @@ KeyboardAwareContainer {
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
                 // Defaults for cafe button
-                Rectangle {
+                AccessibleButton {
+                    id: defaultsButton
                     Layout.fillWidth: true
-                    height: Theme.scaled(42)
-                    radius: Theme.scaled(6)
-                    color: Theme.primaryColor
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "Defaults for cafe"
-                        color: "white"
-                        font.pixelSize: Theme.scaled(14)
-                        font.bold: true
+                    primary: true
+                    text: TranslationManager.translate("settings.calibration.defaultsForCafe", "Defaults for cafe")
+                    accessibleName: TranslationManager.translate("settings.calibration.defaultsForCafeAccessible", "Reset heater calibration to cafe defaults")
+                    onClicked: {
+                        Settings.heaterIdleTemp = 990
+                        Settings.heaterWarmupFlow = 20
+                        Settings.heaterTestFlow = 40
+                        Settings.heaterWarmupTimeout = 10
+                        Settings.hotWaterFlowRate = 10
+                        Settings.steamTwoTapStop = false
                     }
+                    KeyNavigation.tab: doneButton
+                    KeyNavigation.backtab: steamTwoTapSwitch
+                }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: {
-                            Settings.heaterIdleTemp = 990
-                            Settings.heaterWarmupFlow = 20
-                            Settings.heaterTestFlow = 40
-                            Settings.heaterWarmupTimeout = 10
-                            Settings.hotWaterFlowRate = 10
-                            Settings.steamTwoTapStop = false
-                        }
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Reset heater calibration to cafe defaults"
-                        Accessible.focusable: true
-                        Accessible.onPressAction: clicked(null)
-                    }
+                // Done button
+                AccessibleButton {
+                    id: doneButton
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.calibration.done", "Done")
+                    accessibleName: TranslationManager.translate("settings.calibration.closeCalibration", "Close heater calibration")
+                    onClicked: calibrationPopup.close()
+                    KeyNavigation.tab: heaterIdleTempSlider
+                    KeyNavigation.backtab: defaultsButton
                 }
             }
         }
