@@ -108,6 +108,7 @@ private:
     QString getScaleType(const QBluetoothDeviceInfo& device) const;
     void requestBluetoothPermission();
     void doStartScan();
+    void ensureDiscoveryAgent();
 
     QBluetoothDeviceDiscoveryAgent* m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_de1Devices;

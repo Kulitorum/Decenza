@@ -27,6 +27,21 @@
 BLEManager::BLEManager(QObject* parent)
     : QObject(parent)
 {
+    // Discovery agent is created lazily in ensureDiscoveryAgent() to avoid
+    // initializing CoreBluetooth (and triggering TCC privacy checks) when
+    // BLE is disabled (e.g. simulation mode on Mac debug builds).
+
+    // Timer for scale connection timeout (20 seconds)
+    m_scaleConnectionTimer = new QTimer(this);
+    m_scaleConnectionTimer->setSingleShot(true);
+    m_scaleConnectionTimer->setInterval(20000);
+    connect(m_scaleConnectionTimer, &QTimer::timeout, this, &BLEManager::onScaleConnectionTimeout);
+
+}
+
+void BLEManager::ensureDiscoveryAgent() {
+    if (m_discoveryAgent) return;
+
     m_discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
     m_discoveryAgent->setLowEnergyDiscoveryTimeout(15000);  // 15 seconds per scan cycle
 
@@ -36,13 +51,6 @@ BLEManager::BLEManager(QObject* parent)
             this, &BLEManager::onScanFinished);
     connect(m_discoveryAgent, &QBluetoothDeviceDiscoveryAgent::errorOccurred,
             this, &BLEManager::onScanError);
-
-    // Timer for scale connection timeout (20 seconds)
-    m_scaleConnectionTimer = new QTimer(this);
-    m_scaleConnectionTimer->setSingleShot(true);
-    m_scaleConnectionTimer->setInterval(20000);
-    connect(m_scaleConnectionTimer, &QTimer::timeout, this, &BLEManager::onScaleConnectionTimeout);
-
 }
 
 BLEManager::~BLEManager() {
@@ -202,6 +210,7 @@ void BLEManager::doStartScan() {
     emit de1LogMessage("Scanning for devices...");
 
     // Scan for BLE devices only
+    ensureDiscoveryAgent();
     m_discoveryAgent->start(QBluetoothDeviceDiscoveryAgent::LowEnergyMethod);
 }
 
@@ -209,7 +218,8 @@ void BLEManager::stopScan() {
     if (!m_scanning) return;
 
     emit de1LogMessage("Scan stopped");
-    m_discoveryAgent->stop();
+    if (m_discoveryAgent)
+        m_discoveryAgent->stop();
     m_scanning = false;
     m_scanningForScales = false;
     emit scanningChanged();
