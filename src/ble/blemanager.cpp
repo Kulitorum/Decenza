@@ -59,6 +59,8 @@ void BLEManager::setDisabled(bool disabled) {
                 stopScan();
             }
             m_scaleConnectionTimer->stop();
+            // Disconnect physical scale so FlowScale takes over
+            emit disconnectScaleRequested();
         }
         qDebug() << "BLEManager: BLE operations" << (disabled ? "disabled (simulator mode)" : "enabled");
         emit disabledChanged();

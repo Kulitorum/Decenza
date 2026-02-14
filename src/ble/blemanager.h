@@ -39,7 +39,7 @@ class BLEManager : public QObject {
     Q_PROPERTY(QVariantList discoveredScales READ discoveredScales NOTIFY scalesChanged)
     Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY scaleConnectionFailedChanged)
     Q_PROPERTY(bool hasSavedScale READ hasSavedScale CONSTANT)
-    Q_PROPERTY(bool disabled READ isDisabled NOTIFY disabledChanged)
+    Q_PROPERTY(bool disabled READ isDisabled WRITE setDisabled NOTIFY disabledChanged)
 
 public:
     explicit BLEManager(QObject* parent = nullptr);

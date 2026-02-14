@@ -2071,7 +2071,11 @@ void Settings::setDeveloperTranslationUpload(bool enabled) {
 }
 
 bool Settings::simulationMode() const {
+#if defined(QT_DEBUG) && (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
+    return m_settings.value("developer/simulationMode", true).toBool();
+#else
     return m_settings.value("developer/simulationMode", false).toBool();
+#endif
 }
 
 void Settings::setSimulationMode(bool enabled) {

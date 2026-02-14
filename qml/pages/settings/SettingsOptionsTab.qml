@@ -98,6 +98,8 @@ KeyboardAwareContainer {
                                 if (ScaleDevice) {
                                     ScaleDevice.simulationMode = checked
                                 }
+                                // Disable BLE when simulation is on, enable when off
+                                BLEManager.disabled = checked
                             }
                         }
                     }
