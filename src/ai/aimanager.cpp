@@ -6,6 +6,7 @@
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
+#include "../history/shothistorystorage.h"
 
 #include <QNetworkAccessManager>
 #include <QStandardPaths>
@@ -15,6 +16,7 @@
 #include <QDebug>
 #include <QCryptographicHash>
 #include <QJsonDocument>
+#include <QJsonParseError>
 #include <cmath>
 
 AIManager::AIManager(Settings* settings, QObject* parent)
@@ -100,12 +102,7 @@ QString AIManager::currentModelName() const
 
 QString AIManager::modelDisplayName(const QString& providerId) const
 {
-    AIProvider* provider = nullptr;
-    if (providerId == "openai") provider = m_openaiProvider.get();
-    else if (providerId == "anthropic") provider = m_anthropicProvider.get();
-    else if (providerId == "gemini") provider = m_geminiProvider.get();
-    else if (providerId == "openrouter") provider = m_openrouterProvider.get();
-    else if (providerId == "ollama") provider = m_ollamaProvider.get();
+    AIProvider* provider = providerById(providerId);
     return provider ? provider->shortModelName() : QString();
 }
 
@@ -129,17 +126,20 @@ bool AIManager::isConfigured() const
     return provider && provider->isConfigured();
 }
 
-AIProvider* AIManager::currentProvider() const
+AIProvider* AIManager::providerById(const QString& providerId) const
 {
-    QString providerId = selectedProvider();
-
     if (providerId == "openai") return m_openaiProvider.get();
     if (providerId == "anthropic") return m_anthropicProvider.get();
     if (providerId == "gemini") return m_geminiProvider.get();
     if (providerId == "openrouter") return m_openrouterProvider.get();
     if (providerId == "ollama") return m_ollamaProvider.get();
+    return nullptr;
+}
 
-    return m_openaiProvider.get();  // Default
+AIProvider* AIManager::currentProvider() const
+{
+    AIProvider* provider = providerById(selectedProvider());
+    return provider ? provider : m_openaiProvider.get();  // Default
 }
 
 ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
@@ -300,6 +300,55 @@ QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
     return m_summarizer->buildUserPrompt(summary);
 }
 
+void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
+{
+    m_shotHistory = storage;
+}
+
+QString AIManager::getRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId)
+{
+    if (!m_shotHistory || (beanBrand.isEmpty() && profileName.isEmpty()))
+        return QString();
+
+    // Build filter: match on non-empty fields, last 3 weeks
+    QVariantMap filter;
+    if (!beanBrand.isEmpty()) filter["beanBrand"] = beanBrand;
+    if (!beanType.isEmpty()) filter["beanType"] = beanType;
+    if (!profileName.isEmpty()) filter["profileName"] = profileName;
+    filter["dateFrom"] = QDateTime::currentSecsSinceEpoch() - 21 * 24 * 3600;
+
+    // Fetch extra to have room after filtering out excludeShotId and mistakes
+    QVariantList candidates = m_shotHistory->getShotsFiltered(filter, 0, 6);
+
+    QStringList shotSections;
+    for (const QVariant& v : candidates) {
+        if (shotSections.size() >= 3) break;
+
+        QVariantMap shot = v.toMap();
+        qint64 id = shot.value("id").toLongLong();
+        if (id == excludeShotId) continue;
+        if (isMistakeShot(shot)) continue;
+
+        // Load full shot data (with time-series) for rich summary
+        QVariantMap fullShot = m_shotHistory->getShot(id);
+        if (fullShot.isEmpty()) continue;
+
+        QString summary = generateHistoryShotSummary(fullShot);
+        if (summary.isEmpty()) continue;
+
+        // Format date for header
+        qint64 timestamp = shot.value("timestamp").toLongLong();
+        QString dateStr = QDateTime::fromSecsSinceEpoch(timestamp).toString("MMM d, HH:mm");
+
+        shotSections.prepend(QString("### Shot #%1 (%2)\n\n%3").arg(id).arg(dateStr).arg(summary));
+    }
+
+    if (shotSections.isEmpty())
+        return QString();
+
+    return "## Previous Shots with This Bean & Profile\n\n" + shotSections.join("\n\n");
+}
+
 void AIManager::testConnection()
 {
     AIProvider* provider = currentProvider();
@@ -315,6 +364,12 @@ void AIManager::testConnection()
 
 void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
+    if (m_analyzing) {
+        m_lastError = "Analysis already in progress";
+        emit errorOccurred(m_lastError);
+        return;
+    }
+
     AIProvider* provider = currentProvider();
     if (!provider) {
         m_lastError = "No AI provider configured";
@@ -329,6 +384,7 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
     }
 
     m_analyzing = true;
+    m_isConversationRequest = false;
     emit analyzingChanged();
 
     // Store for logging
@@ -341,6 +397,11 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 
 void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
+    if (m_analyzing) {
+        emit conversationErrorOccurred("Analysis already in progress");
+        return;
+    }
+
     AIProvider* provider = currentProvider();
     if (!provider) {
         m_lastError = "No AI provider configured";
@@ -355,6 +416,7 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
     }
 
     m_analyzing = true;
+    m_isConversationRequest = true;
     emit analyzingChanged();
 
     // Store for logging — flatten for the log file
@@ -383,7 +445,13 @@ void AIManager::onAnalysisComplete(const QString& response)
     logResponse(selectedProvider(), response, true);
 
     emit analyzingChanged();
-    emit recommendationReceived(response);
+
+    // Emit to the appropriate listener based on request type
+    if (m_isConversationRequest) {
+        emit conversationResponseReceived(response);
+    } else {
+        emit recommendationReceived(response);
+    }
 }
 
 void AIManager::onAnalysisFailed(const QString& error)
@@ -395,7 +463,13 @@ void AIManager::onAnalysisFailed(const QString& error)
     logResponse(selectedProvider(), error, false);
 
     emit analyzingChanged();
-    emit errorOccurred(error);
+
+    // Emit to the appropriate listener based on request type
+    if (m_isConversationRequest) {
+        emit conversationErrorOccurred(error);
+    } else {
+        emit errorOccurred(error);
+    }
 }
 
 void AIManager::onTestResult(bool success, const QString& message)
@@ -466,7 +540,7 @@ AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonO
     entry.beanBrand = obj["beanBrand"].toString();
     entry.beanType = obj["beanType"].toString();
     entry.profileName = obj["profileName"].toString();
-    entry.timestamp = static_cast<qint64>(obj["timestamp"].toDouble());
+    entry.timestamp = obj["timestamp"].toVariant().toLongLong();
     return entry;
 }
 
@@ -486,11 +560,19 @@ void AIManager::loadConversationIndex()
     m_conversationIndex.clear();
 
     if (!indexJson.isEmpty()) {
-        QJsonDocument doc = QJsonDocument::fromJson(indexJson);
-        if (doc.isArray()) {
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(indexJson, &parseError);
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "AIManager::loadConversationIndex: JSON parse error:" << parseError.errorString();
+        } else if (doc.isArray()) {
             QJsonArray arr = doc.array();
             for (const QJsonValue& val : arr) {
-                m_conversationIndex.append(ConversationEntry::fromJson(val.toObject()));
+                ConversationEntry entry = ConversationEntry::fromJson(val.toObject());
+                if (entry.key.isEmpty()) {
+                    qWarning() << "AIManager::loadConversationIndex: Skipping entry with empty key";
+                    continue;
+                }
+                m_conversationIndex.append(entry);
             }
         }
     }
@@ -579,10 +661,10 @@ void AIManager::migrateFromLegacyConversation()
     indexArr.append(entry.toJson());
     settings.setValue("ai/conversations/index", QJsonDocument(indexArr).toJson(QJsonDocument::Compact));
 
-    // Remove legacy keys
-    settings.remove("ai/conversation/systemPrompt");
-    settings.remove("ai/conversation/messages");
-    settings.remove("ai/conversation/timestamp");
+    // Keep legacy keys as recovery fallback — they'll be harmless if left in place
+    // settings.remove("ai/conversation/systemPrompt");
+    // settings.remove("ai/conversation/messages");
+    // settings.remove("ai/conversation/timestamp");
 
     qDebug() << "AIManager: Legacy conversation migrated to key:" << legacyKey;
 }
@@ -599,7 +681,7 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
 
     // Refuse if busy
     if (m_conversation->isBusy()) {
-        qDebug() << "AIManager: Cannot switch conversation while busy";
+        qWarning() << "AIManager: Cannot switch conversation while busy";
         return m_conversation->storageKey();
     }
 
@@ -609,9 +691,7 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
     }
 
     // Clear in-memory state without touching QSettings (clearHistory() would delete stored data)
-    // Set storage key to empty first so clearHistory() skips the QSettings removal
-    m_conversation->setStorageKey(QString());
-    m_conversation->clearHistory();
+    m_conversation->resetInMemory();
 
     // Check if key exists in index
     bool exists = false;
@@ -740,6 +820,8 @@ void AIManager::logPrompt(const QString& provider, const QString& systemPrompt, 
         out << userPrompt << "\n";
         file.close();
         qDebug() << "AI: Logged prompt to" << promptFile;
+    } else {
+        qWarning() << "AI: Failed to write prompt log:" << file.errorString();
     }
 
     // Also append to conversation history
@@ -753,6 +835,8 @@ void AIManager::logPrompt(const QString& provider, const QString& systemPrompt, 
         out << QString("-").repeated(40) << "\n";
         out << userPrompt << "\n";
         history.close();
+    } else {
+        qWarning() << "AI: Failed to append to conversation history:" << history.errorString();
     }
 }
 
@@ -774,6 +858,8 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << response << "\n";
         file.close();
         qDebug() << "AI: Logged response to" << responseFile;
+    } else {
+        qWarning() << "AI: Failed to write response log:" << file.errorString();
     }
 
     // Write complete Q&A file (prompt + response together)
@@ -799,6 +885,8 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << response << "\n";
         qa.close();
         qDebug() << "AI: Logged Q&A to" << qaFile;
+    } else {
+        qWarning() << "AI: Failed to write Q&A log:" << qa.errorString();
     }
 
     // Also append to conversation history
@@ -811,5 +899,7 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << QString("-").repeated(40) << "\n";
         out << response << "\n";
         history.close();
+    } else {
+        qWarning() << "AI: Failed to append to conversation history:" << history.errorString();
     }
 }

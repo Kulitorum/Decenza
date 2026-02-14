@@ -25,6 +25,7 @@ Rectangle {
     property string beverageType: "espresso"
     property string overlayTitle: TranslationManager.translate("conversation.title", "AI Conversation")
     property bool isMistakeShot: false
+    property string historicalContext: ""
 
     // Emitted when the overlay clears pendingShotSummary (parent must handle)
     signal pendingShotSummaryCleared()
@@ -39,6 +40,55 @@ Rectangle {
         Qt.callLater(function() {
             conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
         })
+    }
+
+    /**
+     * Open the conversation overlay with shot context.
+     * Encapsulates the common AI button click logic from PostShotReviewPage and ShotDetailPage:
+     * checks beverage type, switches conversation, generates summary, and opens overlay.
+     */
+    function openWithShot(shotData, beanBrand, beanType, profileName, shotId) {
+        if (!MainController.aiManager || !MainController.aiManager.conversation) return
+
+        // Don't switch conversations while a request is in-flight
+        if (MainController.aiManager.conversation.busy) return
+
+        // Check beverage type is supported
+        var bevType = (shotData.beverageType || "espresso")
+        if (!MainController.aiManager.isSupportedBeverageType(bevType)) {
+            unsupportedBeverageDialog.beverageType = bevType
+            unsupportedBeverageDialog.open()
+            return
+        }
+
+        // Switch to the right conversation for this bean+profile
+        MainController.aiManager.switchConversation(
+            beanBrand || "",
+            beanType || "",
+            profileName || ""
+        )
+
+        // For new conversations, include recent shot history as context
+        if (!MainController.aiManager.conversation.hasHistory) {
+            overlay.historicalContext = MainController.aiManager.getRecentShotContext(
+                beanBrand || "", beanType || "", profileName || "", shotId)
+        } else {
+            overlay.historicalContext = ""
+        }
+
+        // Check for mistake shot
+        if (MainController.aiManager.isMistakeShot(shotData)) {
+            overlay.pendingShotSummary = ""
+        } else {
+            // Generate shot summary from history shot data, with recipe dedup and change detection
+            var raw = MainController.aiManager.generateHistoryShotSummary(shotData)
+            overlay.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, shotId)
+        }
+
+        overlay.shotId = shotId
+        overlay.beverageType = bevType
+        overlay.isMistakeShot = MainController.aiManager.isMistakeShot(shotData)
+        overlay.open()
     }
 
     // Consume ALL mouse/touch events - prevent pass-through to background
@@ -72,7 +122,7 @@ Rectangle {
                     Text {
                         visible: MainController.aiManager && MainController.aiManager.conversation &&
                                  MainController.aiManager.conversation.contextLabel.length > 0
-                        text: MainController.aiManager ? (MainController.aiManager.conversation.contextLabel || "") : ""
+                        text: MainController.aiManager && MainController.aiManager.conversation ? (MainController.aiManager.conversation.contextLabel || "") : ""
                         font.pixelSize: Theme.scaled(12)
                         color: Theme.textSecondaryColor
                         elide: Text.ElideRight
@@ -186,6 +236,26 @@ Rectangle {
                     }
                 }
 
+                // Error message display
+                Rectangle {
+                    visible: MainController.aiManager && MainController.aiManager.conversation &&
+                             MainController.aiManager.conversation.errorMessage.length > 0 &&
+                             !MainController.aiManager.conversation.busy
+                    Layout.fillWidth: true
+                    height: Theme.scaled(28)
+                    radius: Theme.scaled(4)
+                    color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
+                    border.color: Theme.errorColor
+                    border.width: 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: MainController.aiManager && MainController.aiManager.conversation ? (MainController.aiManager.conversation.errorMessage || "") : ""
+                        font.pixelSize: Theme.scaled(11)
+                        color: Theme.errorColor
+                    }
+                }
+
                 // Mistake shot notice
                 Rectangle {
                     visible: overlay.visible &&
@@ -275,8 +345,15 @@ Rectangle {
 
                             // If there's a pending shot, include it with the user's question
                             if (overlay.pendingShotSummary.length > 0) {
-                                message = "## Shot #" + overlay.shotId + "\n\nHere's my latest shot:\n\n" +
-                                          overlay.pendingShotSummary + "\n\n" + text
+                                // For new conversations with historical context, prepend previous shots
+                                var shotSection = "## Shot #" + overlay.shotId + "\n\nHere's my latest shot:\n\n" +
+                                                  overlay.pendingShotSummary + "\n\n" + text
+                                if (overlay.historicalContext.length > 0 && !conversation.hasHistory) {
+                                    message = overlay.historicalContext + "\n\n" + shotSection
+                                    overlay.historicalContext = ""
+                                } else {
+                                    message = shotSection
+                                }
                                 overlay.pendingShotSummaryCleared()
                             }
 
@@ -285,10 +362,12 @@ Rectangle {
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
                                 var systemPrompt = conversation.multiShotSystemPrompt(bevType)
                                 conversation.ask(systemPrompt, message)
+                                text = ""
                             } else {
-                                conversation.followUp(message)
+                                if (conversation.followUp(message)) {
+                                    text = ""
+                                }
                             }
-                            text = ""
                         }
                     }
 
@@ -355,5 +434,30 @@ Rectangle {
                 conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
             })
         }
+    }
+
+    // Unsupported beverage type dialog (used by openWithShot)
+    Dialog {
+        id: unsupportedBeverageDialog
+        property string beverageType: ""
+        title: TranslationManager.translate("shotdetail.unsupportedbeverage.title", "AI Not Available")
+        anchors.centerIn: parent
+        modal: true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+        }
+
+        Text {
+            text: TranslationManager.translate("shotdetail.unsupportedbeverage.message",
+                "AI analysis isn't available for %1 profiles yet \u2014 only espresso and filter are supported for now. Sorry about that!").arg(unsupportedBeverageDialog.beverageType)
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.Wrap
+            width: parent.width
+        }
+
+        standardButtons: Dialog.Ok
     }
 }
