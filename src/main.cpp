@@ -115,15 +115,20 @@ int main(int argc, char *argv[])
     // Create core objects
     Settings settings;
     checkpoint("Settings");
+
+    // Debug builds: force simulation mode ON at startup to prevent BLE from
+    // initializing (avoids macOS TCC crash when running outside .app bundle).
+    // User can toggle off at runtime via Settings → Options → Unlock GUI.
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+    settings.setSimulationMode(true);
+#endif
+
     TranslationManager translationManager(&settings);
     checkpoint("TranslationManager");
     BLEManager bleManager;
 
-    // Windows debug: always disable BLE (existing behavior)
-    // Mac debug: disable BLE based on simulation setting (runtime-controllable)
-#if defined(Q_OS_WIN) && defined(QT_DEBUG)
-    bleManager.setDisabled(true);
-#elif defined(Q_OS_MACOS) && defined(QT_DEBUG)
+    // Disable BLE when simulation mode is active
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     bleManager.setDisabled(settings.simulationMode());
 #endif
 
@@ -527,13 +532,8 @@ int main(int argc, char *argv[])
     engine.load(url);
     checkpoint("engine.load(main.qml) returned");
 
-    // GHC Simulator window for debug builds
+    // GHC Simulator window for debug builds (runs when simulation mode is on)
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-    // Windows: always run simulator (existing behavior)
-    // Mac: only run simulator when simulation mode is on (runtime-controllable)
-#ifdef Q_OS_WIN
-    de1Device.setSimulationMode(true);
-#endif
     if (settings.simulationMode()) {
     qDebug() << "Creating DE1 Simulator and GHC window...";
 
