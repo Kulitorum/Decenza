@@ -533,12 +533,20 @@ int main(int argc, char *argv[])
     checkpoint("engine.load(main.qml) returned");
 
     // GHC Simulator window for debug builds (runs when simulation mode is on)
+    // NOTE: These must be declared outside the if-block so they survive through
+    // app.exec(). Otherwise the if-block scope destroys them before the event
+    // loop starts, and signal connections become dangling references (use-after-free).
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+    std::unique_ptr<DE1Simulator> de1SimulatorPtr;
+    std::unique_ptr<SimulatedScale> simulatedScalePtr;
+    std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
+
     if (settings.simulationMode()) {
     qDebug() << "Creating DE1 Simulator and GHC window...";
 
     // Create the DE1 machine simulator
-    DE1Simulator de1Simulator;
+    de1SimulatorPtr = std::make_unique<DE1Simulator>();
+    auto& de1Simulator = *de1SimulatorPtr;
 
     // Set simulator on DE1Device so commands are relayed to it
     de1Device.setSimulator(&de1Simulator);
@@ -577,7 +585,8 @@ int main(int argc, char *argv[])
                      &de1Device, &DE1Device::emitSimulatedShotSample);
 
     // Create SimulatedScale and connect it like a real scale
-    SimulatedScale simulatedScale;
+    simulatedScalePtr = std::make_unique<SimulatedScale>();
+    auto& simulatedScale = *simulatedScalePtr;
     simulatedScale.simulateConnection();
 
     // Replace FlowScale with SimulatedScale for graph data
@@ -598,7 +607,8 @@ int main(int argc, char *argv[])
     ghcSimulator.setDE1Device(&de1Device);
     ghcSimulator.setDE1Simulator(&de1Simulator);
 
-    QQmlApplicationEngine ghcEngine;
+    ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
+    auto& ghcEngine = *ghcEnginePtr;
     ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
     ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
     ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
