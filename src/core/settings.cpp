@@ -2058,6 +2058,80 @@ void Settings::setRefillKitOverride(int value) {
     }
 }
 
+// Heater calibration (de1app's set_heater_tweaks)
+// All values stored in raw firmware units (tenths)
+
+int Settings::heaterIdleTemp() const {
+    int val = m_settings.value("calibration/heaterIdleTemp", 990).toInt();
+    return qBound(0, val, 990);
+}
+
+void Settings::setHeaterIdleTemp(int value) {
+    if (heaterIdleTemp() != value) {
+        m_settings.setValue("calibration/heaterIdleTemp", value);
+        emit heaterIdleTempChanged();
+    }
+}
+
+int Settings::heaterWarmupFlow() const {
+    int val = m_settings.value("calibration/heaterWarmupFlow", 20).toInt();
+    return qBound(5, val, 60);
+}
+
+void Settings::setHeaterWarmupFlow(int value) {
+    if (heaterWarmupFlow() != value) {
+        m_settings.setValue("calibration/heaterWarmupFlow", value);
+        emit heaterWarmupFlowChanged();
+    }
+}
+
+int Settings::heaterTestFlow() const {
+    int val = m_settings.value("calibration/heaterTestFlow", 40).toInt();
+    return qBound(5, val, 80);
+}
+
+void Settings::setHeaterTestFlow(int value) {
+    if (heaterTestFlow() != value) {
+        m_settings.setValue("calibration/heaterTestFlow", value);
+        emit heaterTestFlowChanged();
+    }
+}
+
+int Settings::heaterWarmupTimeout() const {
+    int val = m_settings.value("calibration/heaterWarmupTimeout", 10).toInt();
+    return qBound(10, val, 300);
+}
+
+void Settings::setHeaterWarmupTimeout(int value) {
+    if (heaterWarmupTimeout() != value) {
+        m_settings.setValue("calibration/heaterWarmupTimeout", value);
+        emit heaterWarmupTimeoutChanged();
+    }
+}
+
+int Settings::hotWaterFlowRate() const {
+    int val = m_settings.value("calibration/hotWaterFlowRate", 10).toInt();
+    return qBound(5, val, 80);
+}
+
+void Settings::setHotWaterFlowRate(int value) {
+    if (hotWaterFlowRate() != value) {
+        m_settings.setValue("calibration/hotWaterFlowRate", value);
+        emit hotWaterFlowRateChanged();
+    }
+}
+
+bool Settings::steamTwoTapStop() const {
+    return m_settings.value("calibration/steamTwoTapStop", false).toBool();
+}
+
+void Settings::setSteamTwoTapStop(bool value) {
+    if (steamTwoTapStop() != value) {
+        m_settings.setValue("calibration/steamTwoTapStop", value);
+        emit steamTwoTapStopChanged();
+    }
+}
+
 bool Settings::developerTranslationUpload() const {
     // Runtime-only flag - not persisted, resets to false on app restart
     return m_developerTranslationUpload;

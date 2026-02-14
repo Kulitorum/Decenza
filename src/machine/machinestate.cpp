@@ -43,8 +43,9 @@ bool MachineState::isHeating() const {
 }
 
 bool MachineState::isReady() const {
-    // Allow commands when connected, even if asleep or heating
-    // The machine will handle state transitions internally
+    // de1app does no state check — it sends commands directly and lets the DE1
+    // firmware decide. Including Heating here lets users queue operations while
+    // the machine warms up, matching that behavior.
     return m_phase == Phase::Ready || m_phase == Phase::Idle ||
            m_phase == Phase::Sleep || m_phase == Phase::Heating;
 }

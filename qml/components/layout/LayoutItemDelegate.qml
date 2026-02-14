@@ -150,6 +150,7 @@ Item {
             case "steamTemperature": return "Steam Temperature"
             case "custom":           return "Custom Widget"
             case "lastShot":         return "Last Shot"
+            case "machineStatus":    return "Machine Status"
             default:                 return root.itemType
         }
     }
@@ -195,6 +196,7 @@ Item {
                 case "separator":        src = "items/SeparatorItem.qml"; break
                 case "quit":             src = "items/QuitItem.qml"; break
                 case "lastShot":         src = "items/LastShotItem.qml"; break
+                case "machineStatus":    src = "items/MachineStatusItem.qml"; break
                 case "screensaverFlipClock":
                 case "screensaverPipes":
                 case "screensaverAttractor":

@@ -170,6 +170,10 @@ Item {
                     if (wasAlreadySelected) {
                         if (MachineState.isReady) {
                             DE1Device.startEspresso()
+                        } else {
+                            console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                AccessibilityManager.announce("Machine is not ready")
                         }
                     } else {
                         if (preset && preset.filename) {
@@ -204,7 +208,13 @@ Item {
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
-                            if (MachineState.isReady) DE1Device.startEspresso()
+                            if (MachineState.isReady) {
+                                DE1Device.startEspresso()
+                            } else {
+                                console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                    AccessibilityManager.announce("Machine is not ready")
+                            }
                             presetPopup.close()
                         }
                     }

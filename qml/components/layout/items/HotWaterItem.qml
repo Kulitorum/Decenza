@@ -162,8 +162,14 @@ Item {
                 }
                 MainController.applyHotWaterSettings()
 
-                if (wasAlreadySelected && MachineState.isReady) {
-                    DE1Device.startHotWater()
+                if (wasAlreadySelected) {
+                    if (MachineState.isReady) {
+                        DE1Device.startHotWater()
+                    } else {
+                        console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                            AccessibilityManager.announce("Machine is not ready")
+                    }
                 }
                 presetPopup.close()
             }

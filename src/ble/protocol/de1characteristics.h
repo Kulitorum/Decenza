@@ -127,13 +127,19 @@ namespace MMR {
     constexpr uint32_t MACHINE_MODEL        = 0x80000C;
     constexpr uint32_t FIRMWARE_VERSION     = 0x800010;
     constexpr uint32_t FAN_THRESHOLD        = 0x803808;
+    constexpr uint32_t PHASE1_FLOW_RATE     = 0x803810;  // Heater warmup flow rate (de1app default: 20)
+    constexpr uint32_t PHASE2_FLOW_RATE     = 0x803814;  // Heater test flow rate (de1app default: 40)
+    constexpr uint32_t HOT_WATER_IDLE_TEMP  = 0x803818;  // Heater idle temperature in tenths °C (de1app default: 990 = 99.0°C)
     constexpr uint32_t GHC_INFO             = 0x80381C;
     constexpr uint32_t GHC_MODE             = 0x803820;
     constexpr uint32_t STEAM_FLOW           = 0x803828;
     constexpr uint32_t SERIAL_NUMBER        = 0x803830;
     constexpr uint32_t HEATER_VOLTAGE       = 0x803834;
-    constexpr uint32_t USB_CHARGER          = 0x803854;  // USB charger on/off (1=on, 0=off)
+    constexpr uint32_t ESPRESSO_WARMUP_TIMEOUT = 0x803838;  // Warmup timeout in seconds (de1app default: 10)
     constexpr uint32_t FLOW_CALIBRATION     = 0x80383C;  // Flow calibration multiplier (value = int(1000 * multiplier))
+    constexpr uint32_t HOT_WATER_FLOW_RATE  = 0x80384C;  // Hot water flow rate in tenths mL/s (de1app default: 10 = 1.0 mL/s)
+    constexpr uint32_t STEAM_TWO_TAP_STOP   = 0x803850;  // SteamPurgeMode: 0=off, 1=two taps to stop steam (first tap → puffs, second → purge)
+    constexpr uint32_t USB_CHARGER          = 0x803854;  // USB charger on/off (1=on, 0=off)
     constexpr uint32_t REFILL_KIT           = 0x80385C;
 }
 

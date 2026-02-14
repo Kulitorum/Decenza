@@ -52,6 +52,7 @@ class MainController : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QString currentProfileName READ currentProfileName NOTIFY currentProfileChanged)
+
     Q_PROPERTY(QString baseProfileName READ baseProfileName NOTIFY currentProfileChanged)
     Q_PROPERTY(bool profileModified READ isProfileModified NOTIFY profileModifiedChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
@@ -98,6 +99,7 @@ public:
                            QObject* parent = nullptr);
 
     QString currentProfileName() const;
+
     QString baseProfileName() const { return m_baseProfileName; }
     bool isProfileModified() const { return m_profileModified; }
     double targetWeight() const;
@@ -271,6 +273,7 @@ private:
     void applyAllSettings();
     void applyWaterRefillLevel();
     void applyRefillKitOverride();
+    void applyHeaterTweaks();
     void applyFlowCalibration();
     double getGroupTemperature() const;
 
@@ -306,6 +309,7 @@ private:
     QString m_currentFrameName;  // For accessibility announcements
 
     QTimer m_settingsTimer;  // Delayed settings application after connection
+    QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 
     // DYE: pending shot data for delayed upload
     bool m_hasPendingShot = false;

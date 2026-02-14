@@ -730,7 +730,7 @@ Page {
         }
 
         onOpened: {
-            // Strip prefix from current name to show only the suffix
+            // Strip prefix from current title to show only the suffix
             var currentName = MainController.currentProfileName || "New Recipe"
             saveAsTitleField.text = stripPrefix(currentName)
             saveAsTitleField.forceActiveFocus()

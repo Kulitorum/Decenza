@@ -111,6 +111,21 @@ MainController::MainController(Settings* settings, DE1Device* device,
                 this, &MainController::applyFlowCalibration);
     }
 
+    // Apply heater tweaks when any calibration setting changes (debounced to avoid BLE flood)
+    m_heaterTweaksTimer.setSingleShot(true);
+    m_heaterTweaksTimer.setInterval(300);
+    connect(&m_heaterTweaksTimer, &QTimer::timeout, this, &MainController::applyHeaterTweaks);
+
+    if (m_settings && m_device) {
+        auto startHeaterTimer = [this]() { m_heaterTweaksTimer.start(); };
+        connect(m_settings, &Settings::heaterIdleTempChanged, this, startHeaterTimer);
+        connect(m_settings, &Settings::heaterWarmupFlowChanged, this, startHeaterTimer);
+        connect(m_settings, &Settings::heaterTestFlowChanged, this, startHeaterTimer);
+        connect(m_settings, &Settings::heaterWarmupTimeoutChanged, this, startHeaterTimer);
+        connect(m_settings, &Settings::hotWaterFlowRateChanged, this, startHeaterTimer);
+        connect(m_settings, &Settings::steamTwoTapStopChanged, this, startHeaterTimer);
+    }
+
     // Connect to machine state events
     if (m_machineState) {
         connect(m_machineState, &MachineState::espressoCycleStarted,
@@ -327,6 +342,8 @@ QString MainController::currentProfileName() const {
     }
     return m_currentProfile.title();
 }
+
+
 
 bool MainController::isDFlowTitle(const QString& title) {
     // Check if title indicates a D-Flow profile (matching de1app behavior)
@@ -2160,6 +2177,9 @@ void MainController::applyAllSettings() {
 
     // 7. Apply flow calibration multiplier
     applyFlowCalibration();
+
+    // 8. Apply heater calibration tweaks
+    applyHeaterTweaks();
 }
 
 void MainController::applyWaterRefillLevel() {
@@ -2180,6 +2200,21 @@ void MainController::applyFlowCalibration() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     m_device->setFlowCalibrationMultiplier(m_settings->flowCalibrationMultiplier());
+}
+
+void MainController::applyHeaterTweaks() {
+    if (!m_device || !m_device->isConnected() || !m_settings) {
+        qDebug() << "applyHeaterTweaks: skipped (device connected:"
+                 << (m_device && m_device->isConnected()) << ")";
+        return;
+    }
+
+    m_device->writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow());
+    m_device->writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow());
+    m_device->writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->heaterIdleTemp());
+    m_device->writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout());
+    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
+    m_device->writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0);
 }
 
 double MainController::getGroupTemperature() const {

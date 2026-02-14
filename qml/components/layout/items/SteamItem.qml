@@ -163,8 +163,14 @@ Item {
                 }
                 MainController.applySteamSettings()
 
-                if (wasAlreadySelected && MachineState.isReady) {
-                    DE1Device.startSteam()
+                if (wasAlreadySelected) {
+                    if (MachineState.isReady) {
+                        DE1Device.startSteam()
+                    } else {
+                        console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                            AccessibilityManager.announce("Machine is not ready")
+                    }
                 }
                 presetPopup.close()
             }

@@ -267,6 +267,9 @@ Page {
                             if (MachineState.isReady) {
                                 DE1Device.startSteam()
                             } else {
+                                console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                    AccessibilityManager.announce("Machine is not ready")
                             }
                         }
                     }
@@ -300,6 +303,9 @@ Page {
                                 if (MachineState.isReady) {
                                     DE1Device.startEspresso()
                                 } else {
+                                    console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                        AccessibilityManager.announce("Machine is not ready")
                                 }
                             } else {
                                 if (preset && preset.filename) {
@@ -349,6 +355,9 @@ Page {
                                     if (MachineState.isReady) {
                                         DE1Device.startEspresso()
                                     } else {
+                                        console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                            AccessibilityManager.announce("Machine is not ready")
                                     }
                                 }
                             }
@@ -394,6 +403,9 @@ Page {
                             if (MachineState.isReady) {
                                 DE1Device.startHotWater()
                             } else {
+                                console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                    AccessibilityManager.announce("Machine is not ready")
                             }
                         }
                     }
@@ -425,6 +437,9 @@ Page {
                             if (MachineState.isReady) {
                                 DE1Device.startFlush()
                             } else {
+                                console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                    AccessibilityManager.announce("Machine is not ready")
                             }
                         }
                     }

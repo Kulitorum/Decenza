@@ -810,11 +810,229 @@ KeyboardAwareContainer {
                 }
             }
 
+            // Heater Calibration Card
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: calibrateContent.implicitHeight + Theme.scaled(24)
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+
+                ColumnLayout {
+                    id: calibrateContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    spacing: Theme.scaled(4)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: "Heater Calibration"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            text: "Calibrate..."
+                            color: Theme.primaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.scaled(4)
+                                onClicked: calibrationPopup.open()
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Open heater calibration"
+                                Accessible.focusable: true
+                                Accessible.onPressAction: calibrationPopup.open()
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Idle temp, warmup flow rates, timeout"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+                }
+            }
+
             // Spacer
             Item { Layout.fillHeight: true }
         }
 
         // Spacer
         Item { Layout.fillWidth: true }
+    }
+
+    // Heater Calibration Popup
+    Popup {
+        id: calibrationPopup
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.9, Theme.scaled(500))
+        height: Math.min(calibrationColumn.implicitHeight + 2 * padding, parent.height * 0.85)
+        modal: true
+        dim: true
+        padding: Theme.scaled(20)
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: Flickable {
+            contentHeight: calibrationColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+
+            ColumnLayout {
+                id: calibrationColumn
+                width: parent.width
+                spacing: Theme.scaled(16)
+
+                // Title row
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Text {
+                        text: "Heater Calibration"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(18)
+                        font.bold: true
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Rectangle {
+                        width: Theme.scaled(30)
+                        height: Theme.scaled(30)
+                        radius: Theme.scaled(15)
+                        color: closeMouseArea.containsMouse ? Theme.borderColor : "transparent"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "\u2715"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(16)
+                        }
+
+                        MouseArea {
+                            id: closeMouseArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: calibrationPopup.close()
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Close"
+                            Accessible.focusable: true
+                            Accessible.onPressAction: calibrationPopup.close()
+                        }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+
+                // Heater idle temperature
+                RowLayout { Layout.fillWidth: true
+                    Text { text: "Heater idle temperature"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Item { Layout.fillWidth: true }
+                    Text { text: (Settings.heaterIdleTemp * 0.1).toFixed(1) + " °C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                }
+                StepSlider { Layout.fillWidth: true; accessibleName: "Heater idle temperature"; from: 0; to: 990; stepSize: 5; value: Settings.heaterIdleTemp; onMoved: Settings.heaterIdleTemp = Math.round(value) }
+
+                // Heater warmup flow rate
+                RowLayout { Layout.fillWidth: true
+                    Text { text: "Heater warmup flow rate"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Item { Layout.fillWidth: true }
+                    Text { text: (Settings.heaterWarmupFlow * 0.1).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
+                }
+                StepSlider { Layout.fillWidth: true; accessibleName: "Heater warmup flow rate"; from: 5; to: 60; stepSize: 1; value: Settings.heaterWarmupFlow; onMoved: Settings.heaterWarmupFlow = Math.round(value) }
+
+                // Heater test flow rate
+                RowLayout { Layout.fillWidth: true
+                    Text { text: "Heater test flow rate"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Item { Layout.fillWidth: true }
+                    Text { text: (Settings.heaterTestFlow * 0.1).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
+                }
+                StepSlider { Layout.fillWidth: true; accessibleName: "Heater test flow rate"; from: 5; to: 80; stepSize: 1; value: Settings.heaterTestFlow; onMoved: Settings.heaterTestFlow = Math.round(value) }
+
+                // Heater test time-out
+                RowLayout { Layout.fillWidth: true
+                    Text { text: "Heater test time-out"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Item { Layout.fillWidth: true }
+                    Text { text: (Settings.heaterWarmupTimeout * 0.1).toFixed(1) + " s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
+                }
+                StepSlider { Layout.fillWidth: true; accessibleName: "Heater test time-out"; from: 10; to: 300; stepSize: 1; value: Settings.heaterWarmupTimeout; onMoved: Settings.heaterWarmupTimeout = Math.round(value) }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+
+                // Hot water flow rate
+                RowLayout { Layout.fillWidth: true
+                    Text { text: "Hot water flow rate"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Item { Layout.fillWidth: true }
+                    Text { text: (Settings.hotWaterFlowRate * 0.1).toFixed(1) + " mL/s"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.primaryColor }
+                }
+                StepSlider { Layout.fillWidth: true; accessibleName: "Hot water flow rate"; from: 5; to: 80; stepSize: 1; value: Settings.hotWaterFlowRate; onMoved: Settings.hotWaterFlowRate = Math.round(value) }
+
+                // Steam two-tap stop
+                RowLayout { Layout.fillWidth: true
+                    Text { text: "Steam two-tap stop"; font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Item { Layout.fillWidth: true }
+                    Switch {
+                        checked: Settings.steamTwoTapStop
+                        onToggled: Settings.steamTwoTapStop = checked
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "First tap goes to puffs, second tap stops steam"
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.WordWrap
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+
+                // Defaults for cafe button
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: Theme.scaled(42)
+                    radius: Theme.scaled(6)
+                    color: Theme.primaryColor
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Defaults for cafe"
+                        color: "white"
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            Settings.heaterIdleTemp = 990
+                            Settings.heaterWarmupFlow = 20
+                            Settings.heaterTestFlow = 40
+                            Settings.heaterWarmupTimeout = 10
+                            Settings.hotWaterFlowRate = 10
+                            Settings.steamTwoTapStop = false
+                        }
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Reset heater calibration to cafe defaults"
+                        Accessible.focusable: true
+                        Accessible.onPressAction: clicked(null)
+                    }
+                }
+            }
+        }
     }
 }
