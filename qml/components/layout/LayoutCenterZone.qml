@@ -19,6 +19,7 @@ Item {
             case "temperature":
             case "waterLevel":
             case "connectionStatus":
+            case "machineStatus":
             case "steamTemperature":
             case "scaleWeight":
             case "weather":

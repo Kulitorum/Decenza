@@ -34,22 +34,22 @@ Item {
 
     readonly property string statusText: {
         switch (MachineState.phase) {
-            case MachineStateType.Phase.Disconnected:       return "Disconnected"
-            case MachineStateType.Phase.Sleep:               return "Sleep"
-            case MachineStateType.Phase.Idle:                return "Idle"
-            case MachineStateType.Phase.Heating:             return "Heating"
-            case MachineStateType.Phase.Ready:               return "Ready"
-            case MachineStateType.Phase.EspressoPreheating:  return "Preheating"
-            case MachineStateType.Phase.Preinfusion:         return "Preinfusion"
-            case MachineStateType.Phase.Pouring:             return "Pouring"
-            case MachineStateType.Phase.Ending:              return "Ending"
-            case MachineStateType.Phase.Steaming:            return "Steaming"
-            case MachineStateType.Phase.HotWater:            return "Hot Water"
-            case MachineStateType.Phase.Flushing:            return "Flushing"
-            case MachineStateType.Phase.Refill:              return "Refill"
-            case MachineStateType.Phase.Descaling:           return "Descaling"
-            case MachineStateType.Phase.Cleaning:            return "Cleaning"
-            default:                                         return "Unknown"
+            case MachineStateType.Phase.Disconnected:       return TranslationManager.translate("machineStatus.disconnected", "Disconnected")
+            case MachineStateType.Phase.Sleep:               return TranslationManager.translate("machineStatus.sleep", "Sleep")
+            case MachineStateType.Phase.Idle:                return TranslationManager.translate("machineStatus.idle", "Idle")
+            case MachineStateType.Phase.Heating:             return TranslationManager.translate("machineStatus.heating", "Heating")
+            case MachineStateType.Phase.Ready:               return TranslationManager.translate("machineStatus.ready", "Ready")
+            case MachineStateType.Phase.EspressoPreheating:  return TranslationManager.translate("machineStatus.preheating", "Preheating")
+            case MachineStateType.Phase.Preinfusion:         return TranslationManager.translate("machineStatus.preinfusion", "Preinfusion")
+            case MachineStateType.Phase.Pouring:             return TranslationManager.translate("machineStatus.pouring", "Pouring")
+            case MachineStateType.Phase.Ending:              return TranslationManager.translate("machineStatus.ending", "Ending")
+            case MachineStateType.Phase.Steaming:            return TranslationManager.translate("machineStatus.steaming", "Steaming")
+            case MachineStateType.Phase.HotWater:            return TranslationManager.translate("machineStatus.hotWater", "Hot Water")
+            case MachineStateType.Phase.Flushing:            return TranslationManager.translate("machineStatus.flushing", "Flushing")
+            case MachineStateType.Phase.Refill:              return TranslationManager.translate("machineStatus.refill", "Refill")
+            case MachineStateType.Phase.Descaling:           return TranslationManager.translate("machineStatus.descaling", "Descaling")
+            case MachineStateType.Phase.Cleaning:            return TranslationManager.translate("machineStatus.cleaning", "Cleaning")
+            default:                                         return TranslationManager.translate("machineStatus.unknown", "Unknown")
         }
     }
 
@@ -83,7 +83,7 @@ Item {
 
         AccessibleMouseArea {
             anchors.fill: parent
-            accessibleName: "Machine status: " + root.statusText
+            accessibleName: TranslationManager.translate("machineStatus.accessible", "Machine status: %1").arg(root.statusText)
         }
     }
 
@@ -109,7 +109,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Machine Status"
+                text: TranslationManager.translate("machineStatus.label", "Machine Status")
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
             }
@@ -117,7 +117,7 @@ Item {
 
         AccessibleMouseArea {
             anchors.fill: parent
-            accessibleName: "Machine status: " + root.statusText
+            accessibleName: TranslationManager.translate("machineStatus.accessible", "Machine status: %1").arg(root.statusText)
         }
     }
 }
