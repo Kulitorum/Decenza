@@ -405,13 +405,13 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
     AIProvider* provider = currentProvider();
     if (!provider) {
         m_lastError = "No AI provider configured";
-        emit errorOccurred(m_lastError);
+        emit conversationErrorOccurred(m_lastError);
         return;
     }
 
     if (!isConfigured()) {
         m_lastError = "AI provider not configured";
-        emit errorOccurred(m_lastError);
+        emit conversationErrorOccurred(m_lastError);
         return;
     }
 

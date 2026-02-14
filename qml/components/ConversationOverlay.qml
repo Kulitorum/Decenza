@@ -293,9 +293,12 @@ Rectangle {
                         anchors.rightMargin: Theme.scaled(8)
                         spacing: Theme.scaled(6)
 
-                        Text {
-                            text: "\uD83D\uDCCA"
-                            font.pixelSize: Theme.scaled(12)
+                        Image {
+                            source: Theme.emojiToImage("\uD83D\uDCCA")
+                            sourceSize.width: Theme.scaled(12)
+                            sourceSize.height: Theme.scaled(12)
+                            width: Theme.scaled(12)
+                            height: Theme.scaled(12)
                         }
 
                         Text {
@@ -344,7 +347,8 @@ Rectangle {
                             var message = text
 
                             // If there's a pending shot, include it with the user's question
-                            if (overlay.pendingShotSummary.length > 0) {
+                            var hasShotData = overlay.pendingShotSummary.length > 0
+                            if (hasShotData) {
                                 // For new conversations with historical context, prepend previous shots
                                 var shotSection = "## Shot #" + overlay.shotId + "\n\nHere's my latest shot:\n\n" +
                                                   overlay.pendingShotSummary + "\n\n" + text
@@ -354,19 +358,23 @@ Rectangle {
                                 } else {
                                     message = shotSection
                                 }
-                                overlay.pendingShotSummaryCleared()
                             }
 
                             // Use ask() for new conversation, followUp() for existing
+                            var sent = false
                             if (!conversation.hasHistory) {
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
                                 var systemPrompt = conversation.multiShotSystemPrompt(bevType)
                                 conversation.ask(systemPrompt, message)
-                                text = ""
+                                sent = true
                             } else {
-                                if (conversation.followUp(message)) {
-                                    text = ""
-                                }
+                                sent = conversation.followUp(message)
+                            }
+
+                            if (sent) {
+                                text = ""
+                                if (hasShotData)
+                                    overlay.pendingShotSummaryCleared()
                             }
                         }
                     }
