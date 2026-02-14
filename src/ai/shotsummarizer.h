@@ -129,4 +129,9 @@ private:
     double calculateStdDev(const QVector<QPointF>& data, double startTime, double endTime) const;
     double findTimeToFirstDrip(const QVector<QPointF>& flowData) const;
     bool detectChanneling(const QVector<QPointF>& flowData, double startTime, double endTime) const;
+
+    static QString profileTypeDescription(const QString& editorType);
+    void detectChannelingInPhases(ShotSummary& summary, const QVector<QPointF>& flowData) const;
+    void calculateTemperatureStability(ShotSummary& summary,
+        const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 };

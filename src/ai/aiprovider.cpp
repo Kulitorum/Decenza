@@ -24,6 +24,25 @@ void AIProvider::setStatus(Status status)
     }
 }
 
+QString AIProvider::friendlyNetworkError(QNetworkReply* reply)
+{
+    switch (reply->error()) {
+    case QNetworkReply::ConnectionRefusedError:
+    case QNetworkReply::RemoteHostClosedError:
+    case QNetworkReply::HostNotFoundError:
+        return "Could not connect to the AI service. Check your internet connection.";
+    case QNetworkReply::TimeoutError:
+    case QNetworkReply::OperationCanceledError:
+        return "Request timed out. The AI service may be slow — please try again.";
+    case QNetworkReply::AuthenticationRequiredError:
+        return "Authentication failed. Please check your API key in Settings.";
+    case QNetworkReply::ContentAccessDenied:
+        return "Access denied. Your API key may not have permission for this model.";
+    default:
+        return "Request failed: " + reply->errorString();
+    }
+}
+
 QJsonArray AIProvider::buildOpenAIMessages(const QString& systemPrompt, const QJsonArray& messages)
 {
     QJsonArray apiMessages;
@@ -71,6 +90,22 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
 {
 }
 
+void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
+{
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
@@ -94,18 +129,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 1024;
 
-    QUrl url(QString::fromLatin1(API_URL));
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
@@ -122,18 +146,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = 1024;
 
-    QUrl url(QString::fromLatin1(API_URL));
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
@@ -142,7 +155,7 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit analysisFailed("OpenAI request failed: " + reply->errorString());
+        emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
 
@@ -220,6 +233,23 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
 {
 }
 
+void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
+{
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("x-api-key", m_apiKey.toUtf8());
+    req.setRawHeader("anthropic-version", "2023-06-01");
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void AnthropicProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
@@ -240,19 +270,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     messages.append(userMsg);
     requestBody["messages"] = messages;
 
-    QUrl url(QString::fromLatin1(API_URL));
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("x-api-key", m_apiKey.toUtf8());
-    req.setRawHeader("anthropic-version", "2023-06-01");
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
@@ -270,19 +288,7 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messages;
 
-    QUrl url(QString::fromLatin1(API_URL));
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("x-api-key", m_apiKey.toUtf8());
-    req.setRawHeader("anthropic-version", "2023-06-01");
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 QJsonArray AnthropicProvider::buildCachedSystemPrompt(const QString& systemPrompt)
@@ -309,7 +315,7 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit analysisFailed("Anthropic request failed: " + reply->errorString());
+        emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
 
@@ -407,6 +413,22 @@ QString GeminiProvider::apiUrl() const
         .arg(MODEL);
 }
 
+void GeminiProvider::sendRequest(const QJsonObject& requestBody)
+{
+    QUrl url(apiUrl());
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
@@ -440,18 +462,7 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
     contents.append(userContent);
     requestBody["contents"] = contents;
 
-    QUrl url(apiUrl());
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
@@ -478,8 +489,12 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
     QJsonArray contents;
     for (const auto& msg : messages) {
         QJsonObject m = msg.toObject();
-        QJsonObject content;
         QString role = m["role"].toString();
+        if (role != "user" && role != "assistant") {
+            qWarning() << "GeminiProvider: Skipping message with unexpected role:" << role;
+            continue;
+        }
+        QJsonObject content;
         content["role"] = (role == "assistant") ? QString("model") : role;
         QJsonArray parts;
         QJsonObject textPart;
@@ -490,18 +505,7 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
     }
     requestBody["contents"] = contents;
 
-    QUrl url(apiUrl());
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
@@ -510,7 +514,7 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit analysisFailed("Gemini request failed: " + reply->errorString());
+        emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
 
@@ -610,6 +614,25 @@ OpenRouterProvider::OpenRouterProvider(QNetworkAccessManager* networkManager,
 {
 }
 
+void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
+{
+    QUrl url(QString::fromLatin1(API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    // Attribution headers for OpenRouter leaderboard
+    req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
+    req.setRawHeader("X-Title", "Decenza DE1");
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
@@ -634,21 +657,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 1024;
 
-    QUrl url(QString::fromLatin1(API_URL));
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
-    // Attribution headers for OpenRouter leaderboard
-    req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
-    req.setRawHeader("X-Title", "Decenza DE1");
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
@@ -665,20 +674,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = 1024;
 
-    QUrl url(QString::fromLatin1(API_URL));
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
-    req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
-    req.setRawHeader("X-Title", "Decenza DE1");
-    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(requestBody);
 }
 
 void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
@@ -687,7 +683,7 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit analysisFailed("OpenRouter request failed: " + reply->errorString());
+        emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
 
@@ -781,6 +777,20 @@ OllamaProvider::OllamaProvider(QNetworkAccessManager* networkManager,
 {
 }
 
+void OllamaProvider::sendRequest(const QUrl& url, const QJsonObject& requestBody)
+{
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setTransferTimeout(LOCAL_ANALYSIS_TIMEOUT_MS);
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onAnalysisReply(reply);
+    });
+}
+
 void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
@@ -800,17 +810,7 @@ void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPro
     if (!urlStr.endsWith(QString("/"))) urlStr += QString("/");
     urlStr += QString("api/generate");
 
-    QUrl url(urlStr);
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setTransferTimeout(LOCAL_ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(QUrl(urlStr), requestBody);
 }
 
 void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
@@ -832,17 +832,7 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
     if (!urlStr.endsWith(QString("/"))) urlStr += QString("/");
     urlStr += QString("api/chat");
 
-    QUrl url(urlStr);
-    QNetworkRequest req;
-    req.setUrl(url);
-    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
-    req.setTransferTimeout(LOCAL_ANALYSIS_TIMEOUT_MS);
-
-    QByteArray body = QJsonDocument(requestBody).toJson();
-    QNetworkReply* reply = m_networkManager->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAnalysisReply(reply);
-    });
+    sendRequest(QUrl(urlStr), requestBody);
 }
 
 void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
@@ -851,7 +841,7 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
     setStatus(Status::Ready);
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit analysisFailed("Ollama request failed: " + reply->errorString());
+        emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
 

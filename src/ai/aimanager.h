@@ -15,6 +15,7 @@ class ShotSummarizer;
 class ShotDataModel;
 class Profile;
 class Settings;
+class ShotHistoryStorage;
 struct ShotMetadata;
 
 class AIManager : public QObject {
@@ -113,6 +114,10 @@ public:
     // Generate shot summary from historical shot data (for ShotDetailPage)
     Q_INVOKABLE QString generateHistoryShotSummary(const QVariantMap& shotData);
 
+    // Shot history access for contextual recommendations
+    void setShotHistoryStorage(ShotHistoryStorage* storage);
+    Q_INVOKABLE QString getRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId);
+
     // Provider testing
     Q_INVOKABLE void testConnection();
 
@@ -134,6 +139,8 @@ signals:
     void testResultChanged();
     void ollamaModelsChanged();
     void conversationIndexChanged();
+    void conversationResponseReceived(const QString& response);
+    void conversationErrorOccurred(const QString& error);
 
 private slots:
     void onAnalysisComplete(const QString& response);
@@ -144,6 +151,7 @@ private slots:
 
 private:
     void createProviders();
+    AIProvider* providerById(const QString& providerId) const;
     AIProvider* currentProvider() const;
     ShotMetadata buildMetadata(const QString& beanBrand,
                                 const QString& beanType,
@@ -162,6 +170,7 @@ private:
     Settings* m_settings = nullptr;
     QNetworkAccessManager* m_networkManager = nullptr;
     std::unique_ptr<ShotSummarizer> m_summarizer;
+    ShotHistoryStorage* m_shotHistory = nullptr;
 
     // Providers
     std::unique_ptr<AIProvider> m_openaiProvider;
@@ -192,4 +201,5 @@ private:
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;
     QList<ConversationEntry> m_conversationIndex;
+    bool m_isConversationRequest = false;
 };

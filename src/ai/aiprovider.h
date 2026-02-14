@@ -44,6 +44,9 @@ signals:
 protected:
     void setStatus(Status status);
 
+    // Map Qt network errors to user-friendly messages
+    static QString friendlyNetworkError(QNetworkReply* reply);
+
     // Build OpenAI-compatible messages array: system message + conversation messages
     static QJsonArray buildOpenAIMessages(const QString& systemPrompt, const QJsonArray& messages);
 
@@ -80,6 +83,8 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
+    void sendRequest(const QJsonObject& requestBody);
+
     QString m_apiKey;
     static constexpr const char* API_URL = "https://api.openai.com/v1/chat/completions";
     static constexpr const char* MODEL = "gpt-4.1";
@@ -112,6 +117,7 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
+    void sendRequest(const QJsonObject& requestBody);
     static QJsonArray buildCachedSystemPrompt(const QString& systemPrompt);
 
     QString m_apiKey;
@@ -146,6 +152,8 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
+    void sendRequest(const QJsonObject& requestBody);
+
     QString m_apiKey;
     static constexpr const char* MODEL = "gemini-2.5-flash";
     static constexpr const char* MODEL_DISPLAY = "2.5 Flash";
@@ -180,6 +188,8 @@ private slots:
     void onTestReply(QNetworkReply* reply);
 
 private:
+    void sendRequest(const QJsonObject& requestBody);
+
     QString m_apiKey;
     QString m_model;
     static constexpr const char* API_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -221,6 +231,8 @@ private slots:
     void onModelsReply(QNetworkReply* reply);
 
 private:
+    void sendRequest(const QUrl& url, const QJsonObject& requestBody);
+
     static constexpr int LOCAL_ANALYSIS_TIMEOUT_MS = 120000;  // 120s for local models
     QString m_endpoint;
     QString m_model;

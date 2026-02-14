@@ -507,6 +507,18 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Error message display
+                Text {
+                    visible: MainController.aiManager && MainController.aiManager.conversation &&
+                             MainController.aiManager.conversation.errorMessage.length > 0 &&
+                             !MainController.aiManager.conversation.busy
+                    text: MainController.aiManager ? (MainController.aiManager.conversation.errorMessage || "") : ""
+                    color: Theme.errorColor
+                    font.pixelSize: Theme.scaled(11)
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall

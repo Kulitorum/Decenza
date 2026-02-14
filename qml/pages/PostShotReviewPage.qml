@@ -959,32 +959,7 @@ Page {
                 anchors.fill: parent
                 enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
                 onClicked: {
-                    // Check beverage type is supported
-                    var bevType = (editBeverageType || "espresso")
-                    if (!MainController.aiManager.isSupportedBeverageType(bevType)) {
-                        unsupportedBeverageDialog.beverageType = bevType
-                        unsupportedBeverageDialog.open()
-                        return
-                    }
-
-                    // Switch to the right conversation for this bean+profile
-                    MainController.aiManager.switchConversation(
-                        editBeanBrand || "",
-                        editBeanType || "",
-                        editShotData.profileName || ""
-                    )
-
-                    // Check for mistake shot
-                    if (MainController.aiManager.isMistakeShot(editShotData)) {
-                        postShotReviewPage.pendingShotSummary = ""
-                    } else {
-                        // Generate shot summary from history shot data, with recipe dedup and change detection
-                        var raw = MainController.aiManager.generateHistoryShotSummary(editShotData)
-                        postShotReviewPage.pendingShotSummary = MainController.aiManager.conversation.processShotForConversation(raw, editShotId)
-                    }
-
-                    // Open conversation overlay
-                    conversationOverlay.open()
+                    conversationOverlay.openWithShot(editShotData, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
                 }
             }
         }
@@ -1217,36 +1192,7 @@ Page {
     ConversationOverlay {
         id: conversationOverlay
         anchors.fill: parent
-        pendingShotSummary: postShotReviewPage.pendingShotSummary
-        shotId: editShotId
-        beverageType: editBeverageType
-        isMistakeShot: MainController.aiManager ? MainController.aiManager.isMistakeShot(editShotData) : false
         overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
-        onPendingShotSummaryCleared: postShotReviewPage.pendingShotSummary = ""
-    }
-
-    // Unsupported beverage type dialog
-    Dialog {
-        id: unsupportedBeverageDialog
-        property string beverageType: ""
-        title: TranslationManager.translate("shotdetail.unsupportedbeverage.title", "AI Not Available")
-        anchors.centerIn: parent
-        modal: true
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-        }
-
-        Text {
-            text: TranslationManager.translate("shotdetail.unsupportedbeverage.message",
-                "AI analysis isn't available for %1 profiles yet \u2014 only espresso and filter are supported for now. Sorry about that!").arg(unsupportedBeverageDialog.beverageType)
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
-            width: parent.width
-        }
-
-        standardButtons: Dialog.Ok
+        onPendingShotSummaryCleared: pendingShotSummary = ""
     }
 }

@@ -14,6 +14,52 @@ ShotSummarizer::ShotSummarizer(QObject* parent)
 {
 }
 
+QString ShotSummarizer::profileTypeDescription(const QString& editorType)
+{
+    if (editorType == "dflow") return "D-Flow (lever-style: pressure peaks then declines during flow extraction)";
+    if (editorType == "aflow") return "A-Flow (pressure ramp into flow extraction)";
+    if (editorType == "pressure") return "Pressure profile (pressure-controlled extraction)";
+    if (editorType == "flow") return "Flow profile (flow-controlled extraction)";
+    return QString();
+}
+
+void ShotSummarizer::detectChannelingInPhases(ShotSummary& summary, const QVector<QPointF>& flowData) const
+{
+    summary.channelingDetected = false;
+    bool isFilter = summary.beverageType.toLower() == "filter" ||
+                    summary.beverageType.toLower() == "pourover";
+    if (!isFilter) {
+        for (const auto& phase : summary.phases) {
+            if (!phase.isFlowMode) continue;
+            if (phase.duration < 3.0) continue;
+            if (detectChanneling(flowData, phase.startTime, phase.endTime)) {
+                summary.channelingDetected = true;
+                break;
+            }
+        }
+    }
+}
+
+void ShotSummarizer::calculateTemperatureStability(ShotSummary& summary,
+    const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const
+{
+    if (!tempGoalData.isEmpty()) {
+        double deviationSum = 0;
+        int count = 0;
+        for (const auto& point : tempData) {
+            double target = findValueAtTime(tempGoalData, point.x());
+            if (target > 0) {
+                deviationSum += std::abs(point.y() - target);
+                count++;
+            }
+        }
+        summary.temperatureUnstable = count > 0 && (deviationSum / count) > 2.0;
+    } else {
+        double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
+        summary.temperatureUnstable = tempStdDev > 2.0;
+    }
+}
+
 ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
                                        const Profile* profile,
                                        const ShotMetadata& metadata,
@@ -37,20 +83,15 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
 
         // Profile style from editor type — tells the AI what kind of extraction curve to expect
         if (profile->isRecipeMode()) {
+            // Convert EditorType enum to string for the shared helper
+            QString editorStr;
             switch (profile->recipeParams().editorType) {
-            case EditorType::DFlow:
-                summary.profileType = "D-Flow (lever-style: pressure peaks then declines during flow extraction)";
-                break;
-            case EditorType::AFlow:
-                summary.profileType = "A-Flow (pressure ramp into flow extraction)";
-                break;
-            case EditorType::Pressure:
-                summary.profileType = "Pressure profile (pressure-controlled extraction)";
-                break;
-            case EditorType::Flow:
-                summary.profileType = "Flow profile (flow-controlled extraction)";
-                break;
+            case EditorType::DFlow: editorStr = "dflow"; break;
+            case EditorType::AFlow: editorStr = "aflow"; break;
+            case EditorType::Pressure: editorStr = "pressure"; break;
+            case EditorType::Flow: editorStr = "flow"; break;
             }
+            summary.profileType = profileTypeDescription(editorStr);
         } else {
             summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
         }
@@ -101,26 +142,8 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     // Channeling detection will be done after phase processing (see below)
 
     // Temperature stability check - compare actual vs TARGET (not just variance)
-    // A declining temperature profile is intentional, not "unstable"
     const auto& tempGoalData = shotData->temperatureGoalData();
-    if (!tempGoalData.isEmpty()) {
-        // Calculate average deviation from target
-        double deviationSum = 0;
-        int count = 0;
-        for (const auto& point : tempData) {
-            double target = findValueAtTime(tempGoalData, point.x());
-            if (target > 0) {
-                deviationSum += std::abs(point.y() - target);
-                count++;
-            }
-        }
-        double avgDeviation = count > 0 ? deviationSum / count : 0;
-        summary.temperatureUnstable = avgDeviation > 2.0;  // >2°C average deviation from target
-    } else {
-        // No target data - fall back to variance check
-        double tempStdDev = calculateStdDev(tempData, 0, summary.totalDuration);
-        summary.temperatureUnstable = tempStdDev > 2.0;
-    }
+    calculateTemperatureStability(summary, tempData, tempGoalData);
 
     // Get phase markers from shot data
     QVariantList markers = shotData->phaseMarkersVariant();
@@ -212,22 +235,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     }
 
     // Detect channeling only during FLOW-CONTROLLED phases where flow should be stable.
-    // During pressure-controlled phases, flow variations are normal (puck resistance changes).
-    // Skip for filter/pourover — at high flow rates (5-8+ ml/s), normal turbulence causes
-    // fluctuations that look like "spikes" but are not channeling.
-    summary.channelingDetected = false;
-    bool isFilter = summary.beverageType.toLower() == "filter" ||
-                    summary.beverageType.toLower() == "pourover";
-    if (!isFilter) {
-        for (const auto& phase : summary.phases) {
-            if (!phase.isFlowMode) continue;  // Skip pressure-controlled phases
-            if (phase.duration < 3.0) continue;  // Skip very short phases
-            if (detectChanneling(flowData, phase.startTime, phase.endTime)) {
-                summary.channelingDetected = true;
-                break;
-            }
-        }
-    }
+    detectChannelingInPhases(summary, flowData);
 
     return summary;
 }
@@ -262,10 +270,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
             bool isRecipeMode = profileObj["is_recipe_mode"].toBool(false);
             if (isRecipeMode && profileObj.contains("recipe")) {
                 QString editorType = profileObj["recipe"].toObject()["editorType"].toString();
-                if (editorType == "dflow") summary.profileType = "D-Flow (lever-style: pressure peaks then declines during flow extraction)";
-                else if (editorType == "aflow") summary.profileType = "A-Flow (pressure ramp into flow extraction)";
-                else if (editorType == "pressure") summary.profileType = "Pressure profile (pressure-controlled extraction)";
-                else if (editorType == "flow") summary.profileType = "Flow profile (flow-controlled extraction)";
+                summary.profileType = profileTypeDescription(editorType);
             } else {
                 QString profileType = profileObj["profile_type"].toString();
                 if (profileType == "settings_2a") summary.profileType = "Pressure profile";
@@ -304,18 +309,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     if (summary.pressureCurve.isEmpty()) return summary;
 
     // Temperature stability
-    if (!summary.tempGoalCurve.isEmpty()) {
-        double deviationSum = 0;
-        int count = 0;
-        for (const auto& point : summary.tempCurve) {
-            double target = findValueAtTime(summary.tempGoalCurve, point.x());
-            if (target > 0) {
-                deviationSum += std::abs(point.y() - target);
-                count++;
-            }
-        }
-        summary.temperatureUnstable = count > 0 && (deviationSum / count) > 2.0;
-    }
+    calculateTemperatureStability(summary, summary.tempCurve, summary.tempGoalCurve);
 
     // Phase markers
     QVariantList phases = shotData.value("phases").toList();
@@ -369,18 +363,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     }
 
     // Channeling detection (skip for filter/pourover)
-    bool isFilter = summary.beverageType.toLower() == "filter" ||
-                    summary.beverageType.toLower() == "pourover";
-    if (!isFilter) {
-        for (const auto& phase : summary.phases) {
-            if (!phase.isFlowMode) continue;
-            if (phase.duration < 3.0) continue;
-            if (detectChanneling(summary.flowCurve, phase.startTime, phase.endTime)) {
-                summary.channelingDetected = true;
-                break;
-            }
-        }
-    }
+    detectChannelingInPhases(summary, summary.flowCurve);
 
     return summary;
 }
