@@ -1159,8 +1159,9 @@ void DE1Device::sendInitialSettings() {
     // Default value: 60°C (de1app default from machine.tcl)
     writeMMR(DE1::MMR::FAN_THRESHOLD, 60);
 
-    // Send heater tweaks (matches de1app's set_heater_tweaks, sent on every connection)
-    // These control how the machine heats and maintains temperature while idle
+    // Heater tweaks — matches de1app's set_heater_tweaks() called from
+    // later_new_de1_connection_setup(). Sent immediately on every connection.
+    // Also re-sent on user calibration changes via MainController::applyHeaterTweaks().
     if (m_settings) {
         writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow());
         writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow());
@@ -1169,6 +1170,7 @@ void DE1Device::sendInitialSettings() {
         writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
         writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0);
     } else {
+        // Fallback defaults if Settings not yet wired (matches de1app defaults)
         writeMMR(DE1::MMR::PHASE1_FLOW_RATE, 20);
         writeMMR(DE1::MMR::PHASE2_FLOW_RATE, 40);
         writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, 990);

@@ -2172,8 +2172,9 @@ void MainController::applyAllSettings() {
     // 7. Apply flow calibration multiplier
     applyFlowCalibration();
 
-    // 8. Apply heater calibration tweaks
-    applyHeaterTweaks();
+    // Note: heater tweaks are NOT sent here — matching de1app's save_settings_to_de1()
+    // which does not call set_heater_tweaks(). They are sent on connection in
+    // DE1Device::sendInitialSettings() and on user calibration changes via signal/slot.
 }
 
 void MainController::applyWaterRefillLevel() {
