@@ -146,6 +146,14 @@ class Settings : public QObject {
     // Refill kit override (0=force off, 1=force on, 2=auto-detect)
     Q_PROPERTY(int refillKitOverride READ refillKitOverride WRITE setRefillKitOverride NOTIFY refillKitOverrideChanged)
 
+    // Heater calibration (de1app's set_heater_tweaks — values in raw firmware units)
+    Q_PROPERTY(int heaterIdleTemp READ heaterIdleTemp WRITE setHeaterIdleTemp NOTIFY heaterIdleTempChanged)
+    Q_PROPERTY(int heaterWarmupFlow READ heaterWarmupFlow WRITE setHeaterWarmupFlow NOTIFY heaterWarmupFlowChanged)
+    Q_PROPERTY(int heaterTestFlow READ heaterTestFlow WRITE setHeaterTestFlow NOTIFY heaterTestFlowChanged)
+    Q_PROPERTY(int heaterWarmupTimeout READ heaterWarmupTimeout WRITE setHeaterWarmupTimeout NOTIFY heaterWarmupTimeoutChanged)
+    Q_PROPERTY(int hotWaterFlowRate READ hotWaterFlowRate WRITE setHotWaterFlowRate NOTIFY hotWaterFlowRateChanged)
+    Q_PROPERTY(bool steamTwoTapStop READ steamTwoTapStop WRITE setSteamTwoTapStop NOTIFY steamTwoTapStopChanged)
+
     // Developer settings
     Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
     Q_PROPERTY(bool simulationMode READ simulationMode WRITE setSimulationMode NOTIFY simulationModeChanged)
@@ -508,6 +516,20 @@ public:
     int refillKitOverride() const;
     void setRefillKitOverride(int value);
 
+    // Heater calibration
+    int heaterIdleTemp() const;
+    void setHeaterIdleTemp(int value);
+    int heaterWarmupFlow() const;
+    void setHeaterWarmupFlow(int value);
+    int heaterTestFlow() const;
+    void setHeaterTestFlow(int value);
+    int heaterWarmupTimeout() const;
+    void setHeaterWarmupTimeout(int value);
+    int hotWaterFlowRate() const;
+    void setHotWaterFlowRate(int value);
+    bool steamTwoTapStop() const;
+    void setSteamTwoTapStop(bool value);
+
     // Developer settings
     bool developerTranslationUpload() const;
     void setDeveloperTranslationUpload(bool enabled);
@@ -675,6 +697,12 @@ signals:
     void waterLevelDisplayUnitChanged();
     void waterRefillPointChanged();
     void refillKitOverrideChanged();
+    void heaterIdleTempChanged();
+    void heaterWarmupFlowChanged();
+    void heaterTestFlowChanged();
+    void heaterWarmupTimeoutChanged();
+    void hotWaterFlowRateChanged();
+    void steamTwoTapStopChanged();
     void developerTranslationUploadChanged();
     void simulationModeChanged();
     void temperatureOverrideChanged();

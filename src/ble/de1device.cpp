@@ -1159,6 +1159,24 @@ void DE1Device::sendInitialSettings() {
     // Default value: 60°C (de1app default from machine.tcl)
     writeMMR(DE1::MMR::FAN_THRESHOLD, 60);
 
+    // Send heater tweaks (matches de1app's set_heater_tweaks, sent on every connection)
+    // These control how the machine heats and maintains temperature while idle
+    if (m_settings) {
+        writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow());
+        writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow());
+        writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, m_settings->heaterIdleTemp());
+        writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout());
+        writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
+        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0);
+    } else {
+        writeMMR(DE1::MMR::PHASE1_FLOW_RATE, 20);
+        writeMMR(DE1::MMR::PHASE2_FLOW_RATE, 40);
+        writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, 990);
+        writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, 10);
+        writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, 10);
+        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, 0);
+    }
+
     // Send a basic profile header (5 bytes)
     // HeaderV=1, NumFrames=1, NumPreinfuse=0, MinPressure=0, MaxFlow=6.0
     QByteArray header(5, 0);

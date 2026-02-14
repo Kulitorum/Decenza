@@ -163,8 +163,14 @@ Item {
                 }
                 MainController.applyFlushSettings()
 
-                if (wasAlreadySelected && MachineState.isReady) {
-                    DE1Device.startFlush()
+                if (wasAlreadySelected) {
+                    if (MachineState.isReady) {
+                        DE1Device.startFlush()
+                    } else {
+                        console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                            AccessibilityManager.announce("Machine is not ready")
+                    }
                 }
                 presetPopup.close()
             }
