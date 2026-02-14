@@ -647,12 +647,14 @@ Page {
     }
 
     // Helper: strip known prefix from a title
+    // Handles leading * (modified indicator from imports, e.g. "*D-Flow / myrecipe")
     function stripPrefix(title) {
-        if (title.indexOf("D-Flow / ") === 0) return title.substring(9)
-        if (title.indexOf("A-Flow / ") === 0) return title.substring(9)
-        if (title.indexOf("D-Flow /") === 0) return title.substring(8).trim()
-        if (title.indexOf("A-Flow /") === 0) return title.substring(8).trim()
-        return title
+        var t = title.startsWith("*") ? title.substring(1) : title
+        if (t.indexOf("D-Flow / ") === 0) return t.substring(9)
+        if (t.indexOf("A-Flow / ") === 0) return t.substring(9)
+        if (t.indexOf("D-Flow /") === 0) return t.substring(8).trim()
+        if (t.indexOf("A-Flow /") === 0) return t.substring(8).trim()
+        return t
     }
 
     // Save As dialog
