@@ -387,6 +387,17 @@ void AcaiaScale::decodeWeight(const QByteArray& data, int payloadOffset) {
     setWeight(weight);
 }
 
+void AcaiaScale::sendKeepAlive() {
+    if (!m_transport || !m_characteristicsReady) return;
+
+    // Re-enable BLE notifications to prevent OS-level subscription expiry
+    if (m_isPyxis) {
+        m_transport->enableNotifications(Scale::Acaia::SERVICE, Scale::Acaia::STATUS);
+    } else {
+        m_transport->enableNotifications(Scale::AcaiaIPS::SERVICE, Scale::AcaiaIPS::CHARACTERISTIC);
+    }
+}
+
 void AcaiaScale::sendTareCommand() {
     // Tare message: type 0x04 with zeros
     QByteArray payload(17, 0);

@@ -10,6 +10,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QDesktopServices>
+#include <QGuiApplication>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -389,6 +390,11 @@ void UpdateChecker::dismissUpdate()
 void UpdateChecker::onPeriodicCheck()
 {
     if (m_checking || m_downloading) return;
+
+    // Don't check while app is suspended — attempting to show a popup while
+    // the EGL surface is destroyed causes a deadlock between the accessibility
+    // thread and the render thread on Android (see issue #178)
+    if (QGuiApplication::applicationState() != Qt::ApplicationActive) return;
 
     m_checking = true;
     emit checkingChanged();

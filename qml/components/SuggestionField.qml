@@ -10,6 +10,7 @@ Item {
     property string text: ""
     property var suggestions: []  // List of existing values from database
     property string accessibleName: ""  // Explicit accessible name for screen readers (overrides label)
+    property alias textField: textInput  // Expose internal text input for KeyboardAwareContainer registration
 
     signal textEdited(string text)
     signal inputFocused(Item field)  // Emitted when text input gets focus (for keyboard handling)

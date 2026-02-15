@@ -20,8 +20,6 @@ Page {
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
-    property bool keyboardVisible: Qt.inputMethod.visible
-    property Item focusedField: null
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 
@@ -122,55 +120,6 @@ Page {
         loadShotForEditing()
     }
 
-    function scrollToFocusedField() {
-        if (!focusedField) return
-        // Get field center position in content coordinates
-        let fieldY = focusedField.mapToItem(flickable.contentItem, 0, 0).y
-        let fieldCenter = fieldY + focusedField.height / 2
-        // Get keyboard height (real or estimated)
-        let kbHeight = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
-        if (kbHeight <= 0) kbHeight = postShotReviewPage.height * 0.5
-        // Calculate center of visible area above keyboard
-        let visibleHeight = postShotReviewPage.height - kbHeight - Theme.pageTopMargin
-        let visibleCenter = visibleHeight / 2
-        // Scroll so field center is at center of visible area
-        let targetY = fieldCenter - visibleCenter
-        // Clamp to valid scroll range
-        let maxScroll = flickable.contentHeight - flickable.height
-        flickable.contentY = Math.max(0, Math.min(targetY, maxScroll))
-    }
-
-    function hideKeyboard() {
-        Qt.inputMethod.hide()
-        flickable.contentY = 0
-        flickable.forceActiveFocus()
-    }
-
-    // Scroll to focused field when it changes
-    onFocusedFieldChanged: {
-        if (focusedField) {
-            scrollTimer.restart()
-        }
-    }
-
-    Timer {
-        id: scrollTimer
-        interval: 150
-        onTriggered: scrollToFocusedField()
-    }
-
-    // Reset focusedField when focus leaves all text fields
-    Timer {
-        id: focusResetTimer
-        interval: 100
-        onTriggered: {
-            if (focusedField && !focusedField.activeFocus) {
-                focusedField = null
-                flickable.contentY = 0
-            }
-        }
-    }
-
     // Handle upload status changes
     Connections {
         target: MainController.visualizer
@@ -202,16 +151,14 @@ Page {
         }
     }
 
-    // Tap background to dismiss keyboard
-    MouseArea {
+    KeyboardAwareContainer {
+        id: keyboardContainer
         anchors.fill: parent
-        visible: focusedField !== null
-        onClicked: {
-            focusedField = null
-            hideKeyboard()
-        }
-        z: -1
-    }
+        textFields: [
+            roasterField.textField, coffeeField.textField, roastDateField.textField,
+            grinderField.textField, settingField.textField, baristaField.textField,
+            notesField
+        ]
 
     Flickable {
         id: flickable
@@ -220,9 +167,7 @@ Page {
         anchors.bottomMargin: Theme.bottomBarHeight
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
-        // Add bottom padding for keyboard: use real height if available, else estimate when focused
-        property real kbHeight: Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
-        contentHeight: mainColumn.height + (kbHeight > 0 ? kbHeight : (focusedField ? postShotReviewPage.height * 0.5 : 0))
+        contentHeight: mainColumn.height
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -320,24 +265,25 @@ Page {
 
                 // === ROW 1: Bean info ===
                 SuggestionField {
+                    id: roasterField
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
                     text: editBeanBrand
                     suggestions: MainController.shotHistory.getDistinctBeanBrands()
                     onTextEdited: function(t) { editBeanBrand = t }
-                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 SuggestionField {
+                    id: coffeeField
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
                     text: editBeanType
                     suggestions: MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand)
                     onTextEdited: function(t) { editBeanType = t }
-                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 LabeledField {
+                    id: roastDateField
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roastdate", "Roast date (yyyy-mm-dd)")
                     text: editRoastDate
@@ -361,21 +307,21 @@ Page {
                 }
 
                 SuggestionField {
+                    id: grinderField
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.grinder", "Grinder")
                     text: editGrinderModel
                     suggestions: MainController.shotHistory.getDistinctGrinders()
                     onTextEdited: function(t) { editGrinderModel = t }
-                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 SuggestionField {
+                    id: settingField
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.setting", "Setting")
                     text: editGrinderSetting
                     suggestions: MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel)
                     onTextEdited: function(t) { editGrinderSetting = t }
-                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 // === ROW 3: Beverage type, Barista, Preset, Shot Date ===
@@ -388,13 +334,13 @@ Page {
                 }
 
                 SuggestionField {
+                    id: baristaField
                     Layout.fillWidth: true
                     Layout.columnSpan: 2
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: editBarista
                     suggestions: MainController.shotHistory.getDistinctBaristas()
                     onTextEdited: function(t) { editBarista = t }
-                    onInputFocused: function(field) { focusedField = field }
                 }
 
                 // Preset (read-only display)
@@ -531,7 +477,7 @@ Page {
                                     doseInput.value = newValue
                                     editDoseWeight = newValue
                                 }
-                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
                         }
 
@@ -561,7 +507,7 @@ Page {
                                     outInput.value = newValue
                                     editDrinkWeight = newValue
                                 }
-                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
                         }
 
@@ -591,7 +537,7 @@ Page {
                                     tdsInput.value = newValue
                                     editDrinkTds = newValue
                                 }
-                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
                         }
 
@@ -621,7 +567,7 @@ Page {
                                     eyInput.value = newValue
                                     editDrinkEy = newValue
                                 }
-                                onActiveFocusChanged: if (activeFocus) hideKeyboard()
+                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
                         }
                     }
@@ -712,14 +658,10 @@ Page {
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
-                                focusedField = notesField
-                                focusResetTimer.stop()
                                 if (AccessibilityManager.enabled) {
                                     let announcement = TranslationManager.translate("postshotreview.label.notes", "Notes") + ". " + (text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty"))
                                     AccessibilityManager.announce(announcement)
                                 }
-                            } else {
-                                focusResetTimer.restart()
                             }
                         }
 
@@ -733,38 +675,7 @@ Page {
         }
     }
 
-    // Hide keyboard button - appears below status bar when a field has focus
-    Rectangle {
-        id: hideKeyboardButton
-        visible: focusedField !== null
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.rightMargin: Theme.standardMargin
-        anchors.topMargin: Theme.pageTopMargin + 4
-        width: hideKeyboardText.width + 24
-        height: Theme.scaled(28)
-        radius: Theme.scaled(14)
-        color: Theme.primaryColor
-        z: 100
-
-        Tr {
-            id: hideKeyboardText
-            anchors.centerIn: parent
-            key: "postshotreview.button.hidekeyboard"
-            fallback: "Hide keyboard"
-            color: "white"
-            font.pixelSize: Theme.scaled(13)
-            font.bold: true
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            onClicked: {
-                focusedField = null
-                hideKeyboard()
-            }
-        }
-    }
+    } // KeyboardAwareContainer
 
     // Bottom bar (stays visible under keyboard)
     BottomBar {
@@ -1019,6 +930,7 @@ Page {
         property string text: ""
         property int inputHints: Qt.ImhNone
         property string inputMask: ""
+        property alias textField: fieldInput  // Expose for KeyboardAwareContainer registration
         signal textEdited(string text)
 
         implicitHeight: fieldLabel.height + fieldInput.height + 2
@@ -1046,14 +958,10 @@ Page {
             onTextChanged: parent.textEdited(text)
             onActiveFocusChanged: {
                 if (activeFocus) {
-                    focusedField = fieldInput
-                    focusResetTimer.stop()
                     if (AccessibilityManager.enabled) {
                         let announcement = parent.label + ". " + (text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty"))
                         AccessibilityManager.announce(announcement)
                     }
-                } else {
-                    focusResetTimer.restart()
                 }
             }
 

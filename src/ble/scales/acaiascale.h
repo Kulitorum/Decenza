@@ -18,6 +18,7 @@ public:
 
 public slots:
     void tare() override;
+    void sendKeepAlive() override;
     void startTimer() override {}  // Acaia scales don't support remote timer control
     void stopTimer() override {}
     void resetTimer() override {}

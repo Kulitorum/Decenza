@@ -37,6 +37,7 @@ Item {
             text: DE1Device.temperature.toFixed(1) + "\u00B0C"
             color: Theme.temperatureColor
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
 
         MouseArea {
@@ -73,6 +74,7 @@ Item {
                     text: DE1Device.temperature.toFixed(1) + "\u00B0C"
                     color: Theme.temperatureColor
                     font: Theme.valueFont
+                    Accessible.ignored: true
                 }
                 Text {
                     anchors.baseline: parent.children[0].baseline
@@ -80,6 +82,7 @@ Item {
                     color: Settings.hasTemperatureOverride ? Theme.primaryColor : Theme.textSecondaryColor
                     font.family: Theme.valueFont.family
                     font.pixelSize: Theme.valueFont.pixelSize / 2
+                    Accessible.ignored: true
                 }
             }
 
@@ -91,12 +94,14 @@ Item {
                     fallback: "Group Temp"
                     color: Theme.textSecondaryColor
                     font: Theme.labelFont
+                    Accessible.ignored: true
                 }
                 Text {
                     visible: Settings.hasTemperatureOverride
                     text: "(override)"
                     color: Theme.primaryColor
                     font: Theme.labelFont
+                    Accessible.ignored: true
                 }
             }
         }

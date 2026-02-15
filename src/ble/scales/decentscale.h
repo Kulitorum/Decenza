@@ -17,6 +17,7 @@ public:
 
 public slots:
     void tare() override;
+    void sendKeepAlive() override;
     void startTimer() override;
     void stopTimer() override;
     void resetTimer() override;

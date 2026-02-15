@@ -38,6 +38,7 @@ Item {
             color: DE1Device.waterLevelMl < 200 ? Theme.errorColor :
                    DE1Device.waterLevelMl < 400 ? Theme.warningColor : Theme.primaryColor
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
     }
 
@@ -61,6 +62,7 @@ Item {
                     : DE1Device.waterLevel.toFixed(0) + "%"
                 color: DE1Device.waterLevel > 20 ? Theme.primaryColor : Theme.warningColor
                 font: Theme.valueFont
+                Accessible.ignored: true
             }
             Tr {
                 Layout.alignment: Qt.AlignHCenter
@@ -68,6 +70,7 @@ Item {
                 fallback: "Water Level"
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
+                Accessible.ignored: true
             }
         }
 

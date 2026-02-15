@@ -83,6 +83,7 @@ Item {
                     color: BLEManager.scaleConnectionFailed ? "white" : Theme.textSecondaryColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
                 }
             }
 
@@ -112,6 +113,7 @@ Item {
                 text: root.weightText()
                 color: root.scaleColor(scaleMouseArea.pressed)
                 font: Theme.bodyFont
+                Accessible.ignored: true
             }
         }
 
@@ -122,6 +124,7 @@ Item {
             text: "--"
             color: Theme.textSecondaryColor
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
 
         // Tare / ratio interaction overlay
@@ -224,6 +227,7 @@ Item {
                 text: root.weightText()
                 color: root.scaleColor(false)
                 font: Theme.valueFont
+                Accessible.ignored: true
             }
 
             Text {
@@ -232,6 +236,7 @@ Item {
                 text: "--"
                 color: Theme.textSecondaryColor
                 font: Theme.valueFont
+                Accessible.ignored: true
             }
 
             Tr {
@@ -240,6 +245,7 @@ Item {
                 fallback: "Scale Weight"
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
+                Accessible.ignored: true
             }
         }
     }

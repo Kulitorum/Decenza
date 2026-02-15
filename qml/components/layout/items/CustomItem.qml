@@ -257,6 +257,7 @@ Item {
                 sourceSize.width: Theme.scaled(28)
                 sourceSize.height: Theme.scaled(28)
                 Layout.alignment: Qt.AlignVCenter
+                Accessible.ignored: true
             }
 
             Text {
@@ -267,6 +268,7 @@ Item {
                 horizontalAlignment: root.qtAlignment
                 elide: Text.ElideRight
                 maximumLineCount: 1
+                Accessible.ignored: true
             }
         }
 
@@ -314,6 +316,7 @@ Item {
                 sourceSize.height: Theme.scaled(48)
                 anchors.horizontalCenter: parent.horizontalCenter
                 opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+                Accessible.ignored: true
             }
 
             Text {
@@ -324,6 +327,7 @@ Item {
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
                 anchors.horizontalCenter: parent.horizontalCenter
+                Accessible.ignored: true
             }
         }
 
@@ -339,6 +343,7 @@ Item {
             font: Theme.bodyFont
             horizontalAlignment: root.qtAlignment
             wrapMode: Text.Wrap
+            Accessible.ignored: true
         }
 
         AccessibleTapHandler {

@@ -175,6 +175,11 @@ void DecentScale::parseWeightData(const QByteArray& data) {
     }
 }
 
+void DecentScale::sendKeepAlive() {
+    if (m_transport && m_characteristicsReady)
+        m_transport->enableNotifications(Scale::Decent::SERVICE, Scale::Decent::READ);
+}
+
 void DecentScale::sendCommand(const QByteArray& command) {
     if (!m_transport || !m_characteristicsReady) return;
 
