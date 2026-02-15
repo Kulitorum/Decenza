@@ -103,6 +103,7 @@ void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -199,6 +200,7 @@ void OpenAIProvider::testConnection()
     QNetworkReply* reply = m_networkManager->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -247,6 +249,7 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -372,6 +375,7 @@ void AnthropicProvider::testConnection()
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -426,6 +430,7 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -578,6 +583,7 @@ void GeminiProvider::testConnection()
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -630,6 +636,7 @@ void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -741,6 +748,7 @@ void OpenRouterProvider::testConnection()
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -788,6 +796,7 @@ void OllamaProvider::sendRequest(const QUrl& url, const QJsonObject& requestBody
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
+        reply->deleteLater();
     });
 }
 
@@ -905,6 +914,7 @@ void OllamaProvider::refreshModels()
     QNetworkReply* reply = m_networkManager->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onModelsReply(reply);
+        reply->deleteLater();
     });
 }
 

@@ -11,8 +11,6 @@ Page {
 
     property int shotId: 0
     property var shotData: ({})
-    property string pendingShotSummary: ""
-
     // Shot navigation - list of shot IDs to swipe through
     property var shotIds: []  // Array of shot IDs (chronological order)
     property int currentIndex: -1  // Current position in shotIds
@@ -591,7 +589,6 @@ Page {
         id: conversationOverlay
         anchors.fill: parent
         overlayTitle: TranslationManager.translate("shotdetail.conversation.title", "AI Conversation")
-        onPendingShotSummaryCleared: pendingShotSummary = ""
     }
 
     // Bottom bar

@@ -77,7 +77,8 @@ Rectangle {
         }
 
         // Check for mistake shot
-        if (MainController.aiManager.isMistakeShot(shotData)) {
+        var isMistake = MainController.aiManager.isMistakeShot(shotData)
+        if (isMistake) {
             overlay.pendingShotSummary = ""
         } else {
             // Generate shot summary from history shot data, with recipe dedup and change detection
@@ -87,7 +88,7 @@ Rectangle {
 
         overlay.shotId = shotId
         overlay.beverageType = bevType
-        overlay.isMistakeShot = MainController.aiManager.isMistakeShot(shotData)
+        overlay.isMistakeShot = isMistake
         overlay.open()
     }
 

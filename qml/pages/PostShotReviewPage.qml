@@ -22,8 +22,6 @@ Page {
     property bool isEditMode: editShotId > 0
     property bool keyboardVisible: Qt.inputMethod.visible
     property Item focusedField: null
-    property string pendingShotSummary: ""  // Shot summary waiting to be sent with user's question
-
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 
@@ -1193,6 +1191,5 @@ Page {
         id: conversationOverlay
         anchors.fill: parent
         overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
-        onPendingShotSummaryCleared: pendingShotSummary = ""
     }
 }
