@@ -6,6 +6,7 @@
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
+#include "../history/shothistorystorage.h"
 
 #include <QNetworkAccessManager>
 #include <QStandardPaths>
@@ -13,6 +14,10 @@
 #include <QFile>
 #include <QDateTime>
 #include <QDebug>
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <cmath>
 
 AIManager::AIManager(Settings* settings, QObject* parent)
     : QObject(parent)
@@ -25,11 +30,12 @@ AIManager::AIManager(Settings* settings, QObject* parent)
     // Create conversation handler for multi-turn interactions
     m_conversation = new AIConversation(this, this);
 
-    // Load any saved conversation from previous session
-    if (m_conversation->hasSavedConversation()) {
-        m_conversation->loadFromStorage();
-        qDebug() << "AIManager: Loaded saved conversation with" << m_conversation->messageCount() << "messages";
-    }
+    // Migrate legacy single-conversation storage if needed
+    migrateFromLegacyConversation();
+
+    // Load conversation index and restore most recent conversation
+    loadConversationIndex();
+    loadMostRecentConversation();
 
     // Connect to settings changes
     connect(m_settings, &Settings::valueChanged, this, &AIManager::onSettingsChanged);
@@ -88,6 +94,18 @@ QString AIManager::selectedProvider() const
     return m_settings->value("ai/provider", "openai").toString();
 }
 
+QString AIManager::currentModelName() const
+{
+    AIProvider* provider = currentProvider();
+    return provider ? provider->modelName() : QString();
+}
+
+QString AIManager::modelDisplayName(const QString& providerId) const
+{
+    AIProvider* provider = providerById(providerId);
+    return provider ? provider->shortModelName() : QString();
+}
+
 void AIManager::setSelectedProvider(const QString& provider)
 {
     if (selectedProvider() != provider) {
@@ -108,17 +126,20 @@ bool AIManager::isConfigured() const
     return provider && provider->isConfigured();
 }
 
-AIProvider* AIManager::currentProvider() const
+AIProvider* AIManager::providerById(const QString& providerId) const
 {
-    QString providerId = selectedProvider();
-
     if (providerId == "openai") return m_openaiProvider.get();
     if (providerId == "anthropic") return m_anthropicProvider.get();
     if (providerId == "gemini") return m_geminiProvider.get();
     if (providerId == "openrouter") return m_openrouterProvider.get();
     if (providerId == "ollama") return m_ollamaProvider.get();
+    return nullptr;
+}
 
-    return m_openaiProvider.get();  // Default
+AIProvider* AIManager::currentProvider() const
+{
+    AIProvider* provider = providerById(selectedProvider());
+    return provider ? provider : m_openaiProvider.get();  // Default
 }
 
 ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
@@ -275,122 +296,57 @@ QString AIManager::generateShotSummary(ShotDataModel* shotData,
 
 QString AIManager::generateHistoryShotSummary(const QVariantMap& shotData)
 {
-    QString prompt;
-    QTextStream out(&prompt);
+    ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
+    return m_summarizer->buildUserPrompt(summary);
+}
 
-    // Shot summary
-    out << "## Shot Summary\n\n";
-    QString beverageType = shotData.value("beverageType", "espresso").toString();
-    out << "- **Beverage type**: " << beverageType << "\n";
-    out << "- **Profile**: " << shotData.value("profileName", "Unknown").toString() << "\n";
+void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
+{
+    m_shotHistory = storage;
+}
 
-    double doseWeight = shotData.value("doseWeight", 0.0).toDouble();
-    double finalWeight = shotData.value("finalWeight", 0.0).toDouble();
-    double ratio = doseWeight > 0 ? finalWeight / doseWeight : 0;
+QString AIManager::getRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId)
+{
+    if (!m_shotHistory || (beanBrand.isEmpty() && profileName.isEmpty()))
+        return QString();
 
-    out << "- **Dose**: " << QString::number(doseWeight, 'f', 1) << "g -> ";
-    out << "**Yield**: " << QString::number(finalWeight, 'f', 1) << "g ";
-    out << "(ratio 1:" << QString::number(ratio, 'f', 1) << ")\n";
-    out << "- **Duration**: " << QString::number(shotData.value("duration", 0.0).toDouble(), 'f', 0) << "s\n";
+    // Build filter: match on non-empty fields, last 3 weeks
+    QVariantMap filter;
+    if (!beanBrand.isEmpty()) filter["beanBrand"] = beanBrand;
+    if (!beanType.isEmpty()) filter["beanType"] = beanType;
+    if (!profileName.isEmpty()) filter["profileName"] = profileName;
+    filter["dateFrom"] = QDateTime::currentSecsSinceEpoch() - 21 * 24 * 3600;
 
-    // Coffee info
-    QString beanBrand = shotData.value("beanBrand").toString();
-    QString beanType = shotData.value("beanType").toString();
-    QString roastLevel = shotData.value("roastLevel").toString();
-    QString grinderModel = shotData.value("grinderModel").toString();
-    QString grinderSetting = shotData.value("grinderSetting").toString();
+    // Fetch extra to have room after filtering out excludeShotId and mistakes
+    QVariantList candidates = m_shotHistory->getShotsFiltered(filter, 0, 6);
 
-    if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
-        out << "- **Coffee**: " << beanBrand;
-        if (!beanBrand.isEmpty() && !beanType.isEmpty()) out << " - ";
-        out << beanType;
-        if (!roastLevel.isEmpty()) out << " (" << roastLevel << ")";
-        out << "\n";
+    QStringList shotSections;
+    for (const QVariant& v : candidates) {
+        if (shotSections.size() >= 3) break;
+
+        QVariantMap shot = v.toMap();
+        qint64 id = shot.value("id").toLongLong();
+        if (id == excludeShotId) continue;
+        if (isMistakeShot(shot)) continue;
+
+        // Load full shot data (with time-series) for rich summary
+        QVariantMap fullShot = m_shotHistory->getShot(id);
+        if (fullShot.isEmpty()) continue;
+
+        QString summary = generateHistoryShotSummary(fullShot);
+        if (summary.isEmpty()) continue;
+
+        // Format date for header
+        qint64 timestamp = shot.value("timestamp").toLongLong();
+        QString dateStr = QDateTime::fromSecsSinceEpoch(timestamp).toString("MMM d, HH:mm");
+
+        shotSections.prepend(QString("### Shot #%1 (%2)\n\n%3").arg(id).arg(dateStr).arg(summary));
     }
-    if (!grinderModel.isEmpty()) {
-        out << "- **Grinder**: " << grinderModel;
-        if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
-        out << "\n";
-    }
-    QString beanNotes = shotData.value("beanNotes").toString();
-    if (!beanNotes.isEmpty())
-        out << "- **Bean notes**: " << beanNotes << "\n";
-    QString profileNotes = shotData.value("profileNotes").toString();
-    if (!profileNotes.isEmpty())
-        out << "- **Profile notes**: " << profileNotes << "\n";
-    out << "\n";
 
-    // Extract curve data for analysis
-    QVariantList pressureData = shotData.value("pressure").toList();
-    QVariantList flowData = shotData.value("flow").toList();
-    QVariantList tempData = shotData.value("temperature").toList();
-    QVariantList weightData = shotData.value("weight").toList();
+    if (shotSections.isEmpty())
+        return QString();
 
-    // Sample curve data at key points for AI analysis
-    double duration = shotData.value("duration", 60.0).toDouble();
-    out << "## Curve Samples\n\n";
-    out << "Sample points from the extraction curves:\n\n";
-
-    // Helper lambda to find value at time
-    auto findValueAtTime = [](const QVariantList& data, double targetTime) -> double {
-        if (data.isEmpty()) return 0;
-        for (const QVariant& point : data) {
-            QVariantMap p = point.toMap();
-            double t = p.value("x", 0.0).toDouble();
-            if (t >= targetTime) {
-                return p.value("y", 0.0).toDouble();
-            }
-        }
-        // Return last value if past end
-        if (!data.isEmpty()) {
-            return data.last().toMap().value("y", 0.0).toDouble();
-        }
-        return 0;
-    };
-
-    // Sample at 25%, 50%, 75% of extraction
-    double times[] = { duration * 0.25, duration * 0.5, duration * 0.75 };
-    const char* labels[] = { "Early", "Middle", "Late" };
-
-    for (int i = 0; i < 3; i++) {
-        double t = times[i];
-        double pressure = findValueAtTime(pressureData, t);
-        double flow = findValueAtTime(flowData, t);
-        double temp = findValueAtTime(tempData, t);
-        double weight = findValueAtTime(weightData, t);
-
-        out << "- **" << labels[i] << "** @" << QString::number(t, 'f', 0) << "s: ";
-        out << QString::number(pressure, 'f', 1) << " bar, ";
-        out << QString::number(flow, 'f', 1) << " ml/s, ";
-        out << QString::number(temp, 'f', 0) << " C, ";
-        out << QString::number(weight, 'f', 1) << "g\n";
-    }
-    out << "\n";
-
-    // Tasting feedback
-    out << "## Tasting Feedback\n\n";
-    int enjoyment = shotData.value("enjoyment", 0).toInt();
-    QString notes = shotData.value("espressoNotes").toString();
-
-    if (enjoyment > 0) {
-        out << "- **Score**: " << enjoyment << "/100";
-        if (enjoyment >= 80) out << " - Good shot!";
-        else if (enjoyment >= 60) out << " - Decent, room for improvement";
-        else if (enjoyment >= 40) out << " - Needs work";
-        else out << " - Problematic";
-        out << "\n";
-    }
-    if (!notes.isEmpty()) {
-        out << "- **Notes**: \"" << notes << "\"\n";
-    }
-    if (enjoyment == 0 && notes.isEmpty()) {
-        out << "- No tasting feedback provided\n";
-    }
-    out << "\n";
-
-    out << "Analyze the curve data and sensory feedback. Provide ONE specific, evidence-based recommendation.\n";
-
-    return prompt;
+    return "## Previous Shots with This Bean & Profile\n\n" + shotSections.join("\n\n");
 }
 
 void AIManager::testConnection()
@@ -408,6 +364,12 @@ void AIManager::testConnection()
 
 void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
+    if (m_analyzing) {
+        m_lastError = "Analysis already in progress";
+        emit errorOccurred(m_lastError);
+        return;
+    }
+
     AIProvider* provider = currentProvider();
     if (!provider) {
         m_lastError = "No AI provider configured";
@@ -422,6 +384,7 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
     }
 
     m_analyzing = true;
+    m_isConversationRequest = false;
     emit analyzingChanged();
 
     // Store for logging
@@ -430,6 +393,38 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 
     logPrompt(selectedProvider(), systemPrompt, userPrompt);
     provider->analyze(systemPrompt, userPrompt);
+}
+
+void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
+{
+    if (m_analyzing) {
+        emit conversationErrorOccurred("Analysis already in progress");
+        return;
+    }
+
+    AIProvider* provider = currentProvider();
+    if (!provider) {
+        m_lastError = "No AI provider configured";
+        emit conversationErrorOccurred(m_lastError);
+        return;
+    }
+
+    if (!isConfigured()) {
+        m_lastError = "AI provider not configured";
+        emit conversationErrorOccurred(m_lastError);
+        return;
+    }
+
+    m_analyzing = true;
+    m_isConversationRequest = true;
+    emit analyzingChanged();
+
+    // Store for logging — flatten for the log file
+    m_lastSystemPrompt = systemPrompt;
+    m_lastUserPrompt = QString("[Conversation with %1 messages]").arg(messages.size());
+
+    logPrompt(selectedProvider(), systemPrompt, m_lastUserPrompt);
+    provider->analyzeConversation(systemPrompt, messages);
 }
 
 void AIManager::refreshOllamaModels()
@@ -450,7 +445,13 @@ void AIManager::onAnalysisComplete(const QString& response)
     logResponse(selectedProvider(), response, true);
 
     emit analyzingChanged();
-    emit recommendationReceived(response);
+
+    // Emit to the appropriate listener based on request type
+    if (m_isConversationRequest) {
+        emit conversationResponseReceived(response);
+    } else {
+        emit recommendationReceived(response);
+    }
 }
 
 void AIManager::onAnalysisFailed(const QString& error)
@@ -462,7 +463,13 @@ void AIManager::onAnalysisFailed(const QString& error)
     logResponse(selectedProvider(), error, false);
 
     emit analyzingChanged();
-    emit errorOccurred(error);
+
+    // Emit to the appropriate listener based on request type
+    if (m_isConversationRequest) {
+        emit conversationErrorOccurred(error);
+    } else {
+        emit errorOccurred(error);
+    }
 }
 
 void AIManager::onTestResult(bool success, const QString& message)
@@ -512,6 +519,270 @@ void AIManager::onSettingsChanged()
 }
 
 // ============================================================================
+// Conversation Routing
+// ============================================================================
+
+QJsonObject AIManager::ConversationEntry::toJson() const
+{
+    QJsonObject obj;
+    obj["key"] = key;
+    obj["beanBrand"] = beanBrand;
+    obj["beanType"] = beanType;
+    obj["profileName"] = profileName;
+    obj["timestamp"] = timestamp;
+    return obj;
+}
+
+AIManager::ConversationEntry AIManager::ConversationEntry::fromJson(const QJsonObject& obj)
+{
+    ConversationEntry entry;
+    entry.key = obj["key"].toString();
+    entry.beanBrand = obj["beanBrand"].toString();
+    entry.beanType = obj["beanType"].toString();
+    entry.profileName = obj["profileName"].toString();
+    entry.timestamp = obj["timestamp"].toVariant().toLongLong();
+    return entry;
+}
+
+QString AIManager::conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName)
+{
+    QString normalized = beanBrand.toLower().trimmed() + "|" +
+                         beanType.toLower().trimmed() + "|" +
+                         profileName.toLower().trimmed();
+    QByteArray hash = QCryptographicHash::hash(normalized.toUtf8(), QCryptographicHash::Sha1);
+    return hash.toHex().left(16);
+}
+
+void AIManager::loadConversationIndex()
+{
+    QSettings settings;
+    QByteArray indexJson = settings.value("ai/conversations/index").toByteArray();
+    m_conversationIndex.clear();
+
+    if (!indexJson.isEmpty()) {
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(indexJson, &parseError);
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "AIManager::loadConversationIndex: JSON parse error:" << parseError.errorString();
+        } else if (doc.isArray()) {
+            QJsonArray arr = doc.array();
+            for (const QJsonValue& val : arr) {
+                ConversationEntry entry = ConversationEntry::fromJson(val.toObject());
+                if (entry.key.isEmpty()) {
+                    qWarning() << "AIManager::loadConversationIndex: Skipping entry with empty key";
+                    continue;
+                }
+                m_conversationIndex.append(entry);
+            }
+        }
+    }
+    qDebug() << "AIManager: Loaded conversation index with" << m_conversationIndex.size() << "entries";
+}
+
+void AIManager::saveConversationIndex()
+{
+    QJsonArray arr;
+    for (const auto& entry : m_conversationIndex) {
+        arr.append(entry.toJson());
+    }
+    QSettings settings;
+    settings.setValue("ai/conversations/index", QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    emit conversationIndexChanged();
+}
+
+void AIManager::touchConversationEntry(const QString& key)
+{
+    qint64 now = QDateTime::currentSecsSinceEpoch();
+    for (int i = 0; i < m_conversationIndex.size(); i++) {
+        if (m_conversationIndex[i].key == key) {
+            m_conversationIndex[i].timestamp = now;
+            // Move to front (most recent)
+            if (i > 0) {
+                auto entry = m_conversationIndex.takeAt(i);
+                m_conversationIndex.prepend(entry);
+            }
+            saveConversationIndex();
+            return;
+        }
+    }
+}
+
+void AIManager::evictOldestConversation()
+{
+    if (m_conversationIndex.size() < MAX_CONVERSATIONS) return;
+
+    // Remove the last (oldest) entry
+    ConversationEntry oldest = m_conversationIndex.takeLast();
+
+    // Remove its QSettings data
+    QSettings settings;
+    QString prefix = "ai/conversations/" + oldest.key + "/";
+    settings.remove(prefix + "systemPrompt");
+    settings.remove(prefix + "messages");
+    settings.remove(prefix + "timestamp");
+
+    qDebug() << "AIManager: Evicted oldest conversation:" << oldest.beanBrand << oldest.beanType << oldest.profileName;
+    saveConversationIndex();
+}
+
+void AIManager::migrateFromLegacyConversation()
+{
+    QSettings settings;
+
+    // Check if legacy data exists and new index doesn't
+    QByteArray legacyMessages = settings.value("ai/conversation/messages").toByteArray();
+    QByteArray existingIndex = settings.value("ai/conversations/index").toByteArray();
+
+    if (legacyMessages.isEmpty() || !existingIndex.isEmpty()) return;
+
+    QJsonDocument doc = QJsonDocument::fromJson(legacyMessages);
+    if (!doc.isArray() || doc.array().isEmpty()) return;
+
+    qDebug() << "AIManager: Migrating legacy conversation to keyed storage";
+
+    // Use a fixed key for the legacy conversation
+    QString legacyKey = "_legacy";
+
+    // Copy data to new keyed location
+    QString prefix = "ai/conversations/" + legacyKey + "/";
+    settings.setValue(prefix + "systemPrompt", settings.value("ai/conversation/systemPrompt"));
+    settings.setValue(prefix + "messages", legacyMessages);
+    settings.setValue(prefix + "timestamp", settings.value("ai/conversation/timestamp"));
+
+    // Create index entry
+    ConversationEntry entry;
+    entry.key = legacyKey;
+    entry.beanBrand = "";
+    entry.beanType = "";
+    entry.profileName = "(Previous conversation)";
+    entry.timestamp = QDateTime::currentSecsSinceEpoch();
+
+    QJsonArray indexArr;
+    indexArr.append(entry.toJson());
+    settings.setValue("ai/conversations/index", QJsonDocument(indexArr).toJson(QJsonDocument::Compact));
+
+    // Keep legacy keys as recovery fallback — they'll be harmless if left in place
+    // settings.remove("ai/conversation/systemPrompt");
+    // settings.remove("ai/conversation/messages");
+    // settings.remove("ai/conversation/timestamp");
+
+    qDebug() << "AIManager: Legacy conversation migrated to key:" << legacyKey;
+}
+
+QString AIManager::switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName)
+{
+    QString key = conversationKey(beanBrand, beanType, profileName);
+
+    // Already on this key — just touch LRU
+    if (m_conversation->storageKey() == key) {
+        touchConversationEntry(key);
+        return key;
+    }
+
+    // Refuse if busy
+    if (m_conversation->isBusy()) {
+        qWarning() << "AIManager: Cannot switch conversation while busy";
+        return m_conversation->storageKey();
+    }
+
+    // Save current conversation if it has history
+    if (m_conversation->hasHistory()) {
+        m_conversation->saveToStorage();
+    }
+
+    // Clear in-memory state without touching QSettings (clearHistory() would delete stored data)
+    m_conversation->resetInMemory();
+
+    // Check if key exists in index
+    bool exists = false;
+    for (const auto& entry : m_conversationIndex) {
+        if (entry.key == key) {
+            exists = true;
+            break;
+        }
+    }
+
+    // Set new storage key and load if exists
+    m_conversation->setStorageKey(key);
+    m_conversation->setContextLabel(beanBrand, beanType, profileName);
+
+    if (exists) {
+        m_conversation->loadFromStorage();
+        touchConversationEntry(key);
+    } else {
+        // Evict oldest if at capacity
+        evictOldestConversation();
+
+        // Add new entry to front of index
+        ConversationEntry newEntry;
+        newEntry.key = key;
+        newEntry.beanBrand = beanBrand;
+        newEntry.beanType = beanType;
+        newEntry.profileName = profileName;
+        newEntry.timestamp = QDateTime::currentSecsSinceEpoch();
+        m_conversationIndex.prepend(newEntry);
+        saveConversationIndex();
+    }
+
+    emit m_conversation->savedConversationChanged();
+    qDebug() << "AIManager: Switched to conversation key:" << key
+             << "(" << beanBrand << beanType << "/" << profileName << ")";
+    return key;
+}
+
+void AIManager::loadMostRecentConversation()
+{
+    if (m_conversationIndex.isEmpty()) {
+        m_conversation->setStorageKey(QString());
+        m_conversation->setContextLabel(QString(), QString(), QString());
+        return;
+    }
+
+    const auto& entry = m_conversationIndex.first();
+    m_conversation->setStorageKey(entry.key);
+    m_conversation->setContextLabel(entry.beanBrand, entry.beanType, entry.profileName);
+    m_conversation->loadFromStorage();
+    qDebug() << "AIManager: Loaded most recent conversation:" << entry.key
+             << "(" << entry.beanBrand << entry.beanType << "/" << entry.profileName << ")";
+}
+
+void AIManager::clearCurrentConversation()
+{
+    QString key = m_conversation->storageKey();
+    m_conversation->clearHistory();
+
+    // Remove the entry from the conversation index
+    if (!key.isEmpty()) {
+        for (int i = 0; i < m_conversationIndex.size(); i++) {
+            if (m_conversationIndex[i].key == key) {
+                m_conversationIndex.removeAt(i);
+                saveConversationIndex();
+                break;
+            }
+        }
+    }
+}
+
+bool AIManager::isSupportedBeverageType(const QString& beverageType) const
+{
+    QString bev = beverageType.toLower().trimmed();
+    return bev.isEmpty() || bev == "espresso" || bev == "filter" || bev == "pourover";
+}
+
+bool AIManager::isMistakeShot(const QVariantMap& shotData) const
+{
+    double duration = shotData.value("duration", 0.0).toDouble();
+    double finalWeight = shotData.value("finalWeight", 0.0).toDouble();
+    double targetWeight = shotData.value("targetWeight", 0.0).toDouble();
+
+    if (duration < 10.0) return true;
+    if (finalWeight < 5.0) return true;
+    if (targetWeight > 0.0 && finalWeight < targetWeight / 3.0) return true;
+
+    return false;
+}
+
+// ============================================================================
 // Logging
 // ============================================================================
 
@@ -549,6 +820,8 @@ void AIManager::logPrompt(const QString& provider, const QString& systemPrompt, 
         out << userPrompt << "\n";
         file.close();
         qDebug() << "AI: Logged prompt to" << promptFile;
+    } else {
+        qWarning() << "AI: Failed to write prompt log:" << file.errorString();
     }
 
     // Also append to conversation history
@@ -562,6 +835,8 @@ void AIManager::logPrompt(const QString& provider, const QString& systemPrompt, 
         out << QString("-").repeated(40) << "\n";
         out << userPrompt << "\n";
         history.close();
+    } else {
+        qWarning() << "AI: Failed to append to conversation history:" << history.errorString();
     }
 }
 
@@ -583,6 +858,8 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << response << "\n";
         file.close();
         qDebug() << "AI: Logged response to" << responseFile;
+    } else {
+        qWarning() << "AI: Failed to write response log:" << file.errorString();
     }
 
     // Write complete Q&A file (prompt + response together)
@@ -608,6 +885,8 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << response << "\n";
         qa.close();
         qDebug() << "AI: Logged Q&A to" << qaFile;
+    } else {
+        qWarning() << "AI: Failed to write Q&A log:" << qa.errorString();
     }
 
     // Also append to conversation history
@@ -620,5 +899,7 @@ void AIManager::logResponse(const QString& provider, const QString& response, bo
         out << QString("-").repeated(40) << "\n";
         out << response << "\n";
         history.close();
+    } else {
+        qWarning() << "AI: Failed to append to conversation history:" << history.errorString();
     }
 }

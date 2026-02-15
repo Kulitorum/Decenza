@@ -201,6 +201,12 @@ public:
     // Generate a single frame for direct control mode
     QByteArray toDirectControlFrame(int frameIndex, const ProfileFrame& frame) const;
 
+    // === AI Description ===
+    // Generate a compact text description of the frame sequence for AI analysis
+    QString describeFrames() const;
+    // Convenience: deserialize JSON then call describeFrames()
+    static QString describeFramesFromJson(const QString& json);
+
     // === Validation ===
     bool isValid() const;
     QStringList validationErrors() const;

@@ -1,19 +1,32 @@
 #include "aiconversation.h"
 #include "aimanager.h"
+#include "shotsummarizer.h"
 
 #include <QDebug>
 #include <QSettings>
 #include <QJsonDocument>
+#include <QJsonParseError>
+#include <QRegularExpression>
+
+// Static regex constants shared between processShotForConversation() and summarizeShotMessage()
+const QRegularExpression AIConversation::s_doseRe("\\*\\*Dose\\*\\*:\\s*([\\d.]+)g");
+const QRegularExpression AIConversation::s_yieldRe("\\*\\*Yield\\*\\*:\\s*([\\d.]+)g");
+const QRegularExpression AIConversation::s_durationRe("\\*\\*Duration\\*\\*:\\s*([\\d.]+)s");
+const QRegularExpression AIConversation::s_grinderRe("\\*\\*Grinder\\*\\*:\\s*(.+?)\\n");
+const QRegularExpression AIConversation::s_profileRe("\\*\\*Profile\\*\\*:\\s*(.+?)(?:\\s*\\(by|\\n|$)");
+const QRegularExpression AIConversation::s_shotIdRe("## Shot #(\\d+)");
+const QRegularExpression AIConversation::s_scoreRe("\\*\\*Score\\*\\*:\\s*(\\d+)");
+const QRegularExpression AIConversation::s_notesRe("\\*\\*Notes\\*\\*:\\s*\"([^\"]+)\"");
 
 AIConversation::AIConversation(AIManager* aiManager, QObject* parent)
     : QObject(parent)
     , m_aiManager(aiManager)
 {
-    // Connect to AIManager signals
+    // Connect to AIManager conversation-specific signals (not shared analyze signals)
     if (m_aiManager) {
-        connect(m_aiManager, &AIManager::recommendationReceived,
+        connect(m_aiManager, &AIManager::conversationResponseReceived,
                 this, &AIConversation::onAnalysisComplete);
-        connect(m_aiManager, &AIManager::errorOccurred,
+        connect(m_aiManager, &AIManager::conversationErrorOccurred,
                 this, &AIConversation::onAnalysisFailed);
         connect(m_aiManager, &AIManager::providerChanged,
                 this, &AIConversation::providerChanged);
@@ -34,7 +47,16 @@ QString AIConversation::providerName() const
 
 void AIConversation::ask(const QString& systemPrompt, const QString& userMessage)
 {
-    if (m_busy || !m_aiManager) return;
+    if (!m_aiManager) {
+        qWarning() << "AIConversation::ask called without AIManager";
+        m_errorMessage = "AI not available";
+        emit errorOccurred(m_errorMessage);
+        return;
+    }
+    if (m_busy) {
+        qDebug() << "AIConversation::ask ignored — already busy";
+        return;
+    }
 
     // Clear previous conversation and start fresh
     m_messages = QJsonArray();
@@ -48,12 +70,23 @@ void AIConversation::ask(const QString& systemPrompt, const QString& userMessage
     emit historyChanged();
 }
 
-void AIConversation::followUp(const QString& userMessage)
+bool AIConversation::followUp(const QString& userMessage)
 {
-    if (m_busy || !m_aiManager) return;
+    if (!m_aiManager) {
+        qWarning() << "AIConversation::followUp called without AIManager";
+        m_errorMessage = "AI not available";
+        emit errorOccurred(m_errorMessage);
+        return false;
+    }
+    if (m_busy) {
+        qDebug() << "AIConversation::followUp ignored — already busy";
+        return false;
+    }
     if (m_systemPrompt.isEmpty()) {
         qWarning() << "AIConversation::followUp called without prior ask()";
-        return;
+        m_errorMessage = "Please start a new conversation first";
+        emit errorOccurred(m_errorMessage);
+        return false;
     }
 
     m_errorMessage.clear();
@@ -61,17 +94,60 @@ void AIConversation::followUp(const QString& userMessage)
     sendRequest();
 
     emit historyChanged();
+    return true;
 }
 
 void AIConversation::clearHistory()
 {
+    // Clear stored data for current key
+    if (!m_storageKey.isEmpty()) {
+        QSettings settings;
+        QString prefix = "ai/conversations/" + m_storageKey + "/";
+        settings.remove(prefix + "systemPrompt");
+        settings.remove(prefix + "messages");
+        settings.remove(prefix + "timestamp");
+    }
+
     m_messages = QJsonArray();
     m_systemPrompt.clear();
     m_lastResponse.clear();
     m_errorMessage.clear();
 
     emit historyChanged();
-    qDebug() << "AIConversation: History cleared";
+    emit savedConversationChanged();
+    qDebug() << "AIConversation: History cleared for key:" << m_storageKey;
+}
+
+void AIConversation::resetInMemory()
+{
+    m_messages = QJsonArray();
+    m_systemPrompt.clear();
+    m_lastResponse.clear();
+    m_errorMessage.clear();
+    emit historyChanged();
+}
+
+void AIConversation::setStorageKey(const QString& key)
+{
+    m_storageKey = key;
+}
+
+void AIConversation::setContextLabel(const QString& brand, const QString& type, const QString& profile)
+{
+    QStringList parts;
+    QString bean;
+    if (!brand.isEmpty() && !type.isEmpty())
+        bean = brand + " " + type;
+    else if (!brand.isEmpty())
+        bean = brand;
+    else if (!type.isEmpty())
+        bean = type;
+
+    if (!bean.isEmpty()) parts << bean;
+    if (!profile.isEmpty()) parts << profile;
+
+    m_contextLabel = parts.join(" / ");
+    emit contextLabelChanged();
 }
 
 void AIConversation::addUserMessage(const QString& message)
@@ -101,26 +177,10 @@ void AIConversation::sendRequest()
     m_busy = true;
     emit busyChanged();
 
-    // Build the full prompt with conversation history
-    // For now, we concatenate messages into a single user prompt
-    // since the current AIManager::analyze() doesn't support message arrays
-    QString fullPrompt;
-
-    for (int i = 0; i < m_messages.size(); i++) {
-        QJsonObject msg = m_messages[i].toObject();
-        QString role = msg["role"].toString();
-        QString content = msg["content"].toString();
-
-        if (role == "user") {
-            if (i > 0) fullPrompt += "\n\n[User follow-up]:\n";
-            fullPrompt += content;
-        } else if (role == "assistant") {
-            fullPrompt += "\n\n[Your previous response]:\n" + content;
-        }
-    }
+    trimHistory();
 
     qDebug() << "AIConversation: Sending request with" << m_messages.size() << "messages";
-    m_aiManager->analyze(m_systemPrompt, fullPrompt);
+    m_aiManager->analyzeConversation(m_systemPrompt, m_messages);
 }
 
 void AIConversation::onAnalysisComplete(const QString& response)
@@ -209,10 +269,18 @@ QString AIConversation::getConversationText() const
                     }
                 }
 
-                // Format: [Shot Data] or [Coffee Data] depending on beverage type
+                // Format: [Shot #N] or [Coffee #N] depending on beverage type
                 bool isFilter = content.contains("Beverage type**: filter", Qt::CaseInsensitive) ||
                                content.contains("Beverage type**: pourover", Qt::CaseInsensitive);
-                text += isFilter ? "**[Coffee Data]**" : "**[Shot Data]**";
+
+                // Extract shot number from "## Shot #N" prefix if present
+                QRegularExpressionMatch shotNumMatch = s_shotIdRe.match(content);
+                if (shotNumMatch.hasMatch()) {
+                    QString num = shotNumMatch.captured(1);
+                    text += isFilter ? "**[Coffee #" + num + "]**" : "**[Shot #" + num + "]**";
+                } else {
+                    text += isFilter ? "**[Coffee Data]**" : "**[Shot Data]**";
+                }
                 if (!userQuestion.isEmpty()) {
                     text += "\n**You:** " + userQuestion;
                 }
@@ -227,36 +295,23 @@ QString AIConversation::getConversationText() const
     return text;
 }
 
-void AIConversation::addShotContext(const QString& shotSummary, const QString& beverageType)
+void AIConversation::addShotContext(const QString& shotSummary, int shotId, const QString& beverageType)
 {
-    if (m_busy) return;
+    if (m_busy) {
+        qWarning() << "AIConversation::addShotContext ignored — already busy";
+        m_errorMessage = "Please wait for the current request to complete";
+        emit errorOccurred(m_errorMessage);
+        return;
+    }
 
     // If no existing conversation, set up the system prompt based on beverage type
     if (m_systemPrompt.isEmpty()) {
-        if (beverageType.toLower() == "filter" || beverageType.toLower() == "pourover") {
-            m_systemPrompt = "You are an expert filter coffee consultant helping a user optimise brews made on a Decent DE1 profiling machine over multiple attempts. "
-                             "Key principles: Taste is king — numbers serve taste, not the other way around. "
-                             "Profile intent is the reference frame — evaluate actual vs. what the profile intended, not pour-over or drip norms. "
-                             "DE1 filter uses low pressure (1-3 bar), high flow, and long ratios (1:10-1:17) — these are all intentional, not problems. "
-                             "One variable at a time — never recommend changing multiple things at once. "
-                             "Track progress across brews and reference previous brews to identify trends. "
-                             "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. "
-                             "Focus on clarity, sweetness, and balance rather than espresso-style body and intensity.";
-        } else {
-            m_systemPrompt = "You are an expert espresso consultant helping a user dial in their shots on a Decent DE1 profiling machine over multiple attempts. "
-                             "Key principles: Taste is king — numbers serve taste, not the other way around. "
-                             "Profile intent is the reference frame — evaluate actual vs. what the profile intended, not generic espresso norms. "
-                             "A Blooming Espresso at 2 bar or a turbo shot at 15 seconds are not problems — they're by design. "
-                             "The DE1 controls either pressure or flow (never both); when one is the target, the other is a result of puck resistance. "
-                             "One variable at a time — never recommend changing multiple things at once. "
-                             "Track progress across shots and reference previous shots to identify trends. "
-                             "If grinder info is shared, consider burr geometry (flat vs conical) in your analysis. "
-                             "Never default to generic rules like 'grind finer', 'aim for 9 bar', or '25-30 seconds' without evidence from the data.";
-        }
+        m_systemPrompt = multiShotSystemPrompt(beverageType);
     }
 
-    // Add the new shot as context
-    QString contextMessage = "Here's my latest shot:\n\n" + shotSummary +
+    // Add the new shot as context with the app's shot ID
+    QString contextMessage = "## Shot #" + QString::number(shotId) +
+                            "\n\nHere's my latest shot:\n\n" + shotSummary +
                             "\n\nPlease analyze this shot and provide recommendations, considering any previous shots we've discussed.";
     addUserMessage(contextMessage);
     sendRequest();
@@ -265,41 +320,160 @@ void AIConversation::addShotContext(const QString& shotSummary, const QString& b
     qDebug() << "AIConversation: Added new shot context, now have" << m_messages.size() << "messages";
 }
 
+QString AIConversation::processShotForConversation(const QString& shotSummary, int shotId)
+{
+    QString processed = shotSummary;
+
+    // Find previous shot in conversation (exclude the current shotId to avoid self-comparison)
+    PreviousShotInfo prev = findPreviousShot(shotId);
+    QString prevContent = prev.content;
+    int prevShotId = prev.shotId;
+
+    if (!prevContent.isEmpty()) {
+        // === Recipe dedup: skip recipe if same profile ===
+        QString newProfile = extractMetric(processed, s_profileRe);
+        QString prevProfile = extractMetric(prevContent, s_profileRe);
+
+        if (!newProfile.isEmpty() && newProfile == prevProfile) {
+            // Remove the "## Profile Recipe" section — it's identical
+            static const QRegularExpression recipeRe("## Profile Recipe[^\\n]*\\n(?:(?!## ).+\\n)*\\n?");
+            processed.replace(recipeRe, "(Same profile recipe as previous shot)\n\n");
+        }
+
+        // === Change detection ===
+        QStringList changes;
+
+        QString newDose = extractMetric(processed, s_doseRe);
+        QString prevDose = extractMetric(prevContent, s_doseRe);
+        if (!newDose.isEmpty() && !prevDose.isEmpty() && newDose != prevDose)
+            changes << "Dose " + prevDose + "g\u2192" + newDose + "g";
+
+        QString newYield = extractMetric(processed, s_yieldRe);
+        QString prevYield = extractMetric(prevContent, s_yieldRe);
+        if (!newYield.isEmpty() && !prevYield.isEmpty() && newYield != prevYield)
+            changes << "Yield " + prevYield + "g\u2192" + newYield + "g";
+
+        QString newGrinder = extractMetric(processed, s_grinderRe);
+        QString prevGrinder = extractMetric(prevContent, s_grinderRe);
+        if (!newGrinder.isEmpty() && !prevGrinder.isEmpty() && newGrinder != prevGrinder)
+            changes << "Grinder " + prevGrinder + " \u2192 " + newGrinder;
+
+        QString newDuration = extractMetric(processed, s_durationRe);
+        QString prevDuration = extractMetric(prevContent, s_durationRe);
+        if (!newDuration.isEmpty() && !prevDuration.isEmpty() && newDuration != prevDuration)
+            changes << "Duration " + prevDuration + "s\u2192" + newDuration + "s";
+
+        // Prepend changes section
+        QString changesSection;
+        if (prevShotId >= 0) {
+            if (!changes.isEmpty()) {
+                changesSection = "**Changes from Shot #" + QString::number(prevShotId) + "**: " + changes.join(", ") + "\n\n";
+            } else {
+                changesSection = "**No parameter changes from Shot #" + QString::number(prevShotId) + "**\n\n";
+            }
+        }
+
+        if (!changesSection.isEmpty()) {
+            processed = changesSection + processed;
+        }
+    }
+
+    return processed;
+}
+
+QString AIConversation::multiShotSystemPrompt(const QString& beverageType)
+{
+    // Use the full single-shot system prompt (has all patterns, guidelines, target vs limiter explanation)
+    QString base = ShotSummarizer::systemPrompt(beverageType);
+    base += QStringLiteral(
+        "\n\n## Multi-Shot Context\n\n"
+        "You are helping the user dial in across multiple shots in a single session. "
+        "Track progress across shots and reference previous attempts to identify trends. "
+        "When the same profile is used across shots, focus on what changed (grind, dose, temperature) and how it affected the outcome. "
+        "When the profile recipe is marked as 'same as previous shot', don't re-explain the profile — focus on differences in execution and results. "
+        "Keep advice to ONE specific change per shot — don't overload with multiple adjustments.");
+    return base;
+}
+
+QString AIConversation::extractMetric(const QString& content, const QRegularExpression& re)
+{
+    QRegularExpressionMatch match = re.match(content);
+    return match.hasMatch() ? match.captured(1).trimmed() : QString();
+}
+
+AIConversation::PreviousShotInfo AIConversation::findPreviousShot(int excludeShotId) const
+{
+    // Walk backwards to find the most recent user message containing shot data,
+    // excluding the shot with the given ID to avoid self-comparison
+    for (int i = m_messages.size() - 1; i >= 0; i--) {
+        QJsonObject msg = m_messages[i].toObject();
+        if (msg["role"].toString() == "user") {
+            QString content = msg["content"].toString();
+            if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
+                QRegularExpressionMatch match = s_shotIdRe.match(content);
+                int id = match.hasMatch() ? match.captured(1).toInt() : -1;
+                // Skip if this is the shot we're excluding
+                if (excludeShotId >= 0 && id == excludeShotId) {
+                    continue;
+                }
+                return { content, id };
+            }
+        }
+    }
+    return {};
+}
+
 void AIConversation::saveToStorage()
 {
+    if (m_storageKey.isEmpty()) {
+        if (!m_messages.isEmpty())
+            qWarning() << "AIConversation::saveToStorage: storage key is empty but conversation has" << m_messages.size() << "messages — data not saved";
+        return;
+    }
+
     QSettings settings;
+    QString prefix = "ai/conversations/" + m_storageKey + "/";
 
-    // Save system prompt
-    settings.setValue("ai/conversation/systemPrompt", m_systemPrompt);
+    settings.setValue(prefix + "systemPrompt", m_systemPrompt);
 
-    // Save messages as JSON
     QJsonDocument doc(m_messages);
-    settings.setValue("ai/conversation/messages", doc.toJson(QJsonDocument::Compact));
+    settings.setValue(prefix + "messages", doc.toJson(QJsonDocument::Compact));
 
-    // Save timestamp
-    settings.setValue("ai/conversation/timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
+    settings.setValue(prefix + "timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
 
     emit savedConversationChanged();
-    qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages";
+    qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages to key:" << m_storageKey;
 }
 
 void AIConversation::loadFromStorage()
 {
+    if (m_storageKey.isEmpty()) return;
+
     QSettings settings;
+    QString prefix = "ai/conversations/" + m_storageKey + "/";
 
-    // Load system prompt
-    m_systemPrompt = settings.value("ai/conversation/systemPrompt").toString();
+    m_systemPrompt = settings.value(prefix + "systemPrompt").toString();
 
-    // Load messages
-    QByteArray messagesJson = settings.value("ai/conversation/messages").toByteArray();
+    QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
+    m_messages = QJsonArray();
     if (!messagesJson.isEmpty()) {
-        QJsonDocument doc = QJsonDocument::fromJson(messagesJson);
-        if (doc.isArray()) {
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(messagesJson, &parseError);
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "AIConversation::loadFromStorage: JSON parse error for key" << m_storageKey
+                        << ":" << parseError.errorString();
+            m_errorMessage = "Could not load conversation history";
+            emit errorOccurred(m_errorMessage);
+        } else if (doc.isArray()) {
             m_messages = doc.array();
+        } else {
+            qWarning() << "AIConversation::loadFromStorage: Expected JSON array but got"
+                        << (doc.isObject() ? "object" : "other") << "for key" << m_storageKey;
         }
     }
 
     // Update last response from the last assistant message
+    m_lastResponse.clear();
     for (int i = m_messages.size() - 1; i >= 0; i--) {
         QJsonObject msg = m_messages[i].toObject();
         if (msg["role"].toString() == "assistant") {
@@ -309,15 +483,199 @@ void AIConversation::loadFromStorage()
     }
 
     emit historyChanged();
-    qDebug() << "AIConversation: Loaded conversation with" << m_messages.size() << "messages";
+    emit savedConversationChanged();
+    qDebug() << "AIConversation: Loaded conversation with" << m_messages.size() << "messages from key:" << m_storageKey;
 }
 
 bool AIConversation::hasSavedConversation() const
 {
+    if (m_storageKey.isEmpty()) return false;
+
     QSettings settings;
-    QByteArray messagesJson = settings.value("ai/conversation/messages").toByteArray();
+    QString prefix = "ai/conversations/" + m_storageKey + "/";
+    QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
     if (messagesJson.isEmpty()) return false;
 
-    QJsonDocument doc = QJsonDocument::fromJson(messagesJson);
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(messagesJson, &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "AIConversation::hasSavedConversation: corrupted data for key" << m_storageKey;
+        return false;
+    }
     return doc.isArray() && !doc.array().isEmpty();
+}
+
+void AIConversation::trimHistory()
+{
+    // Keep last MAX_VERBATIM_PAIRS user+assistant pairs + the pending user message verbatim.
+    // Older shot messages get summarized into a compact context block.
+    // Older non-shot messages (plain follow-ups) are dropped.
+
+    // Threshold: MAX_VERBATIM_PAIRS pairs = 2*MAX_VERBATIM_PAIRS messages, plus 1 pending user message
+    int maxVerbatim = MAX_VERBATIM_PAIRS * 2 + 1;
+    if (m_messages.size() <= maxVerbatim) return;
+
+    // Split messages: everything before the last maxVerbatim are "old"
+    int oldCount = static_cast<int>(m_messages.size()) - maxVerbatim;
+    // Ensure oldCount lands on a pair boundary (even index) so verbatim
+    // messages start with a user message — required for Gemini role alternation
+    if (oldCount % 2 != 0) {
+        oldCount++;
+    }
+    if (oldCount >= static_cast<int>(m_messages.size())) return;
+
+    QStringList summaries;
+    int droppedFollowUps = 0;
+
+    for (int i = 0; i < oldCount; i++) {
+        QJsonObject msg = m_messages[i].toObject();
+        if (msg["role"].toString() == "user") {
+            QString content = msg["content"].toString();
+            QString summary = summarizeShotMessage(content);
+            if (!summary.isEmpty()) {
+                // Look ahead for the assistant response to include recommendation context
+                if (i + 1 < oldCount) {
+                    QJsonObject nextMsg = m_messages[i + 1].toObject();
+                    if (nextMsg["role"].toString() == "assistant") {
+                        QString advice = summarizeAdvice(nextMsg["content"].toString());
+                        if (!advice.isEmpty()) {
+                            summary += " → Advice: " + advice;
+                        }
+                    }
+                }
+                summaries.append(summary);
+            } else {
+                // Check if this looks like a shot message that we failed to summarize
+                if (content.contains("Shot Summary") || content.contains("Here's my latest shot")) {
+                    qWarning() << "AIConversation::trimHistory: Shot message could not be summarized, metrics may have changed format";
+                }
+                droppedFollowUps++;
+            }
+        }
+    }
+
+    // Build trimmed array
+    QJsonArray trimmed;
+
+    if (!summaries.isEmpty() || droppedFollowUps > 0) {
+        // Prepend a summary context message
+        QString summaryContent;
+        if (!summaries.isEmpty()) {
+            summaryContent = "Previous shots summary:\n" + summaries.join("\n");
+        }
+        if (droppedFollowUps > 0) {
+            if (!summaryContent.isEmpty()) summaryContent += "\n";
+            summaryContent += QString("(%1 earlier follow-up message(s) omitted for brevity)").arg(droppedFollowUps);
+        }
+
+        QJsonObject summaryMsg;
+        summaryMsg["role"] = QString("user");
+        summaryMsg["content"] = summaryContent;
+        trimmed.append(summaryMsg);
+
+        // Add a synthetic assistant acknowledgment
+        QJsonObject ackMsg;
+        ackMsg["role"] = QString("assistant");
+        ackMsg["content"] = QString("Got it, I have context from your previous shots and messages. Let's continue.");
+        trimmed.append(ackMsg);
+    }
+
+    // Append the verbatim recent messages
+    for (int i = oldCount; i < m_messages.size(); i++) {
+        trimmed.append(m_messages[i]);
+    }
+
+    int removed = static_cast<int>(m_messages.size()) - static_cast<int>(trimmed.size());
+    m_messages = trimmed;
+
+    if (removed > 0) {
+        qDebug() << "AIConversation: Trimmed history, removed" << removed << "messages,"
+                 << summaries.size() << "shots summarized," << m_messages.size() << "messages remaining";
+    }
+}
+
+QString AIConversation::summarizeShotMessage(const QString& content)
+{
+    // Detect shot messages by content markers
+    if (!content.contains("Shot Summary") && !content.contains("Here's my latest shot"))
+        return QString();
+
+    // Extract shot number from "## Shot #N" prefix
+    QString shotNum;
+    QRegularExpressionMatch numMatch = s_shotIdRe.match(content);
+    if (numMatch.hasMatch()) {
+        shotNum = numMatch.captured(1);
+    }
+
+    // Extract key metrics using shared regex constants
+    QString dose, yield, duration, score, notes;
+
+    QRegularExpressionMatch m = s_doseRe.match(content);
+    if (m.hasMatch()) dose = m.captured(1);
+    m = s_yieldRe.match(content);
+    if (m.hasMatch()) yield = m.captured(1);
+    m = s_durationRe.match(content);
+    if (m.hasMatch()) duration = m.captured(1);
+    m = s_scoreRe.match(content);
+    if (m.hasMatch()) score = m.captured(1);
+    m = s_notesRe.match(content);
+    if (m.hasMatch()) notes = m.captured(1);
+
+    // Extract profile name
+    QRegularExpressionMatch pm = s_profileRe.match(content);
+    QString profile = pm.hasMatch() ? pm.captured(1).trimmed() : QString();
+
+    // Extract grinder info
+    QRegularExpressionMatch gm = s_grinderRe.match(content);
+    QString grinder = gm.hasMatch() ? gm.captured(1).trimmed() : QString();
+
+    // Detect anomaly flags
+    bool channeling = content.contains("Channeling detected");
+    bool tempUnstable = content.contains("Temperature unstable");
+
+    // Build compact summary
+    QString summary = "- Shot";
+    if (!shotNum.isEmpty()) summary += " #" + shotNum;
+    summary += ":";
+    if (!profile.isEmpty()) summary += " \"" + profile + "\"";
+    if (!dose.isEmpty() && !yield.isEmpty()) summary += " " + dose + "g\u2192" + yield + "g";
+    if (!duration.isEmpty()) summary += ", " + duration + "s";
+    if (!grinder.isEmpty()) {
+        QString truncGrinder = grinder.length() > 30 ? grinder.left(27) + "..." : grinder;
+        summary += ", " + truncGrinder;
+    }
+    if (!score.isEmpty()) summary += ", " + score + "/100";
+    if (!notes.isEmpty()) {
+        // Truncate long notes
+        QString truncated = notes.length() > 40 ? notes.left(37) + "..." : notes;
+        summary += ", \"" + truncated + "\"";
+    }
+    if (channeling) summary += " [channeling]";
+    if (tempUnstable) summary += " [temp unstable]";
+
+    return summary;
+}
+
+QString AIConversation::summarizeAdvice(const QString& response)
+{
+    // Extract the first actionable sentence from the AI's response.
+    // Look for common recommendation patterns.
+    // We take the first sentence that contains an action verb related to espresso dialing.
+
+    // Try to find a line that starts with a recommendation keyword
+    static const QRegularExpression recRe("(?:^|\\n)\\s*(?:[-•*]\\s*)?(?:Try|Adjust|Grind|Increase|Decrease|Lower|Raise|Change|Move|Use|Reduce|Extend|Shorten)\\s[^\\n]{5,}",
+                                          QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch m = recRe.match(response);
+    if (m.hasMatch()) {
+        QString advice = m.captured(0).trimmed();
+        // Strip leading bullet markers
+        if (advice.startsWith('-') || advice.startsWith(QChar(0x2022)) || advice.startsWith('*')) {
+            advice = advice.mid(1).trimmed();
+        }
+        // Truncate to keep compact
+        if (advice.length() > 80) advice = advice.left(77) + "...";
+        return advice;
+    }
+
+    return QString();
 }

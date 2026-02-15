@@ -5,6 +5,7 @@
 #include <QList>
 #include <QVector>
 #include <QPointF>
+#include <QVariant>
 
 class ShotDataModel;
 class Profile;
@@ -50,11 +51,13 @@ struct ShotSummary {
     QString profileNotes;   // Author's description of profile intent/design
     QString profileAuthor;
     QString beverageType;   // "espresso", "filter", etc.
+    QString profileRecipeDescription;  // Compact text description of frame sequence
 
     // Overall metrics
     double totalDuration = 0;
     double doseWeight = 0;
     double finalWeight = 0;
+    double targetWeight = 0;   // Profile's target yield (0 = not set)
     double ratio = 0;  // finalWeight / doseWeight
 
     // Phase breakdown
@@ -106,6 +109,9 @@ public:
                           double doseWeight,
                           double finalWeight) const;
 
+    // Summarize from historical shot data (QVariantMap from database)
+    ShotSummary summarizeFromHistory(const QVariantMap& shotData) const;
+
     // Generate text prompt from summary
     QString buildUserPrompt(const ShotSummary& summary) const;
 
@@ -122,5 +128,10 @@ private:
     double calculateMin(const QVector<QPointF>& data, double startTime, double endTime) const;
     double calculateStdDev(const QVector<QPointF>& data, double startTime, double endTime) const;
     double findTimeToFirstDrip(const QVector<QPointF>& flowData) const;
-    bool detectChanneling(const QVector<QPointF>& flowData, double afterTime) const;
+    bool detectChanneling(const QVector<QPointF>& flowData, double startTime, double endTime) const;
+
+    static QString profileTypeDescription(const QString& editorType);
+    void detectChannelingInPhases(ShotSummary& summary, const QVector<QPointF>& flowData) const;
+    void calculateTemperatureStability(ShotSummary& summary,
+        const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
 };

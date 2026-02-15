@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QRegularExpression>
 
 class AIManager;
 
@@ -27,6 +28,7 @@ class AIConversation : public QObject {
     Q_PROPERTY(QString providerName READ providerName NOTIFY providerChanged)
     Q_PROPERTY(int messageCount READ messageCount NOTIFY historyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorOccurred)
+    Q_PROPERTY(QString contextLabel READ contextLabel NOTIFY contextLabelChanged)
 
 public:
     explicit AIConversation(AIManager* aiManager, QObject* parent = nullptr);
@@ -37,6 +39,11 @@ public:
     QString providerName() const;
     int messageCount() const { return static_cast<int>(m_messages.size()); }
     QString errorMessage() const { return m_errorMessage; }
+    QString contextLabel() const { return m_contextLabel; }
+
+    QString storageKey() const { return m_storageKey; }
+    void setStorageKey(const QString& key);
+    void setContextLabel(const QString& brand, const QString& type, const QString& profile);
 
     /**
      * Start a new conversation with system prompt and initial user message
@@ -48,12 +55,18 @@ public:
      * Continue the conversation with a follow-up message
      * Uses the existing system prompt and history
      */
-    Q_INVOKABLE void followUp(const QString& userMessage);
+    Q_INVOKABLE bool followUp(const QString& userMessage);
 
     /**
      * Clear conversation history
      */
     Q_INVOKABLE void clearHistory();
+
+    /**
+     * Clear in-memory state without touching QSettings.
+     * Used by switchConversation() to reset before loading a different conversation.
+     */
+    void resetInMemory();
 
     /**
      * Get full conversation as formatted text (for display)
@@ -62,9 +75,23 @@ public:
 
     /**
      * Add new shot context to existing conversation (for multi-shot dialing)
-     * This appends shot data as a new user message without clearing history
+     * This appends shot data as a new user message without clearing history.
+     * shotId is the app's database shot ID used to label the shot in the conversation.
      */
-    Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& beverageType = "espresso");
+    Q_INVOKABLE void addShotContext(const QString& shotSummary, int shotId, const QString& beverageType = "espresso");
+
+    /**
+     * Process a shot summary for conversation: deduplicates profile recipe if same
+     * profile as previous shot, and prepends a "changes from previous" section.
+     * Call this before sending via ask()/followUp() to avoid redundant data.
+     */
+    Q_INVOKABLE QString processShotForConversation(const QString& shotSummary, int shotId);
+
+    /**
+     * Get the full system prompt for multi-shot conversations.
+     * Uses the rich single-shot system prompt plus multi-shot guidance.
+     */
+    Q_INVOKABLE QString multiShotSystemPrompt(const QString& beverageType = "espresso");
 
     /**
      * Save conversation history to persistent storage
@@ -86,6 +113,7 @@ signals:
     void errorOccurred(const QString& error);
     void busyChanged();
     void historyChanged();
+    void contextLabelChanged();
     void providerChanged();
     void savedConversationChanged();
 
@@ -97,6 +125,19 @@ private:
     void sendRequest();
     void addUserMessage(const QString& message);
     void addAssistantMessage(const QString& message);
+    void trimHistory();
+    static QString summarizeShotMessage(const QString& content);
+    static QString summarizeAdvice(const QString& response);
+    static QString extractMetric(const QString& content, const QRegularExpression& re);
+
+    struct PreviousShotInfo { QString content; int shotId = -1; };
+    PreviousShotInfo findPreviousShot(int excludeShotId = -1) const;
+
+    static constexpr int MAX_VERBATIM_PAIRS = 2;
+
+    // Shared regex constants for shot message parsing
+    static const QRegularExpression s_doseRe, s_yieldRe, s_durationRe,
+        s_grinderRe, s_profileRe, s_shotIdRe, s_scoreRe, s_notesRe;
 
     AIManager* m_aiManager;
     QString m_systemPrompt;
@@ -104,4 +145,6 @@ private:
     QString m_lastResponse;
     QString m_errorMessage;
     bool m_busy = false;
+    QString m_storageKey;     // Current conversation's storage slot key
+    QString m_contextLabel;   // Display label e.g. "Ethiopian Sidamo / D-Flow"
 };

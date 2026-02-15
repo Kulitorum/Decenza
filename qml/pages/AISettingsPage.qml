@@ -49,9 +49,9 @@ Page {
             // Provider cards
             Repeater {
                 model: [
-                    { id: "openai", nameKey: "aisettings.provider.openai", name: "OpenAI", descKey: "aisettings.provider.openai.desc", desc: "GPT-4o - excellent reasoning" },
-                    { id: "anthropic", nameKey: "aisettings.provider.anthropic", name: "Anthropic", descKey: "aisettings.provider.anthropic.desc", desc: "Claude Sonnet - nuanced analysis" },
-                    { id: "gemini", nameKey: "aisettings.provider.gemini", name: "Google Gemini", descKey: "aisettings.provider.gemini.desc", desc: "Gemini Pro - fast & capable" },
+                    { id: "openai", nameKey: "aisettings.provider.openai", name: "OpenAI", descKey: "aisettings.provider.openai.desc", desc: "Excellent reasoning" },
+                    { id: "anthropic", nameKey: "aisettings.provider.anthropic", name: "Anthropic", descKey: "aisettings.provider.anthropic.desc", desc: "Nuanced analysis" },
+                    { id: "gemini", nameKey: "aisettings.provider.gemini", name: "Google Gemini", descKey: "aisettings.provider.gemini.desc", desc: "Fast & cheap" },
                     { id: "ollama", nameKey: "aisettings.provider.ollama", name: "Ollama (Local)", descKey: "aisettings.provider.ollama.desc", desc: "Free, private, runs on your computer" }
                 ]
 
@@ -112,6 +112,14 @@ Page {
                         onClicked: Settings.aiProvider = modelData.id
                     }
                 }
+            }
+
+            // Current model
+            Text {
+                visible: MainController.aiManager && MainController.aiManager.currentModelName.length > 0
+                text: TranslationManager.translate("aisettings.label.currentmodel", "Model") + ": " + (MainController.aiManager ? MainController.aiManager.currentModelName : "")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(12)
             }
 
             Item { height: Theme.spacingMedium }
@@ -301,10 +309,11 @@ Page {
 
                     Text {
                         text: {
+                            var modelName = MainController.aiManager ? MainController.aiManager.currentModelName : ""
                             switch(Settings.aiProvider) {
-                                case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.01 per analysis (GPT-4o)")
-                                case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.003 per analysis (Claude Sonnet)")
-                                case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "~$0.002 per analysis (Gemini Pro)")
+                                case "openai": return TranslationManager.translate("aisettings.cost.openai", "~$0.006 per analysis") + " (" + modelName + ")"
+                                case "anthropic": return TranslationManager.translate("aisettings.cost.anthropic", "~$0.01 per analysis") + " (" + modelName + ")"
+                                case "gemini": return TranslationManager.translate("aisettings.cost.gemini", "<$0.001 per analysis") + " (" + modelName + ")"
                                 case "ollama": return TranslationManager.translate("aisettings.cost.ollama", "Free (runs locally on your computer)")
                                 default: return ""
                             }
@@ -313,10 +322,16 @@ Page {
                         font: Theme.bodyFont
                     }
 
-                    Tr {
+                    Text {
                         visible: Settings.aiProvider !== "ollama"
-                        key: "aisettings.cost.monthly"
-                        fallback: "About $0.30/month at 3 shots per day - less than one cafe espresso!"
+                        text: {
+                            switch(Settings.aiProvider) {
+                                case "openai": return TranslationManager.translate("aisettings.cost.monthly.openai", "Under $1/month at 3 shots per day")
+                                case "anthropic": return TranslationManager.translate("aisettings.cost.monthly.anthropic", "Under $1/month at 3 shots per day")
+                                case "gemini": return TranslationManager.translate("aisettings.cost.monthly.gemini", "About $0.05/month at 3 shots per day — practically free")
+                                default: return ""
+                            }
+                        }
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap

@@ -120,7 +120,11 @@ public:
     VisualizerImporter* visualizerImporter() const { return m_visualizerImporter; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
-    void setAiManager(AIManager* aiManager) { m_aiManager = aiManager; }
+    void setAiManager(AIManager* aiManager) {
+        m_aiManager = aiManager;
+        if (m_aiManager && m_shotHistory)
+            m_aiManager->setShotHistoryStorage(m_shotHistory);
+    }
     void setBLEManager(BLEManager* bleManager) { m_bleManager = bleManager; }
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
