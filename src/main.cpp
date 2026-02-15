@@ -116,13 +116,6 @@ int main(int argc, char *argv[])
     Settings settings;
     checkpoint("Settings");
 
-    // Debug builds: force simulation mode ON at startup to prevent BLE from
-    // initializing (avoids macOS TCC crash when running outside .app bundle).
-    // User can toggle off at runtime via Settings → Options → Unlock GUI.
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-    settings.setSimulationMode(true);
-#endif
-
     TranslationManager translationManager(&settings);
     checkpoint("TranslationManager");
     BLEManager bleManager;
@@ -542,90 +535,90 @@ int main(int argc, char *argv[])
     std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
 
     if (settings.simulationMode()) {
-    qDebug() << "Creating DE1 Simulator and GHC window...";
+        qDebug() << "Creating DE1 Simulator and GHC window...";
 
-    // Create the DE1 machine simulator
-    de1SimulatorPtr = std::make_unique<DE1Simulator>();
-    auto& de1Simulator = *de1SimulatorPtr;
+        // Create the DE1 machine simulator
+        de1SimulatorPtr = std::make_unique<DE1Simulator>();
+        auto& de1Simulator = *de1SimulatorPtr;
 
-    // Set simulator on DE1Device so commands are relayed to it
-    de1Device.setSimulator(&de1Simulator);
+        // Set simulator on DE1Device so commands are relayed to it
+        de1Device.setSimulator(&de1Simulator);
 
-    // Give it the current profile from MainController
-    QObject::connect(&mainController, &MainController::currentProfileChanged, [&de1Simulator, &mainController]() {
+        // Give it the current profile from MainController
+        QObject::connect(&mainController, &MainController::currentProfileChanged, [&de1Simulator, &mainController]() {
+            de1Simulator.setProfile(mainController.currentProfileObject());
+        });
+        // Set initial profile
         de1Simulator.setProfile(mainController.currentProfileObject());
-    });
-    // Set initial profile
-    de1Simulator.setProfile(mainController.currentProfileObject());
 
-    // Connect dose from settings (affects puck resistance simulation)
-    QObject::connect(&settings, &Settings::dyeBeanWeightChanged, [&de1Simulator, &settings]() {
+        // Connect dose from settings (affects puck resistance simulation)
+        QObject::connect(&settings, &Settings::dyeBeanWeightChanged, [&de1Simulator, &settings]() {
+            de1Simulator.setDose(settings.dyeBeanWeight());
+        });
+        // Set initial dose
         de1Simulator.setDose(settings.dyeBeanWeight());
-    });
-    // Set initial dose
-    de1Simulator.setDose(settings.dyeBeanWeight());
 
-    // Connect grind setting (finer grind = more resistance, can choke machine)
-    QObject::connect(&settings, &Settings::dyeGrinderSettingChanged, [&de1Simulator, &settings]() {
+        // Connect grind setting (finer grind = more resistance, can choke machine)
+        QObject::connect(&settings, &Settings::dyeGrinderSettingChanged, [&de1Simulator, &settings]() {
+            de1Simulator.setGrindSetting(settings.dyeGrinderSetting());
+        });
+        // Set initial grind
         de1Simulator.setGrindSetting(settings.dyeGrinderSetting());
-    });
-    // Set initial grind
-    de1Simulator.setGrindSetting(settings.dyeGrinderSetting());
 
-    // Connect simulator state changes to DE1Device (which will emit to MachineState)
-    QObject::connect(&de1Simulator, &DE1Simulator::stateChanged, [&de1Simulator, &de1Device]() {
-        de1Device.setSimulatedState(de1Simulator.state(), de1Simulator.subState());
-    });
-    QObject::connect(&de1Simulator, &DE1Simulator::subStateChanged, [&de1Simulator, &de1Device]() {
-        de1Device.setSimulatedState(de1Simulator.state(), de1Simulator.subState());
-    });
+        // Connect simulator state changes to DE1Device (which will emit to MachineState)
+        QObject::connect(&de1Simulator, &DE1Simulator::stateChanged, [&de1Simulator, &de1Device]() {
+            de1Device.setSimulatedState(de1Simulator.state(), de1Simulator.subState());
+        });
+        QObject::connect(&de1Simulator, &DE1Simulator::subStateChanged, [&de1Simulator, &de1Device]() {
+            de1Device.setSimulatedState(de1Simulator.state(), de1Simulator.subState());
+        });
 
-    // Connect simulator shot samples to DE1Device (which will emit to MainController/graphs)
-    QObject::connect(&de1Simulator, &DE1Simulator::shotSampleReceived,
-                     &de1Device, &DE1Device::emitSimulatedShotSample);
+        // Connect simulator shot samples to DE1Device (which will emit to MainController/graphs)
+        QObject::connect(&de1Simulator, &DE1Simulator::shotSampleReceived,
+                         &de1Device, &DE1Device::emitSimulatedShotSample);
 
-    // Create SimulatedScale and connect it like a real scale
-    simulatedScalePtr = std::make_unique<SimulatedScale>();
-    auto& simulatedScale = *simulatedScalePtr;
-    simulatedScale.simulateConnection();
+        // Create SimulatedScale and connect it like a real scale
+        simulatedScalePtr = std::make_unique<SimulatedScale>();
+        auto& simulatedScale = *simulatedScalePtr;
+        simulatedScale.simulateConnection();
 
-    // Replace FlowScale with SimulatedScale for graph data
-    QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
-                        &mainController, &MainController::onScaleWeightChanged);
-    QObject::connect(&simulatedScale, &ScaleDevice::weightChanged,
-                     &mainController, &MainController::onScaleWeightChanged);
+        // Replace FlowScale with SimulatedScale for graph data
+        QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+                            &mainController, &MainController::onScaleWeightChanged);
+        QObject::connect(&simulatedScale, &ScaleDevice::weightChanged,
+                         &mainController, &MainController::onScaleWeightChanged);
 
-    // Set SimulatedScale as the active scale for MachineState
-    machineState.setScale(&simulatedScale);
-    context->setContextProperty("ScaleDevice", &simulatedScale);
+        // Set SimulatedScale as the active scale for MachineState
+        machineState.setScale(&simulatedScale);
+        context->setContextProperty("ScaleDevice", &simulatedScale);
 
-    // Connect simulator scale weight to SimulatedScale
-    QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
-                     &simulatedScale, &SimulatedScale::setSimulatedWeight);
+        // Connect simulator scale weight to SimulatedScale
+        QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
+                         &simulatedScale, &SimulatedScale::setSimulatedWeight);
 
-    // Configure GHC visual controller (created earlier for main window access)
-    ghcSimulator.setDE1Device(&de1Device);
-    ghcSimulator.setDE1Simulator(&de1Simulator);
+        // Configure GHC visual controller (created earlier for main window access)
+        ghcSimulator.setDE1Device(&de1Device);
+        ghcSimulator.setDE1Simulator(&de1Simulator);
 
-    ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
-    auto& ghcEngine = *ghcEnginePtr;
-    ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
-    ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
-    ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
-    ghcEngine.rootContext()->setContextProperty("Settings", &settings);
+        ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
+        auto& ghcEngine = *ghcEnginePtr;
+        ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
+        ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
+        ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
+        ghcEngine.rootContext()->setContextProperty("Settings", &settings);
 
-    QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
-        [](QObject *obj, const QUrl &objUrl) {
-            if (!obj) {
-                qWarning() << "GHC Simulator: Failed to load" << objUrl;
-            } else {
-                qDebug() << "GHC Simulator: Window created successfully";
-            }
-        }, Qt::QueuedConnection);
+        QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
+            [](QObject *obj, const QUrl &objUrl) {
+                if (!obj) {
+                    qWarning() << "GHC Simulator: Failed to load" << objUrl;
+                } else {
+                    qDebug() << "GHC Simulator: Window created successfully";
+                }
+            }, Qt::QueuedConnection);
 
-    const QUrl ghcUrl(u"qrc:/qt/qml/DecenzaDE1/qml/simulator/GHCSimulatorWindow.qml"_s);
-    ghcEngine.load(ghcUrl);
-    } // settings.simulationMode()
+        const QUrl ghcUrl(u"qrc:/qt/qml/DecenzaDE1/qml/simulator/GHCSimulatorWindow.qml"_s);
+        ghcEngine.load(ghcUrl);
+    }
 #endif
 
 #ifdef Q_OS_ANDROID
