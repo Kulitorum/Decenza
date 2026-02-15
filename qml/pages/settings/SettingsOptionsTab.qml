@@ -91,15 +91,21 @@ KeyboardAwareContainer {
                             checked: Settings.simulationMode
                             accessibleName: TranslationManager.translate("settings.preferences.unlockGui", "Unlock GUI")
                             onToggled: {
-                                // Save to persistent Settings
+                                // Save to persistent Settings — takes effect on next launch
                                 Settings.simulationMode = checked
-                                // Also set on devices for current session
-                                DE1Device.simulationMode = checked
-                                if (ScaleDevice) {
-                                    ScaleDevice.simulationMode = checked
-                                }
+                                restartRequiredText.visible = true
                             }
                         }
+                    }
+
+                    Text {
+                        id: restartRequiredText
+                        visible: false
+                        text: "Restart required for this change to take effect"
+                        color: Theme.warningColor
+                        font.pixelSize: Theme.scaled(12)
+                        Layout.leftMargin: Theme.scaled(15)
+                        Layout.bottomMargin: Theme.scaled(5)
                     }
                 }
             }
