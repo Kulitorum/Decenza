@@ -133,6 +133,13 @@ ApplicationWindow {
     // - sleepCountdownNormal: resets on user activity, counts down from autoSleepMinutes
     // - sleepCountdownStayAwake: only set on auto-wake, never reset by activity
     // Sleep when BOTH <= 0
+    onAutoSleepMinutesChanged: {
+        if (autoSleepMinutes > 0 && sleepCountdownNormal < 0) {
+            sleepCountdownNormal = autoSleepMinutes
+            sleepCountdownStayAwake = 0
+            console.log("[AutoSleep] Setting changed: initialized normal=" + sleepCountdownNormal + ", stayAwake=0")
+        }
+    }
     property int sleepCountdownNormal: -1      // Minutes remaining (-1 = not started)
     property int sleepCountdownStayAwake: -1   // Minutes remaining (-1 = already satisfied)
 
@@ -156,18 +163,27 @@ ApplicationWindow {
         interval: 60 * 1000  // 1 minute
         running: !screensaverActive && !root.operationActive && root.autoSleepMinutes > 0
         repeat: true
+        onRunningChanged: {
+            console.log("[AutoSleep] Timer running=" + running +
+                       " (screensaverActive=" + screensaverActive +
+                       ", operationActive=" + root.operationActive +
+                       ", autoSleepMinutes=" + root.autoSleepMinutes +
+                       ", normal=" + root.sleepCountdownNormal +
+                       ", stayAwake=" + root.sleepCountdownStayAwake + ")")
+        }
         onTriggered: {
             // Decrement both counters (only if > 0)
             if (root.sleepCountdownNormal > 0) root.sleepCountdownNormal--
             if (root.sleepCountdownStayAwake > 0) root.sleepCountdownStayAwake--
 
             // Debug: log countdown status on every tick
-            console.log("Sleep countdown: normal=" + root.sleepCountdownNormal +
-                       ", stayAwake=" + root.sleepCountdownStayAwake)
+            console.log("[AutoSleep] Tick: normal=" + root.sleepCountdownNormal +
+                       ", stayAwake=" + root.sleepCountdownStayAwake +
+                       ", autoSleepMinutes=" + root.autoSleepMinutes)
 
             // Sleep when BOTH <= 0
             if (root.sleepCountdownNormal <= 0 && root.sleepCountdownStayAwake <= 0) {
-                console.log("Auto-sleep triggered (both counters expired)")
+                console.log("[AutoSleep] Both counters expired — triggering sleep")
                 triggerAutoSleep()
             }
         }
@@ -179,6 +195,7 @@ ApplicationWindow {
         function onPhaseChanged() {
             if (!screensaverActive && root.autoSleepMinutes > 0) {
                 root.sleepCountdownNormal = root.autoSleepMinutes
+                console.log("[AutoSleep] Reset by phase change: normal=" + root.sleepCountdownNormal)
             }
         }
     }
@@ -238,6 +255,9 @@ ApplicationWindow {
     }
 
     function triggerAutoSleep() {
+        console.log("[AutoSleep] triggerAutoSleep called — DE1 connected=" +
+                   (DE1Device ? DE1Device.connected : "null") +
+                   ", scale connected=" + (ScaleDevice ? ScaleDevice.connected : "null"))
         // Put scale to LCD-off mode (keep connected for wake)
         if (ScaleDevice && ScaleDevice.connected) {
             ScaleDevice.disableLcd()  // LCD off only, stay connected
@@ -438,6 +458,10 @@ ApplicationWindow {
         if (root.autoSleepMinutes > 0) {
             root.sleepCountdownNormal = root.autoSleepMinutes
             root.sleepCountdownStayAwake = 0  // Already satisfied on fresh start
+            console.log("[AutoSleep] Init: autoSleepMinutes=" + root.autoSleepMinutes +
+                       ", normal=" + root.sleepCountdownNormal + ", stayAwake=0")
+        } else {
+            console.log("[AutoSleep] Init: auto-sleep DISABLED (autoSleepMinutes=" + root.autoSleepMinutes + ")")
         }
 
         // Mark app as initialized
@@ -2151,7 +2175,9 @@ ApplicationWindow {
         onPressed: function(mouse) {
             // Reset normal countdown on user touch (but not stayAwake)
             if (root.autoSleepMinutes > 0 && !screensaverActive) {
+                var prev = root.sleepCountdownNormal
                 root.sleepCountdownNormal = root.autoSleepMinutes
+                if (prev <= 5) console.log("[AutoSleep] Reset by touch: " + prev + " -> " + root.sleepCountdownNormal)
             }
             mouse.accepted = false  // Let the touch through
         }
