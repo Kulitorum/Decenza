@@ -43,6 +43,7 @@
 #include "ai/aiconversation.h"
 #include "screensaver/screensavervideomanager.h"
 #include "screensaver/strangeattractorrenderer.h"
+#include "rendering/fastlinerenderer.h"
 #ifdef ENABLE_QUICK3D
 #include "screensaver/pipegeometry.h"
 #endif
@@ -498,6 +499,9 @@ int main(int argc, char *argv[])
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
     qmlRegisterType<StrangeAttractorRenderer>("DecenzaDE1", 1, 0, "StrangeAttractorRenderer");
+
+    // Register fast line renderer for shot graph (QSGGeometryNode, pre-allocated VBO)
+    qmlRegisterType<FastLineRenderer>("DecenzaDE1", 1, 0, "FastLineRenderer");
 
 #ifdef ENABLE_QUICK3D
     // Register pipe geometry types for 3D pipes screensaver

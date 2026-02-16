@@ -8,6 +8,8 @@
 #include <QVariantList>
 #include <QtCharts/QLineSeries>
 
+class FastLineRenderer;
+
 struct PhaseMarker {
     double time;
     QString label;
@@ -37,14 +39,17 @@ public:
     double finalWeight() const;
     QVariantList phaseMarkersVariant() const;
 
-    // Register chart series - C++ takes ownership of updating them
-    Q_INVOKABLE void registerSeries(QLineSeries* pressure, QLineSeries* flow, QLineSeries* temperature,
-                                     const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
+    // Register goal/marker chart series (LineSeries - infrequent updates)
+    Q_INVOKABLE void registerSeries(const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
                                      QLineSeries* temperatureGoal,
-                                     QLineSeries* weight, QLineSeries* weightFlow,
                                      QLineSeries* extractionMarker,
                                      QLineSeries* stopMarker,
                                      const QVariantList& frameMarkers);
+
+    // Register fast renderers for live data series (QSGGeometryNode - pre-allocated VBO)
+    Q_INVOKABLE void registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
+                                         FastLineRenderer* temperature,
+                                         FastLineRenderer* weight, FastLineRenderer* weightFlow);
 
     // Data export for visualizer upload
     const QVector<QPointF>& pressureData() const { return m_pressurePoints; }
@@ -64,7 +69,7 @@ public slots:
     void clear();
     void clearWeightData();  // Clear only weight samples (call when tare completes)
 
-    // Fast data ingestion - no chart updates, just vector append
+    // Data ingestion - vector append, chart update deferred to 33ms timer
     void addSample(double time, double pressure, double flow, double temperature,
                    double mixTemp,
                    double pressureGoal, double flowGoal, double temperatureGoal,
@@ -102,15 +107,24 @@ private:
     QVector<QPointF> m_cumulativeWeightPoints;  // Cumulative weight (g) - for export
     QVector<QPointF> m_weightFlowRatePoints;  // Flow rate from scale (g/s) - for visualizer export
 
-    // Chart series pointers (QPointer auto-nulls when QML destroys them)
-    QPointer<QLineSeries> m_pressureSeries;
-    QPointer<QLineSeries> m_flowSeries;
-    QPointer<QLineSeries> m_temperatureSeries;
+    // Fast renderers for live data series (QSGGeometryNode, pre-allocated VBO)
+    QPointer<FastLineRenderer> m_fastPressure;
+    QPointer<FastLineRenderer> m_fastFlow;
+    QPointer<FastLineRenderer> m_fastTemperature;
+    QPointer<FastLineRenderer> m_fastWeight;
+    QPointer<FastLineRenderer> m_fastWeightFlow;
+
+    // Last-flushed index per fast series (for incremental appends)
+    int m_lastFlushedPressure = 0;
+    int m_lastFlushedFlow = 0;
+    int m_lastFlushedTemp = 0;
+    int m_lastFlushedWeight = 0;
+    int m_lastFlushedWeightFlow = 0;
+
+    // Chart series for goals/markers (QPointer auto-nulls when QML destroys them)
     QList<QPointer<QLineSeries>> m_pressureGoalSeriesList;  // One per segment
     QList<QPointer<QLineSeries>> m_flowGoalSeriesList;      // One per segment
     QPointer<QLineSeries> m_temperatureGoalSeries;
-    QPointer<QLineSeries> m_weightSeries;
-    QPointer<QLineSeries> m_weightFlowSeries;
     QPointer<QLineSeries> m_extractionMarkerSeries;
     QPointer<QLineSeries> m_stopMarkerSeries;
     QList<QPointer<QLineSeries>> m_frameMarkerSeries;
@@ -134,6 +148,6 @@ private:
     double m_stopTime = -1;          // Recorded stop time for accessibility
     double m_weightAtStop = 0.0;     // Weight when stop was triggered
 
-    static constexpr int FLUSH_INTERVAL_MS = 33;  // Backup timer; main updates are immediate on sample arrival
+    static constexpr int FLUSH_INTERVAL_MS = 33;  // Chart update timer (~30fps); batches BLE and scale samples
     static constexpr int INITIAL_CAPACITY = 600;  // Pre-allocate for 2min at 5Hz
 };

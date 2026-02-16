@@ -15,16 +15,20 @@ ChartView {
     margins.left: 0
     margins.right: 0
 
-    // Register series with C++ model on completion
+    // Register goal/marker LineSeries with C++ model (infrequent updates, replace() is fine)
     Component.onCompleted: {
         ShotDataModel.registerSeries(
-            pressureSeries, flowSeries, temperatureSeries,
             [pressureGoal1, pressureGoal2, pressureGoal3, pressureGoal4, pressureGoal5],
             [flowGoal1, flowGoal2, flowGoal3, flowGoal4, flowGoal5],
             temperatureGoalSeries,
-            weightSeries, weightFlowSeries, extractionStartMarker, stopMarker,
+            extractionStartMarker, stopMarker,
             [frameMarker1, frameMarker2, frameMarker3, frameMarker4, frameMarker5,
              frameMarker6, frameMarker7, frameMarker8, frameMarker9, frameMarker10]
+        )
+        // Register fast renderers (QSGGeometryNode, pre-allocated VBO - no rebuilds)
+        ShotDataModel.registerFastSeries(
+            pressureRenderer, flowRenderer, temperatureRenderer,
+            weightRenderer, weightFlowRenderer
         )
     }
 
@@ -152,51 +156,65 @@ ChartView {
         axisYRight: tempAxis
     }
 
-    // === ACTUAL LINES (solid) ===
-
+    // Empty anchor series to keep the weight axis registered with ChartView
+    // (axes only display when at least one series references them)
     LineSeries {
-        id: pressureSeries
-        name: "Pressure"
-        color: Theme.pressureColor
-        width: Theme.scaled(3)
-        axisX: timeAxis
-        axisY: pressureAxis
-    }
-
-    LineSeries {
-        id: flowSeries
-        name: "Flow"
-        color: Theme.flowColor
-        width: Theme.scaled(3)
-        axisX: timeAxis
-        axisY: pressureAxis
-    }
-
-    LineSeries {
-        id: temperatureSeries
-        name: "Temp"
-        color: Theme.temperatureColor
-        width: Theme.scaled(3)
-        axisX: timeAxis
-        axisYRight: tempAxis
-    }
-
-    LineSeries {
-        id: weightFlowSeries
-        name: "Weight Flow"
-        color: Theme.weightFlowColor
-        width: Theme.scaled(2)
-        axisX: timeAxis
-        axisY: pressureAxis
-    }
-
-    LineSeries {
-        id: weightSeries
-        name: "Weight"
-        color: Theme.weightColor
-        width: Theme.scaled(3)
+        name: ""
         axisX: timeAxis
         axisYRight: weightAxis
+    }
+
+    // === ACTUAL LINES (solid) - FastLineRenderer with pre-allocated VBO ===
+    // These render outside Qt Charts via QSGGeometryNode for zero-copy GPU updates
+
+    FastLineRenderer {
+        id: pressureRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.pressureColor
+        lineWidth: Theme.scaled(3)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: pressureAxis.min; maxY: pressureAxis.max
+    }
+
+    FastLineRenderer {
+        id: flowRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.flowColor
+        lineWidth: Theme.scaled(3)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: pressureAxis.min; maxY: pressureAxis.max
+    }
+
+    FastLineRenderer {
+        id: temperatureRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.temperatureColor
+        lineWidth: Theme.scaled(3)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: tempAxis.min; maxY: tempAxis.max
+    }
+
+    FastLineRenderer {
+        id: weightFlowRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.weightFlowColor
+        lineWidth: Theme.scaled(2)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: pressureAxis.min; maxY: pressureAxis.max
+    }
+
+    FastLineRenderer {
+        id: weightRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.weightColor
+        lineWidth: Theme.scaled(3)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: weightAxis.min; maxY: weightAxis.max
     }
 
     // Frame marker labels

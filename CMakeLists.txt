@@ -180,6 +180,7 @@ set(SOURCES
     src/controllers/shottimingcontroller.cpp
     src/screensaver/screensavervideomanager.cpp
     src/screensaver/strangeattractorrenderer.cpp
+    src/rendering/fastlinerenderer.cpp
     src/network/visualizeruploader.cpp
     src/network/visualizerimporter.cpp
     src/ai/aimanager.cpp
@@ -272,6 +273,7 @@ set(HEADERS
     src/controllers/shottimingcontroller.h
     src/screensaver/screensavervideomanager.h
     src/screensaver/strangeattractorrenderer.h
+    src/rendering/fastlinerenderer.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
     src/ai/aimanager.h

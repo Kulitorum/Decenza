@@ -1,4 +1,5 @@
 #include "shotdatamodel.h"
+#include "rendering/fastlinerenderer.h"
 #include <QDebug>
 
 ShotDataModel::ShotDataModel(QObject* parent)
@@ -22,7 +23,7 @@ ShotDataModel::ShotDataModel(QObject* parent)
     m_flowGoalSegments.append(QVector<QPointF>());
     m_flowGoalSegments[0].reserve(INITIAL_CAPACITY);
 
-    // Backup timer for edge cases (main updates happen immediately on sample arrival)
+    // Chart update timer (~30fps) - batches data samples for efficient chart redraw
     m_flushTimer = new QTimer(this);
     m_flushTimer->setInterval(FLUSH_INTERVAL_MS);
     m_flushTimer->setTimerType(Qt::PreciseTimer);
@@ -35,19 +36,12 @@ ShotDataModel::~ShotDataModel() {
     }
 }
 
-void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLineSeries* temperature,
-                                    const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
+void ShotDataModel::registerSeries(const QVariantList& pressureGoalSegments, const QVariantList& flowGoalSegments,
                                     QLineSeries* temperatureGoal,
-                                    QLineSeries* weight, QLineSeries* weightFlow,
                                     QLineSeries* extractionMarker,
                                     QLineSeries* stopMarker,
                                     const QVariantList& frameMarkers) {
-    m_pressureSeries = pressure;
-    m_flowSeries = flow;
-    m_temperatureSeries = temperature;
     m_temperatureGoalSeries = temperatureGoal;
-    m_weightSeries = weight;
-    m_weightFlowSeries = weightFlow;
     m_extractionMarkerSeries = extractionMarker;
     m_stopMarkerSeries = stopMarker;
 
@@ -74,39 +68,56 @@ void ShotDataModel::registerSeries(QLineSeries* pressure, QLineSeries* flow, QLi
         }
     }
 
-    // Enable OpenGL for hardware acceleration on main data series
-    // Note: OpenGL causes rendering issues on:
-    // - Windows debug builds
-    // - iOS (uses Metal, not OpenGL - causes missing curves)
-#if !(defined(Q_OS_WIN) || defined(Q_OS_MACOS)) || !defined(QT_DEBUG)
-#if !defined(Q_OS_IOS)
-    if (m_pressureSeries) m_pressureSeries->setUseOpenGL(true);
-    if (m_flowSeries) m_flowSeries->setUseOpenGL(true);
-    if (m_temperatureSeries) m_temperatureSeries->setUseOpenGL(true);
-    if (m_weightSeries) m_weightSeries->setUseOpenGL(true);
-    if (m_weightFlowSeries) m_weightFlowSeries->setUseOpenGL(true);
-    qDebug() << "ShotDataModel: Registered series with OpenGL acceleration";
-#else
-    qDebug() << "ShotDataModel: Registered series (OpenGL disabled for iOS/Metal)";
-#endif
-#else
-    qDebug() << "ShotDataModel: Registered series (OpenGL disabled for Windows debug)";
-#endif
+    qDebug() << "ShotDataModel: Registered goal/marker series";
 
-    // If we have existing data (e.g., viewing a just-completed shot on a new page),
-    // immediately populate the new series with that data
-    if (!m_pressurePoints.isEmpty() || !m_flowPoints.isEmpty() || !m_weightPoints.isEmpty()) {
-        qDebug() << "ShotDataModel: Populating new series with existing data ("
-                 << m_pressurePoints.size() << " pressure points,"
-                 << m_flowPoints.size() << " flow points,"
-                 << m_weightPoints.size() << " weight points,"
-                 << m_weightFlowRatePoints.size() << " weight flow points)";
+    // If we have existing goal/marker data, flush it
+    if (!m_pressureGoalSegments[0].isEmpty() || !m_pendingMarkers.isEmpty()) {
         m_dirty = true;
         flushToChart();
     }
 
     // Start the flush timer
     m_flushTimer->start();
+}
+
+void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
+                                        FastLineRenderer* temperature,
+                                        FastLineRenderer* weight, FastLineRenderer* weightFlow) {
+    m_fastPressure = pressure;
+    m_fastFlow = flow;
+    m_fastTemperature = temperature;
+    m_fastWeight = weight;
+    m_fastWeightFlow = weightFlow;
+
+    // Reset flush indices
+    m_lastFlushedPressure = 0;
+    m_lastFlushedFlow = 0;
+    m_lastFlushedTemp = 0;
+    m_lastFlushedWeight = 0;
+    m_lastFlushedWeightFlow = 0;
+
+    // Bulk-load any existing data (e.g., returning to espresso page after shot)
+    if (!m_pressurePoints.isEmpty() || !m_flowPoints.isEmpty() || !m_weightPoints.isEmpty()) {
+        qDebug() << "ShotDataModel: Populating fast renderers with existing data ("
+                 << m_pressurePoints.size() << " pressure,"
+                 << m_flowPoints.size() << " flow,"
+                 << m_weightPoints.size() << " weight,"
+                 << m_weightFlowRatePoints.size() << " weight flow)";
+        if (m_fastPressure) m_fastPressure->setPoints(m_pressurePoints);
+        if (m_fastFlow) m_fastFlow->setPoints(m_flowPoints);
+        if (m_fastTemperature) m_fastTemperature->setPoints(m_temperaturePoints);
+        if (m_fastWeight) m_fastWeight->setPoints(m_weightPoints);
+        if (m_fastWeightFlow) m_fastWeightFlow->setPoints(m_weightFlowRatePoints);
+
+        // Mark all as flushed
+        m_lastFlushedPressure = m_pressurePoints.size();
+        m_lastFlushedFlow = m_flowPoints.size();
+        m_lastFlushedTemp = m_temperaturePoints.size();
+        m_lastFlushedWeight = m_weightPoints.size();
+        m_lastFlushedWeightFlow = m_weightFlowRatePoints.size();
+    }
+
+    qDebug() << "ShotDataModel: Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
 }
 
 void ShotDataModel::clear() {
@@ -134,13 +145,20 @@ void ShotDataModel::clear() {
     m_flowGoalSegments.append(QVector<QPointF>());
     m_flowGoalSegments[0].reserve(INITIAL_CAPACITY);
 
-    // Clear chart series
-    if (m_pressureSeries) m_pressureSeries->clear();
-    if (m_flowSeries) m_flowSeries->clear();
-    if (m_temperatureSeries) m_temperatureSeries->clear();
+    // Clear fast renderers
+    if (m_fastPressure) m_fastPressure->clear();
+    if (m_fastFlow) m_fastFlow->clear();
+    if (m_fastTemperature) m_fastTemperature->clear();
+    if (m_fastWeight) m_fastWeight->clear();
+    if (m_fastWeightFlow) m_fastWeightFlow->clear();
+    m_lastFlushedPressure = 0;
+    m_lastFlushedFlow = 0;
+    m_lastFlushedTemp = 0;
+    m_lastFlushedWeight = 0;
+    m_lastFlushedWeightFlow = 0;
+
+    // Clear goal/marker chart series
     if (m_temperatureGoalSeries) m_temperatureGoalSeries->clear();
-    if (m_weightSeries) m_weightSeries->clear();
-    if (m_weightFlowSeries) m_weightFlowSeries->clear();
     if (m_extractionMarkerSeries) m_extractionMarkerSeries->clear();
     if (m_stopMarkerSeries) m_stopMarkerSeries->clear();
     m_pendingStopTime = -1;
@@ -183,12 +201,10 @@ void ShotDataModel::clearWeightData() {
     m_weightPoints.clear();
     m_cumulativeWeightPoints.clear();
     m_weightFlowRatePoints.clear();
-    if (m_weightSeries) {
-        m_weightSeries->clear();
-    }
-    if (m_weightFlowSeries) {
-        m_weightFlowSeries->clear();
-    }
+    if (m_fastWeight) m_fastWeight->clear();
+    if (m_fastWeightFlow) m_fastWeightFlow->clear();
+    m_lastFlushedWeight = 0;
+    m_lastFlushedWeightFlow = 0;
     qDebug() << "ShotDataModel: Cleared pre-tare weight data";
 }
 
@@ -258,7 +274,7 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     }
 
     m_dirty = true;
-    flushToChart();  // Immediate update for snappy feel
+    // Timer-driven: flushToChart() runs every 33ms (~30fps), batching samples
 }
 
 void ShotDataModel::addWeightSample(double time, double weight, double flowRate) {
@@ -308,7 +324,7 @@ void ShotDataModel::addWeightSample(double time, double weight) {
     // Plot cumulative weight (g) - shows weight progression during shot (0g -> 36g typical)
     m_weightPoints.append(QPointF(time, weight));
     m_dirty = true;
-    flushToChart();  // Immediate update for snappy feel
+    // Timer-driven: flushToChart() runs every 33ms (~30fps), batching samples
     emit finalWeightChanged();  // For accessibility announcement
 }
 
@@ -368,39 +384,46 @@ void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameN
 void ShotDataModel::flushToChart() {
     if (!m_dirty) return;
 
-    // Batch update all series with replace() - single redraw per series
-    if (m_pressureSeries && !m_pressurePoints.isEmpty()) {
-        m_pressureSeries->replace(m_pressurePoints);
+    // Incrementally append new points to fast renderers (pre-allocated VBO, no rebuild)
+    if (m_fastPressure) {
+        for (int i = m_lastFlushedPressure; i < m_pressurePoints.size(); ++i)
+            m_fastPressure->appendPoint(m_pressurePoints[i].x(), m_pressurePoints[i].y());
+        m_lastFlushedPressure = m_pressurePoints.size();
     }
-    if (m_flowSeries && !m_flowPoints.isEmpty()) {
-        m_flowSeries->replace(m_flowPoints);
+    if (m_fastFlow) {
+        for (int i = m_lastFlushedFlow; i < m_flowPoints.size(); ++i)
+            m_fastFlow->appendPoint(m_flowPoints[i].x(), m_flowPoints[i].y());
+        m_lastFlushedFlow = m_flowPoints.size();
     }
-    if (m_temperatureSeries && !m_temperaturePoints.isEmpty()) {
-        m_temperatureSeries->replace(m_temperaturePoints);
+    if (m_fastTemperature) {
+        for (int i = m_lastFlushedTemp; i < m_temperaturePoints.size(); ++i)
+            m_fastTemperature->appendPoint(m_temperaturePoints[i].x(), m_temperaturePoints[i].y());
+        m_lastFlushedTemp = m_temperaturePoints.size();
+    }
+    if (m_fastWeight) {
+        for (int i = m_lastFlushedWeight; i < m_weightPoints.size(); ++i)
+            m_fastWeight->appendPoint(m_weightPoints[i].x(), m_weightPoints[i].y());
+        m_lastFlushedWeight = m_weightPoints.size();
+    }
+    if (m_fastWeightFlow) {
+        for (int i = m_lastFlushedWeightFlow; i < m_weightFlowRatePoints.size(); ++i)
+            m_fastWeightFlow->appendPoint(m_weightFlowRatePoints[i].x(), m_weightFlowRatePoints[i].y());
+        m_lastFlushedWeightFlow = m_weightFlowRatePoints.size();
     }
 
-    // Update pressure goal segments - each segment gets its own LineSeries
+    // Update goal curve LineSeries (infrequent updates, replace() is fine)
     for (int i = 0; i < m_pressureGoalSegments.size() && i < m_pressureGoalSeriesList.size(); ++i) {
         if (m_pressureGoalSeriesList[i] && !m_pressureGoalSegments[i].isEmpty()) {
             m_pressureGoalSeriesList[i]->replace(m_pressureGoalSegments[i]);
         }
     }
-
-    // Update flow goal segments - each segment gets its own LineSeries
     for (int i = 0; i < m_flowGoalSegments.size() && i < m_flowGoalSeriesList.size(); ++i) {
         if (m_flowGoalSeriesList[i] && !m_flowGoalSegments[i].isEmpty()) {
             m_flowGoalSeriesList[i]->replace(m_flowGoalSegments[i]);
         }
     }
-
     if (m_temperatureGoalSeries && !m_temperatureGoalPoints.isEmpty()) {
         m_temperatureGoalSeries->replace(m_temperatureGoalPoints);
-    }
-    if (m_weightSeries && !m_weightPoints.isEmpty()) {
-        m_weightSeries->replace(m_weightPoints);
-    }
-    if (m_weightFlowSeries && !m_weightFlowRatePoints.isEmpty()) {
-        m_weightFlowSeries->replace(m_weightFlowRatePoints);
     }
 
     // Process pending vertical markers
