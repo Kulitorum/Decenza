@@ -1156,7 +1156,9 @@ Page {
     StackView.onActivated: {
         // Capture BEFORE conversion (createNew*Profile clears baseProfileName)
         originalProfileName = MainController.baseProfileName || ""
+        var freshConversion = false
         if (!MainController.isCurrentProfileRecipe) {
+            freshConversion = true
             console.warn("SimpleProfileEditorPage: Converting non-recipe profile to",
                          isFlow ? "flow" : "pressure", "- original:", MainController.currentProfileName)
             var defaultName = isFlow ? "New Flow Profile" : "New Pressure Profile"
@@ -1167,6 +1169,10 @@ Page {
             }
         }
         loadCurrentProfile()
+        // Fresh conversion is editor initialization, not a user edit — start clean
+        if (freshConversion) {
+            MainController.markProfileClean()
+        }
         var editorTitle = isFlow ? tr("title", "Flow Profile Editor") : tr("title", "Pressure Profile Editor")
         root.currentPageTitle = MainController.currentProfileName || editorTitle
         Qt.callLater(function() {

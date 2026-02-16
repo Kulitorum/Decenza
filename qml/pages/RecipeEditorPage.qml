@@ -747,10 +747,16 @@ Page {
         originalProfileName = MainController.baseProfileName || ""
 
         // If not already in recipe mode, create a new recipe from current profile settings
+        var freshConversion = false
         if (!MainController.isCurrentProfileRecipe) {
+            freshConversion = true
             MainController.createNewRecipe(MainController.currentProfileName || "New Recipe")
         }
         loadCurrentProfile()
+        // Fresh conversion is editor initialization, not a user edit — start clean
+        if (freshConversion) {
+            MainController.markProfileClean()
+        }
         root.currentPageTitle = MainController.currentProfileName || TranslationManager.translate("recipeEditor.title", "Recipe Editor")
         // Deferred refresh to ensure chart is ready (per CLAUDE.md: no timer guards)
         Qt.callLater(deferredGraphRefresh)
