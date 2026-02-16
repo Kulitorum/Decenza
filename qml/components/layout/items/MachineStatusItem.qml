@@ -11,6 +11,10 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: "Machine status: " + root.statusText
+    Accessible.focusable: true
+
     readonly property color statusColor: {
         switch (MachineState.phase) {
             case MachineStateType.Phase.Disconnected:       return Theme.errorColor

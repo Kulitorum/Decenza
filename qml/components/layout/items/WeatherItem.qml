@@ -11,6 +11,19 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: {
+        if (!WeatherManager.valid) return "Weather: not available"
+        var forecast = WeatherManager.hourlyForecast
+        if (forecast.length > 0) {
+            var temp = Math.round(forecast[0].temperature || 0)
+            var loc = WeatherManager.locationName || ""
+            return "Weather: " + temp + " degrees" + (loc ? ", " + loc : "")
+        }
+        return "Weather"
+    }
+    Accessible.focusable: true
+
     // Moon phase emoji based on date (synodic month = 29.53059 days)
     function moonEmoji(timeStr) {
         // Reference new moon: Jan 6, 2000 18:14 UTC

@@ -18,6 +18,10 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: root.pageTitle || "Decenza"
+    Accessible.focusable: true
+
     // --- COMPACT MODE (status bar rendering) ---
     Item {
         id: compactContent

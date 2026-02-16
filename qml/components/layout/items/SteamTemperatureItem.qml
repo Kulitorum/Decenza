@@ -14,6 +14,11 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: "Steam temperature: " + root.currentTemp.toFixed(0) +
+                     " degrees, target: " + root.targetTemp.toFixed(0) + " degrees"
+    Accessible.focusable: true
+
     // --- COMPACT MODE (bar / status bar rendering) ---
     Item {
         id: compactContent

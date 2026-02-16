@@ -11,6 +11,13 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
+    Accessible.role: Accessible.Button
+    Accessible.name: {
+        var plan = compactShotPlan.text || fullShotPlan.text || ""
+        return plan ? "Shot plan: " + plan + ". Tap to edit" : "Shot plan"
+    }
+    Accessible.focusable: true
+
     // --- COMPACT MODE ---
     Item {
         id: compactContent
