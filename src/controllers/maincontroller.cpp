@@ -2405,7 +2405,7 @@ void MainController::onEspressoCycleStarted() {
     // The machine may have been started from the group head button, so we can only
     // abort here (during preheat) — before any water flows.
     // Volume-based profiles can proceed without a physical scale.
-    if (m_bleManager && m_bleManager->hasSavedScale()) {
+    if (m_bleManager && !m_bleManager->isDisabled() && m_bleManager->hasSavedScale()) {
         ScaleDevice* physicalScale = m_bleManager->scaleDevice();
         if (!physicalScale || !physicalScale->isConnected()) {
             // Check if the profile actually needs a scale

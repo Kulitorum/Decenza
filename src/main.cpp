@@ -413,9 +413,9 @@ int main(int argc, char *argv[])
             machineState.setScale(&flowScale);
             timingController.setScale(&flowScale);
             engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
-            // Disconnect FlowScale from graph during scan
-            QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
-                                &mainController, &MainController::onScaleWeightChanged);
+            // Reconnect FlowScale to graph (physical scale is being destroyed)
+            QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+                             &mainController, &MainController::onScaleWeightChanged);
             // Notify MQTT that scale is disconnected
             if (mainController.mqttClient()) {
                 mainController.mqttClient()->onScaleConnectedChanged(false);

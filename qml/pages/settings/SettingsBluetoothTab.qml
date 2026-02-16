@@ -428,10 +428,10 @@ Item {
                     }
                 }
 
-                // Saved scale info (hidden in simulator mode)
+                // Saved scale info (show even in simulator mode so user can forget stale scale)
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: BLEManager.hasSavedScale && !BLEManager.disabled
+                    visible: BLEManager.hasSavedScale
 
                     Tr {
                         key: "settings.bluetooth.savedScale"
