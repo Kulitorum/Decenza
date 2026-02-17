@@ -16,6 +16,7 @@ Item {
     // Display
     property string suffix: ""
     property string displayText: ""  // Optional override for value display
+    property string rangeText: ""   // Optional override for range display in popup
     property string accessibleName: ""  // Optional override for accessibility announcement
     property color valueColor: Theme.textColor
     property color accentColor: Theme.primaryColor
@@ -370,7 +371,8 @@ Item {
             popupValueContainer.forceActiveFocus()
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                 var announcement = root.accessibleName ? root.accessibleName + ". " : ""
-                announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + root.value.toFixed(root.decimals) + " " + root.suffix.trim()
+                var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
+                announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + valueStr
                 AccessibilityManager.announce(announcement, true)
             }
         }
@@ -651,7 +653,7 @@ Item {
                 anchors.top: popupControl.bottom
                 anchors.topMargin: sc(12)
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.from.toFixed(root.decimals) + " \u2014 " + root.to.toFixed(root.decimals)
+                text: root.rangeText || (root.from.toFixed(root.decimals) + root.suffix + " \u2014 " + root.to.toFixed(root.decimals) + root.suffix)
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
             }
@@ -664,10 +666,10 @@ Item {
         newVal = Math.round(newVal / root.stepSize) * root.stepSize
         if (newVal !== root.value) {
             root.valueModified(newVal)
-            // Announce new value for accessibility (use newVal, not displayText which has old value)
+            // Announce new value for accessibility
+            // displayText binding updates synchronously after valueModified propagates
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                var unit = root.suffix.trim()
-                AccessibilityManager.announce(newVal.toFixed(root.decimals) + (unit ? " " + unit : ""))
+                AccessibilityManager.announce(root.displayText || (newVal.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
             }
         }
     }

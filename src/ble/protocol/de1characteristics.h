@@ -127,8 +127,8 @@ namespace MMR {
     constexpr uint32_t MACHINE_MODEL        = 0x80000C;
     constexpr uint32_t FIRMWARE_VERSION     = 0x800010;
     constexpr uint32_t FAN_THRESHOLD        = 0x803808;
-    constexpr uint32_t PHASE1_FLOW_RATE     = 0x803810;  // Heater warmup flow rate (de1app default: 20)
-    constexpr uint32_t PHASE2_FLOW_RATE     = 0x803814;  // Heater test flow rate (de1app default: 40)
+    constexpr uint32_t PHASE1_FLOW_RATE     = 0x803810;  // Heater warmup flow rate in tenths mL/s (de1app default: 20 = 2.0 mL/s)
+    constexpr uint32_t PHASE2_FLOW_RATE     = 0x803814;  // Heater test flow rate in tenths mL/s (de1app default: 40 = 4.0 mL/s)
     constexpr uint32_t HOT_WATER_IDLE_TEMP  = 0x803818;  // Heater idle temperature in tenths °C (de1app default: 990 = 99.0°C)
     constexpr uint32_t GHC_INFO             = 0x80381C;
     constexpr uint32_t GHC_MODE             = 0x803820;
