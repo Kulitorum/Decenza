@@ -8,7 +8,7 @@ Dialog {
     parent: Overlay.overlay
     anchors.centerIn: parent
     property real dialogScale: 0.75
-    width: Theme.scaled(420) * dialogScale
+    width: Theme.scaled(520) * dialogScale
     modal: true
     padding: 0
 
@@ -32,6 +32,45 @@ Dialog {
     // Grinder and grind setting
     property string grinderModel: ""
     property string grindSetting: ""
+
+    // Bean and profile
+    property string beanBrand: ""
+    property string beanType: ""
+    property string selectedProfileTitle: ""
+
+    function getBeanBrandSuggestions() {
+        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanBrands() : []
+        if (root.beanBrand.length > 0 && suggestions.indexOf(root.beanBrand) === -1)
+            suggestions.unshift(root.beanBrand)
+        return suggestions
+    }
+
+    function getBeanTypeSuggestions() {
+        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanTypesForBrand(root.beanBrand) : []
+        if (root.beanType.length > 0 && suggestions.indexOf(root.beanType) === -1)
+            suggestions.unshift(root.beanType)
+        return suggestions
+    }
+
+    function getProfileSuggestions() {
+        var profiles = MainController.availableProfiles
+        var titles = []
+        for (var i = 0; i < profiles.length; i++)
+            titles.push(profiles[i].title)
+        return titles
+    }
+
+    function loadProfileByTitle(title) {
+        var filename = MainController.findProfileByTitle(title)
+        if (filename.length > 0) {
+            MainController.loadProfile(filename)
+            root.profileTemperature = MainController.profileTargetTemperature
+            root.temperatureValue = root.profileTemperature
+            root.profileTargetWeight = MainController.profileTargetWeight
+            if (!root.targetManuallySet)
+                root.targetValue = root.profileTargetWeight
+        }
+    }
 
     // Combine grinder suggestions from history + current bean preset
     function getGrinderSuggestions() {
@@ -91,6 +130,9 @@ Dialog {
         doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
         grinderModel = Settings.dyeGrinderModel
         grindSetting = Settings.dyeGrinderSetting
+        beanBrand = Settings.dyeBeanBrand
+        beanType = Settings.dyeBeanType
+        selectedProfileTitle = MainController.currentProfileName
         showScaleWarning = false
 
         // Yield: use override if active, otherwise use profile default
@@ -108,12 +150,12 @@ Dialog {
 
     contentItem: Item {
         implicitHeight: mainColumn.implicitHeight * root.dialogScale
-        implicitWidth: Theme.scaled(420) * root.dialogScale
+        implicitWidth: Theme.scaled(520) * root.dialogScale
         clip: true
 
         ColumnLayout {
             id: mainColumn
-            width: Theme.scaled(420)
+            width: Theme.scaled(520)
             scale: root.dialogScale
             transformOrigin: Item.TopLeft
             spacing: 0
@@ -143,68 +185,84 @@ Dialog {
             }
         }
 
-        // Base Recipe Info
-        Rectangle {
+        // Profile selector
+        RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
             Layout.topMargin: Theme.scaled(12)
-            color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1)
-            radius: Theme.scaled(8)
-            implicitHeight: recipeColumn.implicitHeight + Theme.scaled(16)
+            spacing: Theme.scaled(4)
 
-            // Accessibility: group the recipe info as one element
-            Accessible.role: Accessible.StaticText
-            Accessible.name: {
-                var name = TranslationManager.translate("brewDialog.baseRecipeLabel", "Base Recipe: ") + MainController.currentProfileName
-                if (Settings.dyeBeanBrand.length > 0 || Settings.dyeBeanType.length > 0) {
-                    name += ". " + TranslationManager.translate("brewDialog.beansLabel", "Beans: ")
-                    if (Settings.dyeBeanBrand.length > 0) name += Settings.dyeBeanBrand
-                    if (Settings.dyeBeanType.length > 0) name += " " + Settings.dyeBeanType
-                }
-                return name
+            Text {
+                text: TranslationManager.translate("brewDialog.profileLabel", "Profile:")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: Theme.scaled(55)
+                Accessible.ignored: true
             }
-            Accessible.focusable: true
 
-            ColumnLayout {
-                id: recipeColumn
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(8)
-                spacing: Theme.scaled(4)
-
-                Text {
-                    text: TranslationManager.translate("brewDialog.baseRecipe", "Base Recipe")
-                    font.family: Theme.bodyFont.family
-                    font.pixelSize: Theme.scaled(11)
-                    font.bold: true
-                    color: Theme.textSecondaryColor
-                    Accessible.ignored: true  // Parent handles accessibility
+            SuggestionField {
+                id: profileInput
+                Layout.fillWidth: true
+                label: ""
+                accessibleName: TranslationManager.translate("brewDialog.profile", "Profile")
+                text: root.selectedProfileTitle
+                suggestions: root.getProfileSuggestions()
+                onTextEdited: function(t) {
+                    root.selectedProfileTitle = t
+                    // Only load profile on exact match (e.g. suggestion selection),
+                    // not partial typing that might accidentally match a short title
+                    if (root.getProfileSuggestions().indexOf(t) >= 0)
+                        root.loadProfileByTitle(t)
                 }
+            }
+        }
 
-                Text {
-                    text: MainController.currentProfileName
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                    Accessible.ignored: true  // Parent handles accessibility
-                }
+        // Bean info
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.scaled(20)
+            Layout.rightMargin: Theme.scaled(20)
+            spacing: Theme.scaled(4)
 
-                Text {
-                    visible: Settings.dyeBeanBrand.length > 0 || Settings.dyeBeanType.length > 0
-                    text: {
-                        var parts = []
-                        if (Settings.dyeBeanBrand.length > 0) parts.push(Settings.dyeBeanBrand)
-                        if (Settings.dyeBeanType.length > 0) parts.push(Settings.dyeBeanType)
-                        return parts.join(" - ")
-                    }
-                    font.family: Theme.bodyFont.family
-                    font.pixelSize: Theme.scaled(12)
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                    Accessible.ignored: true  // Parent handles accessibility
-                }
+            Text {
+                text: TranslationManager.translate("brewDialog.beansLabel2", "Beans:")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: Theme.scaled(55)
+                Accessible.ignored: true
+            }
+
+            SuggestionField {
+                id: beanBrandInput
+                Layout.fillWidth: true
+                Layout.preferredWidth: Theme.scaled(130)
+                label: ""
+                accessibleName: TranslationManager.translate("brewDialog.beanBrand", "Bean brand")
+                text: root.beanBrand
+                suggestions: root.getBeanBrandSuggestions()
+                onTextEdited: function(t) { root.beanBrand = t }
+            }
+
+            Text {
+                text: "-"
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                Layout.alignment: Qt.AlignVCenter
+                Accessible.ignored: true
+            }
+
+            SuggestionField {
+                id: beanTypeInput
+                Layout.fillWidth: true
+                Layout.preferredWidth: Theme.scaled(130)
+                label: ""
+                accessibleName: TranslationManager.translate("brewDialog.beanType", "Bean type")
+                text: root.beanType
+                suggestions: root.getBeanTypeSuggestions()
+                onTextEdited: function(t) { root.beanType = t }
             }
         }
 
@@ -573,6 +631,9 @@ Dialog {
 
                     // Use bean preset dose if available, otherwise default 18g
                     root.doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
+                    root.beanBrand = Settings.dyeBeanBrand
+                    root.beanType = Settings.dyeBeanType
+                    root.selectedProfileTitle = MainController.currentProfileName
                     root.grinderModel = Settings.dyeGrinderModel   // Bean's grinder
                     root.grindSetting = Settings.dyeGrinderSetting  // Bean's grind setting
 
@@ -627,6 +688,8 @@ Dialog {
                 accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
                 onClicked: {
                     Settings.lastUsedRatio = root.ratio
+                    Settings.dyeBeanBrand = root.beanBrand
+                    Settings.dyeBeanType = root.beanType
                     Settings.dyeGrinderModel = root.grinderModel
                     Settings.dyeGrinderSetting = root.grindSetting
                     // Use the new activateBrewWithOverrides method

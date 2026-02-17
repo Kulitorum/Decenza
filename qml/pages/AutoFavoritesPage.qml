@@ -26,6 +26,8 @@ Page {
             Settings.autoFavoritesMaxItems
         )
         for (var i = 0; i < favorites.length; i++) {
+            if (Settings.autoFavoritesHideUnrated && favorites[i].avgEnjoyment <= 0)
+                continue
             favoritesModel.append(favorites[i])
         }
     }
@@ -134,13 +136,23 @@ Page {
             delegate: Rectangle {
                 id: favoriteDelegate
                 width: favoritesListView.width
-                height: Theme.scaled(100)
+                height: contentColumn.implicitHeight + Theme.spacingMedium * 2
                 radius: Theme.cardRadius
                 color: Theme.surfaceColor
                 Accessible.ignored: true
 
-                property string _beanText: (model.beanBrand || "") +
-                    (model.beanType ? " - " + model.beanType : "")
+                property string _beanText: {
+                    var parts = []
+                    if (model.beanBrand) parts.push(model.beanBrand)
+                    if (model.beanType) parts.push(model.beanType)
+                    return parts.join(" - ")
+                }
+                property bool _hasBean: !!(model.beanBrand || model.beanType)
+                property bool _hasProfile: !!(model.profileName && model.profileName.length > 0)
+                property bool _hasGrinder: Settings.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
+                    !!(model.grinderModel || model.grinderSetting)
+                property string _grinderText: (model.grinderModel || "") +
+                    (model.grinderSetting ? " @ " + model.grinderSetting : "")
                 property string _groupByText: autoFavoritesPage.buildGroupByText(
                     model.beanBrand, model.beanType, model.profileName,
                     model.grinderModel, model.grinderSetting,
@@ -161,38 +173,44 @@ Page {
 
                     // Main info
                     ColumnLayout {
+                        id: contentColumn
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
-                        // Bean info (primary line)
-                        Text {
-                            text: favoriteDelegate._beanText
-                            font.family: Theme.subtitleFont.family
-                            font.pixelSize: Theme.subtitleFont.pixelSize
-                            color: Theme.textColor
+                        // Bean · Profile (i) · Grinder — wraps to 2 rows on small screens
+                        Flow {
                             Layout.fillWidth: true
-                            elide: Text.ElideRight
-                            visible: model.beanBrand || model.beanType
-                            Accessible.ignored: true
-                        }
+                            spacing: 0
 
-                        // Profile name with info button
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(6)
+                            Text {
+                                text: favoriteDelegate._beanText
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                color: Theme.textColor
+                                visible: favoriteDelegate._hasBean
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: "  \u00b7  "
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                color: Theme.textSecondaryColor
+                                visible: favoriteDelegate._hasBean && favoriteDelegate._hasProfile
+                                Accessible.ignored: true
+                            }
 
                             Text {
                                 text: model.profileName || ""
-                                font.family: Theme.labelFont.family
-                                font.pixelSize: Theme.labelFont.pixelSize
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.primaryColor
-                                Layout.fillWidth: true
-                                elide: Text.ElideRight
+                                visible: favoriteDelegate._hasProfile
                                 Accessible.ignored: true
                             }
 
                             ProfileInfoButton {
-                                visible: model.profileName && model.profileName.length > 0
+                                visible: favoriteDelegate._hasProfile
                                 buttonSize: Theme.scaled(22)
                                 profileFilename: MainController.findProfileByTitle(model.profileName || "")
                                 profileName: model.profileName || ""
@@ -204,20 +222,24 @@ Page {
                                     })
                                 }
                             }
-                        }
 
-                        // Grinder info (if included in grouping)
-                        Text {
-                            text: (model.grinderModel || "") +
-                                  (model.grinderSetting ? " @ " + model.grinderSetting : "")
-                            font.family: Theme.captionFont.family
-                            font.pixelSize: Theme.captionFont.pixelSize
-                            color: Theme.textSecondaryColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                            visible: Settings.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
-                                     (model.grinderModel || model.grinderSetting)
-                            Accessible.ignored: true
+                            Text {
+                                text: "  \u00b7  "
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                color: Theme.textSecondaryColor
+                                visible: favoriteDelegate._hasGrinder && (favoriteDelegate._hasBean || favoriteDelegate._hasProfile)
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: favoriteDelegate._grinderText
+                                font.family: Theme.subtitleFont.family
+                                font.pixelSize: Theme.subtitleFont.pixelSize
+                                color: Theme.textSecondaryColor
+                                visible: favoriteDelegate._hasGrinder
+                                Accessible.ignored: true
+                            }
                         }
 
                         // Recipe summary
@@ -227,8 +249,8 @@ Page {
                             Text {
                                 text: (model.doseWeight || 0).toFixed(1) + "g \u2192 " +
                                       (model.finalWeight || 0).toFixed(1) + "g"
-                                font.family: Theme.captionFont.family
-                                font.pixelSize: Theme.captionFont.pixelSize
+                                font.family: Theme.labelFont.family
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
@@ -236,16 +258,16 @@ Page {
                             Text {
                                 text: model.shotCount + " " +
                                       TranslationManager.translate("autofavorites.shots", "shots")
-                                font.family: Theme.captionFont.family
-                                font.pixelSize: Theme.captionFont.pixelSize
+                                font.family: Theme.labelFont.family
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
                             }
 
                             Text {
                                 text: model.avgEnjoyment > 0 ? model.avgEnjoyment + "%" : ""
-                                font.family: Theme.captionFont.family
-                                font.pixelSize: Theme.captionFont.pixelSize
+                                font.family: Theme.labelFont.family
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.warningColor
                                 visible: model.avgEnjoyment > 0
                                 Accessible.ignored: true
@@ -253,12 +275,12 @@ Page {
                         }
                     }
 
-                    // Load button - first tap announces, second tap loads
+                    // Load button
                     Rectangle {
                         id: loadButton
                         width: Theme.scaled(70)
-                        height: Theme.scaled(50)
-                        radius: Theme.scaled(25)
+                        height: Theme.scaled(40)
+                        radius: Theme.scaled(20)
                         color: Theme.primaryColor
                         Accessible.ignored: true
 
@@ -278,6 +300,8 @@ Page {
                             accessibleItem: loadButton
                             onAccessibleClicked: {
                                 MainController.loadShotWithMetadata(model.shotId)
+                                if (Settings.autoFavoritesOpenBrewSettings)
+                                    root.pendingBrewDialog = true
                                 pageStack.pop()
                             }
                         }
@@ -403,6 +427,51 @@ Page {
                         Settings.autoFavoritesMaxItems = newValue
                         loadFavorites()
                     }
+                }
+            }
+
+            // Hide unrated favorites
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: TranslationManager.translate("autofavorites.hideUnrated", "Hide unrated favorites")
+                    font.family: Theme.labelFont.family
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    color: Theme.textSecondaryColor
+                    Layout.fillWidth: true
+                    Accessible.ignored: true
+                }
+
+                Switch {
+                    checked: Settings.autoFavoritesHideUnrated
+                    Accessible.name: TranslationManager.translate("autofavorites.hideUnrated", "Hide unrated favorites")
+                    onToggled: {
+                        Settings.autoFavoritesHideUnrated = checked
+                        loadFavorites()
+                    }
+                }
+            }
+
+            // Open brew settings after load
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: TranslationManager.translate("autofavorites.openBrewSettings", "Open brew settings after load")
+                    font.family: Theme.labelFont.family
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    color: Theme.textSecondaryColor
+                    Layout.fillWidth: true
+                    Accessible.ignored: true
+                }
+
+                Switch {
+                    checked: Settings.autoFavoritesOpenBrewSettings
+                    Accessible.name: TranslationManager.translate("autofavorites.openBrewSettings", "Open brew settings after load")
+                    onToggled: Settings.autoFavoritesOpenBrewSettings = checked
                 }
             }
 
