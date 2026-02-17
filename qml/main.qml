@@ -1961,17 +1961,12 @@ ApplicationWindow {
                     console.log("Phase Idle/Ready: NOT on operation page, no completion shown")
                 }
 
-                // Pre-load all operation settings when machine is Ready
-                // This ensures GHC-initiated operations use correct settings immediately
+                // Pre-load all operation settings when machine is Ready or Idle
+                // sendMachineSettings() sends ShotSettings (group temp, steam, hot water)
+                // plus all MMR writes (steam flow, flush flow/timeout) in one unified call
+                MainController.applySteamSettings()
                 if (phase === MachineStateType.Phase.Ready) {
-                    MainController.applySteamSettings()
-                    MainController.applyHotWaterSettings()
-                    MainController.applyFlushSettings()
-                    console.log("Pre-loaded steam/hot water/flush settings for Ready state")
-                } else {
-                    // Apply steam settings in Idle state too
-                    // applySteamSettings() sends 0°C if keepSteamHeaterOn is false
-                    MainController.applySteamSettings()
+                    console.log("Pre-loaded all machine settings for Ready state")
                 }
             }
         }

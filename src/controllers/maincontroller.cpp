@@ -2058,7 +2058,7 @@ bool MainController::profileExists(const QString& filename) const {
     return QFile::exists(path);
 }
 
-void MainController::applySteamSettings() {
+void MainController::sendMachineSettings() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
     // Determine steam temperature to send:
@@ -2071,7 +2071,6 @@ void MainController::applySteamSettings() {
         steamTemp = 0.0;
         reason = "steamDisabled=true";
     } else if (!m_settings->keepSteamHeaterOn()) {
-        // User doesn't want steam heater on when idle
         steamTemp = 0.0;
         reason = "keepSteamHeaterOn=false";
     } else {
@@ -2080,12 +2079,12 @@ void MainController::applySteamSettings() {
     }
 
     QString phase = m_machineState ? QString::number(static_cast<int>(m_machineState->phase())) : "null";
-    qDebug() << "applySteamSettings: sending" << steamTemp << "°C (reason:" << reason
+    qDebug() << "sendMachineSettings: sending steam" << steamTemp << "°C (reason:" << reason
              << ", phase:" << phase << ", configuredTemp:" << m_settings->steamTemperature() << ")";
 
     double groupTemp = getGroupTemperature();
 
-    // Send shot settings (includes steam temp/timeout)
+    // 1. ShotSettings (single write with all temperatures)
     m_device->setShotSettings(
         steamTemp,
         m_settings->steamTimeout(),
@@ -2094,64 +2093,28 @@ void MainController::applySteamSettings() {
         groupTemp
     );
 
-    // Send steam flow via MMR
+    // 2. Steam flow MMR
     m_device->writeMMR(0x803828, m_settings->steamFlow());
 
-    // Reset flush timeout MMR to high value (255 seconds) to prevent
-    // stale flush duration from affecting steam mode
-    m_device->writeMMR(0x803848, 2550);
+    // 3. Flush flow MMR (value × 10)
+    int flowValue = static_cast<int>(m_settings->flushFlow() * 10);
+    m_device->writeMMR(0x803840, flowValue);
+
+    // 4. Flush timeout MMR (value × 10)
+    int secondsValue = static_cast<int>(m_settings->flushSeconds() * 10);
+    m_device->writeMMR(0x803848, secondsValue);
+}
+
+void MainController::applySteamSettings() {
+    sendMachineSettings();
 }
 
 void MainController::applyHotWaterSettings() {
-    if (!m_device || !m_device->isConnected() || !m_settings) return;
-
-    // Same steam temp logic as applySteamSettings()
-    double steamTemp;
-    if (m_settings->steamDisabled()) {
-        steamTemp = 0.0;
-    } else if (!m_settings->keepSteamHeaterOn()) {
-        steamTemp = 0.0;
-    } else {
-        steamTemp = m_settings->steamTemperature();
-    }
-
-    // Volume mode: send actual volume to machine so it auto-stops via flowmeter
-    // Weight mode: send 0, app controls stop via scale
-    int hotWaterVolume = 0;
-    if (m_settings->waterVolumeMode() == "volume") {
-        hotWaterVolume = qMin(m_settings->waterVolume(), 255);  // BLE uint8 max
-    }
-
-    qDebug() << "applyHotWaterSettings: steam temp=" << steamTemp << "°C"
-             << "mode=" << m_settings->waterVolumeMode()
-             << "volume=" << hotWaterVolume;
-
-    double groupTemp = getGroupTemperature();
-
-    // Send shot settings (includes water temp/volume)
-    m_device->setShotSettings(
-        steamTemp,
-        m_settings->steamTimeout(),
-        m_settings->waterTemperature(),
-        hotWaterVolume,
-        groupTemp
-    );
-
-    // Reset flush timeout MMR to high value (255 seconds) to prevent
-    // stale flush duration from affecting hot water mode
-    m_device->writeMMR(0x803848, 2550);
+    sendMachineSettings();
 }
 
 void MainController::applyFlushSettings() {
-    if (!m_device || !m_device->isConnected() || !m_settings) return;
-
-    // Flush flow rate at MMR 0x803840, value × 10
-    // Flush timeout at MMR 0x803848, value × 10
-    int flowValue = static_cast<int>(m_settings->flushFlow() * 10);
-    int secondsValue = static_cast<int>(m_settings->flushSeconds() * 10);
-
-    m_device->writeMMR(0x803840, flowValue);
-    m_device->writeMMR(0x803848, secondsValue);
+    sendMachineSettings();
 }
 
 void MainController::applyAllSettings() {
@@ -2160,22 +2123,16 @@ void MainController::applyAllSettings() {
         uploadCurrentProfile();
     }
 
-    // 2. Apply steam settings
-    applySteamSettings();
+    // 2. Apply steam/hot water/flush settings (unified)
+    sendMachineSettings();
 
-    // 3. Apply hot water settings
-    applyHotWaterSettings();
-
-    // 4. Apply flush settings
-    applyFlushSettings();
-
-    // 5. Apply water refill level
+    // 3. Apply water refill level
     applyWaterRefillLevel();
 
-    // 6. Apply refill kit override
+    // 4. Apply refill kit override
     applyRefillKitOverride();
 
-    // 7. Apply flow calibration multiplier
+    // 5. Apply flow calibration multiplier
     applyFlowCalibration();
 
     // Note: heater tweaks are NOT sent here — matching de1app's save_settings_to_de1()

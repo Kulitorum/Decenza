@@ -280,6 +280,7 @@ private:
     void applyHeaterTweaks();
     void applyFlowCalibration();
     double getGroupTemperature() const;
+    void sendMachineSettings();
 
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;
