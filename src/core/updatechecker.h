@@ -88,6 +88,7 @@ private:
     bool m_downloading = false;
     int m_downloadProgress = 0;
     bool m_updateAvailable = false;
+    bool m_updatePromptShown = false;  // Only emit updatePromptRequested once per update
     QString m_latestVersion;
     QString m_releaseNotes;
     QString m_downloadUrl;

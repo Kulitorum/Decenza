@@ -304,6 +304,7 @@ ApplicationWindow {
     }
 
     function showNextPendingPopup() {
+        if (screensaverActive) return  // Don't show popups during screensaver
         if (pendingPopups.length === 0) return
         var queue = pendingPopups.slice()
         var next = queue.shift()
@@ -2140,6 +2141,40 @@ ApplicationWindow {
         // Reset sleep counters (stopped state)
         root.sleepCountdownNormal = 0
         root.sleepCountdownStayAwake = 0
+
+        // Close any open popups to prevent burn-in (Qt Popup renders above the
+        // StackView on the overlay layer, so the screensaver can't cover them).
+        // Re-queue so they show after wake. screensaverActive is already true,
+        // so showNextPendingPopup() (called by onClosed) is a no-op.
+        var popups = [
+            { dialog: updateDialog,            id: "update" },
+            { dialog: flowScaleDialog,         id: "flowScale" },
+            { dialog: scaleDisconnectedDialog, id: "scaleDisconnected" },
+            { dialog: refillDialog,            id: "refill" },
+            { dialog: bleErrorDialog,          id: "bleError" },
+            { dialog: noScaleAbortDialog,      id: null },
+            { dialog: samsungFastChargeDialog, id: null },
+            { dialog: crashReportDialog,       id: null },
+            { dialog: emptyDatabaseDialog,     id: null },
+        ]
+        for (var i = 0; i < popups.length; i++) {
+            if (popups[i].dialog.visible) {
+                if (popups[i].id) {
+                    // Preserve bleError dialog state when re-queuing
+                    if (popups[i].id === "bleError") {
+                        queuePopup("bleError", {
+                            errorMessage: bleErrorDialog.errorMessage,
+                            isLocationError: bleErrorDialog.isLocationError,
+                            isBluetoothError: bleErrorDialog.isBluetoothError
+                        })
+                    } else {
+                        queuePopup(popups[i].id)
+                    }
+                }
+                popups[i].dialog.close()
+            }
+        }
+
         // Navigate to screensaver page for all modes (including "disabled")
         // For "disabled" mode, ScreensaverPage shows a black screen and lets
         // Android's system timeout turn off the screen naturally
