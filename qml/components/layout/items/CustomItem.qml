@@ -141,12 +141,15 @@ Item {
         var statusIconSize = Theme.bodyFont.pixelSize
         var statusConnected = "qrc:/emoji/2705.svg"
         var statusDisconnected = "qrc:/icons/cross-filled.svg"
+        var statusImg = function(src) {
+            return "<img src=\"" + src + "\" width=\"" + statusIconSize + "\" height=\"" + statusIconSize + "\" style=\"vertical-align: middle\">"
+        }
         if (result.indexOf("%MACHINE_CONNECTED%") >= 0)
             result = result.replace(/%MACHINE_CONNECTED%/g,
-                "<img src=\"" + (machineOn ? statusConnected : statusDisconnected) + "\" width=\"" + statusIconSize + "\" height=\"" + statusIconSize + "\">")
+                statusImg(machineOn ? statusConnected : statusDisconnected))
         if (result.indexOf("%SCALE_CONNECTED%") >= 0)
             result = result.replace(/%SCALE_CONNECTED%/g,
-                "<img src=\"" + ((scaleOn && !flowScale) ? statusConnected : statusDisconnected) + "\" width=\"" + statusIconSize + "\" height=\"" + statusIconSize + "\">")
+                statusImg((scaleOn && !flowScale) ? statusConnected : statusDisconnected))
         // Time
         var now = new Date()
         result = result.replace(/%TIME%/g, Qt.formatTime(now, "hh:mm"))
