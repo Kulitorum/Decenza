@@ -278,19 +278,43 @@ KeyboardAwareContainer {
 }
 ```
 
-**Accessibility on text inputs**: Every `TextInput` and `TextArea` must have `Accessible.role`, `Accessible.name`, and `Accessible.value` set. Without these, TalkBack/VoiceOver cannot identify the field as editable, read its label, or announce its content — fields sound "Empty" even when they contain text. `StyledTextField` and `SuggestionField` set these automatically; raw `TextInput`/`TextArea` must set them explicitly.
+**Accessibility on interactive elements**: Every interactive element must have `Accessible.role`, `Accessible.name`, and `Accessible.focusable: true`. Without these, TalkBack/VoiceOver cannot discover or activate the element. Use the table below:
+
+| Element | Use instead | If raw, must set |
+|---------|-------------|------------------|
+| Button (Rectangle+MouseArea) | `AccessibleButton` | `Accessible.role: Accessible.Button` + `name` + `focusable` + `onPressAction` |
+| Text input | `StyledTextField` | `Accessible.role: Accessible.EditableText` + `name` + `value: text` + `focusable` |
+| Autocomplete field | `SuggestionField` | (same as text input) |
+| Checkbox | Qt `CheckBox` | `Accessible.name` + `Accessible.checked: checked` + `focusable` |
+| Dropdown | `StyledComboBox` | `Accessible.role: Accessible.ComboBox` + `name` (use label, not displayText) + `focusable` |
+| List delegate | — | `Accessible.role: Accessible.Button` + `name` (summarize row content) + `focusable` + `onPressAction` |
+
+Common mistakes:
+- **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton` or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
+- **Text input missing `Accessible.value: text`**: Field sounds "Empty" even when it contains text. `StyledTextField` and `SuggestionField` set this automatically.
+- **ComboBox `Accessible.name` set to `displayText`**: Announces the selected value instead of the field label. Override with the label text.
+- **List row with no accessibility**: Only child elements (e.g. CheckBox) are discoverable; the row itself and its primary action are invisible.
+
 ```qml
-// StyledTextField - accessibility is built in, just set placeholder
-StyledTextField {
-    placeholder: "Bean name"  // Used as Accessible.name automatically
+// BAD - TalkBack can't see this button
+Rectangle {
+    MouseArea { onClicked: doSomething() }
 }
 
-// Raw TextInput/TextArea - MUST set accessibility manually
-TextInput {
-    Accessible.role: Accessible.EditableText
-    Accessible.name: "Field label"
-    Accessible.value: text
+// GOOD - use AccessibleButton
+AccessibleButton {
+    text: "Save"
+    accessibleName: "Save changes"
+    onClicked: doSomething()
+}
+
+// GOOD - or add accessibility to Rectangle manually
+Rectangle {
+    Accessible.role: Accessible.Button
+    Accessible.name: "Save changes"
     Accessible.focusable: true
+    Accessible.onPressAction: area.clicked(null)
+    MouseArea { id: area; onClicked: doSomething() }
 }
 ```
 
