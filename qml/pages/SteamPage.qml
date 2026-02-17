@@ -879,7 +879,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: pitcherNamePlaceholder.text
+                    Accessible.name: TranslationManager.translate("steam.accessible.renamePitcher", "Rename pitcher preset")
                     Accessible.description: text
                     Accessible.focusable: true
 
@@ -998,7 +998,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: addPitcherNamePlaceholder.text
+                    Accessible.name: TranslationManager.translate("steam.accessible.newPitcherName", "New pitcher preset name")
                     Accessible.description: text
                     Accessible.focusable: true
 

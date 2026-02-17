@@ -335,7 +335,7 @@ Popup {
                             wrapMode: Text.Wrap
                             background: null
                             Accessible.role: Accessible.EditableText
-                            Accessible.name: "Enter text"
+                            Accessible.name: TranslationManager.translate("customeditor.placeholder.enterText", "Enter text")
                             Accessible.description: text
                             topPadding: 0
                             bottomPadding: 0

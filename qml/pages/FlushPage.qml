@@ -544,7 +544,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("flush.placeholder.presetName", "Preset name")
+                    Accessible.name: TranslationManager.translate("flush.accessible.renamePreset", "Rename flush preset")
                     Accessible.description: text
                     Accessible.focusable: true
 
@@ -655,7 +655,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("flush.placeholder.presetName", "Preset name")
+                    Accessible.name: TranslationManager.translate("flush.accessible.newPresetName", "New flush preset name")
                     Accessible.description: text
                     Accessible.focusable: true
 

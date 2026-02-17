@@ -900,7 +900,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("beaninfo.placeholder.presetName", "Preset name")
+                    Accessible.name: TranslationManager.translate("beaninfo.accessible.newPresetName", "New bean preset name")
                     Accessible.description: text
                     Accessible.focusable: true
 
@@ -1002,7 +1002,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("beaninfo.placeholder.presetName", "Preset name")
+                    Accessible.name: TranslationManager.translate("beaninfo.accessible.renamePreset", "Rename bean preset")
                     Accessible.description: text
                     Accessible.focusable: true
 

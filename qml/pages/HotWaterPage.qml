@@ -622,7 +622,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("hotwater.placeholder.vesselName", "Vessel name")
+                    Accessible.name: TranslationManager.translate("hotwater.accessible.renameVessel", "Rename water vessel")
                     Accessible.description: text
                     Accessible.focusable: true
 
@@ -733,7 +733,7 @@ Page {
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
                     Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("hotwater.placeholder.vesselName", "Vessel name")
+                    Accessible.name: TranslationManager.translate("hotwater.accessible.newVesselName", "New water vessel name")
                     Accessible.description: text
                     Accessible.focusable: true
 
