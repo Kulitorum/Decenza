@@ -1080,7 +1080,7 @@ KeyboardAwareContainer {
                         Settings.heaterWarmupFlow = 20
                         Settings.heaterTestFlow = 40
                         Settings.heaterWarmupTimeout = 10
-                        Settings.steamTwoTapStop = false
+                        Settings.steamTwoTapStop = true
                     }
                     KeyNavigation.tab: doneButton
                     KeyNavigation.backtab: steamTwoTapSwitch

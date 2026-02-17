@@ -2172,7 +2172,7 @@ void Settings::setHotWaterFlowRate(int value) {
 }
 
 bool Settings::steamTwoTapStop() const {
-    return m_settings.value("calibration/steamTwoTapStop", false).toBool();
+    return m_settings.value("calibration/steamTwoTapStop", true).toBool();
 }
 
 void Settings::setSteamTwoTapStop(bool value) {

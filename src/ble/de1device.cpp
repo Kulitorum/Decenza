@@ -1176,7 +1176,7 @@ void DE1Device::sendInitialSettings() {
         writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, 990);
         writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, 10);
         writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, 10);
-        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, 0);
+        writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, 1);
     }
 
     // Send a basic profile header (5 bytes)
