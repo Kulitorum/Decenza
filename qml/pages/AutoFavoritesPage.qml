@@ -177,7 +177,7 @@ Page {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
-                        // Bean · Profile (i) · Grinder — wraps to 2 rows on small screens
+                        // Bean · Profile · Grinder — wraps to 2 rows on small screens
                         Flow {
                             Layout.fillWidth: true
                             spacing: 0
@@ -207,20 +207,6 @@ Page {
                                 color: Theme.primaryColor
                                 visible: favoriteDelegate._hasProfile
                                 Accessible.ignored: true
-                            }
-
-                            ProfileInfoButton {
-                                visible: favoriteDelegate._hasProfile
-                                buttonSize: Theme.scaled(22)
-                                profileFilename: MainController.findProfileByTitle(model.profileName || "")
-                                profileName: model.profileName || ""
-
-                                onClicked: {
-                                    pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
-                                        profileFilename: MainController.findProfileByTitle(model.profileName || ""),
-                                        profileName: model.profileName || ""
-                                    })
-                                }
                             }
 
                             Text {
@@ -271,6 +257,39 @@ Page {
                                 color: Theme.warningColor
                                 visible: model.avgEnjoyment > 0
                                 Accessible.ignored: true
+                            }
+                        }
+                    }
+
+                    // Info button
+                    Rectangle {
+                        id: infoButton
+                        visible: favoriteDelegate._hasProfile
+                        width: Theme.scaled(70)
+                        height: Theme.scaled(40)
+                        radius: Theme.scaled(20)
+                        color: Theme.primaryColor
+                        Accessible.ignored: true
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("autofavorites.info", "Info")
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                            color: "white"
+                            Accessible.ignored: true
+                        }
+
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: TranslationManager.translate("autofavorites.profileInfo", "Profile info") +
+                                ". " + (model.profileName || "")
+                            accessibleItem: infoButton
+                            onAccessibleClicked: {
+                                pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
+                                    profileFilename: MainController.findProfileByTitle(model.profileName || ""),
+                                    profileName: model.profileName || ""
+                                })
                             }
                         }
                     }
