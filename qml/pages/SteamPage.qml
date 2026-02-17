@@ -878,6 +878,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: pitcherNamePlaceholder.text
+                    Accessible.value: text
+                    Accessible.focusable: true
 
                     Text {
                         anchors.fill: parent
@@ -993,6 +997,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: addPitcherNamePlaceholder.text
+                    Accessible.value: text
+                    Accessible.focusable: true
 
                     Text {
                         anchors.fill: parent

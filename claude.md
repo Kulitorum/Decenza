@@ -278,6 +278,22 @@ KeyboardAwareContainer {
 }
 ```
 
+**Accessibility on text inputs**: Every `TextInput` and `TextArea` must have `Accessible.role`, `Accessible.name`, and `Accessible.value` set. Without these, TalkBack/VoiceOver cannot identify the field as editable, read its label, or announce its content — fields sound "Empty" even when they contain text. `StyledTextField` and `SuggestionField` set these automatically; raw `TextInput`/`TextArea` must set them explicitly.
+```qml
+// StyledTextField - accessibility is built in, just set placeholder
+StyledTextField {
+    placeholder: "Bean name"  // Used as Accessible.name automatically
+}
+
+// Raw TextInput/TextArea - MUST set accessibility manually
+TextInput {
+    Accessible.role: Accessible.EditableText
+    Accessible.name: "Field label"
+    Accessible.value: text
+    Accessible.focusable: true
+}
+```
+
 ## Emoji System
 
 Emojis are rendered as pre-rendered SVG images (Twemoji), not via a color font. This avoids D3D12/GPU crashes caused by CBDT/CBLC bitmap fonts (NotoColorEmoji.ttf) being incompatible with Qt's scene graph glyph cache across all platforms.

@@ -543,6 +543,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("flush.placeholder.presetName", "Preset name")
+                    Accessible.value: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -650,6 +654,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("flush.placeholder.presetName", "Preset name")
+                    Accessible.value: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent

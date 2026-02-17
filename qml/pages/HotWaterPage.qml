@@ -621,6 +621,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("hotwater.placeholder.vesselName", "Vessel name")
+                    Accessible.value: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -728,6 +732,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("hotwater.placeholder.vesselName", "Vessel name")
+                    Accessible.value: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent

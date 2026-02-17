@@ -334,6 +334,9 @@ Popup {
                             placeholderTextColor: Theme.textSecondaryColor
                             wrapMode: Text.Wrap
                             background: null
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: "Enter text"
+                            Accessible.value: text
                             topPadding: 0
                             bottomPadding: 0
                             leftPadding: 0

@@ -13,6 +13,12 @@ TextField {
     color: Theme.textColor
     placeholderText: ""  // Disable Material's floating placeholder
 
+    // Accessibility: expose as editable text with label and current value
+    Accessible.role: Accessible.EditableText
+    Accessible.name: placeholder
+    Accessible.value: text
+    Accessible.focusable: true
+
     // Disable Material's floating label completely
     Material.containerStyle: Material.Outlined
 

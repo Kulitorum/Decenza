@@ -304,7 +304,9 @@ Page {
 
                             TextArea {
                                 id: profileNotesFieldInline
+                                Accessible.role: Accessible.EditableText
                                 Accessible.name: "Profile description"
+                                Accessible.value: text
                                 text: profile ? (profile.profile_notes || "") : ""
                                 font: Theme.labelFont
                                 color: Theme.textColor
