@@ -278,6 +278,47 @@ KeyboardAwareContainer {
 }
 ```
 
+**Accessibility on interactive elements**: Every interactive element must have `Accessible.role`, `Accessible.name`, and `Accessible.focusable: true`. Without these, TalkBack/VoiceOver cannot discover or activate the element. Use the table below:
+
+| Element | Use instead | If raw, must set |
+|---------|-------------|------------------|
+| Button (Rectangle+MouseArea) | `AccessibleButton` | `Accessible.role: Accessible.Button` + `name` + `focusable` + `onPressAction` |
+| Text input | `StyledTextField` | `Accessible.role: Accessible.EditableText` + `name` + `description: text` + `focusable` |
+| Autocomplete field | `SuggestionField` | (same as text input) |
+| Checkbox | Qt `CheckBox` | `Accessible.name` + `Accessible.checked: checked` + `focusable` |
+| Dropdown | `StyledComboBox` | `Accessible.role: Accessible.ComboBox` + `name` (use label, not displayText) + `focusable` |
+| List delegate | — | `Accessible.role: Accessible.Button` + `name` (summarize row content) + `focusable` + `onPressAction` |
+
+Common mistakes:
+- **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton` or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
+- **Text input missing `Accessible.description: text`**: Field sounds "Empty" even when it contains text. `StyledTextField` and `SuggestionField` set this automatically. Note: `Accessible.value` does not exist in Qt QML — use `Accessible.description` instead.
+- **ComboBox `Accessible.name` set to `displayText`**: Announces the selected value instead of the field label. Override with the label text.
+- **List row with no accessibility**: Only child elements (e.g. CheckBox) are discoverable; the row itself and its primary action are invisible.
+- **Decorative text without `Accessible.ignored: true`**: When a list delegate summarizes its content in `Accessible.name`, all child Text elements must set `Accessible.ignored: true`. Otherwise TalkBack announces the summary AND each text line individually, doubling every piece of information. Same applies to icon/label text inside buttons that already have `Accessible.name`.
+
+```qml
+// BAD - TalkBack can't see this button
+Rectangle {
+    MouseArea { onClicked: doSomething() }
+}
+
+// GOOD - use AccessibleButton
+AccessibleButton {
+    text: "Save"
+    accessibleName: "Save changes"
+    onClicked: doSomething()
+}
+
+// GOOD - or add accessibility to Rectangle manually
+Rectangle {
+    Accessible.role: Accessible.Button
+    Accessible.name: "Save changes"
+    Accessible.focusable: true
+    Accessible.onPressAction: area.clicked(null)
+    MouseArea { id: area; onClicked: doSomething() }
+}
+```
+
 ## Emoji System
 
 Emojis are rendered as pre-rendered SVG images (Twemoji), not via a color font. This avoids D3D12/GPU crashes caused by CBDT/CBLC bitmap fonts (NotoColorEmoji.ttf) being incompatible with Qt's scene graph glyph cache across all platforms.

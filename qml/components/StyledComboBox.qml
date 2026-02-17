@@ -8,6 +8,9 @@ ComboBox {
     implicitWidth: Theme.scaled(100)
     implicitHeight: Theme.scaled(36)
 
+    // Set this to the field label so TalkBack announces the label, not the selected value
+    property string accessibleLabel: ""
+
     // Calculate max width of all items for popup auto-sizing
     property real popupContentWidth: control.width
 
@@ -105,5 +108,6 @@ ComboBox {
     }
 
     Accessible.role: Accessible.ComboBox
-    Accessible.name: control.displayText
+    Accessible.name: control.accessibleLabel || control.displayText
+    Accessible.focusable: true
 }

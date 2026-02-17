@@ -260,7 +260,10 @@ Page {
 
                         TextArea {
                             id: notesField
-                            Accessible.name: "Profile description"
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: TranslationManager.translate("profileEditor.accessible.profileDescription", "Profile description")
+                            Accessible.description: text
+                            Accessible.focusable: true
                             text: profile ? (profile.profile_notes || "") : ""
                             font: Theme.labelFont
                             color: Theme.textColor

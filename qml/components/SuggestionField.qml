@@ -137,6 +137,7 @@ Item {
 
         Accessible.role: Accessible.EditableText
         Accessible.name: root.accessibleName.length > 0 ? root.accessibleName : root.label
+        Accessible.description: text
     }
 
     // Buttons row (stacked horizontally on the right)
@@ -155,12 +156,17 @@ Item {
             color: clearArea.pressed ? Theme.surfaceColor : Theme.backgroundColor
             border.color: Theme.textSecondaryColor
             border.width: 1
+            Accessible.role: Accessible.Button
+            Accessible.name: TranslationManager.translate("suggestionfield.clear", "Clear text")
+            Accessible.focusable: true
+            Accessible.onPressAction: clearArea.clicked(null)
 
             Text {
                 anchors.centerIn: parent
                 text: "\u00D7"  // × multiplication sign (more common font support)
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(21)
+                Accessible.ignored: true
             }
 
             MouseArea {
@@ -187,12 +193,19 @@ Item {
             height: Theme.scaled(36)
             radius: Theme.scaled(18)
             color: arrowArea.pressed ? Theme.surfaceColor : "transparent"
+            Accessible.role: Accessible.Button
+            Accessible.name: suggestionPopup.visible
+                ? TranslationManager.translate("suggestionfield.closeDropdown", "Close suggestions")
+                : TranslationManager.translate("suggestionfield.openDropdown", "Open suggestions")
+            Accessible.focusable: true
+            Accessible.onPressAction: arrowArea.clicked(null)
 
             Text {
                 anchors.centerIn: parent
                 text: suggestionPopup.visible ? "\u25B2" : "\u25BC"  // Up/Down arrow
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(18)
+                Accessible.ignored: true
             }
 
             MouseArea {

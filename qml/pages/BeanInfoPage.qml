@@ -531,8 +531,10 @@ Page {
 
                 LabeledField {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("shotmetadata.label.roastdate", "Roast date")
+                    label: TranslationManager.translate("shotmetadata.label.roastdate.format", "Roast date (yyyy-mm-dd)")
                     text: isEditMode ? editRoastDate : Settings.dyeRoastDate
+                    inputHints: Qt.ImhDate
+                    inputMask: "9999-99-99"
                     onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else Settings.dyeRoastDate = t; }
                 }
 
@@ -652,6 +654,7 @@ Page {
 
             Accessible.role: Accessible.Button
             Accessible.name: TranslationManager.translate("beaninfo.button.save", "Save Changes")
+            Accessible.focusable: true
             Accessible.onPressAction: saveArea.clicked(null)
 
             Row {
@@ -722,7 +725,8 @@ Page {
                     focusedField = fieldInput
                     focusResetTimer.stop()
                     if (AccessibilityManager.enabled) {
-                        let announcement = parent.label + ". " + (text.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty"))
+                        var stripped = text.replace(/[\s\-]/g, "")
+                        let announcement = parent.label + ". " + (stripped.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty"))
                         AccessibilityManager.announce(announcement)
                     }
                 } else {
@@ -732,7 +736,10 @@ Page {
 
             Accessible.role: Accessible.EditableText
             Accessible.name: parent.label
-            Accessible.description: text.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty")
+            Accessible.description: {
+                var stripped = text.replace(/[\s\-]/g, "")
+                return stripped.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty")
+            }
         }
     }
 
@@ -767,6 +774,7 @@ Page {
             Accessible.role: Accessible.ComboBox
             Accessible.name: parent.label
             Accessible.description: currentIndex > 0 ? currentText : TranslationManager.translate("shotmetadata.accessible.notset", "Not set")
+            Accessible.focusable: true
 
             onActiveFocusChanged: {
                 if (activeFocus && AccessibilityManager.enabled) {
@@ -895,6 +903,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("beaninfo.accessible.newPresetName", "New bean preset name")
+                    Accessible.description: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -904,6 +916,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }
@@ -993,6 +1006,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("beaninfo.accessible.renamePreset", "Rename bean preset")
+                    Accessible.description: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -1002,6 +1019,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }

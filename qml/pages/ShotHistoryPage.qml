@@ -277,6 +277,7 @@ Page {
                 id: profileFilter
                 Layout.preferredWidth: Theme.scaled(140)
                 model: profileOptions
+                accessibleLabel: TranslationManager.translate("shothistory.filter.profile", "Profile filter")
                 onActivated: if (shotHistoryPage.visible) onProfileChanged()
 
                 background: Rectangle {
@@ -299,6 +300,7 @@ Page {
                 id: roasterFilter
                 Layout.preferredWidth: Theme.scaled(140)
                 model: roasterOptions
+                accessibleLabel: TranslationManager.translate("shothistory.filter.roaster", "Roaster filter")
                 onActivated: if (shotHistoryPage.visible) onRoasterChanged()
 
                 background: Rectangle {
@@ -321,6 +323,7 @@ Page {
                 id: beanFilter
                 Layout.preferredWidth: Theme.scaled(140)
                 model: beanOptions
+                accessibleLabel: TranslationManager.translate("shothistory.filter.bean", "Bean filter")
                 onActivated: if (shotHistoryPage.visible) onBeanChanged()
 
                 background: Rectangle {
@@ -342,7 +345,7 @@ Page {
             StyledTextField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholderText: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
+                placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
                 rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
                 // Disable predictive text / autocorrect — forces IME to commit each
                 // character individually. Without this, the IME holds composing text
@@ -450,6 +453,26 @@ Page {
 
                 property int shotEnjoyment: model.enjoyment || 0
 
+                // Accessibility: row is a button whose primary action opens shot detail.
+                // Note: visual tap toggles selection (line 696); TalkBack double-tap opens detail
+                // because detail view is the more useful primary action for screen reader users.
+                Accessible.role: Accessible.Button
+                Accessible.name: {
+                    var parts = []
+                    if (model.profileName) parts.push(model.profileName)
+                    if (model.dateTime) parts.push(model.dateTime)
+                    var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
+                    if (bean) parts.push(bean)
+                    var doseVal = model.doseWeight || 0
+                    var yieldVal = model.finalWeight || 0
+                    if (doseVal > 0 && yieldVal > 0)
+                        parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
+                    if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
+                    return parts.join(", ")
+                }
+                Accessible.focusable: true
+                Accessible.onPressAction: openShotDetail(model.id)
+
                 RowLayout {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingMedium
@@ -459,6 +482,10 @@ Page {
                     CheckBox {
                         checked: isSelected(model.id)
                         onClicked: toggleSelection(model.id)
+                        Accessible.role: Accessible.CheckBox
+                        Accessible.name: TranslationManager.translate("shothistory.accessible.compare", "Compare")
+                        Accessible.checked: checked
+                        Accessible.focusable: true
 
                         indicator: Rectangle {
                             implicitWidth: Theme.scaled(24)
@@ -474,11 +501,12 @@ Page {
                                 font.pixelSize: Theme.scaled(16)
                                 color: Theme.textColor
                                 visible: parent.parent.checked
+                                Accessible.ignored: true
                             }
                         }
                     }
 
-                    // Shot info
+                    // Shot info — all text is decorative (already summarized in row Accessible.name)
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
@@ -491,6 +519,7 @@ Page {
                                 text: model.dateTime || ""
                                 font: Theme.subtitleFont
                                 color: Theme.textColor
+                                Accessible.ignored: true
                             }
 
                             Text {
@@ -506,6 +535,7 @@ Page {
                                 color: Theme.primaryColor
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
+                                Accessible.ignored: true
                             }
                         }
 
@@ -523,6 +553,7 @@ Page {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             visible: text !== ""
+                            Accessible.ignored: true
                         }
 
                         RowLayout {
@@ -541,12 +572,14 @@ Page {
                                 }
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
+                                Accessible.ignored: true
                             }
 
                             Text {
                                 text: (model.duration || 0).toFixed(1) + "s"
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
+                                Accessible.ignored: true
                             }
 
                             Text {
@@ -554,6 +587,7 @@ Page {
                                 font.pixelSize: Theme.scaled(16)
                                 color: Theme.successColor
                                 visible: model.hasVisualizerUpload
+                                Accessible.ignored: true
                             }
                         }
                     }
@@ -567,6 +601,7 @@ Page {
                         Layout.preferredWidth: Theme.scaled(45)
                         horizontalAlignment: Text.AlignRight
                         visible: shotDelegate.shotEnjoyment > 0
+                        Accessible.ignored: true
                     }
 
                     // Load Profile button
@@ -575,6 +610,10 @@ Page {
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.warningColor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.accessible.load", "Load profile")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: loadArea.clicked(null)
 
                         Text {
                             id: loadButtonText
@@ -583,9 +622,11 @@ Page {
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: loadArea
                             anchors.fill: parent
                             onClicked: {
                                 MainController.loadShotWithMetadata(model.id)
@@ -600,6 +641,10 @@ Page {
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: "#2E7D32"
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.accessible.edit", "Edit shot")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: editArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
@@ -607,9 +652,11 @@ Page {
                             font.pixelSize: Theme.scaled(18)
                             font.bold: true
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: editArea
                             anchors.fill: parent
                             onClicked: {
                                 pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"), { editShotId: model.id })
@@ -623,6 +670,10 @@ Page {
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.accessible.details", "View details")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: detailArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
@@ -630,9 +681,11 @@ Page {
                             font.pixelSize: Theme.scaled(20)
                             font.bold: true
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: detailArea
                             anchors.fill: parent
                             onClicked: openShotDetail(model.id)
                         }

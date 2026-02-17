@@ -671,6 +671,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("hotwater.accessible.renameVessel", "Rename water vessel")
+                    Accessible.description: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -680,6 +684,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }
@@ -778,6 +783,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("hotwater.accessible.newVesselName", "New water vessel name")
+                    Accessible.description: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -787,6 +796,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }

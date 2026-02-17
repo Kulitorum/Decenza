@@ -197,6 +197,10 @@ Dialog {
                     placeholderTextColor: Qt.rgba(Theme.textSecondaryColor.r, Theme.textSecondaryColor.g, Theme.textSecondaryColor.b, 0.5)
                     wrapMode: TextArea.Wrap
                     background: null
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("crashReport.userNotes", "What were you doing?")
+                    Accessible.description: text
+                    Accessible.focusable: true
                 }
             }
 

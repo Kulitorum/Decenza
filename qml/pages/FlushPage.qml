@@ -543,6 +543,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("flush.accessible.renamePreset", "Rename flush preset")
+                    Accessible.description: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -552,6 +556,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }
@@ -650,6 +655,10 @@ Page {
                     font: Theme.bodyFont
                     verticalAlignment: TextInput.AlignVCenter
                     inputMethodHints: Qt.ImhNoPredictiveText
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("flush.accessible.newPresetName", "New flush preset name")
+                    Accessible.description: text
+                    Accessible.focusable: true
 
                     Tr {
                         anchors.fill: parent
@@ -659,6 +668,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }
