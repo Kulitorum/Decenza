@@ -19,6 +19,9 @@ ApplicationWindow {
     // Debug flag to force live view on operation pages (for development)
     property bool debugLiveView: false
 
+    // Flag to open BrewDialog when IdlePage becomes active (set by AutoFavoritesPage)
+    property bool pendingBrewDialog: false
+
     // True while the first-run restore dialog is active (prevents SettingsDataTab from also handling restore signals)
 
     // Global accessibility: find closest Text within radius of tap

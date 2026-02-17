@@ -12,6 +12,10 @@ Page {
 
     StackView.onActivated: {
         root.currentPageTitle = "Idle"
+        if (root.pendingBrewDialog) {
+            root.pendingBrewDialog = false
+            idleBrewDialog.open()
+        }
     }
 
     // Secret developer mode: hold top-right corner for 5 seconds to simulate a completed shot

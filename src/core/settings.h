@@ -132,6 +132,8 @@ class Settings : public QObject {
     // Auto-favorites settings
     Q_PROPERTY(QString autoFavoritesGroupBy READ autoFavoritesGroupBy WRITE setAutoFavoritesGroupBy NOTIFY autoFavoritesGroupByChanged)
     Q_PROPERTY(int autoFavoritesMaxItems READ autoFavoritesMaxItems WRITE setAutoFavoritesMaxItems NOTIFY autoFavoritesMaxItemsChanged)
+    Q_PROPERTY(bool autoFavoritesOpenBrewSettings READ autoFavoritesOpenBrewSettings WRITE setAutoFavoritesOpenBrewSettings NOTIFY autoFavoritesOpenBrewSettingsChanged)
+    Q_PROPERTY(bool autoFavoritesHideUnrated READ autoFavoritesHideUnrated WRITE setAutoFavoritesHideUnrated NOTIFY autoFavoritesHideUnratedChanged)
 
     // BLE settings
     Q_PROPERTY(bool resetBleOnWake READ resetBleOnWake WRITE setResetBleOnWake NOTIFY resetBleOnWakeChanged)
@@ -503,6 +505,10 @@ public:
     void setAutoFavoritesGroupBy(const QString& groupBy);
     int autoFavoritesMaxItems() const;
     void setAutoFavoritesMaxItems(int maxItems);
+    bool autoFavoritesOpenBrewSettings() const;
+    void setAutoFavoritesOpenBrewSettings(bool open);
+    bool autoFavoritesHideUnrated() const;
+    void setAutoFavoritesHideUnrated(bool hide);
 
     // BLE settings
     bool resetBleOnWake() const;
@@ -707,6 +713,8 @@ signals:
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();
     void resetBleOnWakeChanged();
+    void autoFavoritesOpenBrewSettingsChanged();
+    void autoFavoritesHideUnratedChanged();
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
     void dailyBackupHourChanged();

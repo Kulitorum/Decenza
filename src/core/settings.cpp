@@ -2042,6 +2042,28 @@ void Settings::setResetBleOnWake(bool enabled) {
     }
 }
 
+bool Settings::autoFavoritesOpenBrewSettings() const {
+    return m_settings.value("autoFavorites/openBrewSettings", false).toBool();
+}
+
+void Settings::setAutoFavoritesOpenBrewSettings(bool open) {
+    if (autoFavoritesOpenBrewSettings() != open) {
+        m_settings.setValue("autoFavorites/openBrewSettings", open);
+        emit autoFavoritesOpenBrewSettingsChanged();
+    }
+}
+
+bool Settings::autoFavoritesHideUnrated() const {
+    return m_settings.value("autoFavorites/hideUnrated", false).toBool();
+}
+
+void Settings::setAutoFavoritesHideUnrated(bool hide) {
+    if (autoFavoritesHideUnrated() != hide) {
+        m_settings.setValue("autoFavorites/hideUnrated", hide);
+        emit autoFavoritesHideUnratedChanged();
+    }
+}
+
 bool Settings::autoCheckUpdates() const {
     return m_settings.value("updates/autoCheck", true).toBool();
 }
