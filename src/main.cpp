@@ -261,7 +261,7 @@ int main(int argc, char *argv[])
 
     // BLE health refresh - cycles BLE connections on wake from sleep (and every 5 hours)
     // to prevent Android Bluetooth stack degradation over long uptimes
-    BleRefresher bleRefresher(&de1Device, &bleManager, &machineState);
+    BleRefresher bleRefresher(&de1Device, &bleManager, &machineState, &settings);
     bleRefresher.startPeriodicRefresh(5);
 
     // Database backup manager for scheduled daily backups

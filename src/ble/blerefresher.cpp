@@ -3,13 +3,16 @@
 #include "blemanager.h"
 #include "scaledevice.h"
 #include "../machine/machinestate.h"
+#include "../core/settings.h"
 
 BleRefresher::BleRefresher(DE1Device* de1, BLEManager* bleManager,
-                           MachineState* machineState, QObject* parent)
+                           MachineState* machineState, Settings* settings,
+                           QObject* parent)
     : QObject(parent)
     , m_de1(de1)
     , m_bleManager(bleManager)
     , m_machineState(machineState)
+    , m_settings(settings)
 {
     m_periodicTimer.setSingleShot(true);
     connect(&m_periodicTimer, &QTimer::timeout, this, &BleRefresher::scheduleRefresh);
@@ -23,8 +26,12 @@ BleRefresher::BleRefresher(DE1Device* de1, BLEManager* bleManager,
             m_sleeping = true;
         } else if (m_sleeping) {
             m_sleeping = false;
-            qDebug() << "[BleRefresher] Wake from sleep detected";
-            scheduleRefresh();
+            if (m_settings->resetBleOnWake()) {
+                qDebug() << "[BleRefresher] Wake from sleep detected, scheduling BLE refresh";
+                scheduleRefresh();
+            } else {
+                qDebug() << "[BleRefresher] Wake from sleep detected, BLE refresh disabled by setting";
+            }
         }
     });
 

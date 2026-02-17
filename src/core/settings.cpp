@@ -2029,6 +2029,17 @@ void Settings::setAutoFavoritesMaxItems(int maxItems) {
     }
 }
 
+bool Settings::resetBleOnWake() const {
+    return m_settings.value("ble/resetOnWake", false).toBool();
+}
+
+void Settings::setResetBleOnWake(bool enabled) {
+    if (resetBleOnWake() != enabled) {
+        m_settings.setValue("ble/resetOnWake", enabled);
+        emit resetBleOnWakeChanged();
+    }
+}
+
 bool Settings::autoCheckUpdates() const {
     return m_settings.value("updates/autoCheck", true).toBool();
 }

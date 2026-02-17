@@ -133,6 +133,9 @@ class Settings : public QObject {
     Q_PROPERTY(QString autoFavoritesGroupBy READ autoFavoritesGroupBy WRITE setAutoFavoritesGroupBy NOTIFY autoFavoritesGroupByChanged)
     Q_PROPERTY(int autoFavoritesMaxItems READ autoFavoritesMaxItems WRITE setAutoFavoritesMaxItems NOTIFY autoFavoritesMaxItemsChanged)
 
+    // BLE settings
+    Q_PROPERTY(bool resetBleOnWake READ resetBleOnWake WRITE setResetBleOnWake NOTIFY resetBleOnWakeChanged)
+
     // Auto-update settings
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
     Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
@@ -501,6 +504,10 @@ public:
     int autoFavoritesMaxItems() const;
     void setAutoFavoritesMaxItems(int maxItems);
 
+    // BLE settings
+    bool resetBleOnWake() const;
+    void setResetBleOnWake(bool enabled);
+
     // Auto-update settings
     bool autoCheckUpdates() const;
     void setAutoCheckUpdates(bool enabled);
@@ -699,6 +706,7 @@ signals:
     void shotServerPortChanged();
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();
+    void resetBleOnWakeChanged();
     void autoCheckUpdatesChanged();
     void betaUpdatesEnabledChanged();
     void dailyBackupHourChanged();

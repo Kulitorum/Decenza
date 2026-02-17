@@ -81,6 +81,56 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Reset BLE on wake
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: bleResetContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: bleResetContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+
+                            ColumnLayout {
+                                spacing: Theme.scaled(1)
+
+                                Tr {
+                                    key: "settings.preferences.resetBleOnWake"
+                                    fallback: "Reset BLE connection on wake"
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(14)
+                                }
+
+                                Tr {
+                                    Layout.fillWidth: true
+                                    key: "settings.preferences.resetBleOnWakeDesc"
+                                    fallback: "Cycle all Bluetooth connections when the machine wakes from sleep"
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(11)
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: Settings.resetBleOnWake
+                                accessibleName: TranslationManager.translate("settings.preferences.resetBleOnWake", "Reset BLE connection on wake")
+                                onToggled: Settings.resetBleOnWake = checked
+                            }
+                        }
+                    }
+                }
+
                 // Refill Kit
                 Rectangle {
                     Layout.fillWidth: true

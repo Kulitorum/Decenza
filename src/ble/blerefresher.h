@@ -8,6 +8,7 @@
 class DE1Device;
 class BLEManager;
 class MachineState;
+class Settings;
 
 // Periodically cycles BLE connections (disconnect + reconnect) to prevent
 // Android Bluetooth stack degradation over long uptimes.
@@ -22,7 +23,8 @@ class BleRefresher : public QObject {
     Q_PROPERTY(bool refreshing READ refreshing NOTIFY refreshingChanged)
 public:
     explicit BleRefresher(DE1Device* de1, BLEManager* bleManager,
-                          MachineState* machineState, QObject* parent = nullptr);
+                          MachineState* machineState, Settings* settings,
+                          QObject* parent = nullptr);
 
     bool refreshing() const { return m_refreshInProgress; }
 
@@ -40,6 +42,7 @@ private:
     DE1Device* m_de1;
     BLEManager* m_bleManager;
     MachineState* m_machineState;
+    Settings* m_settings;
 
     QTimer m_periodicTimer;
     bool m_sleeping = false;
