@@ -200,6 +200,7 @@ Dialog {
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("crashReport.userNotes", "What were you doing?")
                     Accessible.description: text
+                    Accessible.focusable: true
                 }
             }
 

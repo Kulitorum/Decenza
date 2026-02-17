@@ -17,7 +17,7 @@ TextField {
 
     // Accessibility: expose as editable text with label and current value
     Accessible.role: Accessible.EditableText
-    Accessible.name: accessibleName || placeholder
+    Accessible.name: accessibleName || placeholder || placeholderText
     Accessible.description: text
     Accessible.focusable: true
 

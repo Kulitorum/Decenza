@@ -330,13 +330,14 @@ Popup {
                             textFormat: TextEdit.RichText
                             color: Theme.textColor
                             font: Theme.bodyFont
-                            placeholderText: "Enter text..."
+                            placeholderText: TranslationManager.translate("customeditor.placeholder.enterText", "Enter text...")
                             placeholderTextColor: Theme.textSecondaryColor
                             wrapMode: Text.Wrap
                             background: null
                             Accessible.role: Accessible.EditableText
                             Accessible.name: TranslationManager.translate("customeditor.placeholder.enterText", "Enter text")
                             Accessible.description: text
+                            Accessible.focusable: true
                             topPadding: 0
                             bottomPadding: 0
                             leftPadding: 0

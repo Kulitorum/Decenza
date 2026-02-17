@@ -725,7 +725,8 @@ Page {
                     focusedField = fieldInput
                     focusResetTimer.stop()
                     if (AccessibilityManager.enabled) {
-                        let announcement = parent.label + ". " + (text.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty"))
+                        var stripped = text.replace(/[\s\-]/g, "")
+                        let announcement = parent.label + ". " + (stripped.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty"))
                         AccessibilityManager.announce(announcement)
                     }
                 } else {
@@ -735,7 +736,10 @@ Page {
 
             Accessible.role: Accessible.EditableText
             Accessible.name: parent.label
-            Accessible.description: text.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty")
+            Accessible.description: {
+                var stripped = text.replace(/[\s\-]/g, "")
+                return stripped.length > 0 ? text : TranslationManager.translate("shotmetadata.accessible.empty", "Empty")
+            }
         }
     }
 
@@ -912,6 +916,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }
@@ -1014,6 +1019,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }

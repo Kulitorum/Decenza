@@ -890,6 +890,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }
@@ -1009,6 +1010,7 @@ Page {
                         color: Theme.textSecondaryColor
                         font: parent.font
                         visible: !parent.text && !parent.activeFocus
+                        Accessible.ignored: true
                     }
                 }
             }

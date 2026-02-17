@@ -453,7 +453,9 @@ Page {
 
                 property int shotEnjoyment: model.enjoyment || 0
 
-                // Accessibility: row is a button whose primary action opens shot detail
+                // Accessibility: row is a button whose primary action opens shot detail.
+                // Note: visual tap toggles selection (line 696); TalkBack double-tap opens detail
+                // because detail view is the more useful primary action for screen reader users.
                 Accessible.role: Accessible.Button
                 Accessible.name: {
                     var parts = []
@@ -463,7 +465,7 @@ Page {
                     if (bean) parts.push(bean)
                     var doseVal = model.doseWeight || 0
                     var yieldVal = model.finalWeight || 0
-                    if (doseVal > 0 || yieldVal > 0)
+                    if (doseVal > 0 && yieldVal > 0)
                         parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
                     if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
                     return parts.join(", ")
