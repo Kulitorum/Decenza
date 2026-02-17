@@ -161,6 +161,11 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     bool wasBeta = m_latestIsBeta;
     m_latestIsBeta = release["prerelease"].toBool();
 
+    // Reset prompt flag when a new release is discovered so the user gets
+    // notified once for each new version (but not repeatedly for the same one)
+    if (m_releaseTag != tagName) {
+        m_updatePromptShown = false;
+    }
     m_releaseTag = tagName;
     m_latestVersion = tagName.startsWith("v") ? tagName.mid(1) : tagName;
     m_releaseNotes = body;
@@ -383,6 +388,10 @@ void UpdateChecker::onDownloadFinished()
 
 void UpdateChecker::dismissUpdate()
 {
+    // m_updatePromptShown intentionally NOT reset here — user dismissed this
+    // version, so don't re-prompt until a new version is discovered.
+    // Contrast with screensaver hiding: goToScreensaver() re-queues the popup
+    // via the QML pendingPopups queue, which bypasses this C++ flag entirely.
     m_updateAvailable = false;
     emit updateAvailableChanged();
 }
@@ -416,8 +425,9 @@ void UpdateChecker::onPeriodicCheck()
             QByteArray data = reply->readAll();
             parseReleaseInfo(data);
 
-            // If update found, emit signal for popup
-            if (m_updateAvailable) {
+            // If update found, emit signal for popup (once per new version)
+            if (m_updateAvailable && !m_updatePromptShown) {
+                m_updatePromptShown = true;
                 emit updatePromptRequested();
             }
         }
