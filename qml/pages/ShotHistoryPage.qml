@@ -277,6 +277,7 @@ Page {
                 id: profileFilter
                 Layout.preferredWidth: Theme.scaled(140)
                 model: profileOptions
+                accessibleLabel: TranslationManager.translate("shothistory.filter.profile", "Profile filter")
                 onActivated: if (shotHistoryPage.visible) onProfileChanged()
 
                 background: Rectangle {
@@ -299,6 +300,7 @@ Page {
                 id: roasterFilter
                 Layout.preferredWidth: Theme.scaled(140)
                 model: roasterOptions
+                accessibleLabel: TranslationManager.translate("shothistory.filter.roaster", "Roaster filter")
                 onActivated: if (shotHistoryPage.visible) onRoasterChanged()
 
                 background: Rectangle {
@@ -321,6 +323,7 @@ Page {
                 id: beanFilter
                 Layout.preferredWidth: Theme.scaled(140)
                 model: beanOptions
+                accessibleLabel: TranslationManager.translate("shothistory.filter.bean", "Bean filter")
                 onActivated: if (shotHistoryPage.visible) onBeanChanged()
 
                 background: Rectangle {
@@ -342,7 +345,7 @@ Page {
             StyledTextField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholderText: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
+                placeholder: TranslationManager.translate("shothistory.searchplaceholder", "Search shots...")
                 rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
                 // Disable predictive text / autocorrect — forces IME to commit each
                 // character individually. Without this, the IME holds composing text
@@ -458,9 +461,10 @@ Page {
                     if (model.dateTime) parts.push(model.dateTime)
                     var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
                     if (bean) parts.push(bean)
-                    var dose = (model.doseWeight || 0).toFixed(1) + "g"
-                    var yield_ = (model.finalWeight || 0).toFixed(1) + "g"
-                    parts.push(dose + " to " + yield_)
+                    var doseVal = model.doseWeight || 0
+                    var yieldVal = model.finalWeight || 0
+                    if (doseVal > 0 || yieldVal > 0)
+                        parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
                     if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
                     return parts.join(", ")
                 }
@@ -495,6 +499,7 @@ Page {
                                 font.pixelSize: Theme.scaled(16)
                                 color: Theme.textColor
                                 visible: parent.parent.checked
+                                Accessible.ignored: true
                             }
                         }
                     }

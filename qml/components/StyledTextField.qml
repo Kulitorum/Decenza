@@ -8,6 +8,8 @@ TextField {
 
     // Custom placeholder that disappears on focus/text (no floating animation)
     property string placeholder: ""
+    // Explicit accessible name (overrides placeholder for screen readers)
+    property string accessibleName: ""
 
     font.pixelSize: Theme.scaled(18)
     color: Theme.textColor
@@ -15,7 +17,7 @@ TextField {
 
     // Accessibility: expose as editable text with label and current value
     Accessible.role: Accessible.EditableText
-    Accessible.name: placeholder
+    Accessible.name: accessibleName || placeholder
     Accessible.description: text
     Accessible.focusable: true
 
@@ -44,8 +46,9 @@ TextField {
         border.color: control.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
         border.width: 1
 
-        // Custom placeholder text that simply disappears
+        // Custom placeholder text that simply disappears (decorative — label is in Accessible.name)
         Text {
+            Accessible.ignored: true
             anchors.fill: parent
             anchors.leftMargin: control.leftPadding
             anchors.rightMargin: control.rightPadding

@@ -265,7 +265,7 @@ Page {
                         TextArea {
                             id: recipeNotesField
                             Accessible.role: Accessible.EditableText
-                            Accessible.name: "Profile description"
+                            Accessible.name: TranslationManager.translate("profileEditor.accessible.profileDescription", "Profile description")
                             Accessible.description: text
                             text: profile ? (profile.profile_notes || "") : ""
                             font: Theme.labelFont
