@@ -499,7 +499,7 @@ Page {
                         }
                     }
 
-                    // Shot info
+                    // Shot info — all text is decorative (already summarized in row Accessible.name)
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
@@ -512,6 +512,7 @@ Page {
                                 text: model.dateTime || ""
                                 font: Theme.subtitleFont
                                 color: Theme.textColor
+                                Accessible.ignored: true
                             }
 
                             Text {
@@ -527,6 +528,7 @@ Page {
                                 color: Theme.primaryColor
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
+                                Accessible.ignored: true
                             }
                         }
 
@@ -544,6 +546,7 @@ Page {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             visible: text !== ""
+                            Accessible.ignored: true
                         }
 
                         RowLayout {
@@ -562,12 +565,14 @@ Page {
                                 }
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
+                                Accessible.ignored: true
                             }
 
                             Text {
                                 text: (model.duration || 0).toFixed(1) + "s"
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
+                                Accessible.ignored: true
                             }
 
                             Text {
@@ -575,6 +580,7 @@ Page {
                                 font.pixelSize: Theme.scaled(16)
                                 color: Theme.successColor
                                 visible: model.hasVisualizerUpload
+                                Accessible.ignored: true
                             }
                         }
                     }
@@ -588,6 +594,7 @@ Page {
                         Layout.preferredWidth: Theme.scaled(45)
                         horizontalAlignment: Text.AlignRight
                         visible: shotDelegate.shotEnjoyment > 0
+                        Accessible.ignored: true
                     }
 
                     // Load Profile button
@@ -608,6 +615,7 @@ Page {
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
@@ -637,6 +645,7 @@ Page {
                             font.pixelSize: Theme.scaled(18)
                             font.bold: true
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
@@ -665,6 +674,7 @@ Page {
                             font.pixelSize: Theme.scaled(20)
                             font.bold: true
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
