@@ -1716,6 +1716,8 @@ QString ShotServer::generateLayoutPage() const
                             <div class="var-item" onclick="insertVar('%CONNECTED%')">Online</div>
                             <div class="var-item" onclick="insertVar('%CONNECTED_COLOR%')">Status Clr</div>
                             <div class="var-item" onclick="insertVar('%DEVICES%')">Devices</div>
+                            <div class="var-item" onclick="insertVar('%MACHINE_CONNECTED%')">Machine ✓/✗</div>
+                            <div class="var-item" onclick="insertVar('%SCALE_CONNECTED%')">Scale ✓/✗</div>
                         </div>
                     </div>
                     <div class="editor-tools-actions">
@@ -1895,6 +1897,8 @@ QString ShotServer::generateLayoutPage() const
                     <option value="command:startHotWater">Start Hot Water</option>
                     <option value="command:startFlush">Start Flush</option>
                     <option value="command:tare">Tare Scale</option>
+                    <option value="command:scanDE1">Scan for DE1</option>
+                    <option value="command:scanScale">Scan for Scale</option>
                     <option value="command:quit">Quit</option>
                 </select>
                 <input class="lib-filter-input" id="commSearchInput" type="text" placeholder="Search..."
@@ -2259,6 +2263,8 @@ QString ShotServer::generateLayoutPage() const
         {id:"command:startFlush",label:"Start Flush",contexts:["idle"]},
         {id:"command:idle",label:"Stop (Idle)",contexts:["idle","espresso","steam","hotwater","flush"]},
         {id:"command:tare",label:"Tare Scale",contexts:["idle","espresso","all"]},
+        {id:"command:scanDE1",label:"Scan for DE1",contexts:["idle","all"]},
+        {id:"command:scanScale",label:"Scan for Scale",contexts:["idle","all"]},
         {id:"command:quit",label:"Quit App",contexts:["idle"]}
     ];
     var PAGE_CONTEXT = "idle";
@@ -3327,6 +3333,7 @@ QString ShotServer::generateLayoutPage() const
             .replace(/%DOSE%/g,"18.0").replace(/%SCALE%/g,"Lunar")
             .replace(/%CONNECTED%/g,"Online").replace(/%CONNECTED_COLOR%/g,"#18c37e")
             .replace(/%DEVICES%/g,"Machine + Scale")
+            .replace(/%MACHINE_CONNECTED%/g,"✅").replace(/%SCALE_CONNECTED%/g,"✅")
             .replace(/%TIME%/g,hh+":"+mm)
             .replace(/%DATE%/g,now.toISOString().split("T")[0]);
     }
@@ -3416,7 +3423,8 @@ QString ShotServer::generateLayoutPage() const
         "%TARGET_WEIGHT%":"36.0","%VOLUME%":"42","%PROFILE%":"Profile","%STATE%":"Idle",
         "%TARGET_TEMP%":"93.0","%SCALE%":"Scale","%RATIO%":"2.0","%DOSE%":"18.0",
         "%TIME%":"12:30","%DATE%":"2025-01-15","%CONNECTED%":"Online",
-        "%CONNECTED_COLOR%":"#00cc6d","%DEVICES%":"Machine"
+        "%CONNECTED_COLOR%":"#00cc6d","%DEVICES%":"Machine",
+        "%MACHINE_CONNECTED%":"✅","%SCALE_CONNECTED%":"❌"
     };
 
     function resolveVars(text) {
