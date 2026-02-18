@@ -149,14 +149,15 @@ QJsonObject RecipeParams::toJson() const {
     obj["rampEnabled"] = rampEnabled;
     obj["rampTime"] = rampTime;
 
+    // A-Flow specific
+    obj["rampDownEnabled"] = rampDownEnabled;
+    obj["flowExtractionUp"] = flowExtractionUp;
+    obj["secondFillEnabled"] = secondFillEnabled;
+
     // Decline (D-Flow only)
     obj["declineEnabled"] = declineEnabled;
     obj["declineTo"] = declineTo;
     obj["declineTime"] = declineTime;
-
-    // A-Flow specific
-    obj["rampDownEnabled"] = rampDownEnabled;
-    obj["flowExtractionUp"] = flowExtractionUp;
 
     // Simple profile parameters (pressure/flow editors)
     obj["preinfusionTime"] = preinfusionTime;
@@ -232,6 +233,11 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     params.rampEnabled = json["rampEnabled"].toBool(true);  // Default true for legacy
     params.rampTime = json["rampTime"].toDouble(5.0);
 
+    // A-Flow specific
+    params.rampDownEnabled = json["rampDownEnabled"].toBool(false);
+    params.flowExtractionUp = json["flowExtractionUp"].toBool(true);
+    params.secondFillEnabled = json["secondFillEnabled"].toBool(false);
+
     // Decline
     params.declineEnabled = json["declineEnabled"].toBool(false);
     params.declineTo = json["declineTo"].toDouble(1.0);
@@ -242,10 +248,6 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     if (!json["pourStyle"].toString("").isEmpty() && params.declineEnabled) {
         params.declineTo = params.pourFlow * 0.5;
     }
-
-    // A-Flow specific
-    params.rampDownEnabled = json["rampDownEnabled"].toBool(false);
-    params.flowExtractionUp = json["flowExtractionUp"].toBool(true);
 
     // Simple profile parameters
     params.preinfusionTime = json["preinfusionTime"].toDouble(20.0);
@@ -304,14 +306,15 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["rampEnabled"] = rampEnabled;
     map["rampTime"] = rampTime;
 
+    // A-Flow specific
+    map["rampDownEnabled"] = rampDownEnabled;
+    map["flowExtractionUp"] = flowExtractionUp;
+    map["secondFillEnabled"] = secondFillEnabled;
+
     // Decline
     map["declineEnabled"] = declineEnabled;
     map["declineTo"] = declineTo;
     map["declineTime"] = declineTime;
-
-    // A-Flow specific
-    map["rampDownEnabled"] = rampDownEnabled;
-    map["flowExtractionUp"] = flowExtractionUp;
 
     // Simple profile parameters
     map["preinfusionTime"] = preinfusionTime;
@@ -387,6 +390,11 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     params.rampEnabled = map.value("rampEnabled", true).toBool();  // Default true for legacy
     params.rampTime = map.value("rampTime", 5.0).toDouble();
 
+    // A-Flow specific
+    params.rampDownEnabled = map.value("rampDownEnabled", false).toBool();
+    params.flowExtractionUp = map.value("flowExtractionUp", true).toBool();
+    params.secondFillEnabled = map.value("secondFillEnabled", false).toBool();
+
     // Decline
     params.declineEnabled = map.value("declineEnabled", false).toBool();
     params.declineTo = map.value("declineTo", 1.0).toDouble();
@@ -397,10 +405,6 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     if (!map.value("pourStyle", "").toString().isEmpty() && params.declineEnabled) {
         params.declineTo = params.pourFlow * 0.5;
     }
-
-    // A-Flow specific
-    params.rampDownEnabled = map.value("rampDownEnabled", false).toBool();
-    params.flowExtractionUp = map.value("flowExtractionUp", true).toBool();
 
     // Simple profile parameters
     params.preinfusionTime = map.value("preinfusionTime", 20.0).toDouble();

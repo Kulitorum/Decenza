@@ -270,7 +270,30 @@ ProfileFrame RecipeGenerator::createDeclineFrame(const RecipeParams& recipe) {
 QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& recipe) {
     QList<ProfileFrame> frames;
 
-    // Frame 0: Fill — flow pump with pressure limiter at 8.0 bar
+    // Frame 0: Pre Fill (1s workaround for DE1 "skip first step" bug)
+    {
+        ProfileFrame preFill;
+        preFill.name = "Pre Fill";
+        preFill.pump = "flow";
+        preFill.flow = 8.0;
+        preFill.pressure = 3.0;
+        preFill.temperature = recipe.fillTemperature;
+        preFill.seconds = 1.0;
+        preFill.transition = "fast";
+        preFill.sensor = "coffee";
+        preFill.volume = 100.0;
+        preFill.maxFlowOrPressure = 8.0;
+        preFill.maxFlowOrPressureRange = 0.6;
+        preFill.exitIf = false;
+        preFill.exitType = "pressure_over";
+        preFill.exitPressureOver = 3.0;
+        preFill.exitPressureUnder = 0.0;
+        preFill.exitFlowOver = 6.0;
+        preFill.exitFlowUnder = 0.0;
+        frames.append(preFill);
+    }
+
+    // Frame 1: Fill — flow pump with pressure limiter at 8.0 bar
     {
         ProfileFrame fill;
         fill.name = "Fill";
@@ -293,7 +316,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(fill);
     }
 
-    // Frame 1: Infuse — pressure hold with zero flow, uses fill temperature
+    // Frame 2: Infuse — pressure hold with zero flow, uses fill temperature
     if (recipe.infuseEnabled) {
         ProfileFrame infuse;
         infuse.name = "Infuse";
@@ -324,7 +347,54 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(infuse);
     }
 
-    // Frame 2: Pressure Up — smooth ramp to pour pressure
+    // Frame 3: 2nd Fill (active when secondFillEnabled, 0s otherwise)
+    {
+        ProfileFrame secondFill;
+        secondFill.name = "2nd Fill";
+        secondFill.pump = "flow";
+        secondFill.flow = 8.0;
+        secondFill.pressure = 0.0;
+        secondFill.temperature = recipe.pourTemperature;
+        secondFill.seconds = recipe.secondFillEnabled ? 15.0 : 0.0;
+        secondFill.transition = "fast";
+        secondFill.sensor = "coffee";
+        secondFill.volume = 100.0;
+        secondFill.maxFlowOrPressure = 3.0;
+        secondFill.maxFlowOrPressureRange = 0.6;
+        secondFill.exitIf = true;
+        secondFill.exitType = "pressure_over";
+        secondFill.exitPressureOver = 2.5;
+        secondFill.exitPressureUnder = 0.0;
+        secondFill.exitFlowOver = 6.0;
+        secondFill.exitFlowUnder = 0.0;
+        frames.append(secondFill);
+    }
+
+    // Frame 4: Pause (active when secondFillEnabled, 0s otherwise)
+    {
+        ProfileFrame pause;
+        pause.name = "Pause";
+        pause.pump = "pressure";
+        pause.pressure = 1.0;
+        pause.flow = 6.0;
+        pause.temperature = recipe.pourTemperature;
+        pause.seconds = recipe.secondFillEnabled ? 15.0 : 0.0;
+        pause.transition = "fast";
+        pause.sensor = "coffee";
+        pause.volume = 100.0;
+        pause.maxFlowOrPressure = 1.0;
+        pause.maxFlowOrPressureRange = 0.6;
+        pause.exitIf = true;
+        pause.exitType = "flow_under";
+        pause.exitPressureOver = 0.0;
+        pause.exitPressureUnder = 0.0;
+        pause.exitFlowOver = 6.0;
+        pause.exitFlowUnder = 1.0;
+        frames.append(pause);
+    }
+
+    // Frame 5: Pressure Up — smooth ramp to pour pressure
+    // rampDownEnabled splits rampTime between Up and Decline
     {
         ProfileFrame pressureUp;
         pressureUp.name = "Pressure Up";
@@ -336,7 +406,6 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pressureUp.sensor = "coffee";
         pressureUp.volume = 100.0;
 
-        // rampDownEnabled splits rampTime between Up and Decline
         pressureUp.seconds = recipe.rampDownEnabled
             ? recipe.rampTime / 2.0
             : recipe.rampTime;
@@ -355,7 +424,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(pressureUp);
     }
 
-    // Frame 3: Pressure Decline — decline to 1 bar, exit when flow drops
+    // Frame 6: Pressure Decline — decline to 1 bar, exit when flow drops
+    // rampDownEnabled gives remaining time to Decline; otherwise 0 (exit-controlled)
     {
         ProfileFrame pressureDecline;
         pressureDecline.name = "Pressure Decline";
@@ -367,7 +437,6 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pressureDecline.sensor = "coffee";
         pressureDecline.volume = 100.0;
 
-        // rampDownEnabled gives remaining time to Decline; otherwise 0 (exit-controlled)
         pressureDecline.seconds = recipe.rampDownEnabled
             ? recipe.rampTime - recipe.rampTime / 2.0
             : 0.0;
@@ -383,7 +452,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(pressureDecline);
     }
 
-    // Frame 4: Flow Start — conditionally activated when rampTime < 1
+    // Frame 7: Flow Start — conditionally activated when rampTime < 1
     {
         ProfileFrame flowStart;
         flowStart.name = "Flow Start";
@@ -419,7 +488,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(flowStart);
     }
 
-    // Frame 5: Flow Extraction — main extraction with pressure limiter
+    // Frame 8: Flow Extraction — main extraction with pressure limiter
+    // flowExtractionUp: pourFlow*2 with smooth ramp; otherwise 0 (flat, pressure-limited)
     {
         ProfileFrame extraction;
         extraction.name = "Flow Extraction";
@@ -427,8 +497,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         extraction.flow = recipe.flowExtractionUp ? recipe.pourFlow * 2.0 : 0.0;
         extraction.pressure = 3.0;  // Vestigial template constant
         extraction.temperature = recipe.pourTemperature;
-        extraction.seconds = 60.0;
-        extraction.transition = "smooth";
+        extraction.seconds = 60.0;  // Long duration - weight system stops the shot
+        extraction.transition = recipe.flowExtractionUp ? "smooth" : "fast";
         extraction.sensor = "coffee";
         extraction.volume = 100.0;
         extraction.maxFlowOrPressure = recipe.pourPressure;
