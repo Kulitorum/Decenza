@@ -231,6 +231,7 @@ QString ShotServer::generateShotListPage() const
             --flow: #4e85f4;
             --temp: #e73249;
             --weight: #a2693d;
+            --weightFlow: #d4a574;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -940,6 +941,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
     QString flowData = pointsToJson(shot["flow"].toList());
     QString tempData = pointsToJson(shot["temperature"].toList());
     QString weightData = pointsToJson(shot["weight"].toList());
+    QString weightFlowRateData = pointsToJson(shot["weightFlowRate"].toList());
     QString pressureGoalData = goalPointsToJson(shot["pressureGoal"].toList());
     QString flowGoalData = goalPointsToJson(shot["flowGoal"].toList());
 
@@ -980,6 +982,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             --flow: #4e85f4;
             --temp: #e73249;
             --weight: #a2693d;
+            --weightFlow: #d4a574;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -1105,6 +1108,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         .toggle-btn.flow .dot { background: var(--flow); }
         .toggle-btn.temp .dot { background: var(--temp); }
         .toggle-btn.weight .dot { background: var(--weight); }
+        .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
         .chart-wrapper {
             position: relative;
             height: 400px;
@@ -1242,6 +1246,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                     <button class="toggle-btn temp active" onclick="toggleDataset(3, this)">
                         <span class="dot"></span> Temp
                     </button>
+                    <button class="toggle-btn weightFlow active" onclick="toggleDataset(6, this)">
+                        <span class="dot"></span> Weight Flow
+                    </button>
                 </div>
             </div>
             <div class="chart-wrapper">
@@ -1341,6 +1348,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         const pressureGoalData = %19;
         const flowGoalData = %20;
         const phaseData = %22;
+        const weightFlowRateData = %23;
 
         // Chart.js plugin: draw vertical phase marker lines and labels
         const phaseMarkerPlugin = {
@@ -1527,6 +1535,16 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                         tension: 0.1,
                         yAxisID: 'y',
                         spanGaps: false
+                    },
+                    {
+                        label: 'Weight Flow',
+                        data: weightFlowRateData,
+                        borderColor: '#d4a574',
+                        backgroundColor: 'rgba(212, 165, 116, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.3,
+                        yAxisID: 'y'
                     }
                 ]
             },
@@ -1659,7 +1677,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
     .arg(pressureGoalData)
     .arg(flowGoalData)
     .arg(shot["debugLog"].toString().isEmpty() ? "No debug log available" : shot["debugLog"].toString().toHtmlEscaped())
-    .arg(phaseData);
+    .arg(phaseData)
+    .arg(weightFlowRateData);
 }
 
 QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
@@ -1704,6 +1723,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         QString flowData = pointsToJson(shot["flow"].toList());
         QString weightData = pointsToJson(shot["weight"].toList());
         QString tempData = pointsToJson(shot["temperature"].toList());
+        QString wfData = pointsToJson(shot["weightFlowRate"].toList());
 
         // Add datasets for this shot
         datasets += QString(R"HTML(
@@ -1711,7 +1731,8 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             { label: "Flow - %1", data: %5, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: [5,3], shotIndex: %4, curveType: "flow" },
             { label: "Yield - %1", data: %6, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y2", borderDash: [2,2], shotIndex: %4, curveType: "weight" },
             { label: "Temp - %1", data: %7, borderColor: "%3", borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: "y3", borderDash: [8,4], shotIndex: %4, curveType: "temp" },
-        )HTML").arg(label.toHtmlEscaped(), pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData);
+            { label: "Weight Flow - %1", data: %8, borderColor: "#d4a574", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", shotIndex: %4, curveType: "weightFlow" },
+        )HTML").arg(label.toHtmlEscaped(), pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData);
 
         double ratio = shot["doseWeight"].toDouble() > 0 ?
             shot["finalWeight"].toDouble() / shot["doseWeight"].toDouble() : 0;
@@ -1771,6 +1792,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             --flow: #4e85f4;
             --temp: #e73249;
             --weight: #a2693d;
+            --weightFlow: #d4a574;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -1846,6 +1868,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         .toggle-btn.flow .dot { background: var(--flow); }
         .toggle-btn.weight .dot { background: var(--weight); }
         .toggle-btn.temp .dot { background: var(--temp); }
+        .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
         .chart-wrapper { position: relative; height: 450px; }
         .legend {
             background: var(--surface);
@@ -1971,6 +1994,9 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                     <button class="toggle-btn temp active" onclick="toggleCurve('temp', this)">
                         <span class="dot"></span> Temp
                     </button>
+                    <button class="toggle-btn weightFlow active" onclick="toggleCurve('weightFlow', this)">
+                        <span class="dot"></span> Weight Flow
+                    </button>
                 </div>
             </div>
             <div class="chart-wrapper">
@@ -1985,11 +2011,12 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 <div class="curve-legend-item"><span class="curve-line dashed"></span> Flow</div>
                 <div class="curve-legend-item"><span class="curve-line dotted"></span> Yield</div>
                 <div class="curve-legend-item"><span class="curve-line longdash"></span> Temp</div>
+                <div class="curve-legend-item"><span class="curve-line solid" style="border-color: var(--weightFlow);"></span> Weight Flow</div>
             </div>
         </div>
     </main>
     <script>
-        var visibleCurves = { pressure: true, flow: true, weight: true, temp: true };
+        var visibleCurves = { pressure: true, flow: true, weight: true, temp: true, weightFlow: true };
 
         // Find closest data point in a dataset to a given x value
         function findClosestPoint(data, targetX) {
@@ -2057,7 +2084,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
 
             // Build HTML
             var html = "<div style='font-weight:600;margin-bottom:6px;'>" + targetX.toFixed(1) + "s</div>";
-            var curveInfo = { pressure: {l:"P", u:"bar"}, flow: {l:"F", u:"ml/s"}, weight: {l:"W", u:"g"}, temp: {l:"T", u:"°C"} };
+            var curveInfo = { pressure: {l:"P", u:"bar"}, flow: {l:"F", u:"ml/s"}, weight: {l:"W", u:"g"}, temp: {l:"T", u:"°C"}, weightFlow: {l:"WF", u:"g/s"} };
 
             for (var shotIdx in shotData) {
                 var shot = shotData[shotIdx];

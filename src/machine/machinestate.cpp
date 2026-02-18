@@ -449,7 +449,7 @@ void MachineState::checkStopAtVolume() {
     if (target <= 0) return;
 
     // Get current flow rate for lag compensation
-    double flowRate = m_scale ? m_scale->flowRate() : 0;
+    double flowRate = smoothedScaleFlowRate();
     if (flowRate > 10.0) flowRate = 10.0;  // Cap to reasonable range
     if (flowRate < 0) flowRate = 0;
 
@@ -565,19 +565,21 @@ double MachineState::scaleWeight() const {
 }
 
 double MachineState::scaleFlowRate() const {
-    return m_scale ? m_scale->flowRate() : 0.0;
+    return smoothedScaleFlowRate();
 }
 
 void MachineState::recordWeightSample() {
     if (!m_scale) return;
-    // Only accumulate during active extraction — after the shot ends the scale
-    // readings are dominated by drip noise / settling vibrations
-    if (m_phase != Phase::Preinfusion && m_phase != Phase::Pouring) {
+    // Accumulate during extraction and the Ending phase (espresso still drips
+    // through the puck after the pump stops).  Stop once we leave Ending so
+    // Idle-phase scale noise doesn't pollute the LSLR buffer.
+    if (m_phase != Phase::Preinfusion && m_phase != Phase::Pouring && m_phase != Phase::Ending) {
         m_weightSamples.clear();
         return;
     }
     qint64 now = QDateTime::currentMSecsSinceEpoch();
-    m_weightSamples.append({now, m_scale->weight()});
+    double w = m_scale->weight();
+    m_weightSamples.append({now, w});
     // Prune samples older than 1 second
     while (!m_weightSamples.isEmpty() && (now - m_weightSamples.first().timestamp) > 1000) {
         m_weightSamples.removeFirst();
@@ -585,12 +587,35 @@ void MachineState::recordWeightSample() {
 }
 
 double MachineState::smoothedScaleFlowRate() const {
-    if (m_weightSamples.size() < 2) return 0.0;
+    if (m_weightSamples.size() < 2) {
+        return 0.0;
+    }
     // Wait until the buffer spans ~1 second before reporting
     double dt = (m_weightSamples.last().timestamp - m_weightSamples.first().timestamp) / 1000.0;
-    if (dt < 0.8) return 0.0;
-    // Weight gained over a 1-second window = g/s (buffer is pruned to 1s)
-    return qMax(0.0, m_weightSamples.last().weight - m_weightSamples.first().weight);
+    if (dt < 0.8) {
+        return 0.0;
+    }
+
+    // Least-squares linear regression across all samples in the window.
+    // Fits a line w = slope*t + intercept; slope = flow rate in g/s.
+    // This uses every sample (not just endpoints), averaging out noise from
+    // scale quantization (0.1g on Skale) and BLE timing jitter.
+    // Reference: de1app uses LSLR as one of its 3 selectable smoothing algorithms.
+    int n = m_weightSamples.size();
+    // Use relative time (seconds from first sample) to avoid floating-point issues
+    qint64 t0 = m_weightSamples.first().timestamp;
+    double sumT = 0, sumW = 0, sumTW = 0, sumTT = 0;
+    for (const auto& s : m_weightSamples) {
+        double t = (s.timestamp - t0) / 1000.0;
+        sumT += t;
+        sumW += s.weight;
+        sumTW += t * s.weight;
+        sumTT += t * t;
+    }
+    double denom = n * sumTT - sumT * sumT;
+    double slope = (denom > 1e-12) ? (n * sumTW - sumT * sumW) / denom : 0.0;
+
+    return qMax(0.0, slope);
 }
 
 void MachineState::tareScale() {

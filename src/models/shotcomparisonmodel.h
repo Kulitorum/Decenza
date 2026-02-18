@@ -64,6 +64,7 @@ public:
     Q_INVOKABLE QVariantList getFlowData(int index) const;
     Q_INVOKABLE QVariantList getTemperatureData(int index) const;
     Q_INVOKABLE QVariantList getWeightData(int index) const;
+    Q_INVOKABLE QVariantList getWeightFlowRateData(int index) const;
     Q_INVOKABLE QVariantList getPhaseMarkers(int index) const;
 
     // Get shot metadata for display window
@@ -108,6 +109,7 @@ private:
         QVector<QPointF> flow;
         QVector<QPointF> temperature;
         QVector<QPointF> weight;
+        QVector<QPointF> weightFlowRate;
 
         struct PhaseMarker {
             double time = 0;

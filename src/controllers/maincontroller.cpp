@@ -3005,8 +3005,7 @@ void MainController::onScaleWeightChanged(double weight) {
     // Use 1-second time-windowed average — the raw scale derivative is too noisy
     // (variable BLE timing amplifies small weight deltas into huge g/s spikes)
     if (m_timingController) {
-        double flowRate = m_machineState->smoothedScaleFlowRate();
-        m_timingController->onWeightSample(weight, flowRate);
+        m_timingController->onWeightSample(weight, m_machineState->smoothedScaleFlowRate());
     }
 }
 

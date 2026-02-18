@@ -1,5 +1,4 @@
 #include "scaledevice.h"
-#include <QDateTime>
 
 ScaleDevice::ScaleDevice(QObject* parent)
     : QObject(parent)
@@ -80,7 +79,6 @@ void ScaleDevice::setConnected(bool connected) {
 
 void ScaleDevice::setWeight(double weight) {
     if (m_weight != weight) {
-        calculateFlowRate(weight);
         m_weight = weight;
         emit weightChanged(weight);
     }
@@ -101,35 +99,7 @@ void ScaleDevice::setBatteryLevel(int level) {
 }
 
 void ScaleDevice::resetFlowCalculation() {
-    m_flowHistory.clear();
-    m_prevTimestamp = 0;
-    m_prevWeight = 0.0;
+    // Flow rate is now computed centrally via LSLR in MachineState::smoothedScaleFlowRate().
+    // This method is kept for callers that reset after tare.
     setFlowRate(0.0);
-}
-
-void ScaleDevice::calculateFlowRate(double newWeight) {
-    qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
-
-    if (m_prevTimestamp > 0) {
-        double timeDelta = (currentTime - m_prevTimestamp) / 1000.0;
-        if (timeDelta > 0.01 && timeDelta < 1.0) {  // Valid time range
-            double instantRate = (newWeight - m_prevWeight) / timeDelta;
-
-            // Add to history for smoothing
-            m_flowHistory.append(instantRate);
-            if (m_flowHistory.size() > FLOW_HISTORY_SIZE) {
-                m_flowHistory.removeFirst();
-            }
-
-            // Calculate average flow rate
-            double sum = 0;
-            for (double rate : m_flowHistory) {
-                sum += rate;
-            }
-            setFlowRate(sum / m_flowHistory.size());
-        }
-    }
-
-    m_prevWeight = newWeight;
-    m_prevTimestamp = currentTime;
 }

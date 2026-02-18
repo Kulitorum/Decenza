@@ -64,6 +64,7 @@ Item {
                 flowData: root.shotData.flow || []
                 temperatureData: root.shotData.temperature || []
                 weightData: root.shotData.weight || []
+                weightFlowRateData: root.shotData.weightFlowRate || []
                 phaseMarkers: root.shotData.phases || []
                 maxTime: root.shotData.duration || 60
                 showLabels: root.shotShowLabels
@@ -115,6 +116,7 @@ Item {
                     flowData: root.shotData.flow || []
                     temperatureData: root.shotData.temperature || []
                     weightData: root.shotData.weight || []
+                    weightFlowRateData: root.shotData.weightFlowRate || []
                     phaseMarkers: root.shotData.phases || []
                     maxTime: root.shotData.duration || 60
                     showLabels: root.shotShowLabels

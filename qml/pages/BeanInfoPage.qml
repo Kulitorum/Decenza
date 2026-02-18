@@ -214,6 +214,7 @@ Page {
                     flowData: editShotData.flow || []
                     temperatureData: editShotData.temperature || []
                     weightData: editShotData.weight || []
+                    weightFlowRateData: editShotData.weightFlowRate || []
                     phaseMarkers: editShotData.phases || []
                     maxTime: editShotData.duration || 60
                 }

@@ -169,6 +169,7 @@ void ShotComparisonModel::loadDisplayWindow()
         shot.flow = record.flow;
         shot.temperature = record.temperature;
         shot.weight = record.weight;
+        shot.weightFlowRate = record.weightFlowRate;
 
         for (const auto& phase : record.phases) {
             ComparisonShot::PhaseMarker marker;
@@ -254,6 +255,12 @@ QVariantList ShotComparisonModel::getWeightData(int index) const
 {
     if (index < 0 || index >= m_displayShots.size()) return QVariantList();
     return pointsToVariant(m_displayShots[index].weight);
+}
+
+QVariantList ShotComparisonModel::getWeightFlowRateData(int index) const
+{
+    if (index < 0 || index >= m_displayShots.size()) return QVariantList();
+    return pointsToVariant(m_displayShots[index].weightFlowRate);
 }
 
 QVariantList ShotComparisonModel::getPhaseMarkers(int index) const

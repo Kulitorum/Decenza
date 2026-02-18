@@ -18,6 +18,7 @@ Page {
     property bool showPressure: true
     property bool showFlow: true
     property bool showWeight: true
+    property bool showWeightFlow: true
 
     Component.onCompleted: {
         root.currentPageTitle = "Compare Shots"
@@ -97,6 +98,7 @@ Page {
                     showPressure: shotComparisonPage.showPressure
                     showFlow: shotComparisonPage.showFlow
                     showWeight: shotComparisonPage.showWeight
+                    showWeightFlow: shotComparisonPage.showWeightFlow
                 }
 
                 // Swipe handler overlay (above graph, below resize handle)
@@ -290,6 +292,35 @@ Page {
                     MouseArea {
                         anchors.fill: parent
                         onClicked: showWeight = !showWeight
+                    }
+                }
+
+                // Weight Flow toggle
+                Rectangle {
+                    width: weightFlowToggleContent.width + Theme.scaled(16)
+                    height: Theme.scaled(32)
+                    radius: Theme.scaled(16)
+                    color: showWeightFlow ? Theme.surfaceColor : "transparent"
+                    border.color: showWeightFlow ? Theme.primaryColor : Theme.borderColor
+                    border.width: 1
+                    opacity: showWeightFlow ? 1.0 : 0.5
+
+                    RowLayout {
+                        id: weightFlowToggleContent
+                        anchors.centerIn: parent
+                        spacing: Theme.spacingSmall
+
+                        Rectangle { width: Theme.scaled(20); height: 2; color: showWeightFlow ? Theme.weightFlowColor : Theme.textSecondaryColor }
+                        Text {
+                            text: TranslationManager.translate("comparison.weightFlow", "Weight Flow")
+                            font: Theme.captionFont
+                            color: showWeightFlow ? Theme.textColor : Theme.textSecondaryColor
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: showWeightFlow = !showWeightFlow
                     }
                 }
             }

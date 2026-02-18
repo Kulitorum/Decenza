@@ -51,6 +51,7 @@ signals:
 
 protected:
     QSGNode* updatePaintNode(QSGNode* node, UpdatePaintNodeData*) override;
+    void itemChange(ItemChange change, const ItemChangeData& data) override;
 
 private:
     QVector<QPointF> m_points;  // Data-space coordinates

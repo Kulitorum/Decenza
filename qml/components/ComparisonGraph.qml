@@ -21,6 +21,7 @@ ChartView {
     property bool showPressure: true
     property bool showFlow: true
     property bool showWeight: true
+    property bool showWeightFlow: true
 
     // Colors for each shot (primary, flow/light, weight/lighter)
     readonly property var shotColorSets: [
@@ -34,9 +35,9 @@ ChartView {
         if (!comparisonModel) return
 
         // Clear all series
-        pressure1.clear(); flow1.clear(); weight1.clear()
-        pressure2.clear(); flow2.clear(); weight2.clear()
-        pressure3.clear(); flow3.clear(); weight3.clear()
+        pressure1.clear(); flow1.clear(); weight1.clear(); weightFlow1.clear()
+        pressure2.clear(); flow2.clear(); weight2.clear(); weightFlow2.clear()
+        pressure3.clear(); flow3.clear(); weight3.clear(); weightFlow3.clear()
 
         var windowStart = comparisonModel.windowStart
 
@@ -45,10 +46,12 @@ ChartView {
             var pressureData = comparisonModel.getPressureData(i)
             var flowData = comparisonModel.getFlowData(i)
             var weightData = comparisonModel.getWeightData(i)
+            var weightFlowData = comparisonModel.getWeightFlowRateData(i)
 
             var pSeries = i === 0 ? pressure1 : (i === 1 ? pressure2 : pressure3)
             var fSeries = i === 0 ? flow1 : (i === 1 ? flow2 : flow3)
             var wSeries = i === 0 ? weight1 : (i === 1 ? weight2 : weight3)
+            var wfSeries = i === 0 ? weightFlow1 : (i === 1 ? weightFlow2 : weightFlow3)
 
             // Set colors based on global position (windowStart + i) % 3
             var colorIndex = (windowStart + i) % 3
@@ -56,6 +59,7 @@ ChartView {
             pSeries.color = colors.primary
             fSeries.color = colors.flow
             wSeries.color = colors.weight
+            wfSeries.color = Qt.lighter(colors.weight, 1.3)
 
             for (var j = 0; j < pressureData.length; j++) {
                 pSeries.append(pressureData[j].x, pressureData[j].y)
@@ -65,6 +69,9 @@ ChartView {
             }
             for (j = 0; j < weightData.length; j++) {
                 wSeries.append(weightData[j].x, weightData[j].y / 5)  // Scale for display
+            }
+            for (j = 0; j < weightFlowData.length; j++) {
+                wfSeries.append(weightFlowData[j].x, weightFlowData[j].y)
             }
         }
 
@@ -145,6 +152,15 @@ ChartView {
         axisY: weightAxis
         visible: chart.showWeight
     }
+    LineSeries {
+        id: weightFlow1
+        name: "Weight Flow 1"
+        color: Qt.lighter("#A5D6A7", 1.3)
+        width: Math.max(1, Theme.graphLineWidth - 1)
+        axisX: timeAxis
+        axisY: pressureAxis
+        visible: chart.showWeightFlow
+    }
 
     // Shot 2 series (Blue)
     LineSeries {
@@ -176,6 +192,15 @@ ChartView {
         axisY: weightAxis
         visible: chart.showWeight
     }
+    LineSeries {
+        id: weightFlow2
+        name: "Weight Flow 2"
+        color: Qt.lighter("#90CAF9", 1.3)
+        width: Math.max(1, Theme.graphLineWidth - 1)
+        axisX: timeAxis
+        axisY: pressureAxis
+        visible: chart.showWeightFlow
+    }
 
     // Shot 3 series (Orange)
     LineSeries {
@@ -206,5 +231,14 @@ ChartView {
         axisX: timeAxis
         axisY: weightAxis
         visible: chart.showWeight
+    }
+    LineSeries {
+        id: weightFlow3
+        name: "Weight Flow 3"
+        color: Qt.lighter("#FFCC80", 1.3)
+        width: Math.max(1, Theme.graphLineWidth - 1)
+        axisX: timeAxis
+        axisY: pressureAxis
+        visible: chart.showWeightFlow
     }
 }

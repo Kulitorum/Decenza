@@ -83,6 +83,17 @@ void FastLineRenderer::setPoints(const QVector<QPointF>& points) {
     update();
 }
 
+void FastLineRenderer::itemChange(ItemChange change, const ItemChangeData& data) {
+    if (change == ItemVisibleHasChanged && data.boolValue) {
+        // When the item becomes visible again (e.g., StackView pop), force a repaint.
+        // The scene graph may have destroyed our QSGNode while we were hidden,
+        // and without an explicit update() call, updatePaintNode() won't be triggered.
+        m_geometryDirty = true;
+        update();
+    }
+    QQuickItem::itemChange(change, data);
+}
+
 QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) {
     auto* gnode = static_cast<QSGGeometryNode*>(node);
 

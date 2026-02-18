@@ -4,7 +4,6 @@
 #include <QBluetoothDeviceInfo>
 #include <QLowEnergyController>
 #include <QLowEnergyService>
-#include <QList>
 #include <QTimer>
 
 class ScaleDevice : public QObject {
@@ -64,7 +63,6 @@ protected:
     void setWeight(double weight);
     void setFlowRate(double rate);
     void setBatteryLevel(int level);
-    void calculateFlowRate(double newWeight);
 
     QLowEnergyController* m_controller = nullptr;
     QLowEnergyService* m_service = nullptr;
@@ -75,11 +73,5 @@ private:
     double m_weight = 0.0;
     double m_flowRate = 0.0;
     int m_batteryLevel = 100;
-
-    // Flow rate calculation
-    double m_prevWeight = 0.0;
-    qint64 m_prevTimestamp = 0;
-    QList<double> m_flowHistory;
-    static const int FLOW_HISTORY_SIZE = 5;
     QTimer m_keepAliveTimer;
 };
