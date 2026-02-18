@@ -149,6 +149,11 @@ QJsonObject RecipeParams::toJson() const {
     obj["rampEnabled"] = rampEnabled;
     obj["rampTime"] = rampTime;
 
+    // A-Flow specific
+    obj["rampDownEnabled"] = rampDownEnabled;
+    obj["flowExtractionUp"] = flowExtractionUp;
+    obj["secondFillEnabled"] = secondFillEnabled;
+
     // Decline (D-Flow only)
     obj["declineEnabled"] = declineEnabled;
     obj["declineTo"] = declineTo;
@@ -228,6 +233,11 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     params.rampEnabled = json["rampEnabled"].toBool(true);  // Default true for legacy
     params.rampTime = json["rampTime"].toDouble(5.0);
 
+    // A-Flow specific
+    params.rampDownEnabled = json["rampDownEnabled"].toBool(false);
+    params.flowExtractionUp = json["flowExtractionUp"].toBool(true);
+    params.secondFillEnabled = json["secondFillEnabled"].toBool(false);
+
     // Decline
     params.declineEnabled = json["declineEnabled"].toBool(false);
     params.declineTo = json["declineTo"].toDouble(1.0);
@@ -295,6 +305,11 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["pourFlow"] = pourFlow;
     map["rampEnabled"] = rampEnabled;
     map["rampTime"] = rampTime;
+
+    // A-Flow specific
+    map["rampDownEnabled"] = rampDownEnabled;
+    map["flowExtractionUp"] = flowExtractionUp;
+    map["secondFillEnabled"] = secondFillEnabled;
 
     // Decline
     map["declineEnabled"] = declineEnabled;
@@ -374,6 +389,11 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
 
     params.rampEnabled = map.value("rampEnabled", true).toBool();  // Default true for legacy
     params.rampTime = map.value("rampTime", 5.0).toDouble();
+
+    // A-Flow specific
+    params.rampDownEnabled = map.value("rampDownEnabled", false).toBool();
+    params.flowExtractionUp = map.value("flowExtractionUp", true).toBool();
+    params.secondFillEnabled = map.value("secondFillEnabled", false).toBool();
 
     // Decline
     params.declineEnabled = map.value("declineEnabled", false).toBool();

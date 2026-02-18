@@ -75,6 +75,11 @@ struct RecipeParams {
     bool rampEnabled = true;            // Enable ramp transition phase
     double rampTime = 5.0;              // Transition ramp duration (seconds)
 
+    // === A-Flow Specific ===
+    bool rampDownEnabled = false;       // Split pressure ramp into up + decline phases
+    bool flowExtractionUp = true;       // Flow ramps up during extraction (smooth vs fast)
+    bool secondFillEnabled = false;     // Add 2nd Fill + Pause frames before pressure ramp
+
     // === Decline Phase (D-Flow/A-Flow recipes — simple profiles use simpleDeclineTime below) ===
     bool declineEnabled = false;        // Enable flow decline during extraction
     double declineTo = 1.0;             // Target flow to decline to (mL/s)

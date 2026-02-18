@@ -46,9 +46,12 @@ Page {
         var name = (frame.name || "").toLowerCase()
 
         // Match frame name to section
-        if (name.indexOf("fill") !== -1) return "infuse"  // Fill maps to infuse section
+        if (name === "pre fill") return "infuse"  // Pre Fill workaround frame
+        if (name.indexOf("fill") !== -1 && name.indexOf("2nd") === -1) return "infuse"  // Fill maps to infuse section
         if (name.indexOf("bloom") !== -1) return "infuse"
         if (name.indexOf("infuse") !== -1 || name.indexOf("preinfuse") !== -1) return "infuse"
+        if (name.indexOf("2nd fill") !== -1) return "aflowToggles"
+        if (name.indexOf("pause") !== -1) return "aflowToggles"
         if (name.indexOf("ramp") !== -1 || name.indexOf("transition") !== -1) return "pour"
         if (name.indexOf("pressure up") !== -1) return "pour"
         if (name.indexOf("pressure decline") !== -1) return "pour"
@@ -347,6 +350,84 @@ Page {
                             }
                         }
 
+                        // === A-Flow Options ===
+                        RecipeSection {
+                            id: aflowTogglesSection
+                            title: TranslationManager.translate("recipeEditor.aflowTogglesTitle", "A-Flow Options")
+                            visible: recipe.editorType === "aflow"
+                            Layout.fillWidth: true
+
+                            // Ramp Down
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+                                Text {
+                                    text: TranslationManager.translate("recipeEditor.rampDown", "Ramp Down")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Layout.fillWidth: true
+                                    Accessible.ignored: true
+                                }
+                                StyledSwitch {
+                                    checked: val(recipe.rampDownEnabled, false)
+                                    accessibleName: "Ramp Down"
+                                    onClicked: {
+                                        var newRecipe = Object.assign({}, recipe)
+                                        if (!recipe.rampDownEnabled) {
+                                            newRecipe.rampTime = Math.round(recipe.rampTime * 2)
+                                            newRecipe.rampDownEnabled = true
+                                        } else {
+                                            newRecipe.rampTime = Math.round(recipe.rampTime / 2)
+                                            newRecipe.rampDownEnabled = false
+                                        }
+                                        recipe = newRecipe
+                                        MainController.uploadRecipeProfile(recipe)
+                                        var loadedProfile = MainController.getCurrentProfile()
+                                        if (loadedProfile && loadedProfile.steps) {
+                                            profile = loadedProfile
+                                            profileGraph.frames = profile.steps.slice()
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Flow Up
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+                                Text {
+                                    text: TranslationManager.translate("recipeEditor.flowUp", "Flow Up")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Layout.fillWidth: true
+                                    Accessible.ignored: true
+                                }
+                                StyledSwitch {
+                                    checked: val(recipe.flowExtractionUp, true)
+                                    accessibleName: "Flow Up"
+                                    onClicked: updateRecipe("flowExtractionUp", !recipe.flowExtractionUp)
+                                }
+                            }
+
+                            // 2nd Fill
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+                                Text {
+                                    text: TranslationManager.translate("recipeEditor.secondFill", "2nd Fill")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Layout.fillWidth: true
+                                    Accessible.ignored: true
+                                }
+                                StyledSwitch {
+                                    checked: val(recipe.secondFillEnabled, false)
+                                    accessibleName: "2nd Fill"
+                                    onClicked: updateRecipe("secondFillEnabled", !recipe.secondFillEnabled)
+                                }
+                            }
+                        }
+
                         // === Infuse Phase ===
                         RecipeSection {
                             id: infuseSection
@@ -410,14 +491,6 @@ Page {
                         // Ramp section anchor (for scroll sync compatibility)
                         Item {
                             id: rampSection
-                            visible: false
-                            Layout.fillWidth: true
-                            implicitHeight: 0
-                        }
-
-                        // A-Flow toggles section anchor (for scroll sync compatibility)
-                        Item {
-                            id: aflowTogglesSection
                             visible: false
                             Layout.fillWidth: true
                             implicitHeight: 0

@@ -1,36 +1,25 @@
-# D-Flow and Recipe Editor
+# Recipe Editor & Profile Types
 
-This document describes D-Flow profile support and the Recipe Editor feature in Decenza DE1.
+This document describes the Recipe Editor and supported profile editor types in Decenza DE1.
 
-## What is D-Flow?
+## What is the Recipe Editor?
 
-D-Flow is a plugin for the de1app created by Damian Brakel that provides a simplified, coffee-concept-based interface for creating Londinium-style espresso profiles. Instead of editing raw machine frames, users adjust intuitive parameters like "infuse pressure" and "pour flow", and D-Flow automatically generates the underlying DE1 frames.
+The Recipe Editor provides simplified, coffee-concept-based interfaces for creating espresso profiles. Instead of editing raw machine frames, users adjust intuitive parameters like "infuse pressure" and "pour flow", and the editor automatically generates the underlying DE1 frames.
 
 ### Key Insight
 
-**D-Flow is NOT a different profile format** - it's a UI abstraction layer. D-Flow profiles are standard `settings_2c` (advanced) profiles with the `advanced_shot` array fully populated. The innovation is in the editor, not the storage format.
+**Recipe profiles are NOT a different format** — they're a UI abstraction layer. Recipe profiles are standard `settings_2c` (advanced) profiles with the `advanced_shot` array fully populated. The innovation is in the editor, not the storage format.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     D-Flow Architecture                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   User edits "coffee concepts":     Generated frames:        │
-│   ┌──────────────────────────┐     ┌────────────────────┐   │
-│   │ • Infuse temp: 92°C      │     │ Frame 0: Fill      │   │
-│   │ • Infuse pressure: 3 bar │ ──► │ Frame 1: Infuse    │   │
-│   │ • Pour flow: 2 mL/s      │     │ Frame 2: Ramp      │   │
-│   │ • Pour pressure: 6 bar   │     │ Frame 3: Pour      │   │
-│   └──────────────────────────┘     │ Frame 4: Decline   │   │
-│                                     └────────────────────┘   │
-│                                              │               │
-│                                              ▼               │
-│                                     ┌────────────────────┐   │
-│                                     │ BLE Upload to DE1  │   │
-│                                     └────────────────────┘   │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
+## Editor Types
+
+The Recipe Editor supports four editor types, each generating a different frame structure:
+
+| Type | Key | Profile Type | Origin | Description |
+|------|-----|-------------|--------|-------------|
+| D-Flow | `dflow` | `settings_2c` | Damian Brakel | Flow-driven extraction with pressure limit |
+| A-Flow | `aflow` | `settings_2c` | Janek | Hybrid pressure-then-flow extraction |
+| Pressure | `pressure` | `settings_2a` | de1app | Simple pressure profile |
+| Flow | `flow` | `settings_2b` | de1app | Simple flow profile |
 
 ## Profile Types in de1app
 
@@ -40,135 +29,194 @@ The de1app uses `settings_profile_type` to distinguish profile complexity:
 |------|------|-------------------|-------------|
 | `settings_2a` | Simple Pressure | Empty `{}` | Basic pressure profile, converted at runtime |
 | `settings_2b` | Simple Flow | Empty `{}` | Basic flow profile, converted at runtime |
-| `settings_2c` | Advanced | Populated | Full frame control (D-Flow outputs this) |
+| `settings_2c` | Advanced | Populated | Full frame control (D-Flow/A-Flow output this) |
 | `settings_2c2` | Advanced + Limiter | Populated | Advanced with limiter UI |
-
-### Current Support Status
-
-| Profile Type | Import | Execute | Edit |
-|--------------|--------|---------|------|
-| `settings_2c` (Advanced/D-Flow) | Yes | Yes | Yes (frame editor) |
-| `settings_2c2` (Advanced + Limiter) | Yes | Yes | Yes (frame editor) |
-| `settings_2a` (Simple Pressure) | **No** | N/A | N/A |
-| `settings_2b` (Simple Flow) | **No** | N/A | N/A |
-
-Simple profiles (`settings_2a`, `settings_2b`) have empty `advanced_shot` arrays and require conversion functions that we haven't implemented yet.
-
-## D-Flow Parameters (Reference)
-
-These are the user-adjustable parameters in the original D-Flow plugin:
-
-| Parameter | Variable | Default | Range | Description |
-|-----------|----------|---------|-------|-------------|
-| Dose Weight | `grinder_dose_weight` | 18g | 0-40g | Input coffee weight |
-| Fill Temperature | `Dflow_filling_temperature` | 86°C | 80-105°C | Initial fill temp |
-| Infuse Pressure | `Dflow_soaking_pressure` | 3.0 bar | 1.2-12 bar | Soak/preinfusion pressure |
-| Infuse Time | `Dflow_soaking_seconds` | 20s | 1-127s | Soak duration |
-| Infuse Volume | `Dflow_soaking_volume` | 100ml | 50-127ml | Max infuse volume |
-| Infuse Weight | `Dflow_soaking_weight` | 4.0g | 0-500g | Weight to exit infuse |
-| Pour Temperature | `Dflow_pouring_temperature` | 88°C | 80-105°C | Extraction temp |
-| Pour Flow | `Dflow_pouring_flow` | 1.7 mL/s | 0.1-8 mL/s | Extraction flow rate |
-| Pour Pressure | `Dflow_pouring_pressure` | 4.8 bar | 1-12 bar | Max pour pressure |
-| Target Volume | `final_desired_shot_volume_advanced` | 54ml | 0-1000ml | Stop at volume |
-| Target Weight | `final_desired_shot_weight_advanced` | 50g | 0-1000g | Stop at weight |
-
----
-
-# Recipe Editor
-
-The Recipe Editor is our implementation of a D-Flow-style simplified profile editor. It provides intuitive coffee-concept controls that automatically generate DE1 frames.
 
 ## Design Philosophy
 
-1. **Simplicity First** - 12 parameters vs 20+ frame fields
-2. **Live Preview** - Graph updates as you adjust
-3. **Presets** - One-click common styles
-4. **Backward Compatible** - Saves both recipe params AND generated frames
-5. **Escape Hatch** - Can convert to advanced frames for fine-tuning
+1. **Simplicity First** — Intuitive parameters vs raw frame fields
+2. **Live Preview** — Graph updates as you adjust
+3. **Backward Compatible** — Saves both recipe params AND generated frames
+4. **Escape Hatch** — Can convert to advanced frames for fine-tuning
+
+---
 
 ## Recipe Parameters
 
 ### Core Parameters
 
-| Parameter | Key | Default | Range | Step | Unit |
-|-----------|-----|---------|-------|------|------|
-| Stop at Weight | `targetWeight` | 36 | 0-100 | 1 | g |
-| Temperature | `temperature` | 93 | 80-100 | 0.5 | °C |
+| Parameter | Key | Default | Range | Unit |
+|-----------|-----|---------|-------|------|
+| Stop at Weight | `targetWeight` | 36 | 0–100 | g |
+| Stop at Volume | `targetVolume` | 0 | 0–200 | mL |
+| Dose | `dose` | 18 | 3–40 | g |
 
 ### Fill Phase
 
-| Parameter | Key | Default | Range | Step | Unit |
-|-----------|-----|---------|-------|------|------|
-| Fill Pressure | `fillPressure` | 2.0 | 1-6 | 0.1 | bar |
-| Fill Timeout | `fillTimeout` | 25 | 5-60 | 1 | s |
+| Parameter | Key | Default | Range | Unit |
+|-----------|-----|---------|-------|------|
+| Fill Temperature | `fillTemperature` | 88 | 80–100 | °C |
+| Fill Pressure | `fillPressure` | 3.0 | 0–12 | bar |
+| Fill Flow | `fillFlow` | 8.0 | 0–10 | mL/s |
+| Fill Timeout | `fillTimeout` | 25 | 0+ | s |
+| Fill Exit Pressure | `fillExitPressure` | 3.0 | 0–12 | bar |
 
 ### Infuse Phase
 
-| Parameter | Key | Default | Range | Step | Unit |
-|-----------|-----|---------|-------|------|------|
-| Infuse Pressure | `infusePressure` | 3.0 | 1-6 | 0.1 | bar |
-| Infuse Time | `infuseTime` | 20 | 0-60 | 1 | s |
-| Infuse by Weight | `infuseByWeight` | false | - | - | bool |
-| Infuse Weight | `infuseWeight` | 4.0 | 0-20 | 0.5 | g |
+| Parameter | Key | Default | Range | Unit |
+|-----------|-----|---------|-------|------|
+| Infuse Enabled | `infuseEnabled` | true | — | bool |
+| Infuse Pressure | `infusePressure` | 3.0 | 0–6 | bar |
+| Infuse Time | `infuseTime` | 20 | 0–60 | s |
+| Infuse by Weight | `infuseByWeight` | false | — | bool |
+| Infuse Weight | `infuseWeight` | 4.0 | 0–20 | g |
+| Infuse Volume | `infuseVolume` | 100 | 10–200 | mL |
+| Bloom Enabled | `bloomEnabled` | false | — | bool |
+| Bloom Time | `bloomTime` | 10 | 0+ | s |
 
-### Pour Phase
+### Pour Phase (D-Flow / A-Flow)
 
-| Parameter | Key | Default | Range | Step | Unit |
-|-----------|-----|---------|-------|------|------|
-| Pour Style | `pourStyle` | "pressure" | - | - | enum |
-| Pour Pressure | `pourPressure` | 9.0 | 3-12 | 0.1 | bar |
-| Pour Flow | `pourFlow` | 2.0 | 0.5-4 | 0.1 | mL/s |
-| Flow Limit | `flowLimit` | 0 | 0-6 | 0.1 | mL/s |
-| Pressure Limit | `pressureLimit` | 0 | 0-12 | 0.1 | bar |
+Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow model).
+`pourFlow` = flow setpoint, `pourPressure` = pressure cap (max_flow_or_pressure).
 
-### Decline Phase
+| Parameter | Key | Default | Range | Unit |
+|-----------|-----|---------|-------|------|
+| Pour Temperature | `pourTemperature` | 93 | 80–100 | °C |
+| Pour Pressure | `pourPressure` | 9.0 | 1–12 | bar |
+| Pour Flow | `pourFlow` | 2.0 | 0.1–8 | mL/s |
+| Ramp Enabled | `rampEnabled` | true | — | bool |
+| Ramp Time | `rampTime` | 5.0 | 0–30 | s |
 
-| Parameter | Key | Default | Range | Step | Unit |
-|-----------|-----|---------|-------|------|------|
-| Enable Decline | `declineEnabled` | false | - | - | bool |
-| Decline To | `declineTo` | 6.0 | 1-9 | 0.1 | bar |
-| Decline Time | `declineTime` | 30 | 5-60 | 1 | s |
+### A-Flow Specific
 
-## Presets
+| Parameter | Key | Default | Description |
+|-----------|-----|---------|-------------|
+| Ramp Down | `rampDownEnabled` | false | Split pressure ramp into Up + Decline phases (doubles/halves `rampTime`) |
+| Flow Up | `flowExtractionUp` | true | Smooth flow ramp during extraction (vs flat) |
+| 2nd Fill | `secondFillEnabled` | false | Add 2nd Fill (15s) + Pause (15s) frames before pressure ramp |
 
-| Preset | Description | Key Settings |
-|--------|-------------|--------------|
-| **Classic** | Traditional 9-bar Italian | 9 bar, no decline, short infuse |
-| **Londinium** | Lever machine style | 9→6 bar decline, flow limit 2.5 |
-| **Turbo** | Fast high-extraction | Flow mode 4.5 mL/s, short infuse |
-| **Blooming** | Modern specialty | Long 30s infuse, 6 bar pour |
+### Decline Phase (D-Flow)
+
+| Parameter | Key | Default | Range | Unit |
+|-----------|-----|---------|-------|------|
+| Decline Enabled | `declineEnabled` | false | — | bool |
+| Decline To | `declineTo` | 1.0 | 0–10 | mL/s |
+| Decline Time | `declineTime` | 30 | 0+ | s |
+
+### Simple Profile Parameters (Pressure / Flow editors)
+
+| Parameter | Key | Default | Range | Unit |
+|-----------|-----|---------|-------|------|
+| Preinfusion Time | `preinfusionTime` | 20 | 0+ | s |
+| Preinfusion Flow Rate | `preinfusionFlowRate` | 8.0 | 0–10 | mL/s |
+| Preinfusion Stop Pressure | `preinfusionStopPressure` | 4.0 | 0–12 | bar |
+| Hold Time | `holdTime` | 10 | 0+ | s |
+| Espresso Pressure | `espressoPressure` | 8.4 | 0–12 | bar |
+| Hold Flow | `holdFlow` | 2.2 | 0–10 | mL/s |
+| Decline Time | `simpleDeclineTime` | 30 | 0+ | s |
+| Pressure End | `pressureEnd` | 6.0 | 0–12 | bar |
+| Flow End | `flowEnd` | 1.8 | 0–10 | mL/s |
+| Limiter Value | `limiterValue` | 3.5 | 0–12 | — |
+| Limiter Range | `limiterRange` | 1.0 | 0–10 | — |
+
+### Per-Step Temperatures (Pressure / Flow editors)
+
+| Parameter | Key | Default | Unit |
+|-----------|-----|---------|------|
+| Start Temperature | `tempStart` | 90 | °C |
+| Preinfuse Temperature | `tempPreinfuse` | 90 | °C |
+| Hold Temperature | `tempHold` | 90 | °C |
+| Decline Temperature | `tempDecline` | 90 | °C |
+
+---
 
 ## Frame Generation
 
-The Recipe Editor generates 4-5 frames from recipe parameters:
+### D-Flow Frames
 
 ```
-Recipe Parameters          Generated Frames
-─────────────────          ────────────────
-Fill: 2 bar, 25s    ───►   Frame 0: Fill
-                           • pump: pressure, pressure: 2.0
-                           • exit: pressure_over 2.5 bar
-                           • maxFlow: 8.0 mL/s (limiter)
-
-Infuse: 3 bar, 20s  ───►   Frame 1: Infuse
-                           • pump: pressure, pressure: 3.0
-                           • seconds: 20 (time-based exit)
-
-Pour: 9 bar         ───►   Frame 2: Ramp
-                           • pump: pressure, pressure: 9.0
-                           • seconds: 4 (quick transition)
-                           • transition: fast
-
-                    ───►   Frame 3: Pour
-                           • pump: pressure, pressure: 9.0
-                           • seconds: 60 (weight stops it)
-                           • maxFlow: flowLimit (if set)
-
-Decline: 6 bar, 30s ───►   Frame 4: Decline (if enabled)
-                           • pump: pressure, pressure: 6.0
-                           • seconds: 30
-                           • transition: smooth
+Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
 ```
+
+4–6 frames depending on optional phases:
+
+| Frame | Pump | Key Values | Exit | Optional |
+|-------|------|-----------|------|----------|
+| Fill | flow | flow=fillFlow, pressure=fillPressure | pressure_over fillExitPressure | No |
+| Bloom | flow | flow=0 (rest) | pressure_under 0.5 | bloomEnabled |
+| Infuse | pressure | pressure=infusePressure | time or weight | infuseEnabled |
+| Ramp | flow | flow=pourFlow, pressure=pourPressure, smooth | none (fixed duration) | rampEnabled |
+| Pour | flow | flow=pourFlow, pressure=pourPressure | none (weight stops shot) | No |
+| Decline | flow | flow=declineTo, smooth | none (time/weight) | declineEnabled |
+
+### A-Flow Frames
+
+```
+Pre Fill → Fill → [Infuse] → 2nd Fill → Pause → Pressure Up → Pressure Decline → Flow Start → Flow Extraction
+```
+
+Up to 9 frames (matching de1app A-Flow structure):
+
+| # | Frame | Pump | Key Values | Exit | Notes |
+|---|-------|------|-----------|------|-------|
+| 0 | Pre Fill | flow | flow=8, 1s | none | DE1 "skip first step" workaround |
+| 1 | Fill | flow | flow=fillFlow | pressure_over | Same as D-Flow Fill |
+| 2 | Infuse | pressure | pressure=infusePressure | time/weight | Optional (infuseEnabled) |
+| 3 | 2nd Fill | flow | flow=8, pressure cap=3 | pressure_over 2.5 | 15s when secondFillEnabled, else 0s |
+| 4 | Pause | pressure | pressure=1 | flow_under 1.0 | 15s when secondFillEnabled, else 0s |
+| 5 | Pressure Up | pressure | pressure=pourPressure, smooth | flow_over pourFlow | rampTime (or rampTime/2 when rampDownEnabled) |
+| 6 | Pressure Decline | pressure | pressure→1 bar, smooth | flow_under pourFlow+0.1 | rampTime/2 when rampDownEnabled, else 0s |
+| 7 | Flow Start | flow | flow=pourFlow | none (instant) | Transition to flow control |
+| 8 | Flow Extraction | flow | flow=pourFlow, limiter=pourPressure | none (weight stops) | smooth when flowExtractionUp, else fast |
+
+#### A-Flow Toggle Effects
+
+**Ramp Down** (`rampDownEnabled`):
+- OFF: Pressure Up gets full `rampTime`, Pressure Decline gets 0s (exit condition only)
+- ON: `rampTime` is doubled by the UI; Pressure Up and Decline each get `rampTime/2`
+- Graph shows split ramp curve when enabled
+
+**Flow Up** (`flowExtractionUp`):
+- ON (default): Flow Extraction uses `smooth` transition (flow ramps up gradually)
+- OFF: Flow Extraction uses `fast` transition (flat flow)
+
+**2nd Fill** (`secondFillEnabled`):
+- OFF: 2nd Fill and Pause frames have 0s duration (skipped immediately)
+- ON: 2nd Fill gets 15s, Pause gets 15s — adds a second puck saturation + rest before pressure ramp
+
+### Pressure Profile Frames (settings_2a)
+
+```
+[Preinfusion Boost] → Preinfusion → [Forced Rise] → Hold → [Forced Rise] → Decline
+```
+
+Matches de1app's `pressure_to_advanced_list()`:
+
+| Frame | Pump | Key Values | Notes |
+|-------|------|-----------|-------|
+| Preinfusion Boost | flow | tempStart, 2s | Only when tempStart ≠ tempPreinfuse |
+| Preinfusion | flow | tempPreinfuse, exit pressure_over | |
+| Forced Rise | pressure | espressoPressure, 3s, no limiter | When holdTime > 3 |
+| Hold | pressure | espressoPressure, with limiter | |
+| Forced Rise | pressure | espressoPressure, 3s | When holdTime was short and declineTime > 3 |
+| Decline | pressure | pressureEnd, smooth, with limiter | When simpleDeclineTime > 0 |
+
+### Flow Profile Frames (settings_2b)
+
+```
+[Preinfusion Boost] → Preinfusion → Hold → Decline
+```
+
+Matches de1app's `flow_to_advanced_list()`:
+
+| Frame | Pump | Key Values | Notes |
+|-------|------|-----------|-------|
+| Preinfusion Boost | flow | tempStart, 2s | Only when tempStart ≠ tempPreinfuse |
+| Preinfusion | flow | tempPreinfuse, exit pressure_over | |
+| Hold | flow | holdFlow, with limiter | When holdTime > 0 |
+| Decline | flow | flowEnd, smooth, with limiter | When holdTime > 0 |
+
+---
 
 ## JSON Format
 
@@ -176,7 +224,7 @@ Recipe profiles store both the recipe parameters and generated frames:
 
 ```json
 {
-  "title": "My Morning Shot",
+  "title": "A-Flow / default-medium",
   "author": "Recipe Editor",
   "beverage_type": "espresso",
   "profile_type": "settings_2c",
@@ -186,30 +234,46 @@ Recipe profiles store both the recipe parameters and generated frames:
 
   "is_recipe_mode": true,
   "recipe": {
-    "temperature": 93.0,
+    "editorType": "aflow",
     "targetWeight": 36.0,
-    "fillPressure": 2.0,
+    "targetVolume": 0.0,
+    "dose": 18.0,
+    "fillTemperature": 88.0,
+    "fillPressure": 3.0,
+    "fillFlow": 8.0,
     "fillTimeout": 25.0,
+    "fillExitPressure": 3.0,
+    "infuseEnabled": true,
     "infusePressure": 3.0,
     "infuseTime": 20.0,
     "infuseByWeight": false,
     "infuseWeight": 4.0,
-    "pourStyle": "pressure",
+    "infuseVolume": 100.0,
+    "bloomEnabled": false,
+    "bloomTime": 10.0,
+    "pourTemperature": 93.0,
     "pourPressure": 9.0,
     "pourFlow": 2.0,
-    "flowLimit": 0.0,
-    "pressureLimit": 0.0,
-    "declineEnabled": true,
-    "declineTo": 6.0,
+    "rampEnabled": true,
+    "rampTime": 5.0,
+    "rampDownEnabled": false,
+    "flowExtractionUp": true,
+    "secondFillEnabled": false,
+    "declineEnabled": false,
+    "declineTo": 1.0,
     "declineTime": 30.0
   },
 
   "steps": [
-    { "name": "Fill", "pump": "pressure", "pressure": 2.0, ... },
-    { "name": "Infuse", "pump": "pressure", "pressure": 3.0, ... },
-    { "name": "Ramp", "pump": "pressure", "pressure": 9.0, ... },
-    { "name": "Pour", "pump": "pressure", "pressure": 9.0, ... },
-    { "name": "Decline", "pump": "pressure", "pressure": 6.0, ... }
+    { "name": "Pre Fill", "pump": "flow", "flow": 8.0, "..." : "..." },
+    { "name": "Fill", "pump": "flow", "..." : "..." },
+    { "name": "Infuse", "pump": "pressure", "..." : "..." },
+    { "name": "2nd Fill", "pump": "flow", "seconds": 0, "..." : "..." },
+    { "name": "Pause", "pump": "pressure", "seconds": 0, "..." : "..." },
+    { "name": "Pressure Up", "pump": "pressure", "..." : "..." },
+    { "name": "Pressure Decline", "pump": "pressure", "..." : "..." },
+    { "name": "Flow Start", "pump": "flow", "..." : "..." },
+    { "name": "Flow Extraction", "pump": "flow", "..." : "..." }
   ]
 }
 ```
@@ -219,37 +283,31 @@ This dual storage ensures:
 - Recipe parameters are preserved for re-editing
 - Advanced users can convert to pure frame mode
 
+---
+
 ## File Structure
 
 ```
 src/profile/
-├── recipeparams.h          # RecipeParams struct
-├── recipeparams.cpp        # JSON serialization
+├── recipeparams.h          # RecipeParams struct + EditorType enum
+├── recipeparams.cpp        # JSON/QVariantMap serialization + validation
 ├── recipegenerator.h       # Frame generation interface
-├── recipegenerator.cpp     # Frame generation algorithm
+├── recipegenerator.cpp     # Frame generation for all 4 editor types
 ├── profile.h               # Extended with recipe support
 └── profile.cpp
 
 qml/pages/
-├── RecipeEditorPage.qml    # Main recipe editor UI
+├── RecipeEditorPage.qml    # Main recipe editor UI (D-Flow + A-Flow)
 └── ProfileEditorPage.qml   # Advanced frame editor (existing)
 
 qml/components/
-├── RecipeSection.qml       # Collapsible section
+├── RecipeSection.qml       # Section with title header
 ├── RecipeRow.qml           # Label + input row
+├── ValueInput.qml          # Slider/stepper input control
 └── PresetButton.qml        # Preset selector
 ```
-
-## Future Enhancements
-
-1. **Import D-Flow profiles** - Parse D-Flow-specific variables and populate recipe params
-2. **Temperature steps** - Add per-phase temperature control
-3. **Dose weight integration** - Connect to grinder/scale for ratio calculations
-4. **Profile comparison** - Side-by-side recipe vs shot result analysis
-5. **Simple profile conversion** - Implement `settings_2a`/`settings_2b` to frame conversion
 
 ## References
 
 - [D-Flow GitHub Repository](https://github.com/Damian-AU/D_Flow_Espresso_Profile)
-- [D-Flow Blog Post](https://decentespresso.com/blog/dflow_an_easy_editor_for_the_londinium_family_of_espresso_profiles)
 - [de1app Profile System](https://github.com/decentespresso/de1app/blob/main/de1plus/profile.tcl)

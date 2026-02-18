@@ -41,7 +41,7 @@
     "steps": [
         {
             "exit_if": true,
-            "exit_pressure_over": 1.5,
+            "exit_pressure_over": 2.1,
             "exit_type": "pressure_over",
             "flow": 0,
             "max_flow_or_pressure": 0,
