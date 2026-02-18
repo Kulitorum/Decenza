@@ -1,6 +1,7 @@
 #include "recipegenerator.h"
 #include "profile.h"
 #include <QDebug>
+#include <cmath>
 
 QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) {
     // Branch on editor type
@@ -111,7 +112,7 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
 
     frame.name = "Filling";
     frame.pump = "pressure";
-    frame.pressure = recipe.fillPressure;
+    frame.pressure = recipe.infusePressure;
     frame.flow = recipe.fillFlow;
     frame.temperature = recipe.fillTemperature;
     frame.seconds = recipe.fillTimeout;
@@ -120,9 +121,15 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
     frame.volume = 100.0;
 
     // Exit when pressure builds (indicates puck is saturated)
+    // de1app formula: exit_pressure_over = infusePressure, halved+0.6 when >= 2.8, min 1.2
+    double exitP = recipe.infusePressure;
+    if (exitP >= 2.8)
+        exitP = std::round((exitP / 2.0 + 0.6) * 10.0) / 10.0;
+    if (exitP < 1.2)
+        exitP = 1.2;
     frame.exitIf = true;
     frame.exitType = "pressure_over";
-    frame.exitPressureOver = recipe.fillExitPressure;
+    frame.exitPressureOver = exitP;
     frame.exitPressureUnder = 0.0;
     frame.exitFlowOver = 6.0;
     frame.exitFlowUnder = 0.0;
@@ -354,7 +361,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         secondFill.pump = "flow";
         secondFill.flow = 8.0;
         secondFill.pressure = 0.0;
-        secondFill.temperature = recipe.pourTemperature;
+        secondFill.temperature = recipe.secondFillEnabled ? recipe.pourTemperature : 95.0;
         secondFill.seconds = recipe.secondFillEnabled ? 15.0 : 0.0;
         secondFill.transition = "fast";
         secondFill.sensor = "coffee";
@@ -377,7 +384,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pause.pump = "pressure";
         pause.pressure = 1.0;
         pause.flow = 6.0;
-        pause.temperature = recipe.pourTemperature;
+        pause.temperature = recipe.secondFillEnabled ? recipe.pourTemperature : 95.0;
         pause.seconds = recipe.secondFillEnabled ? 15.0 : 0.0;
         pause.transition = "fast";
         pause.sensor = "coffee";
@@ -393,6 +400,11 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(pause);
     }
 
+    // Compute pressureUp seconds once — used for both Pressure Up and Flow Start activation
+    double pressureUpSeconds = recipe.rampDownEnabled
+        ? recipe.rampTime / 2.0
+        : recipe.rampTime;
+
     // Frame 5: Pressure Up — smooth ramp to pour pressure
     // rampDownEnabled splits rampTime between Up and Decline
     {
@@ -406,9 +418,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pressureUp.sensor = "coffee";
         pressureUp.volume = 100.0;
 
-        pressureUp.seconds = recipe.rampDownEnabled
-            ? recipe.rampTime / 2.0
-            : recipe.rampTime;
+        pressureUp.seconds = pressureUpSeconds;
 
         pressureUp.exitIf = true;
         pressureUp.exitType = "flow_over";
@@ -452,7 +462,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(pressureDecline);
     }
 
-    // Frame 7: Flow Start — conditionally activated when rampTime < 1
+    // Frame 7: Flow Start — conditionally activated when pressureUpSeconds < 1
     {
         ProfileFrame flowStart;
         flowStart.name = "Flow Start";
@@ -466,7 +476,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         flowStart.maxFlowOrPressure = 0.0;
         flowStart.maxFlowOrPressureRange = 0.6;
 
-        if (recipe.rampTime < 1.0) {
+        if (pressureUpSeconds < 1.0) {
             // Activated: becomes an exit frame that waits for flow to stabilize
             flowStart.seconds = 10.0;
             flowStart.exitIf = true;
@@ -498,7 +508,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         extraction.pressure = 3.0;  // Vestigial template constant
         extraction.temperature = recipe.pourTemperature;
         extraction.seconds = 60.0;  // Long duration - weight system stops the shot
-        extraction.transition = recipe.flowExtractionUp ? "smooth" : "fast";
+        extraction.transition = "smooth";
         extraction.sensor = "coffee";
         extraction.volume = 100.0;
         extraction.maxFlowOrPressure = recipe.pourPressure;
