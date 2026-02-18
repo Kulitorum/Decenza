@@ -327,14 +327,31 @@ QString AIManager::getRecentShotContext(const QString& beanBrand, const QString&
     // Fetch extra to have room after filtering out excludeShotId and mistakes
     QVariantList candidates = m_shotHistory->getShotsFiltered(filter, 0, 6);
 
+    qDebug() << "AIManager::getRecentShotContext: excludeShotId=" << excludeShotId
+             << "shotTimestamp=" << QDateTime::fromSecsSinceEpoch(shotTimestamp).toString("yyyy-MM-dd HH:mm")
+             << "filter: bean=" << beanBrand << beanType << "profile=" << profileName
+             << "candidates=" << candidates.size();
+
     QStringList shotSections;
     for (const QVariant& v : candidates) {
         if (shotSections.size() >= 3) break;
 
         QVariantMap shot = v.toMap();
         qint64 id = shot.value("id").toLongLong();
-        if (id == excludeShotId) continue;
-        if (isMistakeShot(shot)) continue;
+        qint64 timestamp = shot.value("timestamp").toLongLong();
+        QString shotProfile = shot.value("profileName").toString();
+        QString shotDate = QDateTime::fromSecsSinceEpoch(timestamp).toString("yyyy-MM-dd HH:mm");
+
+        if (id == excludeShotId) {
+            qDebug() << "  Shot id=" << id << "date=" << shotDate << "profile=" << shotProfile << "-> SKIPPED (current shot)";
+            continue;
+        }
+        if (isMistakeShot(shot)) {
+            qDebug() << "  Shot id=" << id << "date=" << shotDate << "profile=" << shotProfile << "-> SKIPPED (mistake)";
+            continue;
+        }
+
+        qDebug() << "  Shot id=" << id << "date=" << shotDate << "profile=" << shotProfile << "-> INCLUDED";
 
         // Load full shot data (with time-series) for rich summary
         QVariantMap fullShot = m_shotHistory->getShot(id);
@@ -350,7 +367,6 @@ QString AIManager::getRecentShotContext(const QString& beanBrand, const QString&
         summary.replace(recipeRe, QString());
 
         // Format date for header
-        qint64 timestamp = shot.value("timestamp").toLongLong();
         QString dateStr = QDateTime::fromSecsSinceEpoch(timestamp).toString("MMM d, HH:mm");
 
         shotSections.prepend(QString("### Shot (%1)\n\n%2").arg(dateStr).arg(summary));
