@@ -14,6 +14,8 @@ Page {
     // Shot navigation - list of shot IDs to swipe through
     property var shotIds: []  // Array of shot IDs (chronological order)
     property int currentIndex: -1  // Current position in shotIds
+    // Persisted graph height (like PostShotReviewPage)
+    property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
@@ -124,9 +126,6 @@ Page {
             }
 
             // Resizable graph with swipe navigation
-            // Persisted graph height (like PostShotReviewPage)
-            property real graphHeight: Settings.value("shotDetail/graphHeight", Theme.scaled(250))
-
             Rectangle {
                 id: graphCard
                 Layout.fillWidth: true
