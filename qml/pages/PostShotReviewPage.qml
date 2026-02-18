@@ -62,6 +62,17 @@ Page {
     property string editNotes: ""
     property string editBeverageType: "espresso"
 
+    // Auto-calculate EY from TDS, dose weight, and beverage weight
+    // Formula: EY(%) = (beverageWeight × TDS%) / doseWeight
+    function calculateEy() {
+        if (editDoseWeight > 0 && editDrinkWeight > 0 && editDrinkTds > 0) {
+            var ey = (editDrinkWeight * editDrinkTds) / editDoseWeight
+            ey = Math.round(ey * 10) / 10  // Round to 1 decimal
+            editDrinkEy = ey
+            eyInput.value = ey
+        }
+    }
+
     // Track if any edits were made
     property bool hasUnsavedChanges: isEditMode && (
         editBeanBrand !== (editShotData.beanBrand || "") ||
@@ -491,6 +502,7 @@ Page {
                                 onValueModified: function(newValue) {
                                     doseInput.value = newValue
                                     editDoseWeight = newValue
+                                    calculateEy()
                                 }
                                 onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
@@ -522,6 +534,7 @@ Page {
                                 onValueModified: function(newValue) {
                                     outInput.value = newValue
                                     editDrinkWeight = newValue
+                                    calculateEy()
                                 }
                                 onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
@@ -553,6 +566,7 @@ Page {
                                 onValueModified: function(newValue) {
                                     tdsInput.value = newValue
                                     editDrinkTds = newValue
+                                    calculateEy()
                                 }
                                 onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
                             }
