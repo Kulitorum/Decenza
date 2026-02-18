@@ -122,8 +122,8 @@ private:
 
     QString m_apiKey;
     static constexpr const char* API_URL = "https://api.anthropic.com/v1/messages";
-    static constexpr const char* MODEL = "claude-sonnet-4-5";
-    static constexpr const char* MODEL_DISPLAY = "Sonnet 4.5";
+    static constexpr const char* MODEL = "claude-sonnet-4-6";
+    static constexpr const char* MODEL_DISPLAY = "Sonnet 4.6";
 };
 
 // Google Gemini provider

@@ -332,10 +332,19 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
             phase.pressureAtStart = findValueAtTime(summary.pressureCurve, startTime);
             phase.pressureAtMiddle = findValueAtTime(summary.pressureCurve, (startTime + endTime) / 2);
             phase.pressureAtEnd = findValueAtTime(summary.pressureCurve, endTime);
+            phase.avgPressure = calculateAverage(summary.pressureCurve, startTime, endTime);
+            phase.maxPressure = calculateMax(summary.pressureCurve, startTime, endTime);
+            phase.minPressure = calculateMin(summary.pressureCurve, startTime, endTime);
+
             phase.flowAtStart = findValueAtTime(summary.flowCurve, startTime);
             phase.flowAtMiddle = findValueAtTime(summary.flowCurve, (startTime + endTime) / 2);
             phase.flowAtEnd = findValueAtTime(summary.flowCurve, endTime);
+            phase.avgFlow = calculateAverage(summary.flowCurve, startTime, endTime);
+            phase.maxFlow = calculateMax(summary.flowCurve, startTime, endTime);
+            phase.minFlow = calculateMin(summary.flowCurve, startTime, endTime);
+
             phase.avgTemperature = calculateAverage(summary.tempCurve, startTime, endTime);
+            phase.tempStability = calculateStdDev(summary.tempCurve, startTime, endTime);
 
             double startWeight = findValueAtTime(summary.weightCurve, startTime);
             double endWeight = findValueAtTime(summary.weightCurve, endTime);
@@ -355,9 +364,19 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
         phase.pressureAtStart = findValueAtTime(summary.pressureCurve, 0);
         phase.pressureAtMiddle = findValueAtTime(summary.pressureCurve, summary.totalDuration / 2);
         phase.pressureAtEnd = findValueAtTime(summary.pressureCurve, summary.totalDuration);
+        phase.avgPressure = calculateAverage(summary.pressureCurve, 0, summary.totalDuration);
+        phase.maxPressure = calculateMax(summary.pressureCurve, 0, summary.totalDuration);
+        phase.minPressure = calculateMin(summary.pressureCurve, 0, summary.totalDuration);
+
         phase.flowAtStart = findValueAtTime(summary.flowCurve, 0);
         phase.flowAtMiddle = findValueAtTime(summary.flowCurve, summary.totalDuration / 2);
         phase.flowAtEnd = findValueAtTime(summary.flowCurve, summary.totalDuration);
+        phase.avgFlow = calculateAverage(summary.flowCurve, 0, summary.totalDuration);
+        phase.maxFlow = calculateMax(summary.flowCurve, 0, summary.totalDuration);
+        phase.minFlow = calculateMin(summary.flowCurve, 0, summary.totalDuration);
+
+        phase.avgTemperature = calculateAverage(summary.tempCurve, 0, summary.totalDuration);
+        phase.tempStability = calculateStdDev(summary.tempCurve, 0, summary.totalDuration);
 
         summary.phases.append(phase);
     }
@@ -426,7 +445,7 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
 
     // Phase breakdown: start, peak-deviation (most diagnostic), end
     out << "## Phase Data\n\n";
-    out << "Each phase shows start, peak deviation from target (most diagnostic point), and end. Values: actual(target).\n\n";
+    out << "Each phase shows peak values with timing, then start, peak deviation from target, and end. Values: actual(target).\n\n";
 
     for (const auto& phase : summary.phases) {
         QString controlMode = phase.isFlowMode
@@ -434,6 +453,27 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
             : "PRESSURE-CONTROLLED";
 
         out << "### " << phase.name << " (" << QString::number(phase.duration, 'f', 0) << "s) " << controlMode << "\n";
+
+        // Show phase peak values with timing so the AI knows actual extremes and curve shape
+        if (phase.maxPressure > 0.1 || phase.maxFlow > 0.1) {
+            // Find time of peak pressure within this phase
+            double peakPressureTime = phase.startTime;
+            double peakPressureVal = 0;
+            for (const auto& pt : summary.pressureCurve) {
+                if (pt.x() < phase.startTime || pt.x() > phase.endTime) continue;
+                if (pt.y() > peakPressureVal) { peakPressureVal = pt.y(); peakPressureTime = pt.x(); }
+            }
+            // Find time of peak flow within this phase
+            double peakFlowTime = phase.startTime;
+            double peakFlowVal = 0;
+            for (const auto& pt : summary.flowCurve) {
+                if (pt.x() < phase.startTime || pt.x() > phase.endTime) continue;
+                if (pt.y() > peakFlowVal) { peakFlowVal = pt.y(); peakFlowTime = pt.x(); }
+            }
+            out << "- Phase peaks: ";
+            out << "pressure " << QString::number(peakPressureVal, 'f', 1) << " bar @" << QString::number(peakPressureTime, 'f', 0) << "s, ";
+            out << "flow " << QString::number(peakFlowVal, 'f', 1) << " ml/s @" << QString::number(peakFlowTime, 'f', 0) << "s\n";
+        }
 
         // Find time of max deviation from target for the controlled variable
         double peakDevTime = (phase.startTime + phase.endTime) / 2;  // fallback to middle
