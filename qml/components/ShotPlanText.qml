@@ -16,8 +16,8 @@ Text {
     property double profileTemp: MainController.profileTargetTemperature
     property double overrideTemp: Settings.hasTemperatureOverride ? Settings.temperatureOverride : profileTemp
     property string beanName: {
-        if (Settings.selectedBeanPreset >= 0 && Settings.selectedBeanPreset < Settings.beanPresets.length)
-            return Settings.beanPresets[Settings.selectedBeanPreset].name
+        // Always use the live DYE fields (brand + type) — same source as BrewDialog.
+        // Preset name is just a label; the actual bean info is in dyeBeanBrand/dyeBeanType.
         if (Settings.dyeBeanBrand || Settings.dyeBeanType)
             return [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
         return ""
