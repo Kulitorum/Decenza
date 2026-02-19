@@ -111,7 +111,7 @@ endif()
 # Multi-config generators (Visual Studio, Xcode) don't set CMAKE_BUILD_TYPE at
 # configure time, so flags would leak into Release builds. Android requires special
 # ASan packaging (wrap.sh + shared lib in APK) that isn't handled here.
-if(NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID)
+if(NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT APPLE)
     if(MSVC)
         message(STATUS ">>> ASan ENABLED for debug build (MSVC) <<<")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /fsanitize=address")
