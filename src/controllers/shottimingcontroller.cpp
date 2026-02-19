@@ -87,6 +87,7 @@ void ShotTimingController::startShot()
     m_targetWeightAtStop = 0.0;
     m_lastStableWeight = 0.0;
     m_lastWeightChangeTime = 0;
+    m_settlingPeakWeight = 0.0;
 
     // Reset tare state (will be set to Complete when tare() is called)
     m_tareState = TareState::Idle;
@@ -172,14 +173,26 @@ void ShotTimingController::onWeightSample(double weight, double flowRate)
 {
     // Keep updating weight while settling timer is running (for SAW learning)
     if (m_settlingTimer.isActive()) {
-        // Detect cup removal during settling: dramatic weight drop (>20g decrease)
-        // Freeze weight at last valid reading to preserve shot data
-        if (m_weight > 20.0 && weight < m_weight - 20.0) {
-            qWarning() << "[SAW] Cup removed during settling (weight dropped from"
-                       << m_weight << "to" << weight << ") - freezing weight at last valid reading";
-            // Stop settling immediately and use the frozen weight
+        // Track peak weight during settling for cup removal detection
+        if (weight > m_settlingPeakWeight) {
+            m_settlingPeakWeight = weight;
+        }
+
+        // Detect cup removal during settling:
+        // 1. Single-step dramatic drop (>20g decrease from current)
+        // 2. Cumulative drop >20g below peak weight (catches multi-step removal
+        //    where no single step exceeds 20g)
+        bool cupRemoved = (m_weight > 20.0 && weight < m_weight - 20.0) ||
+                          (m_settlingPeakWeight > 20.0 && weight < m_settlingPeakWeight - 20.0);
+        if (cupRemoved) {
+            qWarning() << "[SAW] Cup removed during settling (weight:" << weight
+                       << "peak:" << m_settlingPeakWeight << ") - skipping learning";
+            // Cup removal corrupts weight data — bypass learning entirely
+            // but still emit signals so the shot is saved
             m_settlingTimer.stop();
-            onSettlingComplete();
+            m_displayTimer.stop();
+            emit sawSettlingChanged();
+            emit shotProcessingReady();
             return;
         }
 
@@ -371,6 +384,7 @@ void ShotTimingController::startSettlingTimer()
 {
     qDebug() << "[SAW] Starting settling (max 15s, or stable for 1s) - current weight:" << m_weight;
     m_lastStableWeight = m_weight;
+    m_settlingPeakWeight = m_weight;
     m_lastWeightChangeTime = QDateTime::currentMSecsSinceEpoch();
     m_settlingTimer.setInterval(15000);  // 15 second max timeout
     m_settlingTimer.start();
@@ -389,13 +403,13 @@ void ShotTimingController::onSettlingComplete()
 
     // Check scale is still connected
     if (!m_scale || !m_scale->isConnected()) {
-        qDebug() << "[SAW] Scale disconnected, skipping learning";
+        qWarning() << "[SAW] Scale disconnected, skipping learning";
         return;
     }
 
     // Validate flow rate at stop (low flow makes division unstable)
     if (m_flowRateAtStop < 0.5) {
-        qDebug() << "[SAW] Flow at stop too low (" << m_flowRateAtStop << "), skipping learning";
+        qWarning() << "[SAW] Flow at stop too low (" << m_flowRateAtStop << "), skipping learning";
         return;
     }
 
@@ -405,9 +419,18 @@ void ShotTimingController::onSettlingComplete()
 
     double overshoot = m_weight - m_targetWeightAtStop;
 
+    // Validate settled weight is reasonable. Scale readings can go haywire after
+    // the shot (drip tray interference, cup removal, scale oscillation). If the
+    // settled weight is >10g from target, the reading is unreliable for learning.
+    if (m_weight < 0 || qAbs(overshoot) > 10.0) {
+        qWarning() << "[SAW] Settled weight unreasonable (weight=" << m_weight
+                   << "overshoot=" << overshoot << "g), skipping learning";
+        return;
+    }
+
     // Validate drip is in reasonable range (0 to 15 grams)
     if (drip > 15.0) {
-        qDebug() << "[SAW] Drip out of range (" << drip << "g), skipping learning";
+        qWarning() << "[SAW] Drip out of range (" << drip << "g), skipping learning";
         return;
     }
 
