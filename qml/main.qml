@@ -468,6 +468,15 @@ ApplicationWindow {
             console.log("[AutoSleep] Init: auto-sleep DISABLED (autoSleepMinutes=" + root.autoSleepMinutes + ")")
         }
 
+        // Auto-match current bean data to a preset so the bean button
+        // doesn't appear yellow when the data already matches a saved preset
+        if (Settings.selectedBeanPreset === -1 && Settings.dyeBeanBrand.length > 0) {
+            var matchIndex = Settings.findBeanPresetByContent(Settings.dyeBeanBrand, Settings.dyeBeanType)
+            if (matchIndex >= 0) {
+                Settings.selectedBeanPreset = matchIndex
+            }
+        }
+
         // Mark app as initialized
         root.appInitialized = true
 

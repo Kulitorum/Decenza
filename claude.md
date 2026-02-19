@@ -758,6 +758,19 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 - `qml/components/AccessibleButton.qml` - Button with required accessibleName
 - `qml/components/AccessibleLabel.qml` - Tap-to-announce text
 
+### Accessibility Anti-patterns (Do NOT Use)
+
+1. **Parent-ignored / child-accessible**: Never set `Accessible.ignored: true` on a parent and put `Accessible.role` on a child occupying the same bounds. TalkBack can't reliably route activation to the child. Put accessibility properties on the interactive element itself.
+2. **Popup for selection lists**: Never use `Popup` for lists users must navigate. TalkBack can't trap focus inside Qt `Popup` elements. Use `Dialog { modal: true }` with `AccessibleButton` delegates instead.
+3. **Overlapping accessible elements**: Never position accessible buttons inside another accessible element's bounds (e.g., buttons inside a TextField's padding area). TalkBack will only discover one element. Use conditional layout to show buttons in separate bounds when accessibility is enabled.
+
+### Rules for New Components
+
+1. Every interactive element must have `Accessible.role`, `Accessible.name`, `Accessible.focusable`, `Accessible.onPressAction` **on itself** (not on a child)
+2. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates
+3. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
+4. Test with TalkBack: double-tap to activate, swipe to navigate
+
 ### TODO: Focus Order Improvements
 
 **Problem:** Screen reader users report unpredictable navigation order when swiping through elements. Focus jumps unexpectedly and some elements are skipped.

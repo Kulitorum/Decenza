@@ -227,10 +227,11 @@ Item {
                         font.pixelSize: Theme.scaled(11)
                     }
 
-                    ComboBox {
+                    StyledComboBox {
                         id: intervalCombo
                         Layout.fillWidth: true
                         model: ["100 ms", "500 ms", "1 second", "5 seconds"]
+                        accessibleLabel: TranslationManager.translate("settings.homeautomation.publishinterval", "Publish Interval")
                         currentIndex: {
                             var interval = Settings.mqttPublishInterval
                             if (interval <= 100) return 0

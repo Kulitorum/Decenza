@@ -74,48 +74,7 @@ Page {
                             font.pixelSize: Theme.scaled(10)
                         }
 
-                        popup: Popup {
-                            y: viewFilter.height + Theme.scaled(4)
-                            width: viewFilter.width
-                            padding: 0
-
-                            contentItem: ListView {
-                                implicitHeight: contentHeight
-                                model: viewFilter.popup.visible ? viewFilter.delegateModel : null
-                                clip: true
-                            }
-
-                            background: Rectangle {
-                                color: Theme.surfaceColor
-                                border.color: Theme.borderColor
-                                border.width: 1
-                                radius: Theme.scaled(6)
-                            }
-                        }
-
-                        delegate: Rectangle {
-                            width: viewFilter.width
-                            height: Theme.scaled(44)
-                            color: viewFilter.highlightedIndex === index ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
-
-                            Text {
-                                anchors.fill: parent
-                                anchors.leftMargin: Theme.scaled(12)
-                                text: modelData
-                                color: Theme.textColor
-                                font: Theme.bodyFont
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: {
-                                    viewFilter.currentIndex = index
-                                    viewFilter.popup.close()
-                                }
-                            }
-                        }
+                        accessibleLabel: TranslationManager.translate("profileselector.filter.label", "Profile filter")
                     }
 
                     // Search bar for "All Profiles" view

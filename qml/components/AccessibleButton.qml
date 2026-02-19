@@ -18,7 +18,7 @@ Button {
     property bool destructive: false  // Red/error color for delete actions
     property bool warning: false      // Orange/warning color for update actions
 
-    // For AccessibleMouseArea to reference
+    // For external reference
     property Item accessibleItem: root
 
     implicitHeight: Theme.scaled(44)
@@ -36,7 +36,7 @@ Button {
         }
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        // Decorative - accessibility handled by AccessibleTapHandler
+        // Decorative - accessibility handled by Button itself
         Accessible.ignored: true
     }
 
@@ -66,9 +66,16 @@ Button {
         }
     }
 
-    // Accessibility: Let AccessibleTapHandler handle screen reader interaction
-    // to avoid duplicate focus elements
-    Accessible.ignored: true
+    // Accessibility on the Button itself (not delegated to a child)
+    Accessible.role: Accessible.Button
+    Accessible.name: root.accessibleDescription ? (root.accessibleName + ". " + root.accessibleDescription) : root.accessibleName
+    Accessible.focusable: true
+    Accessible.onPressAction: {
+        console.log("[AccessibleButton] Accessible.onPressAction triggered for:", root.accessibleName)
+        if (root.enabled) {
+            root.clicked()
+        }
+    }
 
     // Focus indicator
     FocusIndicator {
@@ -76,18 +83,44 @@ Button {
         visible: root.activeFocus
     }
 
-    // Tap-to-announce, tap-again-to-activate for accessibility mode
-    // Using TapHandler for better touch responsiveness
-    AccessibleTapHandler {
-        anchors.fill: parent
-        accessibleName: root.accessibleDescription ? (root.accessibleName + ". " + root.accessibleDescription) : root.accessibleName
-        accessibleItem: root.accessibleItem
+    // Clear lastAnnouncedItem when destroyed to prevent dangling pointer crash
+    Component.onDestruction: {
+        if (typeof AccessibilityManager !== "undefined" &&
+            AccessibilityManager.lastAnnouncedItem === root) {
+            AccessibilityManager.lastAnnouncedItem = null
+        }
+    }
 
-        onAccessibleClicked: {
-            if (root.enabled) {
+    // Plain MouseArea for tap-to-announce in accessibility mode (no Accessible.* — Button handles that)
+    MouseArea {
+        id: touchArea
+        anchors.fill: parent
+        enabled: root.enabled
+        cursorShape: Qt.PointingHandCursor
+
+        onPressed: function(mouse) {
+            mouse.accepted = true
+        }
+
+        onReleased: {
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+
+            if (accessibilityMode) {
+                if (AccessibilityManager.lastAnnouncedItem === root.accessibleItem) {
+                    // Second tap on same item = activate
+                    root.clicked()
+                } else {
+                    // First tap = announce only
+                    AccessibilityManager.lastAnnouncedItem = root.accessibleItem
+                    AccessibilityManager.announce(root.accessibleName)
+                }
+            } else {
+                // Normal mode: activate immediately
                 root.clicked()
             }
         }
+
+        onCanceled: {}
     }
 
     // Announce button name when focused via keyboard (for accessibility)

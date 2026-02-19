@@ -1166,26 +1166,9 @@ Page {
                         id: exitTypeCombo
                         Layout.fillWidth: true
                         model: ["Pressure Over", "Pressure Under", "Flow Over", "Flow Under"]
+                        accessibleLabel: TranslationManager.translate("profileEditor.exitType", "Exit type")
                         contentItem: Text { text: exitTypeCombo.displayText; font: Theme.bodyFont; color: Theme.textColor; leftPadding: Theme.scaled(10); verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { implicitHeight: Theme.scaled(36); color: Theme.backgroundColor; radius: Theme.scaled(6); border.width: 1; border.color: Theme.borderColor }
-                        popup: Popup {
-                            y: exitTypeCombo.height
-                            width: exitTypeCombo.width
-                            padding: 1
-                            contentItem: ListView {
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: exitTypeCombo.popup.visible ? exitTypeCombo.delegateModel : null
-                                ScrollIndicator.vertical: ScrollIndicator {}
-                            }
-                            background: Rectangle { color: Theme.surfaceColor; radius: Theme.scaled(6) }
-                        }
-                        delegate: ItemDelegate {
-                            width: exitTypeCombo.width
-                            contentItem: Text { text: modelData; font: Theme.bodyFont; color: Theme.textColor }
-                            background: Rectangle { color: highlighted ? Theme.primaryColor : "transparent" }
-                            highlighted: exitTypeCombo.highlightedIndex === index
-                        }
                         currentIndex: { var v = stepVersion; if (!step) return 0; switch (step.exit_type) { case "pressure_over": return 0; case "pressure_under": return 1; case "flow_over": return 2; case "flow_under": return 3; default: return 0 } }
                         onActivated: function(index) { if (!profile || selectedStepIndex < 0) return; var types = ["pressure_over", "pressure_under", "flow_over", "flow_under"]; profile.steps[selectedStepIndex].exit_type = types[index]; uploadProfile() }
                     }

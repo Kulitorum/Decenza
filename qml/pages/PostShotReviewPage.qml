@@ -1047,6 +1047,8 @@ Page {
             model: parent.model
             currentIndex: Math.max(0, model.indexOf(parent.currentValue))
             font.pixelSize: Theme.scaled(14)
+            accessibleLabel: parent.label
+            emptyItemText: TranslationManager.translate("postshotreview.option.none", "(None)")
 
             Accessible.role: Accessible.ComboBox
             Accessible.name: parent.label
@@ -1081,41 +1083,6 @@ Page {
                 text: "▼"
                 color: Theme.textColor
                 font.pixelSize: Theme.scaled(10)
-            }
-
-            delegate: ItemDelegate {
-                width: combo.width
-                height: Theme.scaled(32)
-                contentItem: Text {
-                    text: modelData || TranslationManager.translate("postshotreview.option.none", "(None)")
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
-                    verticalAlignment: Text.AlignVCenter
-                }
-                background: Rectangle {
-                    color: highlighted ? Theme.primaryColor : Theme.surfaceColor
-                }
-                highlighted: combo.highlightedIndex === index
-
-                Accessible.role: Accessible.ListItem
-                Accessible.name: modelData || TranslationManager.translate("postshotreview.accessible.none", "None")
-            }
-
-            popup: Popup {
-                y: combo.height
-                width: combo.width
-                implicitHeight: Math.min(contentItem.implicitHeight, 200)
-                padding: 1
-                contentItem: ListView {
-                    clip: true
-                    implicitHeight: contentHeight
-                    model: combo.popup.visible ? combo.delegateModel : null
-                }
-                background: Rectangle {
-                    color: Theme.surfaceColor
-                    border.color: Theme.borderColor
-                    radius: Theme.scaled(4)
-                }
             }
 
             onCurrentTextChanged: parent.valueChanged(currentText)

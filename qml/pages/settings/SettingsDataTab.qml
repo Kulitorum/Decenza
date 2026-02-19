@@ -506,31 +506,18 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(8)
                         visible: MainController.dataMigration.discoveredDevices.length > 1
 
-                        ComboBox {
+                        StyledComboBox {
                             id: deviceComboBox
                             Layout.fillWidth: true
                             model: MainController.dataMigration.discoveredDevices
                             textRole: "deviceName"
+                            accessibleLabel: TranslationManager.translate("settings.data.selectdevice", "Select a device")
                             displayText: currentIndex >= 0 && model.length > 0 ?
                                          model[currentIndex].deviceName + " (" + model[currentIndex].ipAddress + ")" :
                                          TranslationManager.translate("settings.data.selectdevice", "Select a device")
-
-                            delegate: ItemDelegate {
-                                width: deviceComboBox.width
-                                contentItem: ColumnLayout {
-                                    spacing: 2
-                                    Text {
-                                        text: modelData.deviceName || "Unknown Device"
-                                        color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
-                                    }
-                                    Text {
-                                        text: modelData.platform + " • " + modelData.ipAddress
-                                        color: Theme.textSecondaryColor
-                                        font.pixelSize: Theme.scaled(11)
-                                    }
-                                }
-                                highlighted: deviceComboBox.highlightedIndex === index
+                            textFunction: function(i) {
+                                var d = model[i]
+                                return d.deviceName + " (" + d.platform + " \u2022 " + d.ipAddress + ")"
                             }
                         }
 
