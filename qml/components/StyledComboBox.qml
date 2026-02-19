@@ -65,6 +65,9 @@ ComboBox {
     Accessible.focusable: true
     Accessible.onPressAction: selectionDialog.open()
 
+    // Close dialog when ComboBox becomes invisible (page popped, tab switched)
+    onVisibleChanged: if (!visible) selectionDialog.close()
+
     // Keyboard support: open dialog with Space/Enter (native popup is suppressed)
     Keys.onSpacePressed: selectionDialog.open()
     Keys.onReturnPressed: selectionDialog.open()

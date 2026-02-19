@@ -101,12 +101,12 @@ Button {
             var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
             if (accessibilityMode) {
-                if (AccessibilityManager.lastAnnouncedItem === root.accessibleItem) {
+                if (AccessibilityManager.lastAnnouncedItem === root) {
                     // Second tap on same item = activate
                     root.clicked()
                 } else {
                     // First tap = announce only
-                    AccessibilityManager.lastAnnouncedItem = root.accessibleItem
+                    AccessibilityManager.lastAnnouncedItem = root
                     AccessibilityManager.announce(root.accessibleName)
                 }
             } else {

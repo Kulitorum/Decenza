@@ -43,6 +43,9 @@ Item {
         Qt.inputMethod.hide()
     }
 
+    // Close dialog when field becomes invisible (page popped, tab switched)
+    onVisibleChanged: if (!visible) suggestionsDialog.close()
+
     // Open the suggestions dialog (for arrow button and accessibility)
     function openSuggestionsDialog() {
         isActivelyTyping = false  // Show all suggestions
@@ -363,6 +366,9 @@ Item {
         topPadding: 0
         bottomPadding: 0
 
+        // Snapshot of suggestions, refreshed each time the dialog opens
+        property var suggestionSnapshot: []
+
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.scaled(12)
@@ -370,13 +376,17 @@ Item {
             border.width: 1
         }
 
+        onAboutToShow: {
+            suggestionSnapshot = root.suggestions.slice()
+        }
+
         onOpened: {
             // Close the typing popup if open
             suggestionPopup.close()
             // Scroll to center the current value
             if (root.text.length > 0 && dialogSuggestionList.count > 0) {
-                for (var i = 0; i < root.suggestions.length; i++) {
-                    if (root.suggestions[i] === root.text) {
+                for (var i = 0; i < suggestionsDialog.suggestionSnapshot.length; i++) {
+                    if (suggestionsDialog.suggestionSnapshot[i] === root.text) {
                         dialogSuggestionList.positionViewAtIndex(i, ListView.Center)
                         break
                     }
@@ -427,7 +437,7 @@ Item {
                     anchors.fill: parent
                     implicitHeight: Math.min(count * Theme.scaled(48), Theme.scaled(300))
                     clip: true
-                    model: root.suggestions
+                    model: suggestionsDialog.suggestionSnapshot
 
                     ScrollBar.vertical: ScrollBar {
                         policy: dialogSuggestionList.contentHeight > dialogSuggestionList.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded

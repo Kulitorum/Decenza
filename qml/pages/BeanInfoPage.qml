@@ -880,7 +880,7 @@ Page {
                 font.pixelSize: Theme.scaled(10)
             }
 
-            onCurrentTextChanged: parent.valueChanged(currentText)
+            onActivated: function(index) { parent.valueChanged(currentText) }
         }
     }
 
