@@ -2591,10 +2591,7 @@ void MainController::onShotEnded() {
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
     // Check if we should show metadata page after shot (regardless of auto-upload)
-    // Show when: (extended metadata enabled AND show after shot) OR (AI configured AND show after shot)
-    bool hasAI = m_aiManager && m_aiManager->isConfigured();
-    bool showPostShot = m_settings->visualizerShowAfterShot() &&
-                        (m_settings->visualizerExtendedMetadata() || hasAI);
+    bool showPostShot = m_settings->visualizerShowAfterShot();
 
     // Auto-upload if enabled (do this first, before showing metadata page)
     if (m_settings->visualizerAutoUpload() && m_visualizer) {

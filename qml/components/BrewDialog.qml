@@ -574,7 +574,6 @@ Dialog {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)
-                visible: Settings.visualizerExtendedMetadata
 
                 Text {
                     text: TranslationManager.translate("brewDialog.grinderLabel", "Grinder:")

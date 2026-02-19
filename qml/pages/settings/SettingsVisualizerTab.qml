@@ -292,43 +292,10 @@ KeyboardAwareContainer {
 
                 Item { height: 10 }
 
-                // Extended metadata toggle
+                // Show after shot toggle
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(15)
-
-                    ColumnLayout {
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.visualizer.extendedMetadata"
-                            fallback: "Extended Metadata"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Tr {
-                            key: "settings.visualizer.extendedMetadataDesc"
-                            fallback: "Include bean, grinder, and tasting notes with uploads"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    StyledSwitch {
-                        checked: Settings.visualizerExtendedMetadata
-                        accessibleName: TranslationManager.translate("settings.visualizer.extendedMetadata", "Extended Metadata")
-                        onCheckedChanged: Settings.visualizerExtendedMetadata = checked
-                    }
-                }
-
-                // Show after shot toggle (only when extended metadata enabled)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
-                    visible: Settings.visualizerExtendedMetadata
 
                     ColumnLayout {
                         spacing: Theme.scaled(2)
@@ -357,11 +324,10 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Clear notes on shot start toggle (only when extended metadata enabled)
+                // Clear notes on shot start toggle
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(15)
-                    visible: Settings.visualizerExtendedMetadata
 
                     ColumnLayout {
                         spacing: Theme.scaled(2)
@@ -390,11 +356,10 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Default shot rating (only when extended metadata enabled)
+                // Default shot rating
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(15)
-                    visible: Settings.visualizerExtendedMetadata
 
                     ColumnLayout {
                         spacing: Theme.scaled(2)

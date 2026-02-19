@@ -22,7 +22,7 @@ Text {
             return [Settings.dyeBeanBrand, Settings.dyeBeanType].filter(Boolean).join(" ")
         return ""
     }
-    property string grindSize: Settings.visualizerExtendedMetadata ? Settings.dyeGrinderSetting : ""
+    property string grindSize: Settings.dyeGrinderSetting
     property double dose: Settings.dyeBeanWeight
     property double targetWeight: MainController.targetWeight
 
