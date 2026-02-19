@@ -28,6 +28,15 @@ public:
                                    const QString& userNotes = QString(),
                                    const QString& debugLogTail = QString());
 
+    /// Submit an AI advice report with structured fields. Emits aiReportSubmitted() or aiReportFailed() when done.
+    Q_INVOKABLE void submitAiReport(const QString& providerName,
+                                     const QString& modelName,
+                                     const QString& contextLabel,
+                                     const QString& systemPrompt,
+                                     const QString& conversationTranscript,
+                                     const QString& shotDebugLog,
+                                     const QString& userNotes);
+
     /// Get platform string (android, ios, windows, macos, linux)
     Q_INVOKABLE QString platform() const;
 
@@ -39,6 +48,8 @@ signals:
     void lastErrorChanged();
     void submitted(const QString& issueUrl);
     void failed(const QString& error);
+    void aiReportSubmitted(const QString& issueUrl);
+    void aiReportFailed(const QString& error);
 
 private slots:
     void onReplyFinished();
@@ -46,6 +57,7 @@ private slots:
 private:
     QNetworkAccessManager m_networkManager;
     bool m_submitting = false;
+    bool m_isAiReport = false;
     QString m_lastError;
 
     void setSubmitting(bool submitting);

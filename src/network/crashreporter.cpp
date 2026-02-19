@@ -9,6 +9,7 @@
 #include <QDebug>
 
 static const char* API_URL = "https://api.decenza.coffee/v1/crash-report";
+static const char* AI_REPORT_URL = "https://api.decenza.coffee/v1/ai-report";
 
 CrashReporter::CrashReporter(QObject* parent)
     : QObject(parent)
@@ -28,7 +29,7 @@ QString CrashReporter::platform() const
 #elif defined(Q_OS_LINUX)
     return "linux";
 #else
-    return "unknown";
+    return "linux";
 #endif
 }
 
@@ -57,6 +58,7 @@ void CrashReporter::submitReport(const QString& crashLog,
         return;
     }
 
+    m_isAiReport = false;
     setSubmitting(true);
     setLastError(QString());
 
@@ -90,6 +92,57 @@ void CrashReporter::submitReport(const QString& crashLog,
     connect(reply, &QNetworkReply::finished, this, &CrashReporter::onReplyFinished);
 }
 
+void CrashReporter::submitAiReport(const QString& providerName,
+                                    const QString& modelName,
+                                    const QString& contextLabel,
+                                    const QString& systemPrompt,
+                                    const QString& conversationTranscript,
+                                    const QString& shotDebugLog,
+                                    const QString& userNotes)
+{
+    if (m_submitting) {
+        qWarning() << "CrashReporter: Already submitting a report";
+        return;
+    }
+
+    m_isAiReport = true;
+    setSubmitting(true);
+    setLastError(QString());
+
+    // Build request body with structured fields
+    QJsonObject body;
+    body["version"] = QString(VERSION_STRING);
+    body["platform"] = platform();
+    body["device"] = deviceInfo();
+    body["provider_name"] = providerName;
+    body["model_name"] = modelName;
+    body["system_prompt"] = systemPrompt;
+    body["conversation_transcript"] = conversationTranscript;
+    body["user_notes"] = userNotes;
+
+    if (!contextLabel.isEmpty()) {
+        body["context_label"] = contextLabel;
+    }
+
+    if (!shotDebugLog.isEmpty()) {
+        body["shot_debug_log"] = shotDebugLog;
+    }
+
+    QJsonDocument doc(body);
+    QByteArray data = doc.toJson(QJsonDocument::Compact);
+
+    qDebug() << "CrashReporter: Submitting AI report to" << AI_REPORT_URL;
+
+    // Create request
+    QNetworkRequest request{QUrl(AI_REPORT_URL)};
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("User-Agent", QString("Decenza-DE1/%1").arg(VERSION_STRING).toUtf8());
+
+    // Send POST request
+    QNetworkReply* reply = m_networkManager.post(request, data);
+    connect(reply, &QNetworkReply::finished, this, &CrashReporter::onReplyFinished);
+}
+
 void CrashReporter::onReplyFinished()
 {
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
@@ -98,11 +151,17 @@ void CrashReporter::onReplyFinished()
     reply->deleteLater();
     setSubmitting(false);
 
+    const bool wasAiReport = m_isAiReport;
+    m_isAiReport = false;
+
     if (reply->error() != QNetworkReply::NoError) {
         QString error = reply->errorString();
         qWarning() << "CrashReporter: Failed to submit -" << error;
         setLastError(error);
-        emit failed(error);
+        if (wasAiReport)
+            emit aiReportFailed(error);
+        else
+            emit failed(error);
         return;
     }
 
@@ -114,12 +173,18 @@ void CrashReporter::onReplyFinished()
     if (obj["success"].toBool()) {
         QString issueUrl = obj["issue_url"].toString();
         qDebug() << "CrashReporter: Report submitted successfully -" << issueUrl;
-        emit submitted(issueUrl);
+        if (wasAiReport)
+            emit aiReportSubmitted(issueUrl);
+        else
+            emit submitted(issueUrl);
     } else {
         QString error = obj["error"].toString("Unknown error");
         qWarning() << "CrashReporter: Server error -" << error;
         setLastError(error);
-        emit failed(error);
+        if (wasAiReport)
+            emit aiReportFailed(error);
+        else
+            emit failed(error);
     }
 }
 
