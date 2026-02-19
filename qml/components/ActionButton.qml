@@ -42,7 +42,6 @@ Button {
     Accessible.name: control.text + ". " + control._computedAccessibleDescription
     Accessible.focusable: true
     Accessible.onPressAction: {
-        console.log("[ActionButton] Accessible.onPressAction triggered for:", control.text)
         if (control.enabled) {
             control.clicked()
         }
@@ -134,7 +133,6 @@ Button {
             interval: 500
             onTriggered: {
                 touchArea._longPressTriggered = true
-                console.log("[ActionButton] Long press triggered")
                 var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
                 if (accessibilityMode) {
                     // In accessibility mode, long-press triggers the secondary action (same as double-tap in normal mode)
@@ -150,7 +148,6 @@ Button {
             id: singleTapTimer
             interval: 250
             onTriggered: {
-                console.log("[ActionButton] singleTapTimer triggered, emitting clicked")
                 control.clicked()
             }
         }
@@ -182,10 +179,8 @@ Button {
                 // Quick double-tap detection is DISABLED in accessibility mode because
                 // TalkBack's "double-tap to activate" gesture can be misdetected.
                 if (AccessibilityManager.lastAnnouncedItem === control) {
-                    console.log("[ActionButton] A11y: Second tap on same item, activating")
                     control.clicked()
                 } else {
-                    console.log("[ActionButton] A11y: First tap, announcing:", control.text)
                     AccessibilityManager.lastAnnouncedItem = control
                     AccessibilityManager.announce(control.text + ". " + control._computedAccessibleDescription)
                 }
@@ -193,7 +188,6 @@ Button {
                 // Normal mode
                 if (isDoubleTap) {
                     singleTapTimer.stop()
-                    console.log("[ActionButton] Double tap, emitting doubleClicked")
                     control.doubleClicked()
                 } else {
                     // Wait to see if double-tap is coming

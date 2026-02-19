@@ -676,20 +676,7 @@ Page {
             onClicked: {
                 shotMetadataPage.forceActiveFocus()
 
-                // Save current DYE values to the currently selected preset before restoring
-                if (Settings.selectedBeanPreset >= 0) {
-                    var preset = Settings.getBeanPreset(Settings.selectedBeanPreset)
-                    Settings.updateBeanPreset(Settings.selectedBeanPreset,
-                        preset.name || "",
-                        Settings.dyeBeanBrand,
-                        Settings.dyeBeanType,
-                        Settings.dyeRoastDate,
-                        Settings.dyeRoastLevel,
-                        Settings.dyeGrinderModel,
-                        Settings.dyeGrinderSetting)
-                }
-
-                // Restore snapshot values
+                // Restore snapshot values (discard all edits)
                 Settings.dyeBeanBrand = _snapBrand
                 Settings.dyeBeanType = _snapType
                 Settings.dyeRoastDate = _snapRoastDate

@@ -65,6 +65,11 @@ ComboBox {
     Accessible.focusable: true
     Accessible.onPressAction: selectionDialog.open()
 
+    // Keyboard support: open dialog with Space/Enter (native popup is suppressed)
+    Keys.onSpacePressed: selectionDialog.open()
+    Keys.onReturnPressed: selectionDialog.open()
+    Keys.onEnterPressed: selectionDialog.open()
+
     // Intercept all taps to open our Dialog instead of the native Popup
     MouseArea {
         anchors.fill: parent
@@ -159,115 +164,114 @@ ComboBox {
                 implicitHeight: dialogList.implicitHeight
                 height: implicitHeight
 
-            ListView {
-                id: dialogList
-                anchors.fill: parent
-                implicitHeight: Math.min(count * Theme.scaled(48), Theme.scaled(300))
-                clip: true
-                model: selectionDialog.itemList
+                ListView {
+                    id: dialogList
+                    anchors.fill: parent
+                    implicitHeight: Math.min(count * Theme.scaled(48), Theme.scaled(300))
+                    clip: true
+                    model: selectionDialog.itemList
 
-                ScrollBar.vertical: ScrollBar {
-                    policy: dialogList.contentHeight > dialogList.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        policy: dialogList.contentHeight > dialogList.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                    }
+
+                    delegate: Rectangle {
+                        id: optionDelegate
+                        width: dialogList.width
+                        height: Theme.scaled(48)
+
+                        property string _rawText: modelData || ""
+                        property string _text: _rawText.length > 0 ? _rawText : control.emptyItemText
+                        property bool _isCurrent: index === control.currentIndex
+
+                        color: _isCurrent
+                            ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+                            : (optionArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: (_text.length > 0 ? _text : TranslationManager.translate("combobox.empty", "None")) +
+                            (_isCurrent ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: optionArea.clicked(null)
+
+                        Row {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(16)
+                            anchors.rightMargin: Theme.scaled(16)
+                            spacing: Theme.scaled(8)
+                            Accessible.ignored: true
+
+                            Text {
+                                text: optionDelegate._isCurrent ? "\u2713" : ""
+                                font.pixelSize: Theme.scaled(16)
+                                font.family: Theme.bodyFont.family
+                                color: Theme.primaryColor
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Theme.scaled(24)
+                                horizontalAlignment: Text.AlignHCenter
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: optionDelegate._text
+                                font.pixelSize: Theme.scaled(16)
+                                font.family: Theme.bodyFont.family
+                                font.italic: optionDelegate._rawText.length === 0 && optionDelegate._text.length > 0
+                                color: optionDelegate._rawText.length === 0 ? Theme.textSecondaryColor : Theme.textColor
+                                verticalAlignment: Text.AlignVCenter
+                                anchors.verticalCenter: parent.verticalCenter
+                                elide: Text.ElideRight
+                                width: dialogList.width - Theme.scaled(56)
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        // Bottom separator
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: Theme.borderColor
+                            opacity: 0.3
+                        }
+
+                        MouseArea {
+                            id: optionArea
+                            anchors.fill: parent
+                            onClicked: {
+                                control.currentIndex = index
+                                control.activated(index)
+                                selectionDialog.close()
+                            }
+                        }
+                    }
                 }
 
-                delegate: Rectangle {
-                    id: optionDelegate
+                // Top fade: visible when scrolled down
+                Rectangle {
+                    anchors.top: dialogList.top
                     width: dialogList.width
-                    height: Theme.scaled(48)
-
-                    property string _rawText: modelData || ""
-                    property string _text: _rawText.length > 0 ? _rawText : control.emptyItemText
-                    property bool _isCurrent: index === control.currentIndex
-
-                    color: _isCurrent
-                        ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-                        : (optionArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: (_text.length > 0 ? _text : TranslationManager.translate("combobox.empty", "None")) +
-                        (_isCurrent ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: optionArea.clicked(null)
-
-                    Row {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.scaled(16)
-                        anchors.rightMargin: Theme.scaled(16)
-                        spacing: Theme.scaled(8)
-                        Accessible.ignored: true
-
-                        Text {
-                            text: optionDelegate._isCurrent ? "\u2713" : ""
-                            font.pixelSize: Theme.scaled(16)
-                            font.family: Theme.bodyFont.family
-                            color: Theme.primaryColor
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Theme.scaled(24)
-                            horizontalAlignment: Text.AlignHCenter
-                            Accessible.ignored: true
-                        }
-
-                        Text {
-                            text: optionDelegate._text
-                            font.pixelSize: Theme.scaled(16)
-                            font.family: Theme.bodyFont.family
-                            font.italic: optionDelegate._rawText.length === 0 && optionDelegate._text.length > 0
-                            color: optionDelegate._rawText.length === 0 ? Theme.textSecondaryColor : Theme.textColor
-                            verticalAlignment: Text.AlignVCenter
-                            anchors.verticalCenter: parent.verticalCenter
-                            elide: Text.ElideRight
-                            width: dialogList.width - Theme.scaled(56)
-                            Accessible.ignored: true
-                        }
+                    height: Theme.scaled(24)
+                    visible: dialogList.contentY > 0
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: Theme.surfaceColor }
+                        GradientStop { position: 1.0; color: "transparent" }
                     }
+                }
 
-                    // Bottom separator
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        width: parent.width
-                        height: 1
-                        color: Theme.borderColor
-                        opacity: 0.3
-                    }
-
-                    MouseArea {
-                        id: optionArea
-                        anchors.fill: parent
-                        onClicked: {
-                            control.currentIndex = index
-                            control.activated(index)
-                            selectionDialog.close()
-                        }
+                // Bottom fade: visible when more content below
+                Rectangle {
+                    anchors.bottom: dialogList.bottom
+                    width: dialogList.width
+                    height: Theme.scaled(24)
+                    visible: dialogList.contentHeight > dialogList.height &&
+                             dialogList.contentY < dialogList.contentHeight - dialogList.height - 1
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "transparent" }
+                        GradientStop { position: 1.0; color: Theme.surfaceColor }
                     }
                 }
             }
-
-            // Top fade: visible when scrolled down
-            Rectangle {
-                anchors.top: dialogList.top
-                width: dialogList.width
-                height: Theme.scaled(24)
-                visible: dialogList.contentY > 0
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: Theme.surfaceColor }
-                    GradientStop { position: 1.0; color: "transparent" }
-                }
-            }
-
-            // Bottom fade: visible when more content below
-            Rectangle {
-                anchors.bottom: dialogList.bottom
-                width: dialogList.width
-                height: Theme.scaled(24)
-                visible: dialogList.contentHeight > dialogList.height &&
-                         dialogList.contentY < dialogList.contentHeight - dialogList.height - 1
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "transparent" }
-                    GradientStop { position: 1.0; color: Theme.surfaceColor }
-                }
-            }
-
-            } // end wrapper Item
 
             // Separator
             Rectangle {

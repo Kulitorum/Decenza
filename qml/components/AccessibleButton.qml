@@ -71,7 +71,6 @@ Button {
     Accessible.name: root.accessibleDescription ? (root.accessibleName + ". " + root.accessibleDescription) : root.accessibleName
     Accessible.focusable: true
     Accessible.onPressAction: {
-        console.log("[AccessibleButton] Accessible.onPressAction triggered for:", root.accessibleName)
         if (root.enabled) {
             root.clicked()
         }
@@ -98,11 +97,7 @@ Button {
         enabled: root.enabled
         cursorShape: Qt.PointingHandCursor
 
-        onPressed: function(mouse) {
-            mouse.accepted = true
-        }
-
-        onReleased: {
+        onClicked: {
             var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
             if (accessibilityMode) {
@@ -119,8 +114,6 @@ Button {
                 root.clicked()
             }
         }
-
-        onCanceled: {}
     }
 
     // Announce button name when focused via keyboard (for accessibility)

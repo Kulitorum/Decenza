@@ -422,119 +422,118 @@ Item {
                 implicitHeight: dialogSuggestionList.implicitHeight
                 height: implicitHeight
 
-            ListView {
-                id: dialogSuggestionList
-                anchors.fill: parent
-                implicitHeight: Math.min(count * Theme.scaled(48), Theme.scaled(300))
-                clip: true
-                model: root.suggestions
+                ListView {
+                    id: dialogSuggestionList
+                    anchors.fill: parent
+                    implicitHeight: Math.min(count * Theme.scaled(48), Theme.scaled(300))
+                    clip: true
+                    model: root.suggestions
 
-                ScrollBar.vertical: ScrollBar {
-                    policy: dialogSuggestionList.contentHeight > dialogSuggestionList.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        policy: dialogSuggestionList.contentHeight > dialogSuggestionList.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                    }
+
+                    delegate: Rectangle {
+                        id: dialogSuggestionDelegate
+                        width: dialogSuggestionList.width
+                        height: Theme.scaled(48)
+
+                        property string _text: modelData || ""
+                        property bool _isCurrent: _text === root.text
+
+                        color: _isCurrent
+                            ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+                            : (suggestionArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: _text + (_isCurrent
+                            ? ". " + TranslationManager.translate("combobox.selected", "Selected")
+                            : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: suggestionArea.clicked(null)
+
+                        Row {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(16)
+                            anchors.rightMargin: Theme.scaled(16)
+                            spacing: Theme.scaled(8)
+                            Accessible.ignored: true
+
+                            Text {
+                                text: dialogSuggestionDelegate._isCurrent ? "\u2713" : ""
+                                font.pixelSize: Theme.scaled(16)
+                                font.family: Theme.bodyFont.family
+                                color: Theme.primaryColor
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Theme.scaled(24)
+                                horizontalAlignment: Text.AlignHCenter
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: dialogSuggestionDelegate._text
+                                font.pixelSize: Theme.scaled(16)
+                                font.family: Theme.bodyFont.family
+                                color: Theme.textColor
+                                verticalAlignment: Text.AlignVCenter
+                                anchors.verticalCenter: parent.verticalCenter
+                                elide: Text.ElideRight
+                                width: dialogSuggestionList.width - Theme.scaled(56)
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        // Bottom separator
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: Theme.borderColor
+                            opacity: 0.3
+                        }
+
+                        MouseArea {
+                            id: suggestionArea
+                            anchors.fill: parent
+                            onClicked: root.selectSuggestion(dialogSuggestionDelegate._text)
+                        }
+                    }
+
+                    // Empty state
+                    Text {
+                        anchors.centerIn: parent
+                        text: TranslationManager.translate("suggestionfield.nosuggestions", "No suggestions available")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(14)
+                        visible: dialogSuggestionList.count === 0
+                    }
                 }
 
-                delegate: Rectangle {
-                    id: dialogSuggestionDelegate
+                // Top fade: visible when scrolled down
+                Rectangle {
+                    anchors.top: dialogSuggestionList.top
                     width: dialogSuggestionList.width
-                    height: Theme.scaled(48)
-
-                    property string _text: modelData || ""
-                    property bool _isCurrent: _text === root.text
-
-                    color: _isCurrent
-                        ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-                        : (suggestionArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: _text + (_isCurrent
-                        ? ". " + TranslationManager.translate("combobox.selected", "Selected")
-                        : "")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: suggestionArea.clicked(null)
-
-                    Row {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.scaled(16)
-                        anchors.rightMargin: Theme.scaled(16)
-                        spacing: Theme.scaled(8)
-                        Accessible.ignored: true
-
-                        Text {
-                            text: dialogSuggestionDelegate._isCurrent ? "\u2713" : ""
-                            font.pixelSize: Theme.scaled(16)
-                            font.family: Theme.bodyFont.family
-                            color: Theme.primaryColor
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: Theme.scaled(24)
-                            horizontalAlignment: Text.AlignHCenter
-                            Accessible.ignored: true
-                        }
-
-                        Text {
-                            text: dialogSuggestionDelegate._text
-                            font.pixelSize: Theme.scaled(16)
-                            font.family: Theme.bodyFont.family
-                            color: Theme.textColor
-                            verticalAlignment: Text.AlignVCenter
-                            anchors.verticalCenter: parent.verticalCenter
-                            elide: Text.ElideRight
-                            width: dialogSuggestionList.width - Theme.scaled(56)
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    // Bottom separator
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        width: parent.width
-                        height: 1
-                        color: Theme.borderColor
-                        opacity: 0.3
-                    }
-
-                    MouseArea {
-                        id: suggestionArea
-                        anchors.fill: parent
-                        onClicked: root.selectSuggestion(dialogSuggestionDelegate._text)
+                    height: Theme.scaled(24)
+                    visible: dialogSuggestionList.contentY > 0
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: Theme.surfaceColor }
+                        GradientStop { position: 1.0; color: "transparent" }
                     }
                 }
 
-                // Empty state
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("suggestionfield.nosuggestions", "No suggestions available")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(14)
-                    visible: dialogSuggestionList.count === 0
+                // Bottom fade: visible when more content below
+                Rectangle {
+                    anchors.bottom: dialogSuggestionList.bottom
+                    width: dialogSuggestionList.width
+                    height: Theme.scaled(24)
+                    visible: dialogSuggestionList.contentHeight > dialogSuggestionList.height &&
+                             dialogSuggestionList.contentY < dialogSuggestionList.contentHeight - dialogSuggestionList.height - 1
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "transparent" }
+                        GradientStop { position: 1.0; color: Theme.surfaceColor }
+                    }
                 }
             }
-
-            // Top fade: visible when scrolled down
-            Rectangle {
-                anchors.top: dialogSuggestionList.top
-                width: dialogSuggestionList.width
-                height: Theme.scaled(24)
-                visible: dialogSuggestionList.contentY > 0
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: Theme.surfaceColor }
-                    GradientStop { position: 1.0; color: "transparent" }
-                }
-            }
-
-            // Bottom fade: visible when more content below
-            Rectangle {
-                anchors.bottom: dialogSuggestionList.bottom
-                width: dialogSuggestionList.width
-                height: Theme.scaled(24)
-                visible: dialogSuggestionList.contentHeight > dialogSuggestionList.height &&
-                         dialogSuggestionList.contentY < dialogSuggestionList.contentHeight - dialogSuggestionList.height - 1
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "transparent" }
-                    GradientStop { position: 1.0; color: Theme.surfaceColor }
-                }
-            }
-
-            } // end wrapper Item
 
             // Separator
             Rectangle {
