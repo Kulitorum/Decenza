@@ -37,6 +37,19 @@ Page {
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
+
+        // Snapshot current DYE values BEFORE auto-match so Cancel restores the true pre-page state
+        if (!isEditMode) {
+            _snapBrand = Settings.dyeBeanBrand
+            _snapType = Settings.dyeBeanType
+            _snapRoastDate = Settings.dyeRoastDate
+            _snapRoastLevel = Settings.dyeRoastLevel
+            _snapGrinderModel = Settings.dyeGrinderModel
+            _snapGrinderSetting = Settings.dyeGrinderSetting
+            _snapBarista = Settings.dyeBarista
+            _snapSelectedPreset = Settings.selectedBeanPreset
+        }
+
         if (editShotId > 0) {
             loadShotForEditing()
         } else if (Settings.selectedBeanPreset === -1 && hasGuestBeanData()) {
@@ -48,18 +61,6 @@ Page {
             } else {
                 guestBeanDialog.open()
             }
-        }
-
-        // Snapshot current DYE values for Cancel/undo (non-edit mode only)
-        if (!isEditMode) {
-            _snapBrand = Settings.dyeBeanBrand
-            _snapType = Settings.dyeBeanType
-            _snapRoastDate = Settings.dyeRoastDate
-            _snapRoastLevel = Settings.dyeRoastLevel
-            _snapGrinderModel = Settings.dyeGrinderModel
-            _snapGrinderSetting = Settings.dyeGrinderSetting
-            _snapBarista = Settings.dyeBarista
-            _snapSelectedPreset = Settings.selectedBeanPreset
         }
     }
 
@@ -384,6 +385,12 @@ Page {
                                                      (beanDelegate.beanIndex === Settings.selectedBeanPreset ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.focusable: true
+                                    Accessible.onPressAction: {
+                                        var s = beanPresetsRow.settings
+                                        var targetIndex = beanDelegate.beanIndex
+                                        s.selectedBeanPreset = targetIndex
+                                        s.applyBeanPreset(targetIndex)
+                                    }
 
                                     Drag.active: beanDragArea.drag.active
                                     Drag.source: beanDelegate
@@ -701,14 +708,16 @@ Page {
                 // Save current values to the selected preset (if any)
                 if (Settings.selectedBeanPreset >= 0) {
                     var preset = Settings.getBeanPreset(Settings.selectedBeanPreset)
-                    Settings.updateBeanPreset(Settings.selectedBeanPreset,
-                        preset.name || "",
-                        Settings.dyeBeanBrand,
-                        Settings.dyeBeanType,
-                        Settings.dyeRoastDate,
-                        Settings.dyeRoastLevel,
-                        Settings.dyeGrinderModel,
-                        Settings.dyeGrinderSetting)
+                    if (preset && preset.name !== undefined) {
+                        Settings.updateBeanPreset(Settings.selectedBeanPreset,
+                            preset.name || "",
+                            Settings.dyeBeanBrand,
+                            Settings.dyeBeanType,
+                            Settings.dyeRoastDate,
+                            Settings.dyeRoastLevel,
+                            Settings.dyeGrinderModel,
+                            Settings.dyeGrinderSetting)
+                    }
                 }
                 root.goBack()
             }
@@ -844,10 +853,7 @@ Page {
             accessibleLabel: parent.label
             emptyItemText: TranslationManager.translate("shotmetadata.option.none", "(None)")
 
-            Accessible.role: Accessible.ComboBox
-            Accessible.name: parent.label
             Accessible.description: currentIndex > 0 ? currentText : TranslationManager.translate("shotmetadata.accessible.notset", "Not set")
-            Accessible.focusable: true
 
             onActiveFocusChanged: {
                 if (activeFocus && AccessibilityManager.enabled) {

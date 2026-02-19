@@ -92,6 +92,7 @@ Item {
             translationFallback: "Flush"
             iconSource: "qrc:/icons/flush.svg"
             enabled: DE1Device.guiEnabled
+            supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToFlush()
             onDoubleClicked: root.goToFlush()

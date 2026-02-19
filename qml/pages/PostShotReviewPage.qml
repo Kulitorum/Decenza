@@ -1050,8 +1050,6 @@ Page {
             accessibleLabel: parent.label
             emptyItemText: TranslationManager.translate("postshotreview.option.none", "(None)")
 
-            Accessible.role: Accessible.ComboBox
-            Accessible.name: parent.label
             Accessible.description: currentIndex > 0 ? currentText : TranslationManager.translate("postshotreview.accessible.notset", "Not set")
 
             onActiveFocusChanged: {

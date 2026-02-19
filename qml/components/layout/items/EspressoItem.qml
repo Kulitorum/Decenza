@@ -94,6 +94,7 @@ Item {
             iconSource: "qrc:/icons/espresso.svg"
             enabled: DE1Device.guiEnabled
             backgroundColor: Settings.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.primaryColor
+            supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToProfileSelector()
             onDoubleClicked: root.goToProfileSelector()

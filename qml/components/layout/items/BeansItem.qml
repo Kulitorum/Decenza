@@ -94,6 +94,7 @@ Item {
             iconSize: Theme.scaled(43)
             enabled: DE1Device.guiEnabled
             backgroundColor: Settings.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor
+            supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToBeanInfo()
             onDoubleClicked: root.goToBeanInfo()

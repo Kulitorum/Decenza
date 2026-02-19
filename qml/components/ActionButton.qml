@@ -18,6 +18,9 @@ Button {
     property string accessibleDescriptionKey: "actionbutton.description.default"
     property string accessibleDescriptionFallback: "Tap to select preset. Long-press for more options."
 
+    // Set true when onDoubleClicked is connected — gates the 250ms single-tap delay
+    property bool supportDoubleClick: false
+
     // Auto-compute text from translation if translationKey is set (reactive to translation changes)
     text: translationKey !== "" ? _computedText : ""
     readonly property string _computedText: {
@@ -167,6 +170,12 @@ Button {
                 return
             }
 
+            // Only activate if released within bounds (matches AccessibleButton's onClicked behavior)
+            if (mouse.x < 0 || mouse.x > touchArea.width ||
+                mouse.y < 0 || mouse.y > touchArea.height) {
+                return
+            }
+
             var now = Date.now()
             var timeSinceLastTap = now - touchArea._lastTapTime
             var isDoubleTap = timeSinceLastTap < 250 && timeSinceLastTap > 50
@@ -184,15 +193,17 @@ Button {
                     AccessibilityManager.lastAnnouncedItem = control
                     AccessibilityManager.announce(control.text + ". " + control._computedAccessibleDescription)
                 }
-            } else {
-                // Normal mode
+            } else if (control.supportDoubleClick) {
+                // Normal mode with double-click support: wait 250ms for potential double-tap
                 if (isDoubleTap) {
                     singleTapTimer.stop()
                     control.doubleClicked()
                 } else {
-                    // Wait to see if double-tap is coming
                     singleTapTimer.restart()
                 }
+            } else {
+                // Normal mode without double-click: activate immediately
+                control.clicked()
             }
         }
 

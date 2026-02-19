@@ -92,6 +92,7 @@ Item {
             translationFallback: "Hot Water"
             iconSource: "qrc:/icons/water.svg"
             enabled: DE1Device.guiEnabled
+            supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToHotWater()
             onDoubleClicked: root.goToHotWater()
