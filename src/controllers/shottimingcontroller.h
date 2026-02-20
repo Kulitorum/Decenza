@@ -133,6 +133,7 @@ private:
     QTimer m_settlingTimer;
     double m_lastStableWeight = 0.0;  // For detecting weight stabilization
     qint64 m_lastWeightChangeTime = 0; // Timestamp of last significant weight change (ms)
+    double m_settlingPeakWeight = 0.0; // Peak weight seen during settling (for cup removal detection)
 
     // Tare state machine
     TareState m_tareState = TareState::Idle;
