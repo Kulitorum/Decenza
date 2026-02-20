@@ -309,6 +309,13 @@ void DE1Device::onControllerDisconnected() {
     clearDE1AddressForShutdown();
 #endif
 
+    // Clear pending BLE operations to prevent writes against a dead connection,
+    // which causes DeadObjectException crashes on Android (issue #189)
+    m_commandQueue.clear();
+    m_writePending = false;
+    m_writeTimeoutTimer.stop();
+    m_commandTimer.stop();
+
     m_connecting = false;
     emit connectingChanged();
     emit connectedChanged();
