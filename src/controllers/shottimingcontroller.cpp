@@ -14,8 +14,8 @@ ShotTimingController::ShotTimingController(DE1Device* device, QObject* parent)
     connect(&m_displayTimer, &QTimer::timeout, this, &ShotTimingController::updateDisplayTimer);
 
     // SAW learning settling timer - waits for weight to stabilize after shot ends
+    // Interval set by startSettlingTimer() when settling begins (currently 15s max)
     m_settlingTimer.setSingleShot(true);
-    m_settlingTimer.setInterval(7000);  // 7 seconds for drips to stop
     connect(&m_settlingTimer, &QTimer::timeout, this, &ShotTimingController::onSettlingComplete);
 }
 
@@ -62,9 +62,14 @@ void ShotTimingController::setCurrentProfile(const Profile* profile)
 void ShotTimingController::startShot()
 {
     // Cancel settling timer if running (user started new shot before settling completed)
+    // Emit shotProcessingReady so the previous shot is saved before we reset state
     if (m_settlingTimer.isActive()) {
-        qDebug() << "[SAW] Cancelling settling timer - new shot started";
+        qWarning() << "[SAW] Cancelling settling timer - new shot started, saving previous shot";
+        m_sawTriggeredThisShot = false;
         m_settlingTimer.stop();
+        m_displayTimer.stop();
+        emit sawSettlingChanged();
+        emit shotProcessingReady();
     }
 
     // Reset all timing state
@@ -188,7 +193,10 @@ void ShotTimingController::onWeightSample(double weight, double flowRate)
             qWarning() << "[SAW] Cup removed during settling (weight:" << weight
                        << "peak:" << m_settlingPeakWeight << ") - skipping learning";
             // Cup removal corrupts weight data — bypass learning entirely
-            // but still emit signals so the shot is saved
+            // but still emit signals so the shot is saved.
+            // NOTE: m_weight is intentionally NOT updated here. It retains the last
+            // valid pre-removal reading so the saved shot preserves the correct
+            // final weight. The corrupted `weight` parameter is discarded.
             m_sawTriggeredThisShot = false;  // Prevent stale SAW state on next operation
             m_settlingTimer.stop();
             m_displayTimer.stop();
