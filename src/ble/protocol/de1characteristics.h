@@ -137,7 +137,7 @@ namespace MMR {
     constexpr uint32_t STEAM_HIGHFLOW_START = 0x80382C;  // Steam high-flow start (de1app default: 70, no UI)
     constexpr uint32_t SERIAL_NUMBER        = 0x803830;
     constexpr uint32_t HEATER_VOLTAGE       = 0x803834;
-    constexpr uint32_t ESPRESSO_WARMUP_TIMEOUT = 0x803838;  // Warmup timeout in seconds (de1app default: 10)
+    constexpr uint32_t ESPRESSO_WARMUP_TIMEOUT = 0x803838;  // Warmup timeout in tenths of seconds (de1app default: 10 = 1.0s)
     constexpr uint32_t FLOW_CALIBRATION     = 0x80383C;  // Flow calibration multiplier (value = int(1000 * multiplier))
     constexpr uint32_t HOT_WATER_FLOW_RATE  = 0x80384C;  // Hot water flow rate in tenths mL/s (de1app default: 10 = 1.0 mL/s)
     constexpr uint32_t STEAM_TWO_TAP_STOP   = 0x803850;  // SteamPurgeMode: 0=off, 1=two taps to stop steam (first tap → puffs, second → purge)
