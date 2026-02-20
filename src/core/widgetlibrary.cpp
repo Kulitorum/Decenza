@@ -177,6 +177,29 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
     QJsonObject data;
     data["theme"] = themeObj;
 
+    // Check if an existing library entry has the same colors — update it
+    // instead of creating a duplicate (handles rename-then-re-save)
+    for (const QVariant& v : m_index) {
+        QVariantMap meta = v.toMap();
+        if (meta["type"].toString() != "theme")
+            continue;
+        QString existingId = meta["id"].toString();
+        QJsonObject existing = readEntryFile(existingId);
+        QJsonObject existingColors = existing["data"].toObject()["theme"].toObject()["colors"].toObject();
+        if (existingColors == colorsJson) {
+            // Same colors — update name, fonts, and tags in place
+            existing["data"] = data;
+            QStringList tags = extractTagsFromTheme(themeObj);
+            existing["tags"] = QJsonArray::fromStringList(tags);
+            saveEntryFile(existing);
+            generateThemeThumbnail(existingId);
+            emit entriesChanged();
+            qDebug() << "WidgetLibrary: Updated existing theme entry" << existingId
+                     << "with new name:" << themeName;
+            return existingId;
+        }
+    }
+
     QJsonObject envelope = buildEnvelope("theme", data);
 
     // Extract theme-specific tags
@@ -568,7 +591,38 @@ QByteArray WidgetLibrary::exportEntry(const QString& entryId) const
     if (entry.isEmpty())
         return QByteArray();
 
+    // Regenerate tags at export time so uploads always have current tags
+    // (handles entries saved before the name: tag was added)
+    if (entry["type"].toString() == "theme") {
+        QJsonObject themeObj = entry["data"].toObject()["theme"].toObject();
+        if (!themeObj.isEmpty()) {
+            QStringList tags = extractTagsFromTheme(themeObj);
+            entry["tags"] = QJsonArray::fromStringList(tags);
+        }
+    }
+
     return QJsonDocument(entry).toJson(QJsonDocument::Compact);
+}
+
+bool WidgetLibrary::updateThemeName(const QString& entryId, const QString& newName)
+{
+    QJsonObject entry = readEntryFile(entryId);
+    if (entry.isEmpty() || entry["type"].toString() != "theme")
+        return false;
+
+    QJsonObject data = entry["data"].toObject();
+    QJsonObject themeObj = data["theme"].toObject();
+    themeObj["name"] = newName;
+    data["theme"] = themeObj;
+    entry["data"] = data;
+
+    // Regenerate tags with updated name
+    QStringList tags = extractTagsFromTheme(themeObj);
+    entry["tags"] = QJsonArray::fromStringList(tags);
+
+    saveEntryFile(entry);
+    emit entriesChanged();
+    return true;
 }
 
 // --- Thumbnails ---
@@ -695,6 +749,12 @@ QStringList WidgetLibrary::extractTagsFromTheme(const QJsonObject& themeObj) con
 {
     QStringList tags;
     tags.append("type:theme");
+
+    // Include theme name as a tag so the community listing can display it
+    // (the listing API doesn't return the full data object)
+    QString themeName = themeObj["name"].toString();
+    if (!themeName.isEmpty())
+        tags.append("name:" + themeName);
 
     QJsonObject colors = themeObj["colors"].toObject();
     QString bgColor = colors["backgroundColor"].toString();

@@ -313,6 +313,26 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
+    // POST /api/theme/library/rename - rename a theme entry
+    if (path == "/api/theme/library/rename" && method == "POST") {
+        if (!m_widgetLibrary) {
+            sendJson(socket, R"({"error":"Widget library not available"})");
+            return;
+        }
+        QJsonObject obj = QJsonDocument::fromJson(body).object();
+        QString entryId = obj["entryId"].toString();
+        QString newName = obj["name"].toString();
+        if (entryId.isEmpty() || newName.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing entryId or name"})");
+            return;
+        }
+        bool ok = m_widgetLibrary->updateThemeName(entryId, newName);
+        QJsonObject resp;
+        resp["success"] = ok;
+        sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        return;
+    }
+
     // DELETE /api/theme/library/{id} - remove a theme from local library
     if (path.startsWith("/api/theme/library/") && method == "DELETE") {
         if (!m_widgetLibrary) {
@@ -371,5 +391,6 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
 
 QString ShotServer::generateThemePage() const
 {
-    return generateThemePageHtml();
+    QString deviceId = m_settings ? m_settings->deviceId() : QString();
+    return generateThemePageHtml(deviceId);
 }

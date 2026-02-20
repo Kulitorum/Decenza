@@ -406,35 +406,47 @@ function deleteFromLib() {
 
 function shareToComm() {
     if (!libSelectedId) return;
-    if (!confirm('Share this theme to the community?')) return;
+    // Find current name from local entries
+    var currentName = '';
+    for (var i = 0; i < libLocalEntries.length; i++) {
+        if (libLocalEntries[i].id === libSelectedId) { currentName = libLocalEntries[i].name || ''; break; }
+    }
+    var name = prompt('Theme name for community:', currentName || (currentTheme ? currentTheme.activeThemeName : 'My Theme'));
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
     var entryId = libSelectedId;
-    postJson('/api/community/upload', { entryId: entryId })
+    // Rename entry first, then upload (sequential to avoid race)
+    postJson('/api/theme/library/rename', { entryId: entryId, name: name })
+        .then(function(r) { return r.json(); })
+        .then(function() {
+            loadLocalLib();
+            return postJson('/api/community/upload', { entryId: entryId });
+        })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
                 showToast('Shared to community!');
                 loadLocalLib();
             } else if (data.error === 'Already shared') {
-                // After 409, server renames local entry to existingId
                 var serverId = data.existingId || entryId;
                 if (confirm('This theme is already shared. Delete the old version and re-upload?')) {
                     postJson('/api/community/delete', { serverId: serverId })
                         .then(function(r2) { return r2.json(); })
                         .then(function(d2) {
                             if (d2.success) {
-                                // Re-upload using server ID (local entry was renamed)
-                                postJson('/api/community/upload', { entryId: serverId })
-                                    .then(function(r3) { return r3.json(); })
-                                    .then(function(d3) {
-                                        if (d3.success) {
-                                            showToast('Re-shared to community!');
-                                            loadLocalLib();
-                                        } else {
-                                            showToast('Error: ' + (d3.error || 'Re-upload failed'));
-                                        }
-                                    });
+                                return postJson('/api/community/upload', { entryId: serverId });
                             } else {
                                 showToast('Error: ' + (d2.error || 'Delete failed'));
+                            }
+                        })
+                        .then(function(r3) { if (r3) return r3.json(); })
+                        .then(function(d3) {
+                            if (d3 && d3.success) {
+                                showToast('Re-shared to community!');
+                                loadLocalLib();
+                            } else if (d3) {
+                                showToast('Error: ' + (d3.error || 'Re-upload failed'));
                             }
                         });
                 }
@@ -510,7 +522,13 @@ function renderCommGrid() {
         if (!themeName) {
             var tags = e.tags || [];
             for (var t = 0; t < tags.length; t++) {
-                if (tags[t].indexOf('scheme:') === 0) themeName = tags[t].substring(7);
+                if (tags[t].indexOf('name:') === 0) { themeName = tags[t].substring(5); break; }
+            }
+        }
+        if (!themeName) {
+            var tags2 = e.tags || [];
+            for (var t = 0; t < tags2.length; t++) {
+                if (tags2[t].indexOf('scheme:') === 0) { themeName = tags2[t].substring(7); break; }
             }
         }
         nameEl.textContent = themeName || 'Theme';
@@ -531,7 +549,13 @@ function selectCommEntry(id) {
 function updateCommButtons() {
     var has = commSelectedId !== '';
     document.getElementById('commDownloadBtn').disabled = !has;
-    document.getElementById('commDeleteBtn').disabled = !has;
+    // Only enable delete for entries uploaded by this device
+    var canDelete = false;
+    if (has && typeof LOCAL_DEVICE_ID !== 'undefined' && LOCAL_DEVICE_ID) {
+        var entry = commEntries.find(function(e) { return e.id === commSelectedId; });
+        canDelete = entry && entry.deviceId === LOCAL_DEVICE_ID;
+    }
+    document.getElementById('commDeleteBtn').disabled = !canDelete;
 }
 
 function downloadSelected() {
