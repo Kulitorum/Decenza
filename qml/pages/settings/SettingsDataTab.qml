@@ -90,8 +90,18 @@ KeyboardAwareContainer {
                         color: MainController.shotServer && MainController.shotServer.running ?
                                Theme.successColor : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(10)
+                        font.underline: MainController.shotServer && MainController.shotServer.running
                         Layout.fillWidth: true
                         elide: Text.ElideMiddle
+                        Accessible.role: Accessible.Link
+                        Accessible.name: text
+                        Accessible.focusable: MainController.shotServer && MainController.shotServer.running
+                        Accessible.onPressAction: Qt.openUrlExternally(MainController.shotServer.url)
+
+                        TapHandler {
+                            enabled: MainController.shotServer && MainController.shotServer.running
+                            onTapped: Qt.openUrlExternally(MainController.shotServer.url)
+                        }
                     }
                 }
 
