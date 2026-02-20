@@ -263,6 +263,8 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
 void DE1Device::disconnect() {
     m_commandQueue.clear();
     m_writePending = false;
+    m_profileUploadInProgress = false;
+    m_sleepPendingAfterUpload = false;
     m_writeTimeoutTimer.stop();
     m_lastCommand = nullptr;
     m_writeRetryCount = 0;
@@ -946,6 +948,14 @@ void DE1Device::goToSleep() {
     }
 #endif
 
+    // If a profile upload is in progress, defer sleep until it completes.
+    // Sending sleep mid-upload leaves the DE1 GHC in a stuck state (flashing magenta).
+    if (m_profileUploadInProgress) {
+        qDebug() << "DE1Device: Sleep requested during profile upload, deferring until upload completes";
+        m_sleepPendingAfterUpload = true;
+        return;
+    }
+
     // Clear pending commands - sleep takes priority
     m_commandQueue.clear();
     m_writePending = false;
@@ -963,6 +973,8 @@ void DE1Device::clearCommandQueue() {
     int cleared = m_commandQueue.size();
     m_commandQueue.clear();
     m_writePending = false;
+    m_profileUploadInProgress = false;
+    m_sleepPendingAfterUpload = false;
     m_writeTimeoutTimer.stop();  // Cancel any pending timeout
     m_lastCommand = nullptr;     // Clear stored command
     m_writeRetryCount = 0;       // Reset retry count
@@ -986,6 +998,8 @@ void DE1Device::uploadProfile(const Profile& profile) {
     }
 #endif
 
+    m_profileUploadInProgress = true;
+
     // Queue header write
     QByteArray header = profile.toHeaderBytes();
     queueCommand([this, header]() {
@@ -1000,9 +1014,15 @@ void DE1Device::uploadProfile(const Profile& profile) {
         });
     }
 
-    // Signal completion after queue processes
+    // Signal completion and handle deferred sleep after queue processes
     queueCommand([this]() {
+        m_profileUploadInProgress = false;
         emit profileUploaded(true);
+        if (m_sleepPendingAfterUpload) {
+            m_sleepPendingAfterUpload = false;
+            qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
+            goToSleep();
+        }
     });
 }
 
@@ -1014,6 +1034,8 @@ void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
         m_simulator->setProfile(profile);
     }
 #endif
+
+    m_profileUploadInProgress = true;
 
     // Queue header write
     QByteArray header = profile.toHeaderBytes();
@@ -1038,7 +1060,13 @@ void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
 
     // Signal completion after espresso starts
     queueCommand([this]() {
+        m_profileUploadInProgress = false;
         emit profileUploaded(true);
+        if (m_sleepPendingAfterUpload) {
+            m_sleepPendingAfterUpload = false;
+            qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
+            goToSleep();
+        }
     });
 }
 

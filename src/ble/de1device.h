@@ -223,6 +223,8 @@ private:
     DE1Simulator* m_simulator = nullptr;  // For simulation mode
 #endif
     Settings* m_settings = nullptr;       // For water level calibration persistence
+    bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
+    bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload
     bool m_usbChargerOn = true;  // Default on (safe default like de1app)
     bool m_isHeadless = false;   // True if app can start operations (GHC not installed or inactive)
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected
