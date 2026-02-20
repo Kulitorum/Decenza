@@ -58,6 +58,7 @@ void CrashReporter::submitReport(const QString& crashLog,
         return;
     }
 
+    m_pendingIsAiReport = false;
     setSubmitting(true);
     setLastError(QString());
 
@@ -89,6 +90,7 @@ void CrashReporter::submitReport(const QString& crashLog,
 
     // Send POST request
     QNetworkReply* reply = m_networkManager.post(request, data);
+    reply->setProperty("isAiReport", false);
     connect(reply, &QNetworkReply::finished, this, &CrashReporter::onReplyFinished);
 }
 
@@ -102,9 +104,11 @@ void CrashReporter::submitAiReport(const QString& providerName,
 {
     if (m_submitting) {
         qWarning() << "CrashReporter: Already submitting a report";
+        emit aiReportFailed(tr("A report is already being submitted. Please wait and try again."));
         return;
     }
 
+    m_pendingIsAiReport = true;
     setSubmitting(true);
     setLastError(QString());
 
@@ -117,7 +121,10 @@ void CrashReporter::submitAiReport(const QString& providerName,
     body["model_name"] = modelName;
     body["system_prompt"] = systemPrompt;
     body["conversation_transcript"] = conversationTranscript;
-    body["user_notes"] = userNotes;
+
+    if (!userNotes.isEmpty()) {
+        body["user_notes"] = userNotes;
+    }
 
     if (!contextLabel.isEmpty()) {
         body["context_label"] = contextLabel;
@@ -152,7 +159,10 @@ void CrashReporter::onReplyFinished()
         setSubmitting(false);
         QString error = "Internal error: no reply object";
         setLastError(error);
-        emit failed(error);
+        if (m_pendingIsAiReport)
+            emit aiReportFailed(error);
+        else
+            emit failed(error);
         return;
     }
 
