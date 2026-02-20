@@ -56,6 +56,7 @@ private:
     // Temporary connections for event-driven sequencing
     QMetaObject::Connection m_phaseConn;
     QMetaObject::Connection m_de1ConnConn;
+    QMetaObject::Connection m_scanConn;
 
     static constexpr int MIN_REFRESH_INTERVAL_MS = 60 * 60 * 1000;  // 60 minute debounce
 };

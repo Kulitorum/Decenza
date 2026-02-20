@@ -80,6 +80,17 @@ void BleRefresher::scheduleRefresh() {
 }
 
 void BleRefresher::executeRefresh() {
+    // No real BLE stack to refresh in simulation mode — isConnected() always
+    // returns true so the disconnect/reconnect sequence can never complete.
+    if (m_de1->simulationMode()) {
+        qDebug() << "[BleRefresher] Skipping refresh in simulation mode (no real BLE stack)";
+        // Restart periodic timer so it keeps scheduling (even though each attempt is a no-op)
+        if (m_periodicIntervalMs > 0) {
+            m_periodicTimer.start(m_periodicIntervalMs);
+        }
+        return;
+    }
+
     m_refreshInProgress = true;
     emit refreshingChanged();
     m_de1WasConnected = m_de1->isConnected();
@@ -123,11 +134,33 @@ void BleRefresher::executeRefresh() {
         }
     }, Qt::QueuedConnection);
 
+    // Detect scan completion without reconnection — event-based replacement
+    // for a timeout timer. BLEManager's scan has a built-in 15s timeout.
+    QObject::disconnect(m_scanConn);
+    m_scanConn = connect(m_bleManager, &BLEManager::scanningChanged, this, [this]() {
+        if (!m_bleManager->scanning() && m_refreshInProgress && !m_de1->isConnected()) {
+            qWarning() << "[BleRefresher] Scan finished without DE1 reconnecting, clearing overlay";
+            QObject::disconnect(m_scanConn);
+            QObject::disconnect(m_de1ConnConn);
+
+            if (m_scaleWasConnected) {
+                m_bleManager->tryDirectConnectToScale();
+            }
+
+            m_bleManager->startScan();
+            onRefreshComplete();
+        }
+    });
+
     qDebug() << "[BleRefresher] Disconnecting DE1...";
     m_de1->disconnect();
 }
 
 void BleRefresher::onRefreshComplete() {
+    if (!m_refreshInProgress) {
+        return;  // Already completed (timeout + queued reconnect race)
+    }
+
     m_refreshInProgress = false;
     emit refreshingChanged();
     m_refreshPending = false;
@@ -136,6 +169,7 @@ void BleRefresher::onRefreshComplete() {
     // Cleanup any lingering connections
     QObject::disconnect(m_phaseConn);
     QObject::disconnect(m_de1ConnConn);
+    QObject::disconnect(m_scanConn);
 
     // Reset periodic timer
     if (m_periodicIntervalMs > 0) {
