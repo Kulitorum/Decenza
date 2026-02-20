@@ -172,8 +172,18 @@ void CrashReporter::onReplyFinished()
     const bool wasAiReport = reply->property("isAiReport").toBool();
 
     if (reply->error() != QNetworkReply::NoError) {
-        QString error = reply->errorString();
-        qWarning() << "CrashReporter: Failed to submit -" << error;
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        QString error;
+        if (statusCode == 404) {
+            error = tr("Reporting service unavailable. Please ensure the app is up to date.");
+        } else if (statusCode == 429) {
+            error = tr("Too many reports submitted. Please try again in an hour.");
+        } else if (statusCode >= 500) {
+            error = tr("Server error (HTTP %1). Please try again later.").arg(statusCode);
+        } else {
+            error = reply->errorString();
+        }
+        qWarning() << "CrashReporter: Failed to submit - HTTP" << statusCode << reply->errorString();
         setLastError(error);
         if (wasAiReport)
             emit aiReportFailed(error);
@@ -210,7 +220,14 @@ void CrashReporter::onReplyFinished()
         else
             emit submitted(issueUrl);
     } else {
-        QString error = obj["error"].toString("Unknown error");
+        // Prefer our own "error" field; fall back to API Gateway's "message" field;
+        // last resort use the HTTP status code so the user sees something actionable.
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        QString error = obj["error"].toString();
+        if (error.isEmpty())
+            error = obj["message"].toString();
+        if (error.isEmpty())
+            error = statusCode > 0 ? tr("Server error (HTTP %1)").arg(statusCode) : tr("Unknown error");
         qWarning() << "CrashReporter: Server error -" << error;
         setLastError(error);
         if (wasAiReport)
