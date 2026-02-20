@@ -57,7 +57,10 @@ private:
     QMetaObject::Connection m_phaseConn;
     QMetaObject::Connection m_de1ConnConn;
 
+    QTimer m_refreshTimeout;
+
     static constexpr int MIN_REFRESH_INTERVAL_MS = 60 * 60 * 1000;  // 60 minute debounce
+    static constexpr int REFRESH_TIMEOUT_MS = 30000;  // 30s safety timeout for reconnection
 };
 
 #endif // BLEREFRESHER_H

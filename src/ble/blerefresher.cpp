@@ -17,6 +17,15 @@ BleRefresher::BleRefresher(DE1Device* de1, BLEManager* bleManager,
     m_periodicTimer.setSingleShot(true);
     connect(&m_periodicTimer, &QTimer::timeout, this, &BleRefresher::scheduleRefresh);
 
+    m_refreshTimeout.setSingleShot(true);
+    connect(&m_refreshTimeout, &QTimer::timeout, this, [this]() {
+        qWarning() << "[BleRefresher] Refresh timed out after" << REFRESH_TIMEOUT_MS / 1000
+                   << "s — DE1 failed to reconnect, clearing overlay";
+        // Ensure scanning continues so the app can reconnect in the background
+        m_bleManager->startScan();
+        onRefreshComplete();
+    });
+
     // Detect wake from sleep: when phase leaves Sleep, schedule a refresh.
     // The 60-minute debounce prevents treating the initial Disconnected→Sleep→Idle
     // transition (normal first connect) as a wake-from-sleep event.
@@ -80,6 +89,17 @@ void BleRefresher::scheduleRefresh() {
 }
 
 void BleRefresher::executeRefresh() {
+    // No real BLE stack to refresh in simulation mode — isConnected() always
+    // returns true so the disconnect/reconnect sequence can never complete.
+    if (m_de1->simulationMode()) {
+        qDebug() << "[BleRefresher] Skipping refresh in simulation mode (no real BLE stack)";
+        // Restart periodic timer so it keeps scheduling (even though each attempt is a no-op)
+        if (m_periodicIntervalMs > 0) {
+            m_periodicTimer.start(m_periodicIntervalMs);
+        }
+        return;
+    }
+
     m_refreshInProgress = true;
     emit refreshingChanged();
     m_de1WasConnected = m_de1->isConnected();
@@ -123,11 +143,17 @@ void BleRefresher::executeRefresh() {
         }
     }, Qt::QueuedConnection);
 
+    m_refreshTimeout.start(REFRESH_TIMEOUT_MS);
     qDebug() << "[BleRefresher] Disconnecting DE1...";
     m_de1->disconnect();
 }
 
 void BleRefresher::onRefreshComplete() {
+    if (!m_refreshInProgress) {
+        return;  // Already completed (timeout + queued reconnect race)
+    }
+
+    m_refreshTimeout.stop();
     m_refreshInProgress = false;
     emit refreshingChanged();
     m_refreshPending = false;
