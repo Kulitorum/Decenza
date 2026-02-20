@@ -57,7 +57,6 @@ private slots:
 private:
     QNetworkAccessManager m_networkManager;
     bool m_submitting = false;
-    bool m_isAiReport = false;
     QString m_lastError;
 
     void setSubmitting(bool submitting);

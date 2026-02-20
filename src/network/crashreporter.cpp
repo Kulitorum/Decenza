@@ -29,7 +29,7 @@ QString CrashReporter::platform() const
 #elif defined(Q_OS_LINUX)
     return "linux";
 #else
-    return "linux";
+    return "linux";  // Server enum validation rejects "unknown"; "linux" is the safest fallback
 #endif
 }
 
@@ -58,7 +58,6 @@ void CrashReporter::submitReport(const QString& crashLog,
         return;
     }
 
-    m_isAiReport = false;
     setSubmitting(true);
     setLastError(QString());
 
@@ -86,6 +85,7 @@ void CrashReporter::submitReport(const QString& crashLog,
     QNetworkRequest request{QUrl(API_URL)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("User-Agent", QString("Decenza-DE1/%1").arg(VERSION_STRING).toUtf8());
+    request.setTransferTimeout(30000);  // 30s timeout for flaky mobile networks
 
     // Send POST request
     QNetworkReply* reply = m_networkManager.post(request, data);
@@ -105,7 +105,6 @@ void CrashReporter::submitAiReport(const QString& providerName,
         return;
     }
 
-    m_isAiReport = true;
     setSubmitting(true);
     setLastError(QString());
 
@@ -137,22 +136,30 @@ void CrashReporter::submitAiReport(const QString& providerName,
     QNetworkRequest request{QUrl(AI_REPORT_URL)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("User-Agent", QString("Decenza-DE1/%1").arg(VERSION_STRING).toUtf8());
+    request.setTransferTimeout(30000);  // 30s timeout for flaky mobile networks
 
     // Send POST request
     QNetworkReply* reply = m_networkManager.post(request, data);
+    reply->setProperty("isAiReport", true);
     connect(reply, &QNetworkReply::finished, this, &CrashReporter::onReplyFinished);
 }
 
 void CrashReporter::onReplyFinished()
 {
     QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
-    if (!reply) return;
+    if (!reply) {
+        qWarning() << "CrashReporter: onReplyFinished called with null reply";
+        setSubmitting(false);
+        QString error = "Internal error: no reply object";
+        setLastError(error);
+        emit failed(error);
+        return;
+    }
 
     reply->deleteLater();
     setSubmitting(false);
 
-    const bool wasAiReport = m_isAiReport;
-    m_isAiReport = false;
+    const bool wasAiReport = reply->property("isAiReport").toBool();
 
     if (reply->error() != QNetworkReply::NoError) {
         QString error = reply->errorString();
@@ -167,7 +174,22 @@ void CrashReporter::onReplyFinished()
 
     // Parse response
     QByteArray responseData = reply->readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(responseData);
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(responseData, &parseError);
+
+    if (parseError.error != QJsonParseError::NoError) {
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        QString error = QString("Invalid server response (HTTP %1): %2")
+                            .arg(statusCode).arg(parseError.errorString());
+        qWarning() << "CrashReporter:" << error;
+        setLastError(error);
+        if (wasAiReport)
+            emit aiReportFailed(error);
+        else
+            emit failed(error);
+        return;
+    }
+
     QJsonObject obj = doc.object();
 
     if (obj["success"].toBool()) {
