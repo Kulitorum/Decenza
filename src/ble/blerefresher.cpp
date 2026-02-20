@@ -138,7 +138,7 @@ void BleRefresher::executeRefresh() {
     // for a timeout timer. BLEManager's scan has a built-in 15s timeout.
     QObject::disconnect(m_scanConn);
     m_scanConn = connect(m_bleManager, &BLEManager::scanningChanged, this, [this]() {
-        if (!m_bleManager->scanning() && m_refreshInProgress && !m_de1->isConnected()) {
+        if (!m_bleManager->isScanning() && m_refreshInProgress && !m_de1->isConnected()) {
             qWarning() << "[BleRefresher] Scan finished without DE1 reconnecting, clearing overlay";
             QObject::disconnect(m_scanConn);
             QObject::disconnect(m_de1ConnConn);
