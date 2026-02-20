@@ -319,7 +319,7 @@ Page {
                     }
 
                     ColumnLayout {
-                        width: parent.width
+                        width: editorScrollView.width - Theme.scaled(14)
                         spacing: Theme.scaled(14)
 
                         // === Profile Temperature ===
@@ -357,6 +357,10 @@ Page {
                                     color: Theme.backgroundColor
                                     border.color: Theme.temperatureColor
                                     border.width: 1
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: "Edit temperature steps"
+                                    Accessible.focusable: true
+                                    Accessible.onPressAction: tempStepsArea.clicked(null)
 
                                     Text {
                                         id: tempStepsText
@@ -365,13 +369,12 @@ Page {
                                         font.family: Theme.captionFont.family
                                         font.pixelSize: Theme.captionFont.pixelSize
                                         color: Theme.temperatureColor
+                                        Accessible.ignored: true
                                     }
 
                                     MouseArea {
+                                        id: tempStepsArea
                                         anchors.fill: parent
-                                        Accessible.role: Accessible.Button
-                                        Accessible.name: "Edit temperature steps"
-                                        Accessible.focusable: true
                                         onClicked: tempStepsDialog.open()
                                     }
                                 }
@@ -416,8 +419,10 @@ Page {
                                     Rectangle {
                                         Layout.preferredWidth: tempPreinfuseLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(32)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
-                                        Text { id: tempPreinfuseLabel; anchors.centerIn: parent; text: stepTemp("tempStart").toFixed(1) + "/" + stepTemp("tempPreinfuse").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
-                                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit preinfuse temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
+                                        Accessible.role: Accessible.Button; Accessible.name: "Edit preinfuse temperature"; Accessible.focusable: true
+                                        Accessible.onPressAction: tempPreinfuseArea.clicked(null)
+                                        Text { id: tempPreinfuseLabel; anchors.centerIn: parent; text: stepTemp("tempStart").toFixed(1) + "/" + stepTemp("tempPreinfuse").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
+                                        MouseArea { id: tempPreinfuseArea; anchors.fill: parent; onClicked: tempStepsDialog.open() }
                                     }
                                 }
 
@@ -460,8 +465,10 @@ Page {
                                     Rectangle {
                                         Layout.preferredWidth: tempHoldLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(32)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
-                                        Text { id: tempHoldLabel; anchors.centerIn: parent; text: stepTemp("tempHold").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
-                                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit hold temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
+                                        Accessible.role: Accessible.Button; Accessible.name: "Edit hold temperature"; Accessible.focusable: true
+                                        Accessible.onPressAction: tempHoldArea.clicked(null)
+                                        Text { id: tempHoldLabel; anchors.centerIn: parent; text: stepTemp("tempHold").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
+                                        MouseArea { id: tempHoldArea; anchors.fill: parent; onClicked: tempStepsDialog.open() }
                                     }
                                 }
 
@@ -522,8 +529,10 @@ Page {
                                     Rectangle {
                                         Layout.preferredWidth: tempDeclineLabel.implicitWidth + Theme.scaled(12); Layout.preferredHeight: Theme.scaled(32)
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
-                                        Text { id: tempDeclineLabel; anchors.centerIn: parent; text: stepTemp("tempDecline").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor }
-                                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Edit decline temperature"; Accessible.focusable: true; onClicked: tempStepsDialog.open() }
+                                        Accessible.role: Accessible.Button; Accessible.name: "Edit decline temperature"; Accessible.focusable: true
+                                        Accessible.onPressAction: tempDeclineArea.clicked(null)
+                                        Text { id: tempDeclineLabel; anchors.centerIn: parent; text: stepTemp("tempDecline").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
+                                        MouseArea { id: tempDeclineArea; anchors.fill: parent; onClicked: tempStepsDialog.open() }
                                     }
                                 }
 
@@ -700,18 +709,21 @@ Page {
                     radius: Theme.scaled(16)
                     color: tempCloseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Close temperature steps"
+                    Accessible.focusable: true
+                    Accessible.onPressAction: tempCloseArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "\u2715"
                         font.pixelSize: Theme.scaled(16)
                         color: Theme.textSecondaryColor
+                        Accessible.ignored: true
                     }
                     MouseArea {
                         id: tempCloseArea
                         anchors.fill: parent
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Close temperature steps"
-                        Accessible.focusable: true
                         onClicked: tempStepsDialog.close()
                     }
                 }

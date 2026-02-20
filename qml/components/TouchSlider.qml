@@ -56,6 +56,7 @@ Item {
             Accessible.name: TranslationManager.translate("touchslider.button.decrease", "Decrease") +
                              (root.accessibleName ? " " + root.accessibleName : "")
             Accessible.focusable: true
+            Accessible.onPressAction: minusTapHandler.tapped()
 
             Text {
                 anchors.centerIn: parent
@@ -63,6 +64,7 @@ Item {
                 font.pixelSize: Theme.scaled(24)
                 font.bold: true
                 color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
+                Accessible.ignored: true
             }
 
             // Using TapHandler for better touch responsiveness
@@ -184,6 +186,7 @@ Item {
             Accessible.name: TranslationManager.translate("touchslider.button.increase", "Increase") +
                              (root.accessibleName ? " " + root.accessibleName : "")
             Accessible.focusable: true
+            Accessible.onPressAction: plusTapHandler.tapped()
 
             Text {
                 anchors.centerIn: parent
@@ -191,6 +194,7 @@ Item {
                 font.pixelSize: Theme.scaled(24)
                 font.bold: true
                 color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
+                Accessible.ignored: true
             }
 
             // Using TapHandler for better touch responsiveness

@@ -75,6 +75,11 @@ Dialog {
                 color: moreInfoMouseArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) :
                        moreInfoMouseArea.containsMouse ? Theme.primaryColor : Qt.lighter(Theme.primaryColor, 1.1)
 
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("profilepreview.moreInfo", "More Info")
+                Accessible.focusable: true
+                Accessible.onPressAction: moreInfoMouseArea.clicked(null)
+
                 Text {
                     id: moreInfoText
                     anchors.centerIn: parent
@@ -82,6 +87,7 @@ Dialog {
                     font.pixelSize: Theme.scaled(13)
                     font.bold: true
                     color: "white"
+                    Accessible.ignored: true
                 }
 
                 MouseArea {
@@ -97,9 +103,6 @@ Dialog {
                         })
                     }
                 }
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("profilepreview.moreInfo", "More Info")
             }
 
             // Close button
@@ -115,12 +118,14 @@ Dialog {
                 Accessible.role: Accessible.Button
                 Accessible.name: "Close preview"
                 Accessible.focusable: true
+                Accessible.onPressAction: closeMouseArea.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
                     text: "✕"
                     font.pixelSize: Theme.scaled(20)
                     color: Theme.textSecondaryColor
+                    Accessible.ignored: true
                 }
 
                 MouseArea {

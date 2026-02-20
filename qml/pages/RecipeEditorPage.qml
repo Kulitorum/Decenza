@@ -328,7 +328,7 @@ Page {
 
                     ColumnLayout {
                         id: sectionsColumn
-                        width: parent.width
+                        width: recipeScrollView.width - Theme.scaled(14)
                         spacing: Theme.scaled(18)
 
                         // === Core Settings ===

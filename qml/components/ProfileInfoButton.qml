@@ -32,6 +32,12 @@ Item {
         Behavior on color { ColorAnimation { duration: 100 } }
         Behavior on border.color { ColorAnimation { duration: 100 } }
 
+        Accessible.role: Accessible.Button
+        Accessible.name: TranslationManager.translate("profileinfo.button.accessible",
+            "Profile info for") + " " + (root.profileName || root.profileFilename)
+        Accessible.focusable: true
+        Accessible.onPressAction: mouseArea.clicked(null)
+
         Text {
             anchors.centerIn: parent
             text: "i"
@@ -40,6 +46,7 @@ Item {
             font.italic: true
             font.family: "serif"
             color: Theme.primaryColor
+            Accessible.ignored: true
         }
 
         MouseArea {
@@ -50,12 +57,6 @@ Item {
 
             onClicked: root.clicked()
         }
-
-        // Accessibility
-        Accessible.role: Accessible.Button
-        Accessible.name: TranslationManager.translate("profileinfo.button.accessible",
-            "Profile info for") + " " + (root.profileName || root.profileFilename)
-        Accessible.focusable: true
     }
 
     // Focus indicator

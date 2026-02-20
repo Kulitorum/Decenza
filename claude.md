@@ -291,6 +291,9 @@ KeyboardAwareContainer {
 
 Common mistakes:
 - **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton` or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
+- **Accessibility on MouseArea instead of Rectangle**: Never put `Accessible.role`/`name`/`focusable` on the MouseArea child — put them on the parent Rectangle. MouseArea should only have an `id` so the Rectangle's `Accessible.onPressAction` can route to it. This is a recurring bug that is easy to miss in review.
+- **Missing `Accessible.onPressAction`**: Every Rectangle+MouseArea button **must** have `Accessible.onPressAction: mouseAreaId.clicked(null)` (or `.tapped()` for TapHandler). Without it, TalkBack/VoiceOver double-tap does nothing. This applies even when the other three properties (`role`, `name`, `focusable`) are present.
+- **Child Text inside accessible button missing `Accessible.ignored: true`**: When a Rectangle has `Accessible.name`, all child Text elements must set `Accessible.ignored: true`. Otherwise TalkBack announces the button name AND the text content, doubling the announcement.
 - **Text input missing `Accessible.description: text`**: Field sounds "Empty" even when it contains text. `StyledTextField` and `SuggestionField` set this automatically. Note: `Accessible.value` does not exist in Qt QML — use `Accessible.description` instead.
 - **ComboBox `Accessible.name` set to `displayText`**: Announces the selected value instead of the field label. Override with the label text.
 - **List row with no accessibility**: Only child elements (e.g. CheckBox) are discoverable; the row itself and its primary action are invisible.

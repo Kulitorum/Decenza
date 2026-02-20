@@ -103,6 +103,7 @@ FocusScope {
                     Accessible.role: Accessible.Button
                     Accessible.name: modelData + "%"
                     Accessible.focusable: true
+                    Accessible.onPressAction: ratingArea.clicked(null)
 
                     Text {
                         anchors.centerIn: parent
@@ -110,9 +111,11 @@ FocusScope {
                         font.pixelSize: Theme.scaled(root.compact ? 10 : 12)
                         font.bold: true
                         color: presetPill.isActive ? "#ffffff" : ratingColor(modelData)
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
+                        id: ratingArea
                         anchors.fill: parent
                         onClicked: {
                             root.value = modelData

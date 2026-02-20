@@ -593,7 +593,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.temperatureColor
                     accessibleName: TranslationManager.translate("profileEditor.preheatTankAccessible", "Preheat water tank temperature")
                     from: 0; to: 45; stepSize: 1
-                    value: profile ? (profile.tank_desired_water_temperature || 0) : 0
+                    value: { stepVersion; return profile ? (profile.tank_desired_water_temperature || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.tank_desired_water_temperature = Math.round(newValue)
@@ -612,7 +612,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160)
                     accessibleName: TranslationManager.translate("profileEditor.preinfusionEndsAccessible", "Preinfusion ends after step")
                     from: 0; to: profile ? profile.steps.length : 0; stepSize: 1
-                    value: profile ? (profile.preinfuse_frame_count || 0) : 0
+                    value: { stepVersion; return profile ? (profile.preinfuse_frame_count || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.preinfuse_frame_count = Math.round(newValue)
@@ -631,7 +631,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.afterPreinfusionStopAccessible", "After preinfusion, stop the shot at volume")
                     from: 0; to: 500; stepSize: 1
-                    value: profile ? (profile.target_volume || 0) : 0
+                    value: { stepVersion; return profile ? (profile.target_volume || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.target_volume = Math.round(newValue)
@@ -654,7 +654,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.weightColor
                     accessibleName: TranslationManager.translate("profileEditor.stopAtWeightAccessible", "Stop at weight")
                     from: 0; to: 100; stepSize: 0.5
-                    value: profile ? (profile.target_weight || 0) : 0
+                    value: { stepVersion; return profile ? (profile.target_weight || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.target_weight = Math.round(newValue * 2) / 2
@@ -677,7 +677,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.limitFlowRangeAccessible", "Limit flow range for pressure steps")
                     from: 0; to: 8; stepSize: 0.1
-                    value: profile ? (profile.maximum_flow_range_advanced || 0.6) : 0.6
+                    value: { stepVersion; return profile ? (profile.maximum_flow_range_advanced || 0.6) : 0.6 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             var newRange = Math.round(newValue * 10) / 10
@@ -698,7 +698,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.pressureColor
                     accessibleName: TranslationManager.translate("profileEditor.limitPressureRangeAccessible", "Limit pressure range for flow steps")
                     from: 0; to: 8; stepSize: 0.1
-                    value: profile ? (profile.maximum_pressure_range_advanced || 0.6) : 0.6
+                    value: { stepVersion; return profile ? (profile.maximum_pressure_range_advanced || 0.6) : 0.6 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             var newRange = Math.round(newValue * 10) / 10
@@ -972,7 +972,7 @@ Page {
                    profile.steps[selectedStepIndex] : null
 
             ColumnLayout {
-                width: stepEditorScroll.width - Theme.scaled(10)
+                width: stepEditorScroll.width - Theme.scaled(24)
                 spacing: Theme.scaled(4)
 
                 // Frame name
@@ -1018,16 +1018,20 @@ Page {
                         radius: Theme.scaled(6)
                         color: step && step.sensor !== "water" ? Theme.temperatureColor : Theme.backgroundColor
                         border.width: step && step.sensor !== "water" ? 0 : 1; border.color: Theme.borderColor
-                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.coffee", "Coffee"); font: Theme.captionFont; color: step && step.sensor !== "water" ? "white" : Theme.textSecondaryColor }
-                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Sensor: Coffee"; Accessible.focusable: true; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].sensor = "coffee"; uploadProfile() } } }
+                        Accessible.role: Accessible.Button; Accessible.name: "Sensor: Coffee"; Accessible.focusable: true
+                        Accessible.onPressAction: sensorCoffeeArea.clicked(null)
+                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.coffee", "Coffee"); font: Theme.captionFont; color: step && step.sensor !== "water" ? "white" : Theme.textSecondaryColor; Accessible.ignored: true }
+                        MouseArea { id: sensorCoffeeArea; anchors.fill: parent; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].sensor = "coffee"; uploadProfile() } } }
                     }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
                         color: step && step.sensor === "water" ? Theme.flowColor : Theme.backgroundColor
                         border.width: step && step.sensor === "water" ? 0 : 1; border.color: Theme.borderColor
-                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.water", "Water"); font: Theme.captionFont; color: step && step.sensor === "water" ? "white" : Theme.textSecondaryColor }
-                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Sensor: Water"; Accessible.focusable: true; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].sensor = "water"; uploadProfile() } } }
+                        Accessible.role: Accessible.Button; Accessible.name: "Sensor: Water"; Accessible.focusable: true
+                        Accessible.onPressAction: sensorWaterArea.clicked(null)
+                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.water", "Water"); font: Theme.captionFont; color: step && step.sensor === "water" ? "white" : Theme.textSecondaryColor; Accessible.ignored: true }
+                        MouseArea { id: sensorWaterArea; anchors.fill: parent; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].sensor = "water"; uploadProfile() } } }
                     }
                 }
 
@@ -1050,37 +1054,41 @@ Page {
                         radius: Theme.scaled(6)
                         color: step && step.pump === "pressure" ? Theme.pressureColor : Theme.backgroundColor
                         border.width: step && step.pump === "pressure" ? 0 : 1; border.color: Theme.borderColor
-                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.pressure", "Pressure"); font: Theme.captionFont; color: step && step.pump === "pressure" ? "white" : Theme.textSecondaryColor }
-                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Goal: Pressure"; Accessible.focusable: true; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].pump = "pressure"; uploadProfile() } } }
+                        Accessible.role: Accessible.Button; Accessible.name: "Goal: Pressure"; Accessible.focusable: true
+                        Accessible.onPressAction: goalPressureArea.clicked(null)
+                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.pressure", "Pressure"); font: Theme.captionFont; color: step && step.pump === "pressure" ? "white" : Theme.textSecondaryColor; Accessible.ignored: true }
+                        MouseArea { id: goalPressureArea; anchors.fill: parent; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].pump = "pressure"; uploadProfile() } } }
                     }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
                         color: step && step.pump === "flow" ? Theme.flowColor : Theme.backgroundColor
                         border.width: step && step.pump === "flow" ? 0 : 1; border.color: Theme.borderColor
-                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.flow", "Flow"); font: Theme.captionFont; color: step && step.pump === "flow" ? "white" : Theme.textSecondaryColor }
-                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Goal: Flow"; Accessible.focusable: true; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].pump = "flow"; uploadProfile() } } }
+                        Accessible.role: Accessible.Button; Accessible.name: "Goal: Flow"; Accessible.focusable: true
+                        Accessible.onPressAction: goalFlowArea.clicked(null)
+                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.flow", "Flow"); font: Theme.captionFont; color: step && step.pump === "flow" ? "white" : Theme.textSecondaryColor; Accessible.ignored: true }
+                        MouseArea { id: goalFlowArea; anchors.fill: parent; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].pump = "flow"; uploadProfile() } } }
                     }
                 }
 
-                // Pressure goal (only visible when pump=pressure)
+                // Pressure/Flow goal (switches based on pump mode)
                 ValueInput {
-                    Layout.fillWidth: true; valueColor: Theme.pressureColor
-                    visible: step && step.pump === "pressure"
-                    accessibleName: "Pressure goal"
-                    from: 0; to: 12; stepSize: 0.1
-                    value: { var v = stepVersion; return step ? step.pressure : 0 }
-                    onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].pressure = Math.round(newValue * 10) / 10; uploadProfile() } }
-                }
-
-                // Flow goal (only visible when pump=flow)
-                ValueInput {
-                    Layout.fillWidth: true; valueColor: Theme.flowColor
-                    visible: step && step.pump === "flow"
-                    accessibleName: "Flow goal"
-                    from: 0; to: 8; stepSize: 0.1
-                    value: { var v = stepVersion; return step ? step.flow : 0 }
-                    onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].flow = Math.round(newValue * 10) / 10; uploadProfile() } }
+                    Layout.fillWidth: true
+                    valueColor: step && step.pump === "flow" ? Theme.flowColor : Theme.pressureColor
+                    accessibleName: step && step.pump === "flow" ? "Flow goal" : "Pressure goal"
+                    from: 0; to: step && step.pump === "flow" ? 8 : 12; stepSize: 0.1
+                    value: { var v = stepVersion; return step ? (step.pump === "flow" ? step.flow : step.pressure) : 0 }
+                    onValueModified: function(newValue) {
+                        if (profile && selectedStepIndex >= 0) {
+                            var val = Math.round(newValue * 10) / 10
+                            if (profile.steps[selectedStepIndex].pump === "flow") {
+                                profile.steps[selectedStepIndex].flow = val
+                            } else {
+                                profile.steps[selectedStepIndex].pressure = val
+                            }
+                            uploadProfile()
+                        }
+                    }
                 }
 
                 // Transition toggle
@@ -1093,16 +1101,20 @@ Page {
                         radius: Theme.scaled(6)
                         color: step && step.transition !== "smooth" ? Theme.primaryColor : Theme.backgroundColor
                         border.width: step && step.transition !== "smooth" ? 0 : 1; border.color: Theme.borderColor
-                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.fast", "Fast"); font: Theme.captionFont; color: step && step.transition !== "smooth" ? "white" : Theme.textSecondaryColor }
-                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Transition: Fast"; Accessible.focusable: true; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].transition = "fast"; uploadProfile() } } }
+                        Accessible.role: Accessible.Button; Accessible.name: "Transition: Fast"; Accessible.focusable: true
+                        Accessible.onPressAction: transitionFastArea.clicked(null)
+                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.fast", "Fast"); font: Theme.captionFont; color: step && step.transition !== "smooth" ? "white" : Theme.textSecondaryColor; Accessible.ignored: true }
+                        MouseArea { id: transitionFastArea; anchors.fill: parent; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].transition = "fast"; uploadProfile() } } }
                     }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
                         color: step && step.transition === "smooth" ? Theme.primaryColor : Theme.backgroundColor
                         border.width: step && step.transition === "smooth" ? 0 : 1; border.color: Theme.borderColor
-                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.smooth", "Smooth"); font: Theme.captionFont; color: step && step.transition === "smooth" ? "white" : Theme.textSecondaryColor }
-                        MouseArea { anchors.fill: parent; Accessible.role: Accessible.Button; Accessible.name: "Transition: Smooth"; Accessible.focusable: true; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].transition = "smooth"; uploadProfile() } } }
+                        Accessible.role: Accessible.Button; Accessible.name: "Transition: Smooth"; Accessible.focusable: true
+                        Accessible.onPressAction: transitionSmoothArea.clicked(null)
+                        Text { anchors.centerIn: parent; text: TranslationManager.translate("profileEditor.smooth", "Smooth"); font: Theme.captionFont; color: step && step.transition === "smooth" ? "white" : Theme.textSecondaryColor; Accessible.ignored: true }
+                        MouseArea { id: transitionSmoothArea; anchors.fill: parent; onClicked: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].transition = "smooth"; uploadProfile() } } }
                     }
                 }
 

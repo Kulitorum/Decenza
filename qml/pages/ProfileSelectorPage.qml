@@ -871,6 +871,8 @@ Page {
                     color: typeMouseArea.containsMouse ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : Theme.backgroundColor
                     Accessible.role: Accessible.Button
                     Accessible.name: modelData.label
+                    Accessible.focusable: true
+                    Accessible.onPressAction: typeMouseArea.clicked(null)
 
                     Text {
                         anchors.fill: parent
@@ -879,6 +881,7 @@ Page {
                         color: Theme.textColor
                         font: Theme.bodyFont
                         verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
                     }
 
                     MouseArea {

@@ -125,6 +125,7 @@ Item {
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("valueinput.button.decrease", "Decrease")
                 Accessible.focusable: true
+                Accessible.onPressAction: minusArea.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
@@ -132,6 +133,7 @@ Item {
                     font.pixelSize: sc(16)
                     font.bold: true
                     color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
+                    Accessible.ignored: true
                 }
 
                 MouseArea {
@@ -388,6 +390,7 @@ Item {
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("valueinput.button.increase", "Increase")
                 Accessible.focusable: true
+                Accessible.onPressAction: plusArea.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
@@ -395,6 +398,7 @@ Item {
                     font.pixelSize: sc(16)
                     font.bold: true
                     color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
+                    Accessible.ignored: true
                 }
 
                 MouseArea {
@@ -482,6 +486,7 @@ Item {
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("valueinput.button.decrease", "Decrease")
                         Accessible.focusable: true
+                        Accessible.onPressAction: popupMinusArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
@@ -489,6 +494,7 @@ Item {
                             font.pixelSize: sc(32)
                             font.bold: true
                             color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
@@ -717,6 +723,7 @@ Item {
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("valueinput.button.increase", "Increase")
                         Accessible.focusable: true
+                        Accessible.onPressAction: popupPlusArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
@@ -724,6 +731,7 @@ Item {
                             font.pixelSize: sc(32)
                             font.bold: true
                             color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
