@@ -24,18 +24,6 @@ Dialog {
     property string issueUrl: ""
     property string errorMessage: ""
 
-    // Format the AI report as crash_log for the existing crash-report endpoint
-    function buildCrashLog() {
-        var body = "[AI Report] Bad advice from " + root.providerName + " / " + root.modelName
-        if (root.contextLabel.length > 0)
-            body += "\nContext: " + root.contextLabel
-        body += "\n\n--- System Prompt ---\n" + root.systemPrompt
-        body += "\n\n--- Conversation Transcript ---\n" + root.conversationTranscript
-        if (root.shotDebugLog.length > 0)
-            body += "\n\n--- Shot Debug Log ---\n" + root.shotDebugLog
-        return body
-    }
-
     function submitReport() {
         if (CrashReporter.submitting) {
             root.errorMessage = TranslationManager.translate("aiReport.alreadySubmitting",
@@ -44,7 +32,11 @@ Dialog {
             return
         }
         root.dialogState = "submitting"
-        CrashReporter.submitReport(buildCrashLog(), userNotesInput.text)
+        CrashReporter.submitAiReport(
+            root.providerName, root.modelName, root.contextLabel,
+            root.systemPrompt, root.conversationTranscript,
+            root.shotDebugLog, userNotesInput.text
+        )
     }
 
     onOpened: {
@@ -56,13 +48,13 @@ Dialog {
 
     Connections {
         target: CrashReporter
-        function onSubmitted(url) {
+        function onAiReportSubmitted(url) {
             if (root.dialogState === "submitting") {
                 root.issueUrl = url
                 root.dialogState = "success"
             }
         }
-        function onFailed(error) {
+        function onAiReportFailed(error) {
             if (root.dialogState === "submitting") {
                 root.errorMessage = error
                 root.dialogState = "error"
