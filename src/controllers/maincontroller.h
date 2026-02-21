@@ -240,6 +240,8 @@ public slots:
     // Clear crash log file (called from QML after user dismisses crash report dialog)
     Q_INVOKABLE void clearCrashLog();
 
+    Q_INVOKABLE void factoryResetAndQuit();
+
 signals:
     void currentProfileChanged();
     void profileModifiedChanged();

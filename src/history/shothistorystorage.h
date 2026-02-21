@@ -197,6 +197,9 @@ public:
     // Get database path
     QString databasePath() const { return m_dbPath; }
 
+    // Close the database (for factory reset before file deletion)
+    void close();
+
     // Checkpoint WAL to main database file
     void checkpoint();
 

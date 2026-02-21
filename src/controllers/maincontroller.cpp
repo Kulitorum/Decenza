@@ -31,6 +31,10 @@
 #include <QVariantMap>
 #include <QRandomGenerator>
 #include <algorithm>
+#include <QCoreApplication>
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
 
 #ifndef Q_OS_WIN
 #include <dlfcn.h>   // For dladdr() to resolve caller symbols
@@ -2821,6 +2825,31 @@ void MainController::clearCrashLog() {
         QFile::remove(path);
         qDebug() << "MainController: Cleared crash log at" << path;
     }
+}
+
+void MainController::factoryResetAndQuit()
+{
+    qWarning() << "MainController::factoryResetAndQuit() - Starting factory reset";
+
+    // 1. Close the shot database so files can be deleted
+    if (m_shotHistory) {
+        m_shotHistory->close();
+    }
+
+    // 2. Wipe all data
+    m_settings->factoryReset();
+
+    // 3. Platform-specific exit
+#ifdef Q_OS_ANDROID
+    // Launch system uninstall dialog
+    QJniObject::callStaticMethod<void>(
+        "io/github/kulitorum/decenza_de1/StorageHelper",
+        "requestUninstall",
+        "()V");
+#endif
+
+    // 4. Quit the app
+    QCoreApplication::quit();
 }
 
 void MainController::onShotSampleReceived(const ShotSample& sample) {

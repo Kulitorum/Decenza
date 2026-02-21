@@ -29,6 +29,11 @@ ShotHistoryStorage::ShotHistoryStorage(QObject* parent)
 
 ShotHistoryStorage::~ShotHistoryStorage()
 {
+    close();
+}
+
+void ShotHistoryStorage::close()
+{
     if (m_db.isOpen()) {
         m_db.close();
     }
