@@ -1364,6 +1364,10 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         </div>
 
         <div class="info-grid">
+            <div class="info-card" style="grid-column:1/-1;">
+                <h3>Notes</h3>
+                <p class="notes-text">%14</p>
+            </div>
             <div class="info-card">
                 <h3>Beans (%13)</h3>
                 <div class="info-row">
@@ -1393,10 +1397,6 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                     <span class="label">Setting</span>
                     <span class="value">%13</span>
                 </div>
-            </div>
-            <div class="info-card">
-                <h3>Notes</h3>
-                <p class="notes-text">%14</p>
             </div>
         </div>
 
