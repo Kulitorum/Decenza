@@ -56,7 +56,6 @@ Page {
     property bool _hasRoastDate: !!(shotData.roastDate && shotData.roastDate !== "")
     property bool _hasRoastLevel: !!(shotData.roastLevel && shotData.roastLevel !== "")
     property bool _hasBeanCardData: _hasBean || _hasRoastDate || _hasRoastLevel
-    property bool _hasGrinderCardData: _hasGrinder
 
     ScrollView {
         anchors.left: parent.left
@@ -392,38 +391,25 @@ Page {
                 Repeater {
                     model: _notes
 
-                    Rectangle {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: noteColumn.height + Theme.spacingMedium
-                        color: Theme.surfaceColor
-                        radius: Theme.cardRadius
+                        spacing: Theme.scaled(2)
 
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: modelData.dateTime + ": " + modelData.text
+                        Text {
+                            text: modelData.dateTime || ""
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
 
-                        ColumnLayout {
-                            id: noteColumn
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: Theme.spacingSmall
-                            spacing: Theme.scaled(2)
-
-                            Text {
-                                text: modelData.dateTime || ""
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-
-                            Text {
-                                text: modelData.text || ""
-                                font: Theme.bodyFont
-                                color: Theme.textColor
-                                wrapMode: Text.Wrap
-                                Layout.fillWidth: true
-                                Accessible.ignored: true
-                            }
+                        ExpandableTextArea {
+                            Layout.fillWidth: true
+                            inlineHeight: Theme.scaled(100)
+                            text: modelData.text || ""
+                            accessibleName: TranslationManager.translate("shotdetail.notes", "Notes") +
+                                " " + (modelData.dateTime || "")
+                            textFont: Theme.bodyFont
+                            readOnly: true
                         }
                     }
                 }
@@ -471,46 +457,6 @@ Page {
 
                         Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: _hasRoastLevel }
                         Text { text: shotData.roastLevel || ""; font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastLevel }
-                    }
-                }
-            }
-
-            // Grinder info card
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
-                color: Theme.surfaceColor
-                radius: Theme.cardRadius
-                visible: _hasGrinderCardData
-                Accessible.role: Accessible.Grouping
-                Accessible.name: TranslationManager.translate("shotdetail.grinder", "Grinder")
-
-                ColumnLayout {
-                    id: grinderColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
-
-                    Tr {
-                        key: "shotdetail.grinder"
-                        fallback: "Grinder"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
-                    }
-
-                    GridLayout {
-                        columns: 2
-                        columnSpacing: Theme.spacingLarge
-                        rowSpacing: Theme.spacingSmall
-                        Layout.fillWidth: true
-
-                        Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderModel !== "" }
-                        Text { text: grinderModel; font: Theme.labelFont; color: Theme.textColor; visible: grinderModel !== "" }
-
-                        Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderSetting !== "" }
-                        Text { text: grinderSetting; font: Theme.labelFont; color: Theme.textColor; visible: grinderSetting !== "" }
                     }
                 }
             }
