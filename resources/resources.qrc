@@ -53,6 +53,7 @@
         <file>icons/Graph.svg</file>
         <file>icons/ArrowLeft.svg</file>
         <file>icons/Upload.svg</file>
+        <file>icons/list.svg</file>
         <file>icons/plus.svg</file>
         <file>icons/download.svg</file>
         <!-- GHC Simulator -->

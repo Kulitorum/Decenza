@@ -367,8 +367,8 @@ Item {
 
         // Right column: Library panel
         LibraryPanel {
-            Layout.preferredWidth: Theme.scaled(260)
-            Layout.minimumWidth: Theme.scaled(200)
+            Layout.preferredWidth: Theme.scaled(320)
+            Layout.minimumWidth: Theme.scaled(280)
             Layout.fillHeight: true
 
             selectedItemId: layoutTab.selectedItemId

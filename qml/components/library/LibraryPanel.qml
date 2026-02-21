@@ -107,11 +107,12 @@ Rectangle {
                 border.color: displayMode === 1 ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
 
-                Text {
+                Image {
                     anchors.centerIn: parent
-                    text: "\u2630"  // List icon
-                    color: displayMode === 1 ? "white" : Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(14)
+                    source: "qrc:/icons/list.svg"
+                    sourceSize.width: Theme.scaled(14)
+                    sourceSize.height: Theme.scaled(14)
+                    opacity: displayMode === 1 ? 1.0 : 0.4
                 }
 
                 MouseArea {

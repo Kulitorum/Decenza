@@ -16,7 +16,7 @@ Rectangle {
     property bool livePreview: false  // When true, always render live (for thumbnail capture)
 
     width: parent ? parent.width : 100
-    visible: !(displayMode === 1 && entryType !== "item")
+    visible: !(displayMode === 1 && entryType !== "item" && entryType !== "theme")
 
     height: {
         if (displayMode === 1) {
@@ -39,6 +39,11 @@ Rectangle {
         }
         if (entryType === "layout") {
             return Theme.scaled(160)
+        }
+        if (entryType === "theme") {
+            // 3:2 aspect ratio matching thumbnail (300x200)
+            var tw = (width > 0 ? width : 100) - Theme.scaled(8)
+            return tw * 2 / 3 + Theme.scaled(8)
         }
         return Theme.scaled(44)
     }
@@ -102,6 +107,13 @@ Rectangle {
         var d = entryData.data || {}
         return d.zoneName || ""
     }
+    // Theme name for theme entries
+    readonly property string entryThemeName: {
+        var d = entryData.data || {}
+        var t = d.theme || {}
+        return t.name || ""
+    }
+
     readonly property bool isBarZone: entryZoneName.startsWith("top") ||
                                        entryZoneName.startsWith("bottom") ||
                                        entryZoneName === "statusBar"
@@ -231,6 +243,7 @@ Rectangle {
             case "item": return Theme.primaryColor
             case "zone": return Theme.accentColor
             case "layout": return Theme.successColor
+            case "theme": return Theme.warningColor
             default: return Theme.textSecondaryColor
         }
     }
@@ -276,7 +289,7 @@ Rectangle {
             }
         }
 
-        // Server thumbnail (community entries)
+        // Thumbnail image (server or local)
         Image {
             visible: hasThumbnail
             anchors.fill: parent
@@ -285,6 +298,30 @@ Rectangle {
             asynchronous: true
             sourceSize.width: width * Screen.devicePixelRatio
             sourceSize.height: height * Screen.devicePixelRatio
+        }
+
+        // Theme name overlay (bottom of thumbnail)
+        Rectangle {
+            visible: entryType === "theme" && entryThemeName !== ""
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: themeNameText.implicitHeight + Theme.scaled(6)
+            color: Qt.rgba(0, 0, 0, 0.6)
+            z: 1
+
+            Text {
+                id: themeNameText
+                anchors.centerIn: parent
+                width: parent.width - Theme.scaled(8)
+                text: entryThemeName
+                color: "white"
+                font.family: Theme.captionFont.family
+                font.pixelSize: Theme.scaled(10)
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+            }
         }
 
         // Item preview — only instantiated when needed (no thumbnail, or livePreview for capture)
@@ -535,11 +572,21 @@ Rectangle {
             }
         }
 
+        // Compact thumbnail for themes
+        Image {
+            visible: entryType === "theme" && hasThumbnail
+            Layout.preferredWidth: Theme.scaled(40)
+            Layout.preferredHeight: Theme.scaled(27)
+            source: hasThumbnail ? thumbnailUrl : ""
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+        }
+
         // Content preview
         Text {
             Layout.fillWidth: true
             text: {
-                if (hasThumbnail) return entryType
+                if (entryType === "theme") return entryThemeName || "Theme"
                 if (entryType === "zone") return entryZoneItems.length + " items"
                 return "Layout"
             }
