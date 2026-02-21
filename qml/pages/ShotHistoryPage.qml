@@ -208,6 +208,7 @@ Page {
             MainController.shotHistory.deleteShot(toDelete[i])
         }
         clearSelection()
+        loadShots()
     }
 
     // Get the list of shot IDs for navigation (selected shots or all loaded shots)
@@ -751,6 +752,7 @@ Page {
 
     Dialog {
         id: bulkDeleteConfirmDialog
+        parent: Overlay.overlay
         anchors.centerIn: parent
         width: Theme.scaled(360)
         modal: true
@@ -771,6 +773,7 @@ Page {
                 text: TranslationManager.translate("shothistory.deleteconfirmtitle", "Delete Shots?")
                 font: Theme.titleFont
                 color: Theme.textColor
+                Accessible.ignored: true
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.scaled(20)
                 Layout.leftMargin: Theme.scaled(20)
@@ -779,10 +782,11 @@ Page {
 
             // Message
             Text {
-                text: "Permanently delete " + selectedShots.length + " shot(s) from history?"
+                text: TranslationManager.translate("shothistory.deleteconfirmmessage", "Permanently delete %1 shot(s) from history?").arg(selectedShots.length)
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
+                Accessible.ignored: true
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.scaled(10)
                 Layout.leftMargin: Theme.scaled(20)
