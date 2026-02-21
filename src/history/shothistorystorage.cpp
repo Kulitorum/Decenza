@@ -670,6 +670,16 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.roastLevel = filterMap.value("roastLevel").toString();
     filter.minEnjoyment = filterMap.value("minEnjoyment", 0).toInt();
     filter.maxEnjoyment = filterMap.value("maxEnjoyment", 100).toInt();
+    filter.minDose = filterMap.value("minDose", -1).toDouble();
+    filter.maxDose = filterMap.value("maxDose", -1).toDouble();
+    filter.minYield = filterMap.value("minYield", -1).toDouble();
+    filter.maxYield = filterMap.value("maxYield", -1).toDouble();
+    filter.minDuration = filterMap.value("minDuration", -1).toDouble();
+    filter.maxDuration = filterMap.value("maxDuration", -1).toDouble();
+    filter.minTds = filterMap.value("minTds", -1).toDouble();
+    filter.maxTds = filterMap.value("maxTds", -1).toDouble();
+    filter.minEy = filterMap.value("minEy", -1).toDouble();
+    filter.maxEy = filterMap.value("maxEy", -1).toDouble();
     filter.dateFrom = filterMap.value("dateFrom", 0).toLongLong();
     filter.dateTo = filterMap.value("dateTo", 0).toLongLong();
     filter.searchText = filterMap.value("searchText").toString();
@@ -713,6 +723,16 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
         conditions << "enjoyment <= ?";
         bindValues << filter.maxEnjoyment;
     }
+    if (filter.minDose >= 0) { conditions << "dose_weight >= ?"; bindValues << filter.minDose; }
+    if (filter.maxDose >= 0) { conditions << "dose_weight <= ?"; bindValues << filter.maxDose; }
+    if (filter.minYield >= 0) { conditions << "final_weight >= ?"; bindValues << filter.minYield; }
+    if (filter.maxYield >= 0) { conditions << "final_weight <= ?"; bindValues << filter.maxYield; }
+    if (filter.minDuration >= 0) { conditions << "duration_seconds >= ?"; bindValues << filter.minDuration; }
+    if (filter.maxDuration >= 0) { conditions << "duration_seconds <= ?"; bindValues << filter.maxDuration; }
+    if (filter.minTds >= 0) { conditions << "drink_tds >= ?"; bindValues << filter.minTds; }
+    if (filter.maxTds >= 0) { conditions << "drink_tds <= ?"; bindValues << filter.maxTds; }
+    if (filter.minEy >= 0) { conditions << "drink_ey >= ?"; bindValues << filter.minEy; }
+    if (filter.maxEy >= 0) { conditions << "drink_ey <= ?"; bindValues << filter.maxEy; }
     if (filter.dateFrom > 0) {
         conditions << "timestamp >= ?";
         bindValues << filter.dateFrom;

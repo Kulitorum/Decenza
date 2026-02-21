@@ -92,6 +92,16 @@ struct ShotFilter {
     QString roastLevel;
     int minEnjoyment = 0;
     int maxEnjoyment = 100;
+    double minDose = -1;
+    double maxDose = -1;
+    double minYield = -1;
+    double maxYield = -1;
+    double minDuration = -1;
+    double maxDuration = -1;
+    double minTds = -1;
+    double maxTds = -1;
+    double minEy = -1;
+    double maxEy = -1;
     qint64 dateFrom = 0;       // Unix timestamp
     qint64 dateTo = 0;
     QString searchText;        // FTS search in notes

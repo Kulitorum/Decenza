@@ -169,7 +169,57 @@ Page {
             filter.beanType = selectedBean
         }
         if (searchField.text.length > 0) {
-            filter.searchText = searchField.text
+            var searchText = searchField.text
+
+            // Parse numeric keyword filters from search text
+            // Syntax: keyword:N (exact), keyword:N-M (range), keyword:N+ (min only)
+            var keywords = [
+                { pattern: /\brating:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minEnjoyment", maxKey: "maxEnjoyment" },
+                { pattern: /\brating:(\d+(?:\.\d+)?)\+\b/g, minKey: "minEnjoyment", maxKey: null },
+                { pattern: /\brating:(\d+(?:\.\d+)?)\b/g, minKey: "minEnjoyment", maxKey: "maxEnjoyment", exact: true },
+                { pattern: /\bdose:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minDose", maxKey: "maxDose" },
+                { pattern: /\bdose:(\d+(?:\.\d+)?)\+\b/g, minKey: "minDose", maxKey: null },
+                { pattern: /\bdose:(\d+(?:\.\d+)?)\b/g, minKey: "minDose", maxKey: "maxDose", exact: true },
+                { pattern: /\byield:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minYield", maxKey: "maxYield" },
+                { pattern: /\byield:(\d+(?:\.\d+)?)\+\b/g, minKey: "minYield", maxKey: null },
+                { pattern: /\byield:(\d+(?:\.\d+)?)\b/g, minKey: "minYield", maxKey: "maxYield", exact: true },
+                { pattern: /\btime:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minDuration", maxKey: "maxDuration" },
+                { pattern: /\btime:(\d+(?:\.\d+)?)\+\b/g, minKey: "minDuration", maxKey: null },
+                { pattern: /\btime:(\d+(?:\.\d+)?)\b/g, minKey: "minDuration", maxKey: "maxDuration", exact: true },
+                { pattern: /\btds:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minTds", maxKey: "maxTds" },
+                { pattern: /\btds:(\d+(?:\.\d+)?)\+\b/g, minKey: "minTds", maxKey: null },
+                { pattern: /\btds:(\d+(?:\.\d+)?)\b/g, minKey: "minTds", maxKey: "maxTds", exact: true },
+                { pattern: /\bey:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minEy", maxKey: "maxEy" },
+                { pattern: /\bey:(\d+(?:\.\d+)?)\+\b/g, minKey: "minEy", maxKey: null },
+                { pattern: /\bey:(\d+(?:\.\d+)?)\b/g, minKey: "minEy", maxKey: "maxEy", exact: true }
+            ]
+
+            for (var i = 0; i < keywords.length; i++) {
+                var kw = keywords[i]
+                var match = kw.pattern.exec(searchText)
+                if (match) {
+                    if (match.length === 3) {
+                        // Range: N-M
+                        filter[kw.minKey] = parseFloat(match[1])
+                        filter[kw.maxKey] = parseFloat(match[2])
+                    } else if (kw.exact) {
+                        // Exact: N (set both min and max to same value)
+                        filter[kw.minKey] = parseFloat(match[1])
+                        filter[kw.maxKey] = parseFloat(match[1])
+                    } else {
+                        // Min only: N+
+                        filter[kw.minKey] = parseFloat(match[1])
+                    }
+                    // Strip the matched keyword from the search text
+                    searchText = searchText.replace(match[0], "")
+                }
+            }
+
+            // Pass remaining text (after stripping keywords) as FTS search
+            searchText = searchText.trim().replace(/\s+/g, " ")
+            if (searchText.length > 0) {
+                filter.searchText = searchText
+            }
         }
         return filter
     }
@@ -355,6 +405,35 @@ Page {
                     verticalAlignment: Text.AlignVCenter
                     leftPadding: Theme.spacingSmall
                     elide: Text.ElideRight
+                }
+            }
+
+            // Search help button
+            Rectangle {
+                width: Theme.scaled(32)
+                height: Theme.scaled(32)
+                radius: Theme.scaled(16)
+                color: Theme.surfaceColor
+                border.color: Theme.borderColor
+                border.width: 1
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("shothistory.searchhelp", "Search syntax help")
+                Accessible.focusable: true
+                Accessible.onPressAction: helpArea.clicked(null)
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "?"
+                    font.pixelSize: Theme.scaled(16)
+                    font.bold: true
+                    color: Theme.textSecondaryColor
+                    Accessible.ignored: true
+                }
+
+                MouseArea {
+                    id: helpArea
+                    anchors.fill: parent
+                    onClicked: searchHelpDialog.open()
                 }
             }
 
@@ -819,6 +898,116 @@ Page {
                         deleteSelectedShots()
                     }
                 }
+            }
+        }
+    }
+
+    // Search syntax help dialog
+    Dialog {
+        id: searchHelpDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(420), shotHistoryPage.width - Theme.scaled(40))
+        modal: true
+        padding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("shothistory.searchhelptitle", "Search Syntax")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            Text {
+                text: TranslationManager.translate("shothistory.searchhelpintro", "Use keywords to filter by numeric fields:")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            // Keyword reference grid
+            GridLayout {
+                columns: 3
+                columnSpacing: Theme.scaled(12)
+                rowSpacing: Theme.scaled(6)
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(12)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+
+                // Header row
+                Text { text: TranslationManager.translate("shothistory.helpheaderkeyword", "Keyword"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shothistory.helpheaderfilters", "Filters"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
+
+                // Data rows
+                Text { text: "rating:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Text { text: "dose:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Text { text: "yield:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Text { text: "time:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Text { text: "tds:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Text { text: "TDS"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                Text { text: "ey:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+            }
+
+            // Syntax explanation
+            Text {
+                text: TranslationManager.translate("shothistory.searchhelpsyntax",
+                    "Syntax: N (exact), N-M (range), N+ (minimum)\nCombine keywords with text: ethiopia dose:18 rating:70+")
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(12)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            // Close button
+            AccessibleButton {
+                text: TranslationManager.translate("shothistory.close", "Close")
+                accessibleName: TranslationManager.translate("shothistory.closeHelp", "Close search help")
+                Layout.alignment: Qt.AlignRight
+                Layout.topMargin: Theme.scaled(12)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                onClicked: searchHelpDialog.close()
             }
         }
     }
