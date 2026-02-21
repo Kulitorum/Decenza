@@ -105,8 +105,6 @@ KeyboardAwareContainer {
                     }
                 }
 
-                Item { Layout.fillHeight: true }
-
                 // Data summary
                 Tr {
                     key: "settings.data.yourdata"
@@ -145,6 +143,23 @@ KeyboardAwareContainer {
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(11)
                     }
+                }
+
+                Item { Layout.fillHeight: true }
+
+                // Factory reset button
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    destructive: true
+                    text: Qt.platform.os === "android" ?
+                          TranslationManager.translate("settings.data.resetuninstall", "Remove All Data & Uninstall") :
+                          TranslationManager.translate("settings.data.resetquit", "Remove All Data & Quit")
+                    accessibleName: Qt.platform.os === "android" ?
+                          TranslationManager.translate("settings.data.resetuninstallaccessible",
+                              "Remove all app data and uninstall the application") :
+                          TranslationManager.translate("settings.data.resetquitaccessible",
+                              "Remove all app data and quit the application")
+                    onClicked: factoryResetDialog1.open()
                 }
             }
         }
@@ -1337,6 +1352,177 @@ KeyboardAwareContainer {
                     TranslationManager.translate("settings.data.restorefailedAccessible",
                         "Restore failed: ") + error
                 );
+            }
+        }
+    }
+
+    // Factory Reset - Confirmation Dialog 1
+    Dialog {
+        id: factoryResetDialog1
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Theme.scaled(400)
+        padding: 0
+        modal: true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("settings.data.factoryresettitle", "Remove All Data?")
+                    font: Theme.titleFont
+                    color: Theme.errorColor
+                    Accessible.ignored: true
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Body
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(15)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.data.factoryresetbody",
+                        "This will permanently delete ALL your data: settings, favourites, profiles, shot history, themes, and everything else. This cannot be undone.")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("settings.data.cancelfactoryreset", "Cancel factory reset")
+                        onClicked: factoryResetDialog1.close()
+                    }
+
+                    AccessibleButton {
+                        destructive: true
+                        text: TranslationManager.translate("settings.data.factoryresetcontinue", "Continue")
+                        accessibleName: TranslationManager.translate("settings.data.factoryresetcontinueaccessible",
+                            "Continue with factory reset, shows final confirmation")
+                        onClicked: {
+                            factoryResetDialog1.close()
+                            factoryResetDialog2.open()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Factory Reset - Confirmation Dialog 2 (the fun one)
+    Dialog {
+        id: factoryResetDialog2
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Theme.scaled(400)
+        padding: 0
+        modal: true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("settings.data.factoryresettitle2", "Are you REALLY sure?")
+                    font: Theme.titleFont
+                    color: Theme.errorColor
+                    Accessible.ignored: true
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Body
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(15)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.data.factoryresetbody2",
+                        "This is your last chance. All your espresso data, your carefully dialled-in profiles, your shot history \u2014 gone. Poof. Like that time you forgot to put the drip tray back.")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.data.factoryresetchangedmind", "I changed my mind")
+                        accessibleName: TranslationManager.translate("settings.data.factoryresetchangedmindaccessible",
+                            "Cancel factory reset and keep all data")
+                        onClicked: factoryResetDialog2.close()
+                    }
+
+                    AccessibleButton {
+                        destructive: true
+                        text: TranslationManager.translate("settings.data.factoryreset.nuke", "Yes, nuke everything")
+                        accessibleName: TranslationManager.translate("settings.data.factoryreset.nukeaccessible",
+                            "Confirm: permanently delete all data and exit the app")
+                        onClicked: {
+                            factoryResetDialog2.close()
+                            MainController.factoryResetAndQuit()
+                        }
+                    }
+                }
             }
         }
     }
