@@ -415,6 +415,7 @@ set(QML_FILES
     qml/pages/DialingAssistantPage.qml
     qml/pages/ShotHistoryPage.qml
     qml/pages/AutoFavoritesPage.qml
+    qml/pages/AutoFavoriteInfoPage.qml
     qml/pages/ShotDetailPage.qml
     qml/pages/ShotComparisonPage.qml
     qml/pages/FlowCalibrationPage.qml

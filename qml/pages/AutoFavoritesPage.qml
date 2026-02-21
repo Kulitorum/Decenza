@@ -264,7 +264,6 @@ Page {
                     // Info button
                     Rectangle {
                         id: infoButton
-                        visible: favoriteDelegate._hasProfile
                         width: Theme.scaled(70)
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
@@ -282,13 +281,20 @@ Page {
 
                         AccessibleMouseArea {
                             anchors.fill: parent
-                            accessibleName: TranslationManager.translate("autofavorites.profileInfo", "Profile info") +
-                                ". " + (model.profileName || "")
+                            accessibleName: TranslationManager.translate("autofavorites.favoriteInfo", "Favorite info") +
+                                ". " + favoriteDelegate._groupByText
                             accessibleItem: infoButton
                             onAccessibleClicked: {
-                                pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
-                                    profileFilename: MainController.findProfileByTitle(model.profileName || ""),
-                                    profileName: model.profileName || ""
+                                pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
+                                    shotId: model.shotId,
+                                    groupBy: Settings.autoFavoritesGroupBy,
+                                    beanBrand: model.beanBrand || "",
+                                    beanType: model.beanType || "",
+                                    profileName: model.profileName || "",
+                                    grinderModel: model.grinderModel || "",
+                                    grinderSetting: model.grinderSetting || "",
+                                    avgEnjoyment: model.avgEnjoyment || 0,
+                                    shotCount: model.shotCount || 0
                                 })
                             }
                         }
@@ -344,14 +350,16 @@ Page {
         }
     }
 
-    // Settings popup
-    Popup {
+    // Settings dialog
+    Dialog {
         id: settingsPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(parent.width * 0.85, Theme.scaled(320))
         modal: true
         padding: Theme.scaled(20)
+        title: TranslationManager.translate("autofavorites.settings", "Auto-Favorites Settings")
+        header: Item {} // Hide default Dialog header, we use our own
 
         onOpened: {
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {

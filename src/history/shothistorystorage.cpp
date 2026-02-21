@@ -1366,6 +1366,95 @@ QVariantList ShotHistoryStorage::getAutoFavorites(const QString& groupBy, int ma
     return results;
 }
 
+QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& groupBy,
+                                                            const QString& beanBrand,
+                                                            const QString& beanType,
+                                                            const QString& profileName,
+                                                            const QString& grinderModel,
+                                                            const QString& grinderSetting)
+{
+    QVariantMap result;
+    if (!m_ready) return result;
+
+    // Build WHERE clause matching the COALESCE pattern from getAutoFavorites
+    QStringList conditions;
+    QVariantList bindValues;
+
+    auto addCondition = [&](const QString& column, const QString& value) {
+        conditions << QString("COALESCE(%1, '') = ?").arg(column);
+        bindValues << value;
+    };
+
+    if (groupBy == "bean") {
+        addCondition("bean_brand", beanBrand);
+        addCondition("bean_type", beanType);
+    } else if (groupBy == "profile") {
+        addCondition("profile_name", profileName);
+    } else if (groupBy == "bean_profile_grinder") {
+        addCondition("bean_brand", beanBrand);
+        addCondition("bean_type", beanType);
+        addCondition("profile_name", profileName);
+        addCondition("grinder_model", grinderModel);
+        addCondition("grinder_setting", grinderSetting);
+    } else {
+        // bean_profile (default)
+        addCondition("bean_brand", beanBrand);
+        addCondition("bean_type", beanType);
+        addCondition("profile_name", profileName);
+    }
+
+    QString whereClause = " WHERE " + conditions.join(" AND ");
+
+    // Aggregated stats query
+    QString statsSql = "SELECT "
+        "AVG(CASE WHEN drink_tds > 0 THEN drink_tds ELSE NULL END) as avg_tds, "
+        "AVG(CASE WHEN drink_ey > 0 THEN drink_ey ELSE NULL END) as avg_ey, "
+        "AVG(CASE WHEN duration > 0 THEN duration ELSE NULL END) as avg_duration, "
+        "AVG(CASE WHEN dose_weight > 0 THEN dose_weight ELSE NULL END) as avg_dose, "
+        "AVG(CASE WHEN final_weight > 0 THEN final_weight ELSE NULL END) as avg_yield, "
+        "AVG(CASE WHEN temperature_override > 0 THEN temperature_override ELSE NULL END) as avg_temperature "
+        "FROM shots" + whereClause;
+
+    QSqlQuery statsQuery(m_db);
+    statsQuery.prepare(statsSql);
+    for (int i = 0; i < bindValues.size(); ++i)
+        statsQuery.bindValue(i, bindValues[i]);
+
+    if (statsQuery.exec() && statsQuery.next()) {
+        result["avgTds"] = statsQuery.value("avg_tds").toDouble();
+        result["avgEy"] = statsQuery.value("avg_ey").toDouble();
+        result["avgDuration"] = statsQuery.value("avg_duration").toDouble();
+        result["avgDose"] = statsQuery.value("avg_dose").toDouble();
+        result["avgYield"] = statsQuery.value("avg_yield").toDouble();
+        result["avgTemperature"] = statsQuery.value("avg_temperature").toDouble();
+    }
+
+    // Notes query: non-empty notes, newest first
+    QString notesSql = "SELECT espresso_notes, timestamp FROM shots" + whereClause +
+        " AND espresso_notes IS NOT NULL AND espresso_notes != '' "
+        "ORDER BY timestamp DESC";
+
+    QSqlQuery notesQuery(m_db);
+    notesQuery.prepare(notesSql);
+    for (int i = 0; i < bindValues.size(); ++i)
+        notesQuery.bindValue(i, bindValues[i]);
+
+    QVariantList notes;
+    if (notesQuery.exec()) {
+        while (notesQuery.next()) {
+            QVariantMap note;
+            note["text"] = notesQuery.value("espresso_notes").toString();
+            qint64 ts = notesQuery.value("timestamp").toLongLong();
+            note["timestamp"] = ts;
+            note["dateTime"] = QDateTime::fromSecsSinceEpoch(ts).toString("yyyy-MM-dd hh:mm");
+            notes.append(note);
+        }
+    }
+    result["notes"] = notes;
+
+    return result;
+}
+
 QString ShotHistoryStorage::exportShotData(qint64 shotId)
 {
     ShotRecord record = getShotRecord(shotId);

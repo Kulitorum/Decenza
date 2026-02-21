@@ -416,12 +416,36 @@ Page {
                 }
             }
 
-            // Bean info
+            // Notes (shown first, above bean/grinder cards)
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+                visible: !!(shotData.espressoNotes && shotData.espressoNotes !== "")
+
+                Tr {
+                    key: "shotdetail.notes"
+                    fallback: "Notes"
+                    font: Theme.subtitleFont
+                    color: Theme.textColor
+                }
+
+                ExpandableTextArea {
+                    Layout.fillWidth: true
+                    inlineHeight: Theme.scaled(80)
+                    text: shotData.espressoNotes || ""
+                    accessibleName: TranslationManager.translate("shotdetail.notes", "Notes")
+                    textFont: Theme.bodyFont
+                    readOnly: true
+                }
+            }
+
+            // Bean info (hidden when all rows are empty)
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: beanColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
+                visible: !!(shotData.beanBrand || shotData.beanType || shotData.roastDate || shotData.roastLevel)
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.beaninfo", "Beans")
 
@@ -449,27 +473,28 @@ Page {
                         rowSpacing: Theme.spacingSmall
                         Layout.fillWidth: true
 
-                        Tr { key: "shotdetail.brand"; fallback: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
-                        Text { text: shotData.beanBrand || "-"; font: Theme.labelFont; color: Theme.textColor }
+                        Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanBrand) }
+                        Text { text: shotData.beanBrand || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanBrand) }
 
-                        Tr { key: "shotdetail.type"; fallback: "Type:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
-                        Text { text: shotData.beanType || "-"; font: Theme.labelFont; color: Theme.textColor }
+                        Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanType) }
+                        Text { text: shotData.beanType || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanType) }
 
-                        Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
-                        Text { text: shotData.roastDate || "-"; font: Theme.labelFont; color: Theme.textColor }
+                        Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastDate) }
+                        Text { text: shotData.roastDate || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastDate) }
 
-                        Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
-                        Text { text: shotData.roastLevel || "-"; font: Theme.labelFont; color: Theme.textColor }
+                        Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastLevel) }
+                        Text { text: shotData.roastLevel || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastLevel) }
                     }
                 }
             }
 
-            // Grinder info
+            // Grinder info (hidden when all rows are empty)
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
+                visible: !!(shotData.grinderModel || shotData.grinderSetting)
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.grinder", "Grinder")
 
@@ -494,11 +519,11 @@ Page {
                         rowSpacing: Theme.spacingSmall
                         Layout.fillWidth: true
 
-                        Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
-                        Text { text: shotData.grinderModel || "-"; font: Theme.labelFont; color: Theme.textColor }
+                        Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderModel) }
+                        Text { text: shotData.grinderModel || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderModel) }
 
-                        Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor }
-                        Text { text: shotData.grinderSetting || "-"; font: Theme.labelFont; color: Theme.textColor }
+                        Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting) }
+                        Text { text: shotData.grinderSetting || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting) }
                     }
                 }
             }
@@ -576,28 +601,6 @@ Page {
                         font: Theme.labelFont
                         color: Theme.textColor
                     }
-                }
-            }
-
-            // Notes
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingSmall
-
-                Tr {
-                    key: "shotdetail.notes"
-                    fallback: "Notes"
-                    font: Theme.subtitleFont
-                    color: Theme.textColor
-                }
-
-                ExpandableTextArea {
-                    Layout.fillWidth: true
-                    inlineHeight: Theme.scaled(80)
-                    text: shotData.espressoNotes || ""
-                    accessibleName: TranslationManager.translate("shotdetail.notes", "Notes")
-                    textFont: Theme.bodyFont
-                    readOnly: true
                 }
             }
 
