@@ -28,7 +28,7 @@ ChartView {
         // Register fast renderers (QSGGeometryNode, pre-allocated VBO - no rebuilds)
         ShotDataModel.registerFastSeries(
             pressureRenderer, flowRenderer, temperatureRenderer,
-            weightRenderer, weightFlowRenderer
+            weightRenderer, weightFlowRenderer, resistanceRenderer
         )
     }
 
@@ -209,6 +209,17 @@ ChartView {
     }
 
     FastLineRenderer {
+        id: resistanceRenderer
+        x: chart.plotArea.x; y: chart.plotArea.y
+        width: chart.plotArea.width; height: chart.plotArea.height
+        color: Theme.resistanceColor
+        lineWidth: Theme.scaled(2)
+        minX: timeAxis.min; maxX: timeAxis.max
+        minY: pressureAxis.min; maxY: pressureAxis.max
+        visible: Settings.value("graph/showResistance", false)
+    }
+
+    FastLineRenderer {
         id: weightRenderer
         x: chart.plotArea.x; y: chart.plotArea.y
         width: chart.plotArea.width; height: chart.plotArea.height
@@ -346,40 +357,46 @@ ChartView {
             Row {
                 spacing: Theme.spacingSmall
                 Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.pressureColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Pressure"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+                Text { text: "Pressure"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
             }
             Row {
                 spacing: Theme.spacingSmall
                 Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.flowColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Flow"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+                Text { text: "Flow"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
             }
             Row {
                 spacing: Theme.spacingSmall
                 Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.temperatureColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Temp"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+                Text { text: "Temp"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
             }
             Row {
                 spacing: Theme.spacingSmall
                 Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.weightColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Weight"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+                Text { text: "Weight"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
             }
             Row {
                 spacing: Theme.spacingSmall
                 Rectangle { width: Theme.scaled(16); height: Theme.scaled(2); radius: Theme.scaled(1); color: Theme.weightFlowColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Weight flow"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+                Text { text: "Weight flow"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
+            }
+            Row {
+                visible: resistanceRenderer.visible
+                spacing: Theme.spacingSmall
+                Rectangle { width: Theme.scaled(16); height: Theme.scaled(2); radius: Theme.scaled(1); color: Theme.resistanceColor; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "Resistance"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
             }
 
             // Solid/dashed indicator
             Row {
                 spacing: Theme.scaled(4)
                 Rectangle { width: Theme.scaled(8); height: Theme.scaled(2); color: Theme.textSecondaryColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "actual"; color: Qt.rgba(255, 255, 255, 0.5); font: Theme.captionFont }
+                Text { text: "actual"; color: Qt.rgba(255, 255, 255, 0.5); font: Theme.captionFont; Accessible.ignored: true }
             }
             Row {
                 spacing: Theme.scaled(4)
                 Rectangle { width: Theme.scaled(3); height: Theme.scaled(2); color: Theme.textSecondaryColor; anchors.verticalCenter: parent.verticalCenter }
                 Rectangle { width: Theme.scaled(3); height: Theme.scaled(2); color: Theme.textSecondaryColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "target"; color: Qt.rgba(255, 255, 255, 0.5); font: Theme.captionFont }
+                Text { text: "target"; color: Qt.rgba(255, 255, 255, 0.5); font: Theme.captionFont; Accessible.ignored: true }
             }
         }
     }
@@ -392,5 +409,6 @@ ChartView {
         color: Theme.textSecondaryColor
         font: Theme.captionFont
         opacity: 0.7
+        Accessible.ignored: true
     }
 }

@@ -457,6 +457,7 @@ set(QML_FILES
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml
     qml/components/AccessibleButton.qml
+    qml/components/ExpandableTextArea.qml
     qml/components/FocusIndicator.qml
     qml/components/ColorWheel.qml
     qml/components/ColorEditor.qml

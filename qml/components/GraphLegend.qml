@@ -18,7 +18,8 @@ Flow {
             { label: "Flow", sColor: Theme.flowColor, key: "showFlow" },
             { label: "Temp", sColor: Theme.temperatureColor, key: "showTemperature" },
             { label: "Weight", sColor: Theme.weightColor, key: "showWeight" },
-            { label: "Wt flow", sColor: Theme.weightFlowColor, key: "showWeightFlow" }
+            { label: "Wt flow", sColor: Theme.weightFlowColor, key: "showWeightFlow" },
+            { label: "Resist(P/F)", sColor: Theme.resistanceColor, key: "showResistance" }
         ]
 
         delegate: Rectangle {

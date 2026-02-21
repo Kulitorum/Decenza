@@ -168,7 +168,7 @@ Page {
         textFields: [
             roasterField.textField, coffeeField.textField, roastDateField.textField,
             grinderField.textField, settingField.textField, baristaField.textField,
-            notesField
+            notesExpandable.textField
         ]
 
     Flickable {
@@ -211,6 +211,7 @@ Page {
                     temperatureData: editShotData.temperature || []
                     weightData: editShotData.weight || []
                     weightFlowRateData: editShotData.weightFlowRate || []
+                    resistanceData: editShotData.resistance || []
                     phaseMarkers: editShotData.phases || []
                     maxTime: editShotData.duration || 60
                 }
@@ -339,14 +340,12 @@ Page {
             }
 
             // Notes (moved to top, right after rating)
-            Item {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: notesLabel.height + notesField.height + 2
+                spacing: Theme.scaled(2)
 
                 Tr {
                     id: notesLabel
-                    anchors.left: parent.left
-                    anchors.top: parent.top
                     key: "postshotreview.label.notes"
                     fallback: "Notes"
                     color: Theme.textColor
@@ -354,44 +353,14 @@ Page {
                     Accessible.ignored: true
                 }
 
-                TextArea {
-                    id: notesField
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: notesLabel.bottom
-                    anchors.topMargin: Theme.scaled(2)
-                    // Size to content with minimum height of 100px
-                    height: Math.max(100, contentHeight + topPadding + bottomPadding)
+                ExpandableTextArea {
+                    id: notesExpandable
+                    Layout.fillWidth: true
+                    inlineHeight: Theme.scaled(100)
                     text: editNotes
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    placeholderTextColor: Theme.textSecondaryColor
-                    wrapMode: TextEdit.Wrap
-                    leftPadding: 8; rightPadding: 8; topPadding: 6; bottomPadding: Theme.scaled(6)
-                    background: Rectangle {
-                        color: Theme.backgroundColor
-                        radius: Theme.scaled(4)
-                        border.color: notesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                        border.width: 1
-                    }
+                    accessibleName: TranslationManager.translate("postshotreview.label.notes", "Notes")
+                    textFont: Theme.bodyFont
                     onTextChanged: editNotes = text
-
-                    Accessible.role: Accessible.EditableText
-                    Accessible.name: TranslationManager.translate("postshotreview.label.notes", "Notes")
-                    Accessible.description: text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty")
-                    Accessible.focusable: true
-
-                    onActiveFocusChanged: {
-                        if (activeFocus) {
-                            if (AccessibilityManager.enabled) {
-                                let announcement = TranslationManager.translate("postshotreview.label.notes", "Notes") + ". " + (text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty"))
-                                AccessibilityManager.announce(announcement)
-                            }
-                        }
-                    }
-
-                    // Note: TextArea doesn't support EnterKey.type, but we keep
-                    // the multiline behavior. User can tap outside or use back gesture.
                 }
             }
 

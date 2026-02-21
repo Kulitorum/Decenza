@@ -620,7 +620,12 @@ double MachineState::smoothedScaleFlowRate() const {
 
 void MachineState::tareScale() {
     // Delegate to timing controller if available (new centralized timing)
-    if (m_timingController) {
+    // Exception: Hot water uses legacy tare that waits for scale response.
+    // ShotTimingController::tare() is fire-and-forget (sets m_tareCompleted immediately),
+    // which is fine for espresso (preheat phase absorbs the delay), but hot water
+    // starts flowing immediately — stale pre-tare weight samples would trigger
+    // checkStopAtWeightHotWater() and stop the operation instantly.
+    if (m_timingController && m_phase != Phase::HotWater) {
         m_timingController->tare();
         return;
     }

@@ -19,6 +19,7 @@ ChartView {
     property bool showTemperature: Settings.value("graph/showTemperature", true)
     property bool showWeight: Settings.value("graph/showWeight", true)
     property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
+    property bool showResistance: Settings.value("graph/showResistance", false)
 
     // Which right-side axis labels to display (tap axis to swap)
     property bool showWeightAxis: Settings.value("graph/showWeightAxis", true)
@@ -45,6 +46,7 @@ ChartView {
     property var temperatureData: []
     property var weightData: []
     property var weightFlowRateData: []
+    property var resistanceData: []
     property var phaseMarkers: []
     property double maxTime: 60
 
@@ -55,6 +57,7 @@ ChartView {
         temperatureSeries.clear()
         weightSeries.clear()
         weightFlowRateSeries.clear()
+        resistanceSeries.clear()
 
         for (var i = 0; i < pressureData.length; i++) {
             pressureSeries.append(pressureData[i].x, pressureData[i].y)
@@ -70,6 +73,9 @@ ChartView {
         }
         for (i = 0; i < weightFlowRateData.length; i++) {
             weightFlowRateSeries.append(weightFlowRateData[i].x, weightFlowRateData[i].y)
+        }
+        for (i = 0; i < resistanceData.length; i++) {
+            resistanceSeries.append(resistanceData[i].x, resistanceData[i].y)
         }
 
         // Update time axis
@@ -102,7 +108,8 @@ ChartView {
             { key: "flow", name: "Flow", series: flowSeries, unit: "mL/s", show: showFlow },
             { key: "temperature", name: "Temp", series: temperatureSeries, unit: "\u00B0C", show: showTemperature },
             { key: "weight", name: "Weight", series: weightSeries, unit: "g", show: showWeight },
-            { key: "weightFlow", name: "Weight flow", series: weightFlowRateSeries, unit: "g/s", show: showWeightFlow }
+            { key: "weightFlow", name: "Weight flow", series: weightFlowRateSeries, unit: "g/s", show: showWeightFlow },
+            { key: "resistance", name: "Resistance", series: resistanceSeries, unit: "", show: showResistance }
         ]
 
         for (var i = 0; i < curves.length; i++) {
@@ -152,7 +159,8 @@ ChartView {
             { name: "Flow", series: flowSeries, show: showFlow },
             { name: "Weight flow", series: weightFlowRateSeries, show: showWeightFlow },
             { name: "Weight", series: weightSeries, show: showWeight },
-            { name: "Temp", series: temperatureSeries, show: showTemperature }
+            { name: "Temp", series: temperatureSeries, show: showTemperature },
+            { name: "Resistance", series: resistanceSeries, show: showResistance }
         ]
 
         var parts = []
@@ -175,6 +183,7 @@ ChartView {
     onTemperatureDataChanged: Qt.callLater(doReload)
     onWeightDataChanged: Qt.callLater(doReload)
     onWeightFlowRateDataChanged: Qt.callLater(doReload)
+    onResistanceDataChanged: Qt.callLater(doReload)
     onPhaseMarkersChanged: Qt.callLater(doReload)
     Component.onCompleted: doReload()
 
@@ -203,6 +212,8 @@ ChartView {
         for (var i = 0; i < weightFlowRateData.length; i++) {
             if (weightFlowRateData[i].y > maxVal) maxVal = weightFlowRateData[i].y
         }
+        // Resistance excluded from axis scaling — values are clamped at source
+        // and clip at the axis boundary, matching the live graph behavior
         if (maxVal < 0.1) return 12  // fallback when no data
         // Round up to nice tick-friendly value
         var padded = maxVal * 1.15
@@ -306,6 +317,17 @@ ChartView {
         axisX: timeAxis
         axisY: pressureAxis
         visible: chart.showWeightFlow
+    }
+
+    // Puck resistance line (P/F)
+    LineSeries {
+        id: resistanceSeries
+        name: "Resistance"
+        color: Theme.resistanceColor
+        width: Theme.graphLineWidth
+        axisX: timeAxis
+        axisY: pressureAxis
+        visible: chart.showResistance
     }
 
     // Phase marker vertical lines (up to 10 markers)

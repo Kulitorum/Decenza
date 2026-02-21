@@ -49,7 +49,8 @@ public:
     // Register fast renderers for live data series (QSGGeometryNode - pre-allocated VBO)
     Q_INVOKABLE void registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
                                          FastLineRenderer* temperature,
-                                         FastLineRenderer* weight, FastLineRenderer* weightFlow);
+                                         FastLineRenderer* weight, FastLineRenderer* weightFlow,
+                                         FastLineRenderer* resistance = nullptr);
 
     // Data export for visualizer upload
     const QVector<QPointF>& pressureData() const { return m_pressurePoints; }
@@ -115,6 +116,7 @@ private:
     QPointer<FastLineRenderer> m_fastTemperature;
     QPointer<FastLineRenderer> m_fastWeight;
     QPointer<FastLineRenderer> m_fastWeightFlow;
+    QPointer<FastLineRenderer> m_fastResistance;
 
     // Last-flushed index per fast series (for incremental appends)
     int m_lastFlushedPressure = 0;
@@ -122,6 +124,7 @@ private:
     int m_lastFlushedTemp = 0;
     int m_lastFlushedWeight = 0;
     int m_lastFlushedWeightFlow = 0;
+    int m_lastFlushedResistance = 0;
 
     // Chart series for goals/markers (QPointer auto-nulls when QML destroys them)
     QList<QPointer<QLineSeries>> m_pressureGoalSeriesList;  // One per segment

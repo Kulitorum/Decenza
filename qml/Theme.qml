@@ -80,6 +80,7 @@ QtObject {
     property color temperatureGoalColor: _c("temperatureGoalColor", Settings.customThemeColors.temperatureGoalColor || "#ffa5a6")
     property color weightColor: _c("weightColor", Settings.customThemeColors.weightColor || "#a2693d")
     property color weightFlowColor: _c("weightFlowColor", Settings.customThemeColors.weightFlowColor || "#d4a574")
+    property color resistanceColor: _c("resistanceColor", Settings.customThemeColors.resistanceColor || "#eae83d")
 
     // DYE measurement colors (Shot Info page)
     property color dyeDoseColor: _c("dyeDoseColor", Settings.customThemeColors.dyeDoseColor || "#6F4E37")

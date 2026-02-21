@@ -245,6 +245,7 @@ Page {
                     temperatureData: editShotData.temperature || []
                     weightData: editShotData.weight || []
                     weightFlowRateData: editShotData.weightFlowRate || []
+                    resistanceData: editShotData.resistance || []
                     phaseMarkers: editShotData.phases || []
                     maxTime: editShotData.duration || 60
                 }

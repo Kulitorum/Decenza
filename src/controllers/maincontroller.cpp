@@ -1610,11 +1610,7 @@ void MainController::createNewProfileWithEditorType(EditorType type, const QStri
     recipe.editorType = type;
     recipe.clamp();  // Ensure values are within hardware limits
 
-    // Preserve notes from original profile
-    QString notes = m_currentProfile.profileNotes();
-
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
-    m_currentProfile.setProfileNotes(notes);
     m_baseProfileName = "";
     m_profileModified = true;
 

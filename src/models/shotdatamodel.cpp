@@ -82,12 +82,14 @@ void ShotDataModel::registerSeries(const QVariantList& pressureGoalSegments, con
 
 void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
                                         FastLineRenderer* temperature,
-                                        FastLineRenderer* weight, FastLineRenderer* weightFlow) {
+                                        FastLineRenderer* weight, FastLineRenderer* weightFlow,
+                                        FastLineRenderer* resistance) {
     m_fastPressure = pressure;
     m_fastFlow = flow;
     m_fastTemperature = temperature;
     m_fastWeight = weight;
     m_fastWeightFlow = weightFlow;
+    m_fastResistance = resistance;
 
     // Reset flush indices
     m_lastFlushedPressure = 0;
@@ -95,6 +97,7 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
     m_lastFlushedTemp = 0;
     m_lastFlushedWeight = 0;
     m_lastFlushedWeightFlow = 0;
+    m_lastFlushedResistance = 0;
 
     // Bulk-load any existing data (e.g., returning to espresso page after shot)
     if (!m_pressurePoints.isEmpty() || !m_flowPoints.isEmpty() || !m_weightPoints.isEmpty()) {
@@ -108,6 +111,7 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
         if (m_fastTemperature) m_fastTemperature->setPoints(m_temperaturePoints);
         if (m_fastWeight) m_fastWeight->setPoints(m_weightPoints);
         if (m_fastWeightFlow) m_fastWeightFlow->setPoints(m_weightFlowRatePoints);
+        if (m_fastResistance) m_fastResistance->setPoints(m_resistancePoints);
 
         // Mark all as flushed
         m_lastFlushedPressure = m_pressurePoints.size();
@@ -115,6 +119,7 @@ void ShotDataModel::registerFastSeries(FastLineRenderer* pressure, FastLineRende
         m_lastFlushedTemp = m_temperaturePoints.size();
         m_lastFlushedWeight = m_weightPoints.size();
         m_lastFlushedWeightFlow = m_weightFlowRatePoints.size();
+        m_lastFlushedResistance = m_resistancePoints.size();
     }
 
     qDebug() << "ShotDataModel: Registered fast renderers (QSGGeometryNode, pre-allocated VBO)";
@@ -151,11 +156,13 @@ void ShotDataModel::clear() {
     if (m_fastTemperature) m_fastTemperature->clear();
     if (m_fastWeight) m_fastWeight->clear();
     if (m_fastWeightFlow) m_fastWeightFlow->clear();
+    if (m_fastResistance) m_fastResistance->clear();
     m_lastFlushedPressure = 0;
     m_lastFlushedFlow = 0;
     m_lastFlushedTemp = 0;
     m_lastFlushedWeight = 0;
     m_lastFlushedWeightFlow = 0;
+    m_lastFlushedResistance = 0;
 
     // Clear goal/marker chart series
     if (m_temperatureGoalSeries) m_temperatureGoalSeries->clear();
@@ -220,10 +227,11 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     m_temperaturePoints.append(QPointF(time, temperature));
     m_temperatureMixPoints.append(QPointF(time, mixTemp));
 
-    // Resistance: pressure / flow² (de1app formula for laminar flow)
+    // Resistance: pressure / flow (DSx2 formula), clamped to avoid spikes
+    // during phase transitions when flow is near zero
     double resistance = 0.0;
-    if (flow > 0.0) {
-        resistance = pressure / (flow * flow);
+    if (flow > 0.05) {
+        resistance = qMin(pressure / flow, 15.0);
     }
     m_resistancePoints.append(QPointF(time, resistance));
 
@@ -430,6 +438,11 @@ void ShotDataModel::flushToChart() {
         for (int i = m_lastFlushedWeightFlow; i < m_weightFlowRatePoints.size(); ++i)
             m_fastWeightFlow->appendPoint(m_weightFlowRatePoints[i].x(), m_weightFlowRatePoints[i].y());
         m_lastFlushedWeightFlow = m_weightFlowRatePoints.size();
+    }
+    if (m_fastResistance) {
+        for (int i = m_lastFlushedResistance; i < m_resistancePoints.size(); ++i)
+            m_fastResistance->appendPoint(m_resistancePoints[i].x(), m_resistancePoints[i].y());
+        m_lastFlushedResistance = m_resistancePoints.size();
     }
 
     // Update goal curve LineSeries (infrequent updates, replace() is fine)
