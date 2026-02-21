@@ -580,36 +580,24 @@ Page {
             }
 
             // Notes
-            Rectangle {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: notesColumn.height + Theme.spacingLarge
-                color: Theme.surfaceColor
-                radius: Theme.cardRadius
-                Accessible.role: Accessible.Grouping
-                Accessible.name: TranslationManager.translate("shotdetail.notes", "Notes")
+                spacing: Theme.spacingSmall
 
-                ColumnLayout {
-                    id: notesColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
+                Tr {
+                    key: "shotdetail.notes"
+                    fallback: "Notes"
+                    font: Theme.subtitleFont
+                    color: Theme.textColor
+                }
 
-                    Tr {
-                        key: "shotdetail.notes"
-                        fallback: "Notes"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
-                    }
-
-                    Text {
-                        text: shotData.espressoNotes || "-"
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
+                ExpandableTextArea {
+                    Layout.fillWidth: true
+                    inlineHeight: Theme.scaled(80)
+                    text: shotData.espressoNotes || ""
+                    accessibleName: TranslationManager.translate("shotdetail.notes", "Notes")
+                    textFont: Theme.bodyFont
+                    readOnly: true
                 }
             }
 

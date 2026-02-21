@@ -130,7 +130,7 @@ Page {
     KeyboardAwareContainer {
         id: keyboardContainer
         anchors.fill: parent
-        textFields: [profileNotesFieldInline, profileNameField]
+        textFields: [profileNotesFieldInline.textField, profileNameField]
 
     // Editor mode header
     Rectangle {
@@ -289,40 +289,16 @@ Page {
                     }
 
                     // Profile description
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(80)
-                        color: Theme.surfaceColor
-                        radius: Theme.cardRadius
-                        clip: true
-
-                        ScrollView {
-                            anchors.fill: parent
-                            anchors.margins: Theme.scaled(6)
-                            contentWidth: availableWidth
-                            ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-                            TextArea {
-                                id: profileNotesFieldInline
-                                Accessible.role: Accessible.EditableText
-                                Accessible.name: TranslationManager.translate("profileEditor.accessible.profileDescription", "Profile description")
-                                Accessible.description: text
-                                Accessible.focusable: true
-                                text: profile ? (profile.profile_notes || "") : ""
-                                font: Theme.labelFont
-                                color: Theme.textColor
-                                wrapMode: TextArea.Wrap
-                                leftPadding: Theme.scaled(8)
-                                rightPadding: Theme.scaled(8)
-                                topPadding: Theme.scaled(4)
-                                bottomPadding: Theme.scaled(4)
-                                background: Rectangle { color: "transparent" }
-                                onEditingFinished: {
-                                    if (profile && text !== (profile.profile_notes || "")) {
-                                        profile.profile_notes = text
-                                        uploadProfile()
-                                    }
-                                }
+                    ExpandableTextArea {
+                        id: profileNotesFieldInline
+                        inlineHeight: Theme.scaled(80)
+                        text: profile ? (profile.profile_notes || "") : ""
+                        accessibleName: TranslationManager.translate("profileEditor.accessible.profileDescription", "Profile description")
+                        textFont: Theme.labelFont
+                        onEditingFinished: {
+                            if (profile && text !== (profile.profile_notes || "")) {
+                                profile.profile_notes = text
+                                uploadProfile()
                             }
                         }
                     }
