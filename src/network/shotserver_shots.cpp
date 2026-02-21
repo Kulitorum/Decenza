@@ -1411,9 +1411,11 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
 
         <div id="debugLogContainer" style="display:none;margin-top:1rem;">
             <div class="info-card">
-                <h3>Debug Log</h3>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                    <h3 style="margin-bottom:0;">Debug Log</h3>
+                    <button onclick="copyDebugLog()" style="padding:0.5rem 1rem;background:var(--accent);border:none;border-radius:6px;color:#000;font-weight:500;cursor:pointer;font-size:0.8125rem;">Copy to Clipboard</button>
+                </div>
                 <pre id="debugLogContent" style="background:var(--bg);padding:1rem;border-radius:8px;overflow-x:auto;font-size:0.75rem;line-height:1.4;white-space:pre-wrap;word-break:break-all;max-height:500px;overflow-y:auto;">%21</pre>
-                <button onclick="copyDebugLog()" style="margin-top:0.75rem;padding:0.5rem 1rem;background:var(--accent);border:none;border-radius:6px;color:#000;font-weight:500;cursor:pointer;">Copy to Clipboard</button>
             </div>
         </div>
     </main>
