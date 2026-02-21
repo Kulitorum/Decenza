@@ -157,9 +157,16 @@ Dialog {
     }
 
     contentItem: Item {
-        implicitHeight: mainColumn.implicitHeight * root.dialogScale
+        implicitHeight: Math.min(mainColumn.implicitHeight * root.dialogScale,
+                                 root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight * root.dialogScale)
         implicitWidth: Theme.scaled(520) * root.dialogScale
-        clip: true
+
+        Flickable {
+            anchors.fill: parent
+            contentHeight: mainColumn.implicitHeight * root.dialogScale
+            contentWidth: parent.width
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
         ColumnLayout {
             id: mainColumn
@@ -259,6 +266,7 @@ Dialog {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
+            Layout.topMargin: Theme.scaled(4)
             spacing: Theme.scaled(4)
 
             Text {
@@ -576,7 +584,7 @@ Dialog {
                 }
             }
 
-            // Grinder and setting input (only shown when Beans feature is enabled)
+            // Grinder and setting input
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)
@@ -730,5 +738,6 @@ Dialog {
             }
         }
         } // ColumnLayout (mainColumn)
+        } // Flickable
     } // Item (contentItem)
 }
