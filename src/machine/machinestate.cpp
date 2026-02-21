@@ -573,7 +573,7 @@ void MachineState::recordWeightSample() {
     // Accumulate during extraction and the Ending phase (espresso still drips
     // through the puck after the pump stops).  Stop once we leave Ending so
     // Idle-phase scale noise doesn't pollute the LSLR buffer.
-    if (m_phase != Phase::Preinfusion && m_phase != Phase::Pouring && m_phase != Phase::Ending) {
+    if (m_phase != Phase::EspressoPreheating && m_phase != Phase::Preinfusion && m_phase != Phase::Pouring && m_phase != Phase::Ending) {
         m_weightSamples.clear();
         return;
     }
@@ -610,6 +610,50 @@ double MachineState::smoothedScaleFlowRate() const {
         sumT += t;
         sumW += s.weight;
         sumTW += t * s.weight;
+        sumTT += t * t;
+    }
+    double denom = n * sumTT - sumT * sumT;
+    double slope = (denom > 1e-12) ? (n * sumTW - sumT * sumW) / denom : 0.0;
+
+    return qMax(0.0, slope);
+}
+
+double MachineState::smoothedScaleFlowRateShort() const {
+    // Short-window LSLR (500ms) for SOW decisions.
+    // Responds faster to flow changes near end-of-shot, reducing systematic
+    // over-prediction of drip that the 1s window causes.
+    // Falls back to 1s LSLR if insufficient data (< 3 samples or < 300ms span).
+    if (m_weightSamples.size() < 3) {
+        return smoothedScaleFlowRate();
+    }
+
+    qint64 now = m_weightSamples.last().timestamp;
+    qint64 cutoff = now - 500;  // 500ms window
+
+    // Find first sample within the 500ms window
+    int startIdx = m_weightSamples.size() - 1;
+    while (startIdx > 0 && m_weightSamples[startIdx - 1].timestamp >= cutoff) {
+        --startIdx;
+    }
+
+    int n = m_weightSamples.size() - startIdx;
+    if (n < 3) {
+        return smoothedScaleFlowRate();
+    }
+
+    double span = (m_weightSamples.last().timestamp - m_weightSamples[startIdx].timestamp) / 1000.0;
+    if (span < 0.3) {
+        return smoothedScaleFlowRate();
+    }
+
+    // LSLR over the short window
+    qint64 t0 = m_weightSamples[startIdx].timestamp;
+    double sumT = 0, sumW = 0, sumTW = 0, sumTT = 0;
+    for (int i = startIdx; i < m_weightSamples.size(); ++i) {
+        double t = (m_weightSamples[i].timestamp - t0) / 1000.0;
+        sumT += t;
+        sumW += m_weightSamples[i].weight;
+        sumTW += t * m_weightSamples[i].weight;
         sumTT += t * t;
     }
     double denom = n * sumTT - sumT * sumT;

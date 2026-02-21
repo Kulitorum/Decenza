@@ -3019,6 +3019,14 @@ void MainController::onScaleWeightChanged(double weight) {
         return;
     }
 
+    // Forward to timing controller FIRST (handles stop-at-weight on the critical path)
+    // SOW check must run before any debug logging to minimize latency.
+    // Pass both 1s LSLR (for graph) and 500ms LSLR (for SOW decisions).
+    if (m_timingController) {
+        m_timingController->onWeightSample(weight, m_machineState->smoothedScaleFlowRate(),
+                                           m_machineState->smoothedScaleFlowRateShort());
+    }
+
     // FlowScale comparison logging: log both physical scale and FlowScale estimated weight
     // during espresso extraction to validate puck absorption model
     if (m_flowScale && m_extractionStarted) {
@@ -3037,13 +3045,6 @@ void MainController::onScaleWeightChanged(double weight) {
                 << " err=" << QString::number(error, 'f', 1) << "g"
                 << " phase=" << (phase == MachineState::Phase::Preinfusion ? "PI" : "Pour");
         }
-    }
-
-    // Forward to timing controller which handles stop-at-weight and graph data
-    // Use 1-second time-windowed average — the raw scale derivative is too noisy
-    // (variable BLE timing amplifies small weight deltas into huge g/s spikes)
-    if (m_timingController) {
-        m_timingController->onWeightSample(weight, m_machineState->smoothedScaleFlowRate());
     }
 }
 
