@@ -181,17 +181,16 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
     QJsonObject data;
     data["theme"] = themeObj;
 
-    // Check if an existing library entry has the same colors — update it
-    // instead of creating a duplicate (handles rename-then-re-save)
+    // Check if an existing library entry has the same name — update it
+    // instead of creating a duplicate (re-saving "Pip-Boy" updates the existing "Pip-Boy")
     for (const QVariant& v : m_index) {
         QVariantMap meta = v.toMap();
         if (meta["type"].toString() != "theme")
             continue;
         QString existingId = meta["id"].toString();
         QJsonObject existing = readEntryFile(existingId);
-        QJsonObject existingColors = existing["data"].toObject()["theme"].toObject()["colors"].toObject();
-        if (existingColors == colorsJson) {
-            // Same colors — update name, fonts, and tags in place
+        QString existingName = existing["data"].toObject()["theme"].toObject()["name"].toString();
+        if (existingName == themeName) {
             existing["data"] = data;
             QStringList tags = extractTagsFromTheme(themeObj);
             existing["tags"] = QJsonArray::fromStringList(tags);
@@ -199,7 +198,7 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
             generateThemeThumbnail(existingId);
             emit entriesChanged();
             qDebug() << "WidgetLibrary: Updated existing theme entry" << existingId
-                     << "with new name:" << themeName;
+                     << "name:" << themeName;
             return existingId;
         }
     }

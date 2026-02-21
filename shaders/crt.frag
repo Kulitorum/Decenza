@@ -110,8 +110,10 @@ void main() {
 
     // ── Overexposure: bright channels bleed toward white ──
     // Simulates phosphor saturation — a beam hitting hard enough makes all phosphors glow
+    // glowStart is inverted: 0 = off (threshold 1.0), 1 = max (threshold 0.0)
     float peak = max(color.r, max(color.g, color.b));
-    float bleed = smoothstep(glowStart, glowStart + 0.3, peak);
+    float gsThreshold = 1.0 - glowStart;
+    float bleed = smoothstep(gsThreshold, gsThreshold + 0.3, peak);
     color = mix(color, vec3(peak), bleed);
 
     // ── CRT glass reflection: inverted-U highlight, top half only ──

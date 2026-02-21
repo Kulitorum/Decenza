@@ -22,7 +22,7 @@ ShaderEffect {
     property real tintStrength:      _p.tintStrength      !== undefined ? _p.tintStrength      : 1.0
     property real flickerAmount:     _p.flickerAmount     !== undefined ? _p.flickerAmount     : 0.05
     property real glitchRate:        _p.glitchRate        !== undefined ? _p.glitchRate        : 1.0
-    property real glowStart:         _p.glowStart         !== undefined ? _p.glowStart         : 1.0
+    property real glowStart:         _p.glowStart         !== undefined ? _p.glowStart         : 0.0
     property real noiseSize:         _p.noiseSize         !== undefined ? _p.noiseSize         : 3.5
     property real reflectionStrength: _p.reflectionStrength !== undefined ? _p.reflectionStrength : 0.22
 

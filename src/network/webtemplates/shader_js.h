@@ -20,7 +20,7 @@ var shaderParamDefs = [
     { name: 'noiseIntensity',    label: 'Noise',              min: 0, max: 0.15, step: 0.005, def: 0.08 },
     { name: 'noiseSize',         label: 'Noise Detail',       min: 1, max: 10,   step: 0.5,   def: 3.5  },
     { name: 'bloomStrength',     label: 'Glow / Bloom',       min: 0, max: 0.8,  step: 0.02,  def: 0.52 },
-    { name: 'glowStart',         label: 'Glow Start',         min: 0, max: 1,    step: 0.05,  def: 1    },
+    { name: 'glowStart',         label: 'Glow Start',         min: 0, max: 1,    step: 0.05,  def: 0    },
     { name: 'aberration',        label: 'Color Fringing',     min: 0, max: 4,    step: 0.1,   def: 0    },
     { name: 'jitterAmount',      label: 'Line Jitter',        min: 0, max: 3,    step: 0.1,   def: 1.4  },
     { name: 'vignetteStrength',  label: 'Vignette',           min: 0, max: 1.5,  step: 0.05,  def: 1.4  },
