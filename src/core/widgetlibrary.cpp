@@ -12,6 +12,7 @@
 #include <QRegularExpression>
 #include <QPainter>
 #include <QDebug>
+#include <cmath>
 
 WidgetLibrary::WidgetLibrary(Settings* settings, QObject* parent)
     : QObject(parent)
@@ -258,12 +259,88 @@ bool WidgetLibrary::applyThemeEntry(const QString& entryId)
     return true;
 }
 
+// CPU approximation of CRT shader effects for thumbnails.
+// Applies: phosphor tint, scanlines, bloom (self-glow), vignette, glass reflection.
+// Skips temporal effects (noise, flicker, jitter, glitch) — invisible in a static thumbnail.
+static void applyCrtEffect(QImage& img, const QJsonObject& params)
+{
+    const double tint      = params["tintStrength"].toDouble(1.0);
+    const double scanInt   = params["scanlineIntensity"].toDouble(0.36);
+    const double scanSize  = qMax(params["scanlineSize"].toDouble(4.5), 1.0);
+    const double bloom     = params["bloomStrength"].toDouble(0.52);
+    const double vigStr    = params["vignetteStrength"].toDouble(1.4);
+    const double reflStr   = params["reflectionStrength"].toDouble(0.22);
+
+    const int w = img.width(), h = img.height();
+    const double pi2 = 6.28318;
+
+    for (int y = 0; y < h; y++) {
+        QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+        const double uy = static_cast<double>(y) / h;
+
+        // Scanline: sin wave matching GPU shader
+        const double scan = std::sin(y / scanSize * pi2) * 0.5 + 0.5;
+        const double scanMul = 1.0 - scanInt * (1.0 - scan);
+
+        // Vignette: same formula as shader
+        const double vigY = uy * (1.0 - uy);
+
+        // Reflection: top half, stronger at edges (inverted-U)
+        const double vRefl = (uy < 0.5) ? (1.0 - uy * 2.0) : 0.0;
+
+        for (int x = 0; x < w; x++) {
+            const double ux = static_cast<double>(x) / w;
+
+            double r = qRed(line[x]) / 255.0;
+            double g = qGreen(line[x]) / 255.0;
+            double b = qBlue(line[x]) / 255.0;
+
+            // Scanlines
+            r *= scanMul; g *= scanMul; b *= scanMul;
+
+            // Phosphor tint (luminance → green phosphor)
+            const double lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            r += (lum * 0.15 - r) * tint;
+            g += (lum * 1.0  - g) * tint;
+            b += (lum * 0.1  - b) * tint;
+
+            // Self-bloom: boost bright pixels
+            const double selfLum = 0.299 * r + 0.587 * g + 0.114 * b;
+            const double selfBloom = qBound(0.0, (selfLum - 0.4) / 0.5, 1.0);  // smoothstep(0.4, 0.9)
+            r += r * selfBloom * bloom * 0.4;
+            g += g * selfBloom * bloom * 0.4;
+            b += b * selfBloom * bloom * 0.4;
+
+            // Glass reflection
+            const double hRefl = std::pow(std::abs(ux * 2.0 - 1.0), 0.7);
+            const double refl = vRefl * hRefl * reflStr;
+            r += refl; g += refl; b += refl;
+
+            // Vignette
+            const double vigX = ux * (1.0 - ux);
+            const double vig = qBound(0.0, std::pow(16.0 * vigX * vigY, 0.25), 1.0);
+            const double vigMul = 1.0 + (vig - 1.0) * vigStr;
+            r *= vigMul; g *= vigMul; b *= vigMul;
+
+            line[x] = qRgba(qBound(0, static_cast<int>(r * 255), 255),
+                            qBound(0, static_cast<int>(g * 255), 255),
+                            qBound(0, static_cast<int>(b * 255), 255),
+                            qAlpha(line[x]));
+        }
+    }
+}
+
 void WidgetLibrary::generateThemeThumbnail(const QString& entryId)
 {
     QJsonObject entry = readEntryFile(entryId);
     QJsonObject data = entry["data"].toObject();
     QJsonObject themeObj = data["theme"].toObject();
     QJsonObject colors = themeObj["colors"].toObject();
+
+    // Screen effect info (CRT params if active)
+    QJsonObject screenEffect = themeObj["screenEffect"].toObject();
+    QString activeEffect = screenEffect["active"].toString();
+    QJsonObject effectParams = screenEffect["effects"].toObject()[activeEffect].toObject();
 
     // Key colors to show in the thumbnail grid (3 rows x 4 cols)
     static const QStringList keyColors = {
@@ -282,36 +359,32 @@ void WidgetLibrary::generateThemeThumbnail(const QString& entryId)
         {"temperatureColor", "#e73249"}, {"weightColor", "#a2693d"}
     };
 
-    // Full thumbnail (300x200)
-    QImage full(300, 200, QImage::Format_ARGB32);
-    full.fill(Qt::transparent);
-    {
-        QPainter p(&full);
+    auto paintColorGrid = [&](QImage& img) {
+        QPainter p(&img);
         p.setRenderHint(QPainter::Antialiasing);
         int cols = 4, rows = 3;
-        int sw = 300 / cols, sh = 200 / rows;
+        int sw = img.width() / cols, sh = img.height() / rows;
         for (int i = 0; i < keyColors.size(); i++) {
             QString val = colors[keyColors[i]].toString();
             if (val.isEmpty()) val = defaults.value(keyColors[i], "#333333");
             p.fillRect((i % cols) * sw, (i / cols) * sh, sw, sh, QColor(val));
         }
-    }
+    };
+
+    // Full thumbnail (300x200)
+    QImage full(300, 200, QImage::Format_ARGB32);
+    full.fill(Qt::transparent);
+    paintColorGrid(full);
+    if (!activeEffect.isEmpty())
+        applyCrtEffect(full, effectParams);
     saveThumbnail(entryId, full);
 
     // Compact thumbnail (128x100)
     QImage compact(128, 100, QImage::Format_ARGB32);
     compact.fill(Qt::transparent);
-    {
-        QPainter p(&compact);
-        p.setRenderHint(QPainter::Antialiasing);
-        int cols = 4, rows = 3;
-        int sw = 128 / cols, sh = 100 / rows;
-        for (int i = 0; i < keyColors.size(); i++) {
-            QString val = colors[keyColors[i]].toString();
-            if (val.isEmpty()) val = defaults.value(keyColors[i], "#333333");
-            p.fillRect((i % cols) * sw, (i / cols) * sh, sw, sh, QColor(val));
-        }
-    }
+    paintColorGrid(compact);
+    if (!activeEffect.isEmpty())
+        applyCrtEffect(compact, effectParams);
     saveThumbnailCompact(entryId, compact);
 }
 

@@ -1,24 +1,82 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kulitorum.decenza_de1"
-    android:versionCode="2989"
+    android:versionCode="2993"
     android:versionName="1.5.4">
 
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Storage permissions -->
+    <!-- Android 9 (SDK 28): needs WRITE_EXTERNAL_STORAGE -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Android 11+ (SDK 30+): needs MANAGE_EXTERNAL_STORAGE for profile backup to Documents -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Battery optimization exemption - allows app to request being whitelisted from Doze mode -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- APK installation permission for remote updates -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
-    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+    <application
+        android:name="org.qtproject.qt.android.bindings.QtApplication"
+        android:label="Decenza"
+        android:icon="@drawable/icon"
+        android:theme="@style/AppTheme"
+        android:allowBackup="true">
+
+        <activity
+            android:name="io.github.kulitorum.decenza_de1.DecenzaActivity"
+            android:configChanges="orientation|screenSize|screenLayout|uiMode|keyboard|keyboardHidden"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustPan"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <meta-data android:name="android.app.lib_name" android:value="Decenza_DE1" />
+        </activity>
+
+        <!-- Launcher/kiosk mode: disabled by default, enabled at runtime via Settings -->
+        <activity-alias
+            android:name="io.github.kulitorum.decenza_de1.LauncherAlias"
+            android:targetActivity="io.github.kulitorum.decenza_de1.DecenzaActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Service for handling device shutdown when app is swiped away -->
+        <service
+            android:name="io.github.kulitorum.decenza_de1.DeviceShutdownService"
+            android:stopWithTask="false"
+            android:exported="false" />
+
+        <!-- FileProvider for APK installation -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
 </manifest>
