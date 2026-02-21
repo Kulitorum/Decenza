@@ -362,6 +362,18 @@ QString ShotServer::generateShotListPage() const
             cursor: pointer;
         }
         .compare-btn:hover { opacity: 0.9; }
+        .compare-btn:disabled { opacity: 0.4; cursor: default; }
+        .delete-btn {
+            padding: 0.75rem 1.5rem;
+            background: #c0392b;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .delete-btn:hover { opacity: 0.9; }
         .clear-btn {
             padding: 0.75rem 1.5rem;
             background: transparent;
@@ -639,7 +651,8 @@ QString ShotServer::generateShotListPage() const
     </main>
     <div class="compare-bar" id="compareBar">
         <span id="selectedCount">0 selected</span>
-        <button class="compare-btn" onclick="compareSelected()">Compare Shots</button>
+        <button class="compare-btn" id="compareBtn" onclick="compareSelected()" disabled>Compare Shots</button>
+        <button class="delete-btn" onclick="deleteSelected()">Delete</button>
         <button class="clear-btn" onclick="clearSelection()">Clear</button>
     </div>
 )HTML").arg(m_storage->totalShots())
@@ -670,9 +683,11 @@ QString ShotServer::generateShotListPage() const
         function updateCompareBar() {
             var bar = document.getElementById("compareBar");
             var count = document.getElementById("selectedCount");
-            if (selectedShots.length >= 2) {
+            var compareBtn = document.getElementById("compareBtn");
+            if (selectedShots.length >= 1) {
                 bar.classList.add("visible");
                 count.textContent = selectedShots.length + " selected";
+                compareBtn.disabled = selectedShots.length < 2;
             } else {
                 bar.classList.remove("visible");
             }
@@ -691,6 +706,24 @@ QString ShotServer::generateShotListPage() const
             if (selectedShots.length >= 2) {
                 window.location.href = "/compare/" + selectedShots.join(",");
             }
+        }
+
+        function deleteSelected() {
+            if (selectedShots.length === 0) return;
+            var n = selectedShots.length;
+            if (!confirm("Delete " + n + " shot" + (n > 1 ? "s" : "") + "? This cannot be undone.")) return;
+            fetch("/api/shots/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids: selectedShots })
+            }).then(function(resp) { return resp.json(); })
+              .then(function(data) {
+                if (data.deleted > 0) {
+                    window.location.reload();
+                } else {
+                    alert("Failed to delete shots.");
+                }
+            }).catch(function() { alert("Failed to delete shots."); });
         }
 
         function toggleSection(id) {
@@ -897,6 +930,16 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
     for (int i = 0; i < 5; i++) {
         stars += (i < rating) ? "&#9733;" : "&#9734;";
     }
+
+    // Escape for embedding in JavaScript string literals (inside double quotes)
+    auto jsEscape = [](const QString& s) -> QString {
+        QString r = s;
+        r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
+        r.replace(QLatin1String("\""), QLatin1String("\\\""));
+        r.replace(QLatin1String("\n"), QLatin1String("\\n"));
+        r.replace(QLatin1String("\r"), QLatin1String(""));
+        return r;
+    };
 
     // Temperature and yield overrides (always have values)
     double tempOverride = shot["temperatureOverride"].toDouble();
@@ -1146,6 +1189,78 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             font-style: italic;
         }
         .rating { color: var(--accent); font-size: 1.125rem; }
+        .edit-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            cursor: pointer;
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+        .edit-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .edit-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 1rem 1.5rem;
+            display: none;
+            justify-content: center;
+            gap: 1rem;
+            z-index: 200;
+        }
+        .edit-bar.visible { display: flex; }
+        .edit-bar button {
+            padding: 0.75rem 2rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9375rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .save-btn { background: var(--accent); color: #000; }
+        .save-btn:hover { opacity: 0.9; }
+        .cancel-btn { background: var(--surface-hover); color: var(--text); border: 1px solid var(--border) !important; }
+        .cancel-btn:hover { border-color: var(--text-secondary) !important; }
+        .edit-input, .edit-select, .edit-textarea {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.875rem;
+            padding: 0.5rem 0.75rem;
+        }
+        .edit-input:focus, .edit-select:focus, .edit-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .edit-select { cursor: pointer; }
+        .edit-select option { background: var(--surface); color: var(--text); }
+        .edit-textarea { min-height: 15em; resize: vertical; }
+        .notes-card-edit { grid-column: 1 / -1; }
+        .edit-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            gap: 1rem;
+        }
+        .edit-row:last-child { border-bottom: none; }
+        .edit-row .label { color: var(--text-secondary); white-space: nowrap; min-width: 80px; }
+        .edit-row .edit-field { flex: 1; text-align: right; }
+        .edit-row .edit-input, .edit-row .edit-select { text-align: right; }
+        .star-input { display: inline-flex; gap: 0.25rem; cursor: pointer; font-size: 1.5rem; }
+        .star-input .star { color: var(--border); transition: color 0.1s; user-select: none; }
+        .star-input .star.active { color: var(--accent); }
+        .star-input .star:hover { color: var(--accent); }
+        .metric-card .edit-input { text-align: center; width: 80px; }
         .menu-wrapper { position: relative; margin-left: auto; }
         .menu-btn {
             background: none;
@@ -1194,6 +1309,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                 <h1>%1</h1>
                 <div class="subtitle">%2</div>
             </div>
+            <button class="edit-btn" id="editBtn" onclick="toggleEditMode()">&#9998; Edit</button>
 )HTML" + generateMenuHtml() + R"HTML(
         </div>
     </header>
@@ -1302,6 +1418,31 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         </div>
     </main>
 
+    <div class="edit-bar" id="editBar">
+        <button class="save-btn" onclick="saveChanges()">Save</button>
+        <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
+    </div>
+
+    <script>
+        var shotData = {
+            id: %24,
+            beanBrand: "%25",
+            beanType: "%26",
+            roastDate: "%27",
+            roastLevel: "%28",
+            grinderModel: "%29",
+            grinderSetting: "%30",
+            espressoNotes: "%31",
+            doseWeight: %32,
+            finalWeight: %33,
+            enjoyment: %34,
+            barista: "%35",
+            beverageType: "%36",
+            drinkTds: %37,
+            drinkEy: %38
+        };
+    </script>
+
     <script>
         function downloadProfile() {
             window.location.href = window.location.pathname + '/profile.json';
@@ -1329,6 +1470,173 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                 alert('Failed to copy: ' + err);
             }
             document.body.removeChild(textarea);
+        }
+        var isEditMode = false;
+        var originalMetricsHTML = '';
+        var originalInfoGridHTML = '';
+        var originalActionsDisplay = '';
+        var originalDebugDisplay = '';
+
+        function toggleEditMode() {
+            if (isEditMode) return;
+            isEditMode = true;
+
+            var metricsBar = document.querySelector('.metrics-bar');
+            var infoGrid = document.querySelector('.info-grid');
+            var actionsBar = document.querySelector('.actions-bar');
+            var editBar = document.getElementById('editBar');
+            var editBtn = document.getElementById('editBtn');
+            var debugContainer = document.getElementById('debugLogContainer');
+
+            originalMetricsHTML = metricsBar.innerHTML;
+            originalInfoGridHTML = infoGrid.innerHTML;
+            originalActionsDisplay = actionsBar.style.display;
+
+            var stars = shotData.enjoyment > 0 ? Math.round(shotData.enjoyment / 20) : 0;
+            var starHtml = '';
+            for (var i = 1; i <= 5; i++) {
+                starHtml += '<span class="star ' + (i <= stars ? 'active' : '') + '" data-value="' + i + '" onclick="setStarRating(' + i + ')">&#9733;</span>';
+            }
+
+            // Build edit form for metrics bar using DOM
+            // Note: shotData values are server-escaped and trusted (from our own database)
+            metricsBar.innerHTML = '';
+            var metricsHtml =
+                '<div class="metric-card"><input type="number" class="edit-input" id="editDose" step="0.1" value="' + shotData.doseWeight + '" oninput="autoCalcEY()"><div class="label">Dose (g)</div></div>' +
+                '<div class="metric-card"><input type="number" class="edit-input" id="editYield" step="0.1" value="' + shotData.finalWeight + '" oninput="autoCalcEY()"><div class="label">Yield (g)</div></div>' +
+                '<div class="metric-card"><div class="star-input" id="starRating" data-value="' + stars + '">' + starHtml + '</div><div class="label">Rating</div></div>';
+            metricsBar.innerHTML = metricsHtml;
+
+            var roastLevels = ['', 'Light', 'Medium-Light', 'Medium', 'Medium-Dark', 'Dark'];
+            var roastOptions = '';
+            for (var j = 0; j < roastLevels.length; j++) {
+                var rl = roastLevels[j];
+                roastOptions += '<option value="' + rl + '"' + (rl === shotData.roastLevel ? ' selected' : '') + '>' + (rl || '\u2014') + '</option>';
+            }
+
+            var bevTypes = ['espresso', 'pourover', 'tea', 'other'];
+            var bevOptions = '';
+            for (var k = 0; k < bevTypes.length; k++) {
+                var bt = bevTypes[k];
+                bevOptions += '<option value="' + bt + '"' + (bt === shotData.beverageType ? ' selected' : '') + '>' + bt.charAt(0).toUpperCase() + bt.slice(1) + '</option>';
+            }
+
+            // Build edit form for info grid
+            // All values come from shotData which is server-escaped in the C++ template
+            infoGrid.innerHTML =
+                '<div class="info-card notes-card-edit"><h3>Notes</h3>' +
+                    '<textarea class="edit-textarea" id="editNotes">' + escapeHtml(shotData.espressoNotes) + '</textarea>' +
+                '</div>' +
+                '<div class="info-card"><h3>Beans</h3>' +
+                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editBrand" value="' + escapeAttr(shotData.beanBrand) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Type</span><div class="edit-field"><input type="text" class="edit-input" id="editType" value="' + escapeAttr(shotData.beanType) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Roast Date</span><div class="edit-field"><input type="text" class="edit-input" id="editRoastDate" value="' + escapeAttr(shotData.roastDate) + '" placeholder="YYYY-MM-DD"></div></div>' +
+                    '<div class="edit-row"><span class="label">Roast Level</span><div class="edit-field"><select class="edit-select" id="editRoastLevel">' + roastOptions + '</select></div></div>' +
+                '</div>' +
+                '<div class="info-card"><h3>Grinder</h3>' +
+                    '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeAttr(shotData.grinderModel) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeAttr(shotData.grinderSetting) + '"></div></div>' +
+                '</div>' +
+                '<div class="info-card"><h3>Additional</h3>' +
+                    '<div class="edit-row"><span class="label">Barista</span><div class="edit-field"><input type="text" class="edit-input" id="editBarista" value="' + escapeAttr(shotData.barista) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Beverage</span><div class="edit-field"><select class="edit-select" id="editBeverageType">' + bevOptions + '</select></div></div>' +
+                    '<div class="edit-row"><span class="label">TDS</span><div class="edit-field"><input type="number" class="edit-input" id="editTds" step="0.01" value="' + (shotData.drinkTds || '') + '" oninput="autoCalcEY()"></div></div>' +
+                    '<div class="edit-row"><span class="label">EY (%)</span><div class="edit-field"><input type="number" class="edit-input" id="editEy" step="0.1" value="' + (shotData.drinkEy || '') + '" readonly style="opacity:0.7"></div></div>' +
+                '</div>';
+
+            actionsBar.style.display = 'none';
+            originalDebugDisplay = debugContainer ? debugContainer.style.display : '';
+            if (debugContainer) debugContainer.style.display = 'none';
+            editBar.classList.add('visible');
+            editBtn.style.display = 'none';
+            document.querySelector('.container').style.paddingBottom = '5rem';
+        }
+
+        function cancelEdit() {
+            if (!isEditMode) return;
+            isEditMode = false;
+
+            document.querySelector('.metrics-bar').innerHTML = originalMetricsHTML;
+            document.querySelector('.info-grid').innerHTML = originalInfoGridHTML;
+            document.querySelector('.actions-bar').style.display = originalActionsDisplay;
+            document.getElementById('editBar').classList.remove('visible');
+            document.getElementById('editBtn').style.display = '';
+            document.querySelector('.container').style.paddingBottom = '';
+            var debugContainer = document.getElementById('debugLogContainer');
+            if (debugContainer) debugContainer.style.display = originalDebugDisplay;
+        }
+
+        function setStarRating(value) {
+            var stars = document.querySelectorAll('#starRating .star');
+            for (var i = 0; i < stars.length; i++) {
+                if (i < value) stars[i].classList.add('active');
+                else stars[i].classList.remove('active');
+            }
+            document.getElementById('starRating').dataset.value = value;
+        }
+
+        function autoCalcEY() {
+            var dose = parseFloat(document.getElementById('editDose').value) || 0;
+            var yieldVal = parseFloat(document.getElementById('editYield').value) || 0;
+            var tds = parseFloat(document.getElementById('editTds').value) || 0;
+            var eyField = document.getElementById('editEy');
+            if (dose > 0 && yieldVal > 0 && tds > 0) {
+                eyField.value = ((yieldVal * tds) / dose).toFixed(1);
+            }
+        }
+
+        function saveChanges() {
+            var starEl = document.getElementById('starRating');
+            var starValue = parseInt(starEl.dataset.value) || 0;
+
+            var data = {
+                beanBrand: document.getElementById('editBrand').value,
+                beanType: document.getElementById('editType').value,
+                roastDate: document.getElementById('editRoastDate').value,
+                roastLevel: document.getElementById('editRoastLevel').value,
+                grinderModel: document.getElementById('editGrinderModel').value,
+                grinderSetting: document.getElementById('editGrinderSetting').value,
+                espressoNotes: document.getElementById('editNotes').value,
+                doseWeight: parseFloat(document.getElementById('editDose').value) || 0,
+                finalWeight: parseFloat(document.getElementById('editYield').value) || 0,
+                enjoyment: starValue * 20,
+                barista: document.getElementById('editBarista').value,
+                beverageType: document.getElementById('editBeverageType').value,
+                drinkTds: parseFloat(document.getElementById('editTds').value) || 0,
+                drinkEy: parseFloat(document.getElementById('editEy').value) || 0
+            };
+
+            var btn = document.querySelector('.save-btn');
+            btn.textContent = 'Saving...';
+            btn.disabled = true;
+
+            fetch('/api/shot/' + shotData.id + '/metadata', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    window.location.reload();
+                } else {
+                    alert('Save failed: ' + (result.error || 'Unknown error'));
+                    btn.textContent = 'Save';
+                    btn.disabled = false;
+                }
+            }).catch(function(err) {
+                alert('Save failed: ' + err);
+                btn.textContent = 'Save';
+                btn.disabled = false;
+            });
+        }
+
+        function escapeAttr(s) {
+            if (!s) return '';
+            return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+        function escapeHtml(s) {
+            if (!s) return '';
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
     </script>
     <script>
@@ -1669,7 +1977,25 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
     .arg(flowGoalData)
     .arg(shot["debugLog"].toString().isEmpty() ? "No debug log available" : shot["debugLog"].toString().toHtmlEscaped())
     .arg(phaseData)
-    .arg(weightFlowRateData);
+    .arg(weightFlowRateData)
+    // shotData JS object fields (%24-%38)
+    .arg(shotId)                                                                     // %24 id
+    .arg(jsEscape(shot["beanBrand"].toString()))                                     // %25 beanBrand
+    .arg(jsEscape(shot["beanType"].toString()))                                      // %26 beanType
+    .arg(jsEscape(shot["roastDate"].toString()))                                     // %27 roastDate
+    .arg(jsEscape(shot["roastLevel"].toString()))                                    // %28 roastLevel
+    .arg(jsEscape(shot["grinderModel"].toString()))                                  // %29 grinderModel
+    .arg(jsEscape(shot["grinderSetting"].toString()))                                // %30 grinderSetting
+    .arg(jsEscape(shot["espressoNotes"].toString()))                                 // %31 espressoNotes
+    .arg(shot["doseWeight"].toDouble(), 0, 'f', 1)                                  // %32 doseWeight
+    .arg(shot["finalWeight"].toDouble(), 0, 'f', 1)                                 // %33 finalWeight
+    .arg(qRound(shot["enjoyment"].toDouble()))                                       // %34 enjoyment
+    .arg(jsEscape(shot["barista"].toString()))                                       // %35 barista
+    .arg(jsEscape(shot["beverageType"].toString().isEmpty()
+                  ? QStringLiteral("espresso")
+                  : shot["beverageType"].toString()))                                // %36 beverageType
+    .arg(shot["drinkTds"].toDouble(), 0, 'f', 2)                                    // %37 drinkTds
+    .arg(shot["drinkEy"].toDouble(), 0, 'f', 1);                                    // %38 drinkEy
 }
 
 QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const

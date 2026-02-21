@@ -560,6 +560,34 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         }
         sendJson(socket, QJsonDocument(arr).toJson(QJsonDocument::Compact));
     }
+    else if (path.startsWith("/api/shot/") && path.endsWith("/metadata") && method == "POST") {
+        // POST /api/shot/123/metadata - update shot metadata
+        QString idPart = path.mid(10); // Remove "/api/shot/"
+        idPart = idPart.left(idPart.indexOf("/metadata"));
+        bool ok;
+        qint64 shotId = idPart.toLongLong(&ok);
+        if (!ok) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
+            return;
+        }
+        int bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart == -1) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid request"})");
+            return;
+        }
+        QByteArray body = request.mid(bodyStart + 4);
+        QJsonDocument doc = QJsonDocument::fromJson(body);
+        if (!doc.isObject()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Invalid JSON"})");
+            return;
+        }
+        QVariantMap metadata = doc.object().toVariantMap();
+        if (m_storage->updateShotMetadata(shotId, metadata)) {
+            sendJson(socket, R"({"success":true})");
+        } else {
+            sendResponse(socket, 500, "application/json", R"({"error":"Failed to update metadata"})");
+        }
+    }
     else if (path.startsWith("/api/shot/")) {
         bool ok;
         qint64 shotId = path.mid(10).toLongLong(&ok);
@@ -569,6 +597,23 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         } else {
             sendResponse(socket, 400, "application/json", R"({"error":"Invalid shot ID"})");
         }
+    }
+    else if (path == "/api/shots/delete" && method == "POST") {
+        int bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart == -1) {
+            sendJson(socket, R"({"error":"Invalid request"})");
+            return;
+        }
+        QByteArray body = request.mid(bodyStart + 4);
+        QJsonDocument doc = QJsonDocument::fromJson(body);
+        QJsonArray ids = doc.object().value("ids").toArray();
+        int deleted = 0;
+        for (const QJsonValue& v : std::as_const(ids)) {
+            qint64 id = v.toInteger();
+            if (id > 0 && m_storage->deleteShot(id))
+                deleted++;
+        }
+        sendJson(socket, QString(R"({"deleted":%1})").arg(deleted).toUtf8());
     }
     else if (path == "/api/database" || path == "/database.db") {
         // Checkpoint WAL to ensure all data is in main .db file before download
