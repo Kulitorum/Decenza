@@ -2090,6 +2090,7 @@ void MainController::sendMachineSettings() {
              << ", phase:" << phase << ", configuredTemp:" << m_settings->steamTemperature() << ")";
 
     double groupTemp = getGroupTemperature();
+    qDebug() << "sendMachineSettings: sending groupTemp" << groupTemp << "°C";
 
     // Hot water volume: only send actual ml in volume mode (machine auto-stops via flowmeter).
     // In weight mode send 0 so the app controls stop via scale instead.
@@ -2191,8 +2192,13 @@ void MainController::applyHeaterTweaks() {
 
 double MainController::getGroupTemperature() const {
     if (m_settings && m_settings->hasTemperatureOverride()) {
-        return m_settings->temperatureOverride();
+        double overrideTemp = m_settings->temperatureOverride();
+        qDebug() << "getGroupTemperature: using override" << overrideTemp << "°C"
+                 << "(profile base:" << m_currentProfile.espressoTemperature() << "°C)";
+        return overrideTemp;
     }
+    qDebug() << "getGroupTemperature: no override, using profile"
+             << m_currentProfile.espressoTemperature() << "°C";
     return m_currentProfile.espressoTemperature();
 }
 

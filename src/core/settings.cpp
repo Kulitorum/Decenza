@@ -2348,6 +2348,7 @@ double Settings::temperatureOverride() const {
 
 void Settings::setTemperatureOverride(double temp) {
     if (!qFuzzyCompare(m_temperatureOverride, temp) || !m_hasTemperatureOverride) {
+        qDebug() << "setTemperatureOverride:" << m_temperatureOverride << "→" << temp;
         m_temperatureOverride = temp;
         m_hasTemperatureOverride = true;
         m_settings.setValue("brew/temperatureOverride", temp);

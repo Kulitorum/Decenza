@@ -297,6 +297,104 @@ Page {
                 visible: editShotData.pressure && editShotData.pressure.length > 0
             }
 
+            // Rating (moved to top, right after graph)
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)
+
+                Tr {
+                    id: ratingLabel
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    key: "postshotreview.label.rating"
+                    fallback: "Rating"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(11)
+                    Accessible.ignored: true
+                }
+
+                Rectangle {
+                    id: ratingBox
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: ratingLabel.bottom
+                    anchors.topMargin: Theme.scaled(2)
+                    height: Theme.scaled(44)
+                    radius: Theme.scaled(12)
+                    color: Theme.surfaceColor
+                    border.width: 1
+                    border.color: Theme.textSecondaryColor
+
+                    RatingInput {
+                        id: ratingInput
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(4)
+                        value: editEnjoyment
+                        accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
+                        onValueModified: function(newValue) {
+                            editEnjoyment = newValue
+                        }
+                    }
+                }
+            }
+
+            // Notes (moved to top, right after rating)
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: notesLabel.height + notesField.height + 2
+
+                Tr {
+                    id: notesLabel
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    key: "postshotreview.label.notes"
+                    fallback: "Notes"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(11)
+                    Accessible.ignored: true
+                }
+
+                TextArea {
+                    id: notesField
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: notesLabel.bottom
+                    anchors.topMargin: Theme.scaled(2)
+                    // Size to content with minimum height of 100px
+                    height: Math.max(100, contentHeight + topPadding + bottomPadding)
+                    text: editNotes
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    placeholderTextColor: Theme.textSecondaryColor
+                    wrapMode: TextEdit.Wrap
+                    leftPadding: 8; rightPadding: 8; topPadding: 6; bottomPadding: Theme.scaled(6)
+                    background: Rectangle {
+                        color: Theme.backgroundColor
+                        radius: Theme.scaled(4)
+                        border.color: notesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
+                        border.width: 1
+                    }
+                    onTextChanged: editNotes = text
+
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("postshotreview.label.notes", "Notes")
+                    Accessible.description: text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty")
+                    Accessible.focusable: true
+
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            if (AccessibilityManager.enabled) {
+                                let announcement = TranslationManager.translate("postshotreview.label.notes", "Notes") + ". " + (text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty"))
+                                AccessibilityManager.announce(announcement)
+                            }
+                        }
+                    }
+
+                    // Note: TextArea doesn't support EnterKey.type, but we keep
+                    // the multiline behavior. User can tap outside or use back gesture.
+                }
+            }
+
             // 3-column grid for all fields
             GridLayout {
                 Layout.fillWidth: true
@@ -624,105 +722,6 @@ Page {
                     }
                 }
 
-                // === ROW 5: Rating (spans 3 columns) ===
-                Item {
-                    Layout.columnSpan: 3
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)
-
-                    Tr {
-                        id: ratingLabel
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        key: "postshotreview.label.rating"
-                        fallback: "Rating"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Accessible.ignored: true
-                    }
-
-                    Rectangle {
-                        id: ratingBox
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: ratingLabel.bottom
-                        anchors.topMargin: Theme.scaled(2)
-                        height: Theme.scaled(44)
-                        radius: Theme.scaled(12)
-                        color: Theme.surfaceColor
-                        border.width: 1
-                        border.color: Theme.textSecondaryColor
-
-                        RatingInput {
-                            id: ratingInput
-                            anchors.fill: parent
-                            anchors.margins: Theme.scaled(4)
-                            value: editEnjoyment
-                            accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
-                            onValueModified: function(newValue) {
-                                editEnjoyment = newValue
-                            }
-                        }
-                    }
-                }
-
-                // === ROW 6: Notes (spans 3 columns) ===
-                Item {
-                    Layout.columnSpan: 3
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: notesLabel.height + notesField.height + 2
-
-                    Tr {
-                        id: notesLabel
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        key: "postshotreview.label.notes"
-                        fallback: "Notes"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Accessible.ignored: true
-                    }
-
-                    TextArea {
-                        id: notesField
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: notesLabel.bottom
-                        anchors.topMargin: Theme.scaled(2)
-                        // Size to content with minimum height of 100px
-                        height: Math.max(100, contentHeight + topPadding + bottomPadding)
-                        text: editNotes
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        placeholderTextColor: Theme.textSecondaryColor
-                        wrapMode: TextEdit.Wrap
-                        leftPadding: 8; rightPadding: 8; topPadding: 6; bottomPadding: Theme.scaled(6)
-                        background: Rectangle {
-                            color: Theme.backgroundColor
-                            radius: Theme.scaled(4)
-                            border.color: notesField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
-                        }
-                        onTextChanged: editNotes = text
-
-                        Accessible.role: Accessible.EditableText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.notes", "Notes")
-                        Accessible.description: text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty")
-                        Accessible.focusable: true
-
-                        onActiveFocusChanged: {
-                            if (activeFocus) {
-                                if (AccessibilityManager.enabled) {
-                                    let announcement = TranslationManager.translate("postshotreview.label.notes", "Notes") + ". " + (text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty"))
-                                    AccessibilityManager.announce(announcement)
-                                }
-                            }
-                        }
-
-                        // Note: TextArea doesn't support EnterKey.type, but we keep
-                        // the multiline behavior. User can tap outside or use back gesture.
-                    }
-                }
             }
 
             Item { Layout.preferredHeight: 10 }
