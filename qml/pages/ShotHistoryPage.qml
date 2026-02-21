@@ -202,6 +202,15 @@ Page {
         pageStack.push(Qt.resolvedUrl("ShotComparisonPage.qml"))
     }
 
+    function deleteSelectedShots() {
+        var toDelete = selectedShots.slice()  // snapshot before signals can modify selectedShots
+        for (var i = 0; i < toDelete.length; i++) {
+            MainController.shotHistory.deleteShot(toDelete[i])
+        }
+        clearSelection()
+        loadShots()
+    }
+
     // Get the list of shot IDs for navigation (selected shots or all loaded shots)
     function getNavigableShotIds() {
         if (selectedShots.length > 0) {
@@ -257,6 +266,13 @@ Page {
                 text: TranslationManager.translate("shothistory.clear", "Clear")
                 accessibleName: TranslationManager.translate("shotHistory.clearSelection", "Clear shot selection")
                 onClicked: clearSelection()
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("shothistory.delete", "Delete")
+                accessibleName: TranslationManager.translate("shotHistory.deleteSelected", "Delete selected shots")
+                destructive: true
+                onClicked: bulkDeleteConfirmDialog.open()
             }
 
             AccessibleButton {
@@ -732,6 +748,79 @@ Page {
         title: TranslationManager.translate("shothistory.title", "Shot History")
         rightText: MainController.shotHistory.totalShots + " " + TranslationManager.translate("shothistory.shots", "shots")
         onBackClicked: root.goBack()
+    }
+
+    Dialog {
+        id: bulkDeleteConfirmDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Theme.scaled(360)
+        modal: true
+        padding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Title
+            Text {
+                text: TranslationManager.translate("shothistory.deleteconfirmtitle", "Delete Shots?")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            // Message
+            Text {
+                text: TranslationManager.translate("shothistory.deleteconfirmmessage", "Permanently delete %1 shot(s) from history?").arg(selectedShots.length)
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+            }
+
+            // Buttons
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("shothistory.cancelDelete", "Cancel delete")
+                    Layout.fillWidth: true
+                    onClicked: bulkDeleteConfirmDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.delete", "Delete")
+                    accessibleName: TranslationManager.translate("shothistory.confirmDelete", "Confirm delete shots")
+                    destructive: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        bulkDeleteConfirmDialog.close()
+                        deleteSelectedShots()
+                    }
+                }
+            }
+        }
     }
 
 }
