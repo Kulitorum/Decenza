@@ -808,8 +808,15 @@ private:
 
     // SAW convergence detection helper
     bool isSawConverged(const QString& scaleType) const;
+    void ensureSawCacheLoaded() const;
 
     QSettings m_settings;
+
+    // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)
+    mutable QJsonArray m_sawHistoryCache;
+    mutable bool m_sawHistoryCacheDirty = true;
+    mutable int m_sawConvergedCache = -1;  // -1 = unknown, 0 = no, 1 = yes
+    mutable QString m_sawConvergedScaleType;  // Scale type for cached convergence result
     QString m_flashColorName;
     int m_flashPhase = 0;
     QTimer* m_flashTimer = nullptr;

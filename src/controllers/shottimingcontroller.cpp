@@ -79,6 +79,7 @@ void ShotTimingController::startShot()
     // Reset weight state
     m_weight = 0;
     m_flowRate = 0;
+    m_flowRateShort = 0;
     m_stopAtWeightTriggered = false;
     m_frameWeightSkipSent = -1;
     m_weightExitFrames.clear();
@@ -174,7 +175,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     }
 }
 
-void ShotTimingController::onWeightSample(double weight, double flowRate)
+void ShotTimingController::onWeightSample(double weight, double flowRate, double flowRateShort)
 {
     // Keep updating weight while settling timer is running (for SAW learning)
     if (m_settlingTimer.isActive()) {
@@ -244,6 +245,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate)
 
     m_weight = weight;
     m_flowRate = flowRate;
+    m_flowRateShort = flowRateShort;
 
     emit weightChanged();
 
@@ -326,16 +328,20 @@ void ShotTimingController::checkStopAtWeight()
         stopThreshold = target - 5.0;
     } else {
         // Espresso: predict drip based on current flow and learning history
-        double flowRate = m_flowRate;
+        // Use the short-window (500ms) LSLR for less stale flow near end-of-shot
+        double flowRate = m_flowRateShort;
         if (flowRate > 12.0) flowRate = 12.0;  // Cap at reasonable max
-        if (flowRate < 0.5) flowRate = 0.5;    // Minimum to avoid division issues
+        // If short-window LSLR has no valid data (buffer empty/recovering from phase glitch),
+        // skip this SOW check. The next weight sample with valid flow will trigger normally.
+        if (flowRate < 0.5) return;
         double expectedDrip = m_settings ? m_settings->getExpectedDrip(flowRate) : (flowRate * 1.5);
         stopThreshold = target - expectedDrip;
 
         // Debug: log the expected drip (once per shot when it changes significantly)
         static double lastLoggedDrip = -1;
         if (qAbs(expectedDrip - lastLoggedDrip) > 0.5) {
-            qDebug() << "[SAW] Expected drip:" << expectedDrip << "g at flow" << flowRate << "ml/s";
+            qDebug() << "[SAW] Expected drip:" << expectedDrip << "g at flow" << flowRate
+                     << "ml/s (short LSLR, 1s=" << m_flowRate << ")";
             lastLoggedDrip = expectedDrip;
         }
     }
@@ -344,16 +350,15 @@ void ShotTimingController::checkStopAtWeight()
         m_stopAtWeightTriggered = true;
 
         // Capture state for SAW learning (espresso only)
+        // Use short-window flow rate so auto-tune learns from the same signal
         if (state != DE1::State::HotWater) {
             m_sawTriggeredThisShot = true;
-            m_flowRateAtStop = m_flowRate;
+            m_flowRateAtStop = m_flowRateShort;
             m_weightAtStop = m_weight;
             m_targetWeightAtStop = target;
-            double expectedDrip = m_settings ? m_settings->getExpectedDrip(m_flowRate) : 0;
             qDebug() << "[SAW] Stop triggered: weight=" << m_weightAtStop
                      << "threshold=" << stopThreshold
-                     << "expectedDrip=" << expectedDrip
-                     << "flow=" << m_flowRateAtStop
+                     << "flow=" << m_flowRateAtStop << "(short)"
                      << "target=" << m_targetWeightAtStop;
         }
 
@@ -432,9 +437,10 @@ void ShotTimingController::onSettlingComplete()
     double overshoot = m_weight - m_targetWeightAtStop;
 
     // Validate settled weight is reasonable. Scale readings can go haywire after
-    // the shot (drip tray interference, cup removal, scale oscillation). If the
-    // settled weight is >10g from target, the reading is unreliable for learning.
-    if (m_weight < 0 || qAbs(overshoot) > 10.0) {
+    // the shot (drip tray interference, cup removal, scale oscillation). A 20g miss
+    // is clearly a scale glitch; 10-15g can happen with a badly miscalibrated prediction
+    // and the system needs to learn from those to recover.
+    if (m_weight < 0 || qAbs(overshoot) > 20.0) {
         qWarning() << "[SAW] Settled weight unreasonable (weight=" << m_weight
                    << "overshoot=" << overshoot << "g), skipping learning";
         return;
@@ -449,8 +455,9 @@ void ShotTimingController::onSettlingComplete()
         return;
     }
 
-    // Validate drip is in reasonable range (0 to 15 grams)
-    if (drip > 15.0) {
+    // Validate drip is in reasonable range (0 to 20 grams)
+    // Widened from 15g to allow learning from badly miscalibrated predictions
+    if (drip > 20.0) {
         qWarning() << "[SAW] Drip out of range (" << drip << "g), skipping learning";
         return;
     }

@@ -2770,13 +2770,12 @@ void Settings::setFlowCalibrationMultiplier(double multiplier) {
 
 // Returns average lag for display in QML settings (calculated from stored drip/flow)
 double Settings::sawLearnedLag() const {
-    QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
-    if (data.isEmpty()) {
+    ensureSawCacheLoaded();
+
+    const QJsonArray& arr = m_sawHistoryCache;
+    if (arr.isEmpty()) {
         return 1.5;  // Default
     }
-
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
 
     QString currentScale = scaleType();
     double sumLag = 0;
@@ -2803,12 +2802,33 @@ double Settings::sawLearnedLag() const {
     return count > 0 ? sumLag / count : 1.5;
 }
 
-bool Settings::isSawConverged(const QString& scaleType) const {
+void Settings::ensureSawCacheLoaded() const {
+    if (!m_sawHistoryCacheDirty) return;
     QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
-    if (data.isEmpty()) return false;
+    if (data.isEmpty()) {
+        m_sawHistoryCache = QJsonArray();
+    } else {
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        m_sawHistoryCache = doc.array();
+    }
+    m_sawHistoryCacheDirty = false;
+    m_sawConvergedCache = -1;  // Invalidate convergence cache too
+}
 
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+bool Settings::isSawConverged(const QString& scaleType) const {
+    ensureSawCacheLoaded();
+
+    // Return cached result if available and for the same scale
+    if (m_sawConvergedCache >= 0 && m_sawConvergedScaleType == scaleType) {
+        return m_sawConvergedCache == 1;
+    }
+
+    const QJsonArray& arr = m_sawHistoryCache;
+    if (arr.isEmpty()) {
+        m_sawConvergedCache = 0;
+        m_sawConvergedScaleType = scaleType;
+        return false;
+    }
 
     // Collect |overshoot| from last 5 entries for this scale that have overshoot data
     QVector<double> overshoots;
@@ -2820,29 +2840,61 @@ bool Settings::isSawConverged(const QString& scaleType) const {
     }
 
     // Converged = at least 3 entries with avg |overshoot| < 1.5g
-    if (overshoots.size() < 3) return false;
+    if (overshoots.size() < 3) {
+        m_sawConvergedCache = 0;
+        m_sawConvergedScaleType = scaleType;
+        return false;
+    }
 
     double sum = 0;
     for (double v : overshoots) sum += v;
-    return (sum / overshoots.size()) < 1.5;
+    bool converged = (sum / overshoots.size()) < 1.5;
+
+    // Divergence detector: if last 3 signed overshoots are all >1g in the same
+    // direction, the prediction is systematically off (bean/grind change) — force
+    // adaptation mode without requiring manual reset.
+    if (converged && overshoots.size() >= 3) {
+        QVector<double> signedOvershoots;
+        for (int i = arr.size() - 1; i >= 0 && signedOvershoots.size() < 3; --i) {
+            QJsonObject obj = arr[i].toObject();
+            if (obj["scale"].toString() == scaleType && obj.contains("overshoot")) {
+                signedOvershoots.append(obj["overshoot"].toDouble());
+            }
+        }
+        if (signedOvershoots.size() >= 3) {
+            bool allPositive = true, allNegative = true;
+            for (double v : signedOvershoots) {
+                if (v <= 1.0) allPositive = false;
+                if (v >= -1.0) allNegative = false;
+            }
+            if (allPositive || allNegative) {
+                qDebug() << "[SAW] Divergence detected: last 3 overshoots all"
+                         << (allPositive ? "positive" : "negative") << "- forcing adaptation mode";
+                converged = false;
+            }
+        }
+    }
+
+    m_sawConvergedCache = converged ? 1 : 0;
+    m_sawConvergedScaleType = scaleType;
+    return converged;
 }
 
 double Settings::getExpectedDrip(double currentFlowRate) const {
-    QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
-    if (data.isEmpty()) {
+    ensureSawCacheLoaded();
+
+    const QJsonArray& arr = m_sawHistoryCache;
+    if (arr.isEmpty()) {
         // Default: assume 1.5s lag worth of drip
         return currentFlowRate * 1.5;
     }
 
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
-
     // Check convergence state to determine adaptive parameters
     QString currentScale = scaleType();
     bool converged = isSawConverged(currentScale);
-    int maxEntries = converged ? 20 : 10;
+    int maxEntries = converged ? 12 : 8;
     double recencyMax = 10.0;
-    double recencyMin = converged ? 5.0 : 1.0;  // Flat (10→5) when converged, steep (10→1) when adapting
+    double recencyMin = converged ? 3.0 : 1.0;  // Steeper recency = faster adaptation
 
     // Filter to current scale type and collect recent entries
     struct Entry { double drip; double flow; };
@@ -2879,9 +2931,9 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
         // Recency weight: linear interpolation from max to min across entry count
         double recencyWeight = recencyMax - i * (recencyMax - recencyMin) / qMax(1, entries.size() - 1);
 
-        // Flow similarity weight: gaussian with sigma=2 ml/s
+        // Flow similarity weight: gaussian with sigma=1.5 ml/s
         double flowDiff = qAbs(e.flow - currentFlowRate);
-        double flowWeight = qExp(-(flowDiff * flowDiff) / 8.0);  // sigma^2 * 2 = 8
+        double flowWeight = qExp(-(flowDiff * flowDiff) / 4.5);  // sigma^2 * 2 = 4.5
 
         double weight = recencyWeight * flowWeight;
         weightedDripSum += e.drip * weight;
@@ -2895,9 +2947,9 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
 
     double expectedDrip = weightedDripSum / totalWeight;
 
-    // Clamp to reasonable range (0.5 to 15 grams)
+    // Clamp to reasonable range (0.5 to 20 grams)
     if (expectedDrip < 0.5) expectedDrip = 0.5;
-    if (expectedDrip > 15.0) expectedDrip = 15.0;
+    if (expectedDrip > 20.0) expectedDrip = 20.0;
 
     return expectedDrip;
 }
@@ -2912,7 +2964,7 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
     // Outlier rejection: when converged, skip learning points that deviate too far
     if (isSawConverged(scaleType)) {
         double expectedDrip = getExpectedDrip(flowRate);
-        double threshold = qMax(3.0, expectedDrip);  // Floor of 3g prevents over-rejection
+        double threshold = qMax(3.0, expectedDrip);  // Reject if deviation exceeds expected drip (or 3g floor)
         if (qAbs(drip - expectedDrip) > threshold) {
             qDebug() << "[SAW] Outlier rejected: drip=" << drip
                      << "g expected=" << expectedDrip
@@ -2940,11 +2992,15 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
     }
 
     m_settings.setValue("saw/learningHistory", QJsonDocument(arr).toJson());
+    m_sawHistoryCacheDirty = true;
+    m_sawConvergedCache = -1;
     emit sawLearnedLagChanged();
 }
 
 void Settings::resetSawLearning() {
     m_settings.remove("saw/learningHistory");
+    m_sawHistoryCacheDirty = true;
+    m_sawConvergedCache = -1;
     emit sawLearnedLagChanged();
 }
 

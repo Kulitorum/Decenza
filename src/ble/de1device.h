@@ -110,8 +110,9 @@ public slots:
     void startFlush();
     void startDescale();
     void startClean();
-    void stopOperation();     // Soft stop (for steam: stops flow, no purge)
-    void requestIdle();       // Hard stop (requests Idle state, triggers steam purge)
+    void stopOperation();         // Soft stop (for steam: stops flow, no purge)
+    void stopOperationUrgent();   // Bypasses command queue for lowest-latency stop (SOW)
+    void requestIdle();           // Hard stop (requests Idle state, triggers steam purge)
     void skipToNextFrame();   // Skip to next profile frame during extraction (0x0E)
     void goToSleep();
     void wakeUp();

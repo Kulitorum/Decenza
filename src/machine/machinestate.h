@@ -83,6 +83,7 @@ public:
     double scaleWeight() const;
     double scaleFlowRate() const;
     double smoothedScaleFlowRate() const;
+    double smoothedScaleFlowRateShort() const;  // 500ms LSLR window for SOW decisions
 
     // Called by MainController when shot samples arrive
     void onFlowSample(double flowRate, double deltaTime);

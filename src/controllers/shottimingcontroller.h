@@ -67,7 +67,7 @@ public:
     // Data ingestion (called by MainController)
     void onShotSample(const ShotSample& sample, double pressureGoal, double flowGoal,
                       double tempGoal, int frameNumber, bool isFlowMode);
-    void onWeightSample(double weight, double flowRate);
+    void onWeightSample(double weight, double flowRate, double flowRateShort = 0);
 
     // Tare control
     void tare();
@@ -118,6 +118,7 @@ private:
     // Weight state
     double m_weight = 0;
     double m_flowRate = 0;
+    double m_flowRateShort = 0;  // 500ms LSLR for SOW decisions (less stale than 1s)
     double m_targetWeight = 0;
     bool m_stopAtWeightTriggered = false;
     int m_frameWeightSkipSent = -1;  // Frame for which we've sent weight-based skip

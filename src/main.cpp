@@ -160,9 +160,9 @@ int main(int argc, char *argv[])
     QObject::connect(&shotDataModel, &ShotDataModel::flushed,
                      &timingController, &ShotTimingController::shotTimeChanged);
 
-    // Connect stop-at-weight signal to DE1
+    // Connect stop-at-weight signal to DE1 (urgent: bypasses command queue for lowest latency)
     QObject::connect(&timingController, &ShotTimingController::stopAtWeightReached,
-                     &de1Device, &DE1Device::stopOperation);
+                     &de1Device, &DE1Device::stopOperationUrgent);
 
     // Forward SAW signal to MachineState so QML shows "Target weight reached"
     QObject::connect(&timingController, &ShotTimingController::stopAtWeightReached,
