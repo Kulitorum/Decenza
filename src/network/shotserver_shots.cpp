@@ -47,45 +47,11 @@ QString ShotServer::generateShotListPage() const
 {
     QVariantList shots = m_storage->getShots(0, 1000);  // Get more shots for filtering
 
-    // Collect unique values for filter dropdowns
-    QSet<QString> profilesSet, brandsSet, coffeesSet;
-    for (const QVariant& v : std::as_const(shots)) {
-        QVariantMap shot = v.toMap();
-        QString profile = shot["profileName"].toString().trimmed();
-        QString brand = shot["beanBrand"].toString().trimmed();
-        QString coffee = shot["beanType"].toString().trimmed();
-        if (!profile.isEmpty()) profilesSet.insert(profile);
-        if (!brand.isEmpty()) brandsSet.insert(brand);
-        if (!coffee.isEmpty()) coffeesSet.insert(coffee);
-    }
-
-    // Convert to sorted lists for dropdowns
-    QStringList profiles = profilesSet.values();
-    QStringList brands = brandsSet.values();
-    QStringList coffees = coffeesSet.values();
-    std::sort(profiles.begin(), profiles.end(), [](const QString& a, const QString& b) { return a.toLower() < b.toLower(); });
-    std::sort(brands.begin(), brands.end(), [](const QString& a, const QString& b) { return a.toLower() < b.toLower(); });
-    std::sort(coffees.begin(), coffees.end(), [](const QString& a, const QString& b) { return a.toLower() < b.toLower(); });
-
-    // Generate filter options HTML
-    auto generateOptions = [](const QStringList& items) -> QString {
-        QString html;
-        for (const QString& item : items) {
-            html += QString("<option value=\"%1\">%1</option>").arg(item.toHtmlEscaped());
-        }
-        return html;
-    };
-
-    QString profileOptions = generateOptions(profiles);
-    QString brandOptions = generateOptions(brands);
-    QString coffeeOptions = generateOptions(coffees);
-
     QString rows;
     for (const QVariant& v : std::as_const(shots)) {
         QVariantMap shot = v.toMap();
 
         int rating = qRound(shot["enjoyment"].toDouble());  // 0-100
-        QString ratingStr = QString::number(rating);
 
         double ratio = 0;
         if (shot["doseWeight"].toDouble() > 0) {
@@ -142,8 +108,8 @@ QString ShotServer::generateShotListPage() const
         // Build bean display: "Brand Type (Grind)"
         QString beanDisplay;
         if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
-            beanDisplay = QString("<span class=\"clickable\" onclick=\"event.preventDefault(); event.stopPropagation(); addFilter('brand', '%1')\">%2</span>"
-                                  "<span class=\"clickable\" onclick=\"event.preventDefault(); event.stopPropagation(); addFilter('coffee', '%3')\">%4</span>")
+            beanDisplay = QString("<span class=\"clickable\" onclick=\"event.preventDefault(); event.stopPropagation(); setSearch('%1')\">%2</span>"
+                                  "<span class=\"clickable\" onclick=\"event.preventDefault(); event.stopPropagation(); setSearch('%3')\">%4</span>")
                 .arg(brandJs, brandHtml, coffeeJs, coffeeHtml);
             if (!grinderSetting.isEmpty()) {
                 beanDisplay += QString(" <span class=\"shot-grind\">(%1)</span>")
@@ -151,13 +117,17 @@ QString ShotServer::generateShotListPage() const
             }
         }
 
+        double drinkTds = shot["drinkTds"].toDouble();
+        double drinkEy = shot["drinkEy"].toDouble();
+
         rows += QString(R"HTML(
             <div class="shot-card" onclick="toggleSelect(%1, this)" data-id="%1"
                  data-profile="%2" data-brand="%3" data-coffee="%4" data-rating="%5"
-                 data-ratio="%6" data-duration="%7" data-date="%8" data-dose="%9" data-yield="%10">
+                 data-ratio="%6" data-duration="%7" data-date="%8" data-dose="%9" data-yield="%10"
+                 data-tds="%15" data-ey="%16">
                 <a href="/shot/%1" onclick="event.stopPropagation()" style="text-decoration:none;color:inherit;display:block;">
                     <div class="shot-header">
-                        <span class="shot-profile clickable" onclick="event.preventDefault(); event.stopPropagation(); addFilter('profile', '%11')">%12</span>
+                        <span class="shot-profile clickable" onclick="event.preventDefault(); event.stopPropagation(); setSearch('%11')">%12</span>
                         <div class="shot-header-right">
                             <span class="shot-date">%8</span>
                             <input type="checkbox" class="shot-checkbox" data-id="%1" onclick="event.stopPropagation(); toggleSelect(%1, this.closest('.shot-card'))">
@@ -186,7 +156,7 @@ QString ShotServer::generateShotListPage() const
                     </div>
                     <div class="shot-footer">
                         <span class="shot-beans">%14</span>
-                        <span class="shot-rating clickable" onclick="event.preventDefault(); event.stopPropagation(); addFilter('rating', '%5')">rating: %5</span>
+                        <span class="shot-rating clickable" onclick="event.preventDefault(); event.stopPropagation(); setSearch('rating:%5+')">rating: %5</span>
                     </div>
                 </a>
             </div>
@@ -204,7 +174,9 @@ QString ShotServer::generateShotListPage() const
         .arg(profileJs)                     // %11
         .arg(profileDisplay)                // %12 (profile with temp)
         .arg(yieldDisplay)                  // %13 (yield with target)
-        .arg(beanDisplay);                  // %14 (beans with grind)
+        .arg(beanDisplay)                   // %14 (beans with grind)
+        .arg(drinkTds, 0, 'f', 2)           // %15
+        .arg(drinkEy, 0, 'f', 2);           // %16
     }
 
     // Build HTML in chunks to avoid MSVC string literal size limit
@@ -287,8 +259,10 @@ QString ShotServer::generateShotListPage() const
             padding: 0.5rem 0.75rem;
             text-decoration: none;
             color: inherit;
-            transition: all 0.2s ease;
+            transition: background 0.2s ease, border-color 0.2s ease;
             display: block;
+            content-visibility: auto;
+            contain-intrinsic-size: auto 110px;
             position: relative;
         }
         .shot-card:hover { background: var(--surface-hover); border-color: var(--accent); }
@@ -445,7 +419,7 @@ QString ShotServer::generateShotListPage() const
         .clickable:hover { color: var(--accent) !important; text-decoration: underline; }
 )HTML";
 
-    // Part 6: Collapsible and filter CSS
+    // Part 6: Collapsible and sort CSS
     html += R"HTML(
         .collapsible-section {
             background: var(--surface);
@@ -467,62 +441,6 @@ QString ShotServer::generateShotListPage() const
         .collapsible-section.open .collapsible-arrow { transform: rotate(180deg); }
         .collapsible-content { display: none; padding: 0 1rem 1rem; border-top: 1px solid var(--border); }
         .collapsible-section.open .collapsible-content { display: block; }
-        .filter-controls { display: flex; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.75rem; }
-        .filter-group { display: flex; flex-direction: column; gap: 0.25rem; min-width: 140px; }
-        .filter-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
-        .filter-select {
-            padding: 0.5rem 0.75rem;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 0.875rem;
-            cursor: pointer;
-            min-width: 120px;
-        }
-        .filter-select:focus { outline: none; border-color: var(--accent); }
-        .filter-select option { background: var(--surface); color: var(--text); }
-)HTML";
-
-    // Part 7: Active filters and sort CSS
-    html += R"HTML(
-        .active-filters {
-            display: none;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            padding: 0.75rem 1rem;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            margin-bottom: 1rem;
-            align-items: center;
-        }
-        .active-filters.visible { display: flex; }
-        .active-filters-label { font-size: 0.8rem; color: var(--text-secondary); margin-right: 0.5rem; }
-        .filter-tag {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.3rem 0.6rem;
-            background: var(--accent);
-            color: var(--bg);
-            border-radius: 4px;
-            font-size: 0.8rem;
-            font-weight: 500;
-        }
-        .filter-tag-remove { cursor: pointer; font-size: 1rem; line-height: 1; opacity: 0.8; }
-        .filter-tag-remove:hover { opacity: 1; }
-        .clear-all-btn {
-            padding: 0.3rem 0.6rem;
-            background: transparent;
-            color: var(--text-secondary);
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-size: 0.8rem;
-            cursor: pointer;
-            margin-left: auto;
-        }
-        .clear-all-btn:hover { background: var(--surface-hover); color: var(--text); }
         .sort-controls { display: flex; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.75rem; align-items: flex-end; }
         .sort-btn {
             padding: 0.5rem 1rem;
@@ -537,13 +455,120 @@ QString ShotServer::generateShotListPage() const
         .sort-btn:hover { border-color: var(--accent); }
         .sort-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
         .sort-btn .sort-dir { margin-left: 0.3rem; }
-        .filter-row { display: flex; flex-wrap: wrap; gap: 1rem; }
         .visible-count { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+)HTML";
+
+    // Part 7: Search bar and panels CSS
+    html += R"HTML(
+        .search-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            align-items: center;
+        }
+        .search-row .search-input {
+            flex: 1;
+            min-width: 0;
+            padding: 0.6rem 0.75rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+        .search-row .search-input:focus { outline: none; border-color: var(--accent); }
+        .search-row .search-input::placeholder { color: var(--text-secondary); }
+        .search-action-btn {
+            padding: 0.6rem 0.75rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.8rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .search-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .search-action-btn:disabled { opacity: 0.4; cursor: default; }
+        .search-action-btn:disabled:hover { border-color: var(--border); color: var(--text); }
+        .search-panels-anchor { position: relative; z-index: 10; }
+        .saved-searches-panel, .search-help-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .saved-searches-panel.open, .search-help-panel.open { visibility: visible; opacity: 1; }
+        .saved-search-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .saved-search-item:last-child { border-bottom: none; }
+        .saved-search-text {
+            cursor: pointer;
+            color: var(--text);
+            flex: 1;
+            font-size: 0.875rem;
+        }
+        .saved-search-text:hover { color: var(--accent); }
+        .saved-search-delete {
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            padding: 0 0.3rem;
+            line-height: 1;
+        }
+        .saved-search-delete:hover { color: #c0392b; }
+        .help-table {
+            width: 100%%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+        .help-table th {
+            text-align: left;
+            padding: 0.4rem 0.6rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+        .help-table td {
+            padding: 0.4rem 0.6rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+        }
+        .help-keyword {
+            color: var(--accent);
+            font-weight: 600;
+            cursor: pointer;
+            padding: 0.15rem 0.3rem;
+            border-radius: 3px;
+            transition: background 0.2s;
+        }
+        .help-keyword:hover { background: var(--surface-hover); }
+        .help-syntax {
+            font-family: monospace;
+            background: var(--bg);
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+        }
         @media (max-width: 600px) {
             .shot-grid { grid-template-columns: 1fr; }
             .container { padding: 1rem; padding-bottom: 5rem; }
-            .filter-controls, .sort-controls { flex-direction: column; }
-            .filter-group, .filter-select { width: 100%%; }
+            .sort-controls { flex-direction: column; }
+            .search-row { flex-wrap: wrap; }
         }
     </style>
 </head>
@@ -565,63 +590,34 @@ QString ShotServer::generateShotListPage() const
     </header>
 )HTML";
 
-    // Part 9: Main content - filters
-    html += QString(R"HTML(
+    // Part 9: Main content - search bar
+    html += R"HTML(
     <main class="container">
-        <div class="active-filters" id="activeFilters">
-            <span class="active-filters-label">Filters:</span>
-            <div id="filterTags"></div>
-            <button class="clear-all-btn" onclick="clearAllFilters()">Clear All</button>
+        <div class="search-row">
+            <input type="text" class="search-input" id="searchInput" placeholder="Search... (e.g. rating:70+ dose:16-18 ethiopia)" oninput="onSearchChange()">
+            <button class="search-action-btn" id="keywordsBtn" onclick="toggleKeywords()">Keywords</button>
+            <button class="search-action-btn" id="saveBtn" onclick="saveSearch()" disabled>Save</button>
+            <button class="search-action-btn" id="savedBtn" onclick="toggleSavedSearches()" style="display:none;">&#9776; Saved</button>
         </div>
-        <div class="collapsible-section" id="filterSection">
-            <div class="collapsible-header" onclick="toggleSection('filterSection')">
-                <h3>&#128269; Filter</h3>
-                <span class="collapsible-arrow">&#9660;</span>
-            </div>
-            <div class="collapsible-content">
-                <div class="filter-controls">
-                    <div class="filter-group">
-                        <label class="filter-label">Profile</label>
-                        <select class="filter-select" id="filterProfile" onchange="onFilterChange()">
-                            <option value="">All Profiles</option>
-                            %1
-                        </select>
-                    </div>
-                    <div class="filter-group">
-                        <label class="filter-label">Roaster</label>
-                        <select class="filter-select" id="filterBrand" onchange="onFilterChange()">
-                            <option value="">All Roasters</option>
-                            %2
-                        </select>
-                    </div>
-                    <div class="filter-group">
-                        <label class="filter-label">Coffee</label>
-                        <select class="filter-select" id="filterCoffee" onchange="onFilterChange()">
-                            <option value="">All Coffees</option>
-                            %3
-                        </select>
-                    </div>
-                    <div class="filter-group">
-                        <label class="filter-label">Min Rating</label>
-                        <select class="filter-select" id="filterRating" onchange="onFilterChange()">
-                            <option value="">Any Rating</option>
-                            <option value="90">90+</option>
-                            <option value="80">80+</option>
-                            <option value="70">70+</option>
-                            <option value="60">60+</option>
-                            <option value="50">50+</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="filter-controls" style="margin-top:0.5rem;">
-                    <div class="filter-group">
-                        <label class="filter-label">Text Search</label>
-                        <input type="text" class="filter-select" id="searchInput" placeholder="Search..." oninput="onFilterChange()" style="min-width:200px;">
-                    </div>
-                </div>
-            </div>
+        <div class="search-panels-anchor">
+        <div class="saved-searches-panel" id="savedPanel">
+            <div id="savedList"></div>
         </div>
-)HTML").arg(profileOptions).arg(brandOptions).arg(coffeeOptions);
+        <div class="search-help-panel" id="helpPanel">
+            <p style="margin-bottom:0.6rem;font-size:0.85rem;color:var(--text-secondary);">Use keywords to filter by numeric fields. Click a keyword to add it to your search.</p>
+            <table class="help-table">
+                <tr><th>Keyword</th><th>Filters</th><th>Example</th></tr>
+                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('rating:')">rating:</span></td><td>Enjoyment (0-100)</td><td><span class="help-syntax">rating:70+</span></td></tr>
+                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('dose:')">dose:</span></td><td>Dose weight (g)</td><td><span class="help-syntax">dose:16-18</span></td></tr>
+                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('yield:')">yield:</span></td><td>Yield weight (g)</td><td><span class="help-syntax">yield:30-40</span></td></tr>
+                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('time:')">time:</span></td><td>Duration (seconds)</td><td><span class="help-syntax">time:25-35</span></td></tr>
+                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('tds:')">tds:</span></td><td>TDS</td><td><span class="help-syntax">tds:1.3-1.5</span></td></tr>
+                <tr><td><span class="help-keyword" onclick="insertSearchKeyword('ey:')">ey:</span></td><td>Extraction yield (%%)</td><td><span class="help-syntax">ey:18-22</span></td></tr>
+            </table>
+            <p style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-secondary);">Syntax: <span class="help-syntax">N</span> (exact), <span class="help-syntax">N-M</span> (range), <span class="help-syntax">N+</span> (minimum)<br>Combine keywords with text: <span class="help-syntax">ethiopia dose:18 rating:70+</span></p>
+        </div>
+        </div>
+)HTML";
 
     // Part 10: Sort section and grid
     html += QString(R"HTML(
@@ -663,8 +659,7 @@ QString ShotServer::generateShotListPage() const
     <script>
         var selectedShots = [];
         var currentSort = { field: 'date', dir: 'desc' };
-        var filters = { profile: '', brand: '', coffee: '', rating: '', search: '' };
-        var filterLabels = { profile: 'Profile', brand: 'Roaster', coffee: 'Coffee', rating: 'Rating' };
+        var savedSearches = [];
 
         function toggleSelect(id, card) {
             var idx = selectedShots.indexOf(id);
@@ -731,93 +726,90 @@ QString ShotServer::generateShotListPage() const
         }
 )HTML";
 
-    // Part 12: Script - filter functions
+    // Part 12: Script - search parsing (port of QML buildFilter)
     html += R"HTML(
-        function addFilter(type, value) {
-            if (!value || value.trim() === '') return;
-            filters[type] = value;
-            var select = document.getElementById('filter' + type.charAt(0).toUpperCase() + type.slice(1));
-            if (select) select.value = value;
-            if (type === 'rating') {
-                var ratingSelect = document.getElementById('filterRating');
-                if (ratingSelect) {
-                    var opts = ratingSelect.options;
-                    for (var i = 0; i < opts.length; i++) {
-                        if (parseInt(opts[i].value) <= parseInt(value)) {
-                            ratingSelect.value = opts[i].value;
-                            filters.rating = opts[i].value;
-                            break;
-                        }
+        function parseSearchKeywords(text) {
+            var filters = {};
+            var searchText = text;
+            var keywords = [
+                { pattern: /\brating:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minRating", maxKey: "maxRating" },
+                { pattern: /\brating:(\d+(?:\.\d+)?)\+(?=\s|$)/g, minKey: "minRating", maxKey: null },
+                { pattern: /\brating:(\d+(?:\.\d+)?)\b/g, minKey: "minRating", maxKey: "maxRating", exact: true },
+                { pattern: /\bdose:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minDose", maxKey: "maxDose" },
+                { pattern: /\bdose:(\d+(?:\.\d+)?)\+(?=\s|$)/g, minKey: "minDose", maxKey: null },
+                { pattern: /\bdose:(\d+(?:\.\d+)?)\b/g, minKey: "minDose", maxKey: "maxDose", exact: true },
+                { pattern: /\byield:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minYield", maxKey: "maxYield" },
+                { pattern: /\byield:(\d+(?:\.\d+)?)\+(?=\s|$)/g, minKey: "minYield", maxKey: null },
+                { pattern: /\byield:(\d+(?:\.\d+)?)\b/g, minKey: "minYield", maxKey: "maxYield", exact: true },
+                { pattern: /\btime:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minDuration", maxKey: "maxDuration" },
+                { pattern: /\btime:(\d+(?:\.\d+)?)\+(?=\s|$)/g, minKey: "minDuration", maxKey: null },
+                { pattern: /\btime:(\d+(?:\.\d+)?)\b/g, minKey: "minDuration", maxKey: "maxDuration", exact: true },
+                { pattern: /\btds:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minTds", maxKey: "maxTds" },
+                { pattern: /\btds:(\d+(?:\.\d+)?)\+(?=\s|$)/g, minKey: "minTds", maxKey: null },
+                { pattern: /\btds:(\d+(?:\.\d+)?)\b/g, minKey: "minTds", maxKey: "maxTds", exact: true },
+                { pattern: /\bey:(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\b/g, minKey: "minEy", maxKey: "maxEy" },
+                { pattern: /\bey:(\d+(?:\.\d+)?)\+(?=\s|$)/g, minKey: "minEy", maxKey: null },
+                { pattern: /\bey:(\d+(?:\.\d+)?)\b/g, minKey: "minEy", maxKey: "maxEy", exact: true }
+            ];
+            for (var i = 0; i < keywords.length; i++) {
+                var kw = keywords[i];
+                var match = kw.pattern.exec(searchText);
+                if (match) {
+                    if (match.length === 3) {
+                        filters[kw.minKey] = parseFloat(match[1]);
+                        filters[kw.maxKey] = parseFloat(match[2]);
+                    } else if (kw.exact) {
+                        filters[kw.minKey] = parseFloat(match[1]);
+                        filters[kw.maxKey] = parseFloat(match[1]);
+                    } else {
+                        filters[kw.minKey] = parseFloat(match[1]);
                     }
+                    searchText = searchText.replace(match[0], "");
                 }
             }
-            updateActiveFilters();
-            filterAndSortShots();
+            // Strip remaining keyword tokens
+            searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "");
+            searchText = searchText.trim().replace(/\s+/g, " ");
+            return { filters: filters, remaining: searchText };
         }
 
-        function removeFilter(type) {
-            filters[type] = '';
-            var select = document.getElementById('filter' + type.charAt(0).toUpperCase() + type.slice(1));
-            if (select) select.value = '';
-            updateActiveFilters();
-            filterAndSortShots();
-        }
+        function onSearchChange() {
+            var input = document.getElementById('searchInput');
+            var text = input.value;
+            var parsed = parseSearchKeywords(text);
+            var f = parsed.filters;
+            var remaining = parsed.remaining.toLowerCase();
 
-        function clearAllFilters() {
-            filters = { profile: '', brand: '', coffee: '', rating: '', search: '' };
-            document.getElementById('filterProfile').value = '';
-            document.getElementById('filterBrand').value = '';
-            document.getElementById('filterCoffee').value = '';
-            document.getElementById('filterRating').value = '';
-            document.getElementById('searchInput').value = '';
-            updateActiveFilters();
-            filterAndSortShots();
-        }
-
-        function onFilterChange() {
-            filters.profile = document.getElementById('filterProfile').value;
-            filters.brand = document.getElementById('filterBrand').value;
-            filters.coffee = document.getElementById('filterCoffee').value;
-            filters.rating = document.getElementById('filterRating').value;
-            filters.search = document.getElementById('searchInput').value.toLowerCase();
-            updateActiveFilters();
-            filterAndSortShots();
-        }
-
-        function updateActiveFilters() {
-            var container = document.getElementById('activeFilters');
-            var tags = document.getElementById('filterTags');
-            tags.innerHTML = '';
-            var hasFilters = false;
-            for (var key in filters) {
-                if (key !== 'search' && filters[key]) {
-                    hasFilters = true;
-                    var label = filterLabels[key] || key;
-                    var displayVal = key === 'rating' ? filters[key] + '+' : filters[key];
-                    tags.innerHTML += '<span class="filter-tag">' + label + ': ' + displayVal +
-                        ' <span class="filter-tag-remove" onclick="removeFilter(\'' + key + '\')">&times;</span></span>';
-                }
-            }
-            container.classList.toggle('visible', hasFilters);
-        }
-)HTML";
-
-    // Part 13: Script - filter and sort logic
-    html += R"HTML(
-        function filterAndSortShots() {
             var cards = Array.from(document.querySelectorAll('.shot-card'));
             var visibleCount = 0;
             cards.forEach(function(card) {
                 var show = true;
-                if (filters.profile && card.dataset.profile !== filters.profile) show = false;
-                if (filters.brand && card.dataset.brand !== filters.brand) show = false;
-                if (filters.coffee && card.dataset.coffee !== filters.coffee) show = false;
-                if (filters.rating && parseInt(card.dataset.rating) < parseInt(filters.rating)) show = false;
-                if (filters.search && !card.textContent.toLowerCase().includes(filters.search)) show = false;
+                // Numeric keyword filters
+                if (f.minRating !== undefined) { if (parseFloat(card.dataset.rating) < f.minRating) show = false; }
+                if (f.maxRating !== undefined) { if (parseFloat(card.dataset.rating) > f.maxRating) show = false; }
+                if (f.minDose !== undefined) { if (parseFloat(card.dataset.dose) < f.minDose) show = false; }
+                if (f.maxDose !== undefined) { if (parseFloat(card.dataset.dose) > f.maxDose) show = false; }
+                if (f.minYield !== undefined) { if (parseFloat(card.dataset.yield) < f.minYield) show = false; }
+                if (f.maxYield !== undefined) { if (parseFloat(card.dataset.yield) > f.maxYield) show = false; }
+                if (f.minDuration !== undefined) { if (parseFloat(card.dataset.duration) < f.minDuration) show = false; }
+                if (f.maxDuration !== undefined) { if (parseFloat(card.dataset.duration) > f.maxDuration) show = false; }
+                if (f.minTds !== undefined) { if (parseFloat(card.dataset.tds) < f.minTds) show = false; }
+                if (f.maxTds !== undefined) { if (parseFloat(card.dataset.tds) > f.maxTds) show = false; }
+                if (f.minEy !== undefined) { if (parseFloat(card.dataset.ey) < f.minEy) show = false; }
+                if (f.maxEy !== undefined) { if (parseFloat(card.dataset.ey) > f.maxEy) show = false; }
+                // Text search on remaining text
+                if (remaining && !card.textContent.toLowerCase().includes(remaining)) show = false;
                 card.style.display = show ? '' : 'none';
                 if (show) visibleCount++;
             });
+            sortVisibleCards();
+            document.getElementById('visibleCount').textContent = 'Showing ' + visibleCount + ' shots';
+            updateSaveButton();
+        }
+
+        function sortVisibleCards() {
             var grid = document.getElementById('shotGrid');
+            var cards = Array.from(document.querySelectorAll('.shot-card'));
             var visibleCards = cards.filter(function(c) { return c.style.display !== 'none'; });
             visibleCards.sort(function(a, b) {
                 var aVal, bVal;
@@ -835,7 +827,128 @@ QString ShotServer::generateShotListPage() const
                 return 0;
             });
             visibleCards.forEach(function(card) { grid.appendChild(card); });
-            document.getElementById('visibleCount').textContent = 'Showing ' + visibleCount + ' shots';
+        }
+
+        function setSearch(text) {
+            document.getElementById('searchInput').value = text;
+            onSearchChange();
+        }
+)HTML";
+
+    // Part 13: Script - saved searches
+    html += R"HTML(
+        function escapeHtml(str) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
+        }
+
+        function loadSavedSearches() {
+            fetch('/api/saved-searches')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    savedSearches = data.searches || [];
+                    updateSavedUI();
+                })
+                .catch(function() {});
+        }
+
+        function saveSearch() {
+            var text = document.getElementById('searchInput').value.trim();
+            if (!text) return;
+            if (savedSearches.indexOf(text) >= 0) return;
+            fetch('/api/saved-searches', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ search: text })
+            }).then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.success) {
+                    savedSearches.push(text);
+                    updateSavedUI();
+                    updateSaveButton();
+                }
+            }).catch(function() {});
+        }
+
+        function deleteSavedSearch(text) {
+            fetch('/api/saved-searches', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ search: text })
+            }).then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.success) {
+                    var idx = savedSearches.indexOf(text);
+                    if (idx >= 0) savedSearches.splice(idx, 1);
+                    updateSavedUI();
+                    updateSaveButton();
+                }
+            }).catch(function() {});
+        }
+
+        function applySavedSearch(text) {
+            document.getElementById('searchInput').value = text;
+            document.getElementById('savedPanel').classList.remove('open');
+            onSearchChange();
+        }
+
+        function updateSavedUI() {
+            var list = document.getElementById('savedList');
+            var btn = document.getElementById('savedBtn');
+            while (list.firstChild) list.removeChild(list.firstChild);
+            if (savedSearches.length === 0) {
+                btn.style.display = 'none';
+                document.getElementById('savedPanel').classList.remove('open');
+                return;
+            }
+            btn.style.display = '';
+            for (var i = 0; i < savedSearches.length; i++) {
+                var item = document.createElement('div');
+                item.className = 'saved-search-item';
+                var textSpan = document.createElement('span');
+                textSpan.className = 'saved-search-text';
+                textSpan.textContent = savedSearches[i];
+                textSpan.addEventListener('click', (function(s) {
+                    return function() { applySavedSearch(s); };
+                })(savedSearches[i]));
+                var delSpan = document.createElement('span');
+                delSpan.className = 'saved-search-delete';
+                delSpan.textContent = '\u00d7';
+                delSpan.addEventListener('click', (function(s) {
+                    return function() { deleteSavedSearch(s); };
+                })(savedSearches[i]));
+                item.appendChild(textSpan);
+                item.appendChild(delSpan);
+                list.appendChild(item);
+            }
+        }
+
+        function updateSaveButton() {
+            var btn = document.getElementById('saveBtn');
+            var text = document.getElementById('searchInput').value.trim();
+            btn.disabled = !text || savedSearches.indexOf(text) >= 0;
+        }
+
+        function toggleSavedSearches() {
+            document.getElementById('savedPanel').classList.toggle('open');
+            document.getElementById('helpPanel').classList.remove('open');
+        }
+
+        function toggleKeywords() {
+            document.getElementById('helpPanel').classList.toggle('open');
+            document.getElementById('savedPanel').classList.remove('open');
+        }
+
+        function insertSearchKeyword(keyword) {
+            var input = document.getElementById('searchInput');
+            var text = input.value;
+            if (text.length > 0 && !text.endsWith(' ')) {
+                text += ' ';
+            }
+            input.value = text + keyword;
+            document.getElementById('helpPanel').classList.remove('open');
+            input.focus();
         }
 )HTML";
 
@@ -857,7 +970,7 @@ QString ShotServer::generateShotListPage() const
                     btn.classList.remove('active');
                 }
             });
-            filterAndSortShots();
+            onSearchChange();
         }
 
         function toggleMenu() {
@@ -872,7 +985,7 @@ QString ShotServer::generateShotListPage() const
         });
 )HTML";
 
-    // Part 15: Script - power functions
+    // Part 15: Script - power functions and init
     html += R"HTML(
         var powerState = {awake: false, state: "Unknown"};
 
@@ -902,6 +1015,7 @@ QString ShotServer::generateShotListPage() const
         }
 
         fetchPowerState();
+        loadSavedSearches();
         setInterval(fetchPowerState, 5000);
     </script>
 </body>
@@ -997,10 +1111,14 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             QVariantMap phase = p.toMap();
             QString label = phase["label"].toString();
             if (label == "Start") continue;  // Skip start marker
+            QString reason = phase["transitionReason"].toString();
+            reason.replace(QLatin1String("\\"), QLatin1String("\\\\"));
+            reason.replace(QLatin1String("\""), QLatin1String("\\\""));
+            reason.replace(QLatin1String("<"), QLatin1String("\\u003c"));
             items << QString("{time:%1,label:\"%2\",reason:\"%3\"}")
                 .arg(phase["time"].toDouble(), 0, 'f', 2)
                 .arg(label.replace(QStringLiteral("\""), QStringLiteral("\\\"")))
-                .arg(phase["transitionReason"].toString());
+                .arg(reason);
         }
         return "[" + items.join(",") + "]";
     };
@@ -1967,7 +2085,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
     .arg(stars)
     .arg(shot["beanBrand"].toString().isEmpty() ? "-" : shot["beanBrand"].toString().toHtmlEscaped())
     .arg(shot["beanType"].toString().isEmpty() ? "-" : shot["beanType"].toString().toHtmlEscaped())
-    .arg(shot["roastDate"].toString().isEmpty() ? "-" : shot["roastDate"].toString())
+    .arg(shot["roastDate"].toString().isEmpty() ? "-" : shot["roastDate"].toString().toHtmlEscaped())
     .arg(shot["roastLevel"].toString().isEmpty() ? "-" : shot["roastLevel"].toString().toHtmlEscaped())
     .arg(shot["grinderModel"].toString().isEmpty() ? "-" : shot["grinderModel"].toString().toHtmlEscaped())
     .arg(shot["grinderSetting"].toString().isEmpty() ? "-" : shot["grinderSetting"].toString().toHtmlEscaped())
