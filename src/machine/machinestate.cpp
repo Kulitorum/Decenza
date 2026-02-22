@@ -258,6 +258,7 @@ void MachineState::updatePhase() {
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
                 m_cumulativeVolume = 0.0;
+                m_lastEmittedCumulativeVolumeMl = -1;
 
                 // CRITICAL: Clear any pending BLE commands to prevent stale profile uploads
                 // from executing during active operations. This fixes a bug where queued
@@ -500,7 +501,12 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
             emit pourVolumeChanged();
         }
         m_cumulativeVolume = m_preinfusionVolume + m_pourVolume;
-        emit cumulativeVolumeChanged();
+        // Only emit when rounded ml changes (avoids ~206 samples/shot of QML binding churn at 5Hz)
+        int roundedMl = static_cast<int>(m_cumulativeVolume);
+        if (roundedMl != m_lastEmittedCumulativeVolumeMl) {
+            m_lastEmittedCumulativeVolumeMl = roundedMl;
+            emit cumulativeVolumeChanged();
+        }
 
         // Check if we should stop at volume (only during espresso)
         if (state == DE1::State::Espresso && m_stopAtType == StopAtType::Volume) {

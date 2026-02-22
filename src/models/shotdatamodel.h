@@ -140,6 +140,7 @@ private:
 
     double m_maxTime = 5.0;
     double m_rawTime = 0.0;
+    bool m_rawTimeDirty = false;  // Deferred: emit rawTimeChanged in flushToChart()
     int m_frameMarkerIndex = 0;
     bool m_lastPumpModeIsFlow = false;  // Track for starting new goal segments
     bool m_hasPumpModeData = false;     // True after first sample with pump mode

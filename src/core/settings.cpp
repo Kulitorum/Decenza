@@ -2130,45 +2130,63 @@ void Settings::setDyeRoastLevel(const QString& value) {
     }
 }
 
+void Settings::ensureDyeCacheLoaded() const {
+    if (!m_dyeCacheInitialized) {
+        m_dyeGrinderModelCache = m_settings.value("dye/grinderModel", "").toString();
+        m_dyeGrinderSettingCache = m_settings.value("dye/grinderSetting", "").toString();
+        m_dyeBeanWeightCache = m_settings.value("dye/beanWeight", 18.0).toDouble();
+        m_dyeDrinkWeightCache = m_settings.value("dye/drinkWeight", 36.0).toDouble();
+        m_dyeCacheInitialized = true;
+    }
+}
+
 QString Settings::dyeGrinderModel() const {
-    return m_settings.value("dye/grinderModel", "").toString();
+    ensureDyeCacheLoaded();
+    return m_dyeGrinderModelCache;
 }
 
 void Settings::setDyeGrinderModel(const QString& value) {
     if (dyeGrinderModel() != value) {
+        m_dyeGrinderModelCache = value;
         m_settings.setValue("dye/grinderModel", value);
         emit dyeGrinderModelChanged();
     }
 }
 
 QString Settings::dyeGrinderSetting() const {
-    return m_settings.value("dye/grinderSetting", "").toString();
+    ensureDyeCacheLoaded();
+    return m_dyeGrinderSettingCache;
 }
 
 void Settings::setDyeGrinderSetting(const QString& value) {
     if (dyeGrinderSetting() != value) {
+        m_dyeGrinderSettingCache = value;
         m_settings.setValue("dye/grinderSetting", value);
         emit dyeGrinderSettingChanged();
     }
 }
 
 double Settings::dyeBeanWeight() const {
-    return m_settings.value("dye/beanWeight", 18.0).toDouble();
+    ensureDyeCacheLoaded();
+    return m_dyeBeanWeightCache;
 }
 
 void Settings::setDyeBeanWeight(double value) {
     if (!qFuzzyCompare(1.0 + dyeBeanWeight(), 1.0 + value)) {
+        m_dyeBeanWeightCache = value;
         m_settings.setValue("dye/beanWeight", value);
         emit dyeBeanWeightChanged();
     }
 }
 
 double Settings::dyeDrinkWeight() const {
-    return m_settings.value("dye/drinkWeight", 36.0).toDouble();
+    ensureDyeCacheLoaded();
+    return m_dyeDrinkWeightCache;
 }
 
 void Settings::setDyeDrinkWeight(double value) {
     if (!qFuzzyCompare(1.0 + dyeDrinkWeight(), 1.0 + value)) {
+        m_dyeDrinkWeightCache = value;
         m_settings.setValue("dye/drinkWeight", value);
         emit dyeDrinkWeightChanged();
     }

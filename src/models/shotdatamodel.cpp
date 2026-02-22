@@ -276,9 +276,10 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     m_temperatureGoalPoints.append(QPointF(time, temperatureGoal));
 
     // Update raw time - QML uses this to calculate axis max with pixel-based padding
+    // Signal deferred to flushToChart() to avoid triggering chart axis recalc on every 5Hz sample
     if (time > m_rawTime) {
         m_rawTime = time;
-        emit rawTimeChanged();
+        m_rawTimeDirty = true;
     }
 
     m_dirty = true;
@@ -486,6 +487,12 @@ void ShotDataModel::flushToChart() {
         m_stopMarkerSeries->append(m_pendingStopTime, 0);
         m_stopMarkerSeries->append(m_pendingStopTime, 12);
         m_pendingStopTime = -1;  // Mark as drawn
+    }
+
+    // Emit deferred rawTimeChanged (axis recalc) at flush rate instead of per-sample
+    if (m_rawTimeDirty) {
+        m_rawTimeDirty = false;
+        emit rawTimeChanged();
     }
 
     m_dirty = false;

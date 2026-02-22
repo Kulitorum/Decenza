@@ -681,7 +681,11 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
         m_waterLevelMl = mmToMl[index];
     }
 
-    emit waterLevelChanged();
+    // Only emit when water level changes by at least 0.5% (avoids ~594 samples/shot of QML binding churn)
+    if (qAbs(m_waterLevel - m_lastEmittedWaterLevel) >= 0.5) {
+        m_lastEmittedWaterLevel = m_waterLevel;
+        emit waterLevelChanged();
+    }
 }
 
 void DE1Device::parseVersion(const QByteArray& data) {
