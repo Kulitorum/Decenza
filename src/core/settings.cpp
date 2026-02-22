@@ -736,6 +736,38 @@ bool Settings::isHiddenProfile(const QString& filename) const {
     return hiddenProfiles().contains(filename);
 }
 
+// Saved searches (shot history)
+QStringList Settings::savedSearches() const {
+    return m_settings.value("shotHistory/savedSearches").toStringList();
+}
+
+void Settings::setSavedSearches(const QStringList& searches) {
+    if (savedSearches() != searches) {
+        m_settings.setValue("shotHistory/savedSearches", searches);
+        emit savedSearchesChanged();
+    }
+}
+
+void Settings::addSavedSearch(const QString& search) {
+    QString trimmed = search.trimmed();
+    if (trimmed.isEmpty()) return;
+    QStringList current = savedSearches();
+    if (!current.contains(trimmed)) {
+        if (current.size() >= 30) return;  // Cap at 30 saved searches
+        current.append(trimmed);
+        m_settings.setValue("shotHistory/savedSearches", current);
+        emit savedSearchesChanged();
+    }
+}
+
+void Settings::removeSavedSearch(const QString& search) {
+    QStringList current = savedSearches();
+    if (current.removeAll(search) > 0) {
+        m_settings.setValue("shotHistory/savedSearches", current);
+        emit savedSearchesChanged();
+    }
+}
+
 // Hot water settings
 double Settings::waterTemperature() const {
     return m_settings.value("water/temperature", 85.0).toDouble();

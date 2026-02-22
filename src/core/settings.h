@@ -56,6 +56,9 @@ class Settings : public QObject {
     // Hidden profiles (downloaded/user profiles removed from "Selected" view)
     Q_PROPERTY(QStringList hiddenProfiles READ hiddenProfiles WRITE setHiddenProfiles NOTIFY hiddenProfilesChanged)
 
+    // Saved searches (shot history)
+    Q_PROPERTY(QStringList savedSearches READ savedSearches WRITE setSavedSearches NOTIFY savedSearchesChanged)
+
     // Hot water settings
     Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged)
     Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged)
@@ -315,6 +318,12 @@ public:
     Q_INVOKABLE void addHiddenProfile(const QString& filename);
     Q_INVOKABLE void removeHiddenProfile(const QString& filename);
     Q_INVOKABLE bool isHiddenProfile(const QString& filename) const;
+
+    // Saved searches (shot history)
+    QStringList savedSearches() const;
+    void setSavedSearches(const QStringList& searches);
+    Q_INVOKABLE void addSavedSearch(const QString& search);
+    Q_INVOKABLE void removeSavedSearch(const QString& search);
 
     // Hot water settings
     double waterTemperature() const;
@@ -700,6 +709,7 @@ signals:
     void selectedFavoriteProfileChanged();
     void selectedBuiltInProfilesChanged();
     void hiddenProfilesChanged();
+    void savedSearchesChanged();
     void waterTemperatureChanged();
     void waterVolumeChanged();
     void waterVolumeModeChanged();
