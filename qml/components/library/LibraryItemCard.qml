@@ -108,10 +108,18 @@ Rectangle {
         return d.zoneName || ""
     }
     // Theme name for theme entries
+    // Community listing API doesn't return full data object, so fall back to name: tag
     readonly property string entryThemeName: {
         var d = entryData.data || {}
         var t = d.theme || {}
-        return t.name || ""
+        if (t.name) return t.name
+        // Fallback: extract from tags (community entries store name as "name:XXX" tag)
+        var tags = entryData.tags || []
+        for (var i = 0; i < tags.length; i++) {
+            if (tags[i].indexOf("name:") === 0)
+                return tags[i].substring(5)
+        }
+        return ""
     }
 
     readonly property bool isBarZone: entryZoneName.startsWith("top") ||
