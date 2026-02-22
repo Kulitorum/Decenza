@@ -644,6 +644,67 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             handleGetSettings(socket);
         }
     }
+    else if (path == "/api/saved-searches") {
+        if (method == "GET") {
+            QJsonArray arr;
+            if (m_settings) {
+                for (const QString& s : m_settings->savedSearches()) {
+                    arr.append(s);
+                }
+            }
+            QJsonObject result;
+            result["searches"] = arr;
+            sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+        } else if (method == "POST") {
+            int bodyStart = request.indexOf("\r\n\r\n");
+            QJsonObject result;
+            bool hasError = false;
+            if (bodyStart != -1 && m_settings) {
+                QByteArray body = request.mid(bodyStart + 4);
+                QJsonObject obj = QJsonDocument::fromJson(body).object();
+                QString search = obj["search"].toString().trimmed();
+                if (!search.isEmpty()) {
+                    m_settings->addSavedSearch(search);
+                    result["success"] = true;
+                } else {
+                    result["error"] = "Empty search";
+                    hasError = true;
+                }
+            } else {
+                result["error"] = "Invalid request";
+                hasError = true;
+            }
+            QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Compact);
+            if (hasError)
+                sendResponse(socket, 400, "application/json", json);
+            else
+                sendJson(socket, json);
+        } else if (method == "DELETE") {
+            int bodyStart = request.indexOf("\r\n\r\n");
+            QJsonObject result;
+            bool hasError = false;
+            if (bodyStart != -1 && m_settings) {
+                QByteArray body = request.mid(bodyStart + 4);
+                QJsonObject obj = QJsonDocument::fromJson(body).object();
+                QString search = obj["search"].toString().trimmed();
+                if (!search.isEmpty()) {
+                    m_settings->removeSavedSearch(search);
+                    result["success"] = true;
+                } else {
+                    result["error"] = "Empty search";
+                    hasError = true;
+                }
+            } else {
+                result["error"] = "Invalid request";
+                hasError = true;
+            }
+            QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Compact);
+            if (hasError)
+                sendResponse(socket, 400, "application/json", json);
+            else
+                sendJson(socket, json);
+        }
+    }
     else if (path == "/api/debug" || path.startsWith("/api/debug?")) {
         // Get afterIndex from query string
         int afterIndex = 0;

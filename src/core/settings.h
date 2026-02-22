@@ -58,6 +58,8 @@ class Settings : public QObject {
 
     // Saved searches (shot history)
     Q_PROPERTY(QStringList savedSearches READ savedSearches WRITE setSavedSearches NOTIFY savedSearchesChanged)
+    Q_PROPERTY(QString shotHistorySortField READ shotHistorySortField WRITE setShotHistorySortField NOTIFY shotHistorySortFieldChanged)
+    Q_PROPERTY(QString shotHistorySortDirection READ shotHistorySortDirection WRITE setShotHistorySortDirection NOTIFY shotHistorySortDirectionChanged)
 
     // Hot water settings
     Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged)
@@ -324,6 +326,12 @@ public:
     void setSavedSearches(const QStringList& searches);
     Q_INVOKABLE void addSavedSearch(const QString& search);
     Q_INVOKABLE void removeSavedSearch(const QString& search);
+
+    // Shot history sort
+    QString shotHistorySortField() const;
+    void setShotHistorySortField(const QString& field);
+    QString shotHistorySortDirection() const;
+    void setShotHistorySortDirection(const QString& direction);
 
     // Hot water settings
     double waterTemperature() const;
@@ -710,6 +718,8 @@ signals:
     void selectedBuiltInProfilesChanged();
     void hiddenProfilesChanged();
     void savedSearchesChanged();
+    void shotHistorySortFieldChanged();
+    void shotHistorySortDirectionChanged();
     void waterTemperatureChanged();
     void waterVolumeChanged();
     void waterVolumeModeChanged();

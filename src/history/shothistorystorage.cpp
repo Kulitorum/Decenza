@@ -684,6 +684,8 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.dateTo = filterMap.value("dateTo", 0).toLongLong();
     filter.searchText = filterMap.value("searchText").toString();
     filter.onlyWithVisualizer = filterMap.value("onlyWithVisualizer", false).toBool();
+    filter.sortColumn = filterMap.value("sortField", "timestamp").toString();
+    filter.sortDirection = filterMap.value("sortDirection", "DESC").toString();
     return filter;
 }
 
@@ -785,6 +787,19 @@ QString ShotHistoryStorage::formatFtsQuery(const QString& userInput)
     return terms.join(" ");
 }
 
+// Whitelist for sort columns — maps user-facing keys to SQL ORDER BY expressions
+static const QHash<QString, QString> s_sortColumnMap = {
+    {"timestamp",        "timestamp"},
+    {"profile_name",     "LOWER(profile_name)"},
+    {"bean_brand",       "LOWER(bean_brand)"},
+    {"bean_type",        "LOWER(bean_type)"},
+    {"enjoyment",        "enjoyment"},
+    {"ratio",            "CASE WHEN dose_weight > 0 THEN CAST(final_weight AS REAL) / dose_weight ELSE 0 END"},
+    {"duration_seconds", "duration_seconds"},
+    {"dose_weight",      "dose_weight"},
+    {"final_weight",     "final_weight"},
+};
+
 QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, int offset, int limit)
 {
     QVariantList results;
@@ -793,6 +808,11 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
     ShotFilter filter = parseFilterMap(filterMap);
     QVariantList bindValues;
     QString whereClause = buildFilterQuery(filter, bindValues);
+
+    // Build dynamic ORDER BY from filter sort settings
+    QString orderByExpr = s_sortColumnMap.value(filter.sortColumn, "timestamp");
+    QString sortDir = (filter.sortDirection == "ASC") ? "ASC" : "DESC";
+    QString orderByClause = QString("ORDER BY %1 %2").arg(orderByExpr, sortDir);
 
     // Handle FTS search separately
     QString sql;
@@ -823,25 +843,29 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
             SELECT id, uuid, timestamp, profile_name, duration_seconds,
                    final_weight, dose_weight, bean_brand, bean_type,
                    enjoyment, visualizer_id, grinder_setting,
-                   temperature_override, yield_override, beverage_type
+                   temperature_override, yield_override, beverage_type,
+                   drink_tds, drink_ey
             FROM shots
             WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
             %2
-            ORDER BY timestamp DESC
+            %3
             LIMIT ? OFFSET ?
         )").arg(ftsQuery)
-           .arg(extraConditions);
+           .arg(extraConditions)
+           .arg(orderByClause);
     } else {
         sql = QString(R"(
             SELECT id, uuid, timestamp, profile_name, duration_seconds,
                    final_weight, dose_weight, bean_brand, bean_type,
                    enjoyment, visualizer_id, grinder_setting,
-                   temperature_override, yield_override, beverage_type
+                   temperature_override, yield_override, beverage_type,
+                   drink_tds, drink_ey
             FROM shots
             %1
-            ORDER BY timestamp DESC
+            %2
             LIMIT ? OFFSET ?
-        )").arg(whereClause);
+        )").arg(whereClause)
+           .arg(orderByClause);
     }
 
     bindValues << limit << offset;
@@ -878,6 +902,8 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         shot["temperatureOverride"] = query.value(12).toDouble();  // 0.0 for NULL
         shot["yieldOverride"] = query.value(13).toDouble();  // 0.0 for NULL
         shot["beverageType"] = query.value(14).toString();
+        shot["drinkTds"] = query.value(15).toDouble();
+        shot["drinkEy"] = query.value(16).toDouble();
 
         // Format date for display
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
@@ -1152,10 +1178,19 @@ bool ShotHistoryStorage::updateShotMetadata(qint64 shotId, const QVariantMap& me
 }
 
 // Helper for all getDistinct* methods
+static const QStringList s_allowedColumns = {
+    "profile_name", "bean_brand", "bean_type",
+    "grinder_model", "grinder_setting", "barista", "roast_level"
+};
+
 QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
 {
     QStringList results;
     if (!m_ready) return results;
+    if (!s_allowedColumns.contains(column)) {
+        qWarning() << "ShotHistoryStorage::getDistinctValues: rejected column" << column;
+        return results;
+    }
 
     QString sql = QString("SELECT DISTINCT %1 FROM shots WHERE %1 IS NOT NULL AND %1 != '' ORDER BY %1")
                       .arg(column);
@@ -1178,6 +1213,10 @@ QStringList ShotHistoryStorage::getDistinctValuesFiltered(const QString& column,
 {
     QStringList results;
     if (!m_ready) return results;
+    if (!s_allowedColumns.contains(column)) {
+        qWarning() << "ShotHistoryStorage::getDistinctValuesFiltered: rejected column" << column;
+        return results;
+    }
 
     QString sql = QString("SELECT DISTINCT %1 FROM shots WHERE %1 IS NOT NULL AND %1 != ''")
                       .arg(column);

@@ -148,6 +148,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         savedSearchesArr.append(s);
     }
     shotHistory["savedSearches"] = savedSearchesArr;
+    shotHistory["sortField"] = settings->shotHistorySortField();
+    shotHistory["sortDirection"] = settings->shotHistorySortDirection();
     root["shotHistory"] = shotHistory;
 
     // UI settings
@@ -415,6 +417,10 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             }
             settings->setSavedSearches(searches);
         }
+        if (shotHistory.contains("sortField"))
+            settings->setShotHistorySortField(shotHistory["sortField"].toString());
+        if (shotHistory.contains("sortDirection"))
+            settings->setShotHistorySortDirection(shotHistory["sortDirection"].toString());
     }
 
     // UI settings
