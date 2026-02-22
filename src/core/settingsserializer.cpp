@@ -141,6 +141,15 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     profile["selectedBuiltIns"] = selectedBuiltIns;
     root["profile"] = profile;
 
+    // Shot history settings
+    QJsonObject shotHistory;
+    QJsonArray savedSearchesArr;
+    for (const QString& s : settings->savedSearches()) {
+        savedSearchesArr.append(s);
+    }
+    shotHistory["savedSearches"] = savedSearchesArr;
+    root["shotHistory"] = shotHistory;
+
     // UI settings
     QJsonObject ui;
     ui["skin"] = settings->skin();
@@ -392,6 +401,19 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 builtIns.append(v.toString());
             }
             settings->setSelectedBuiltInProfiles(builtIns);
+        }
+    }
+
+    // Shot history settings
+    if (json.contains("shotHistory") && !excludeKeys.contains("shotHistory")) {
+        QJsonObject shotHistory = json["shotHistory"].toObject();
+        if (shotHistory.contains("savedSearches")) {
+            QStringList searches;
+            QJsonArray arr = shotHistory["savedSearches"].toArray();
+            for (const QJsonValue& v : arr) {
+                searches.append(v.toString());
+            }
+            settings->setSavedSearches(searches);
         }
     }
 
