@@ -28,6 +28,25 @@ Page {
     property bool isLoadingMore: false
     property int filteredTotalCount: 0
 
+    // Sort settings
+    property string sortField: Settings.shotHistorySortField
+    property string sortDirection: Settings.shotHistorySortDirection
+
+    readonly property var sortFieldLabels: ({
+        "timestamp": "Date", "profile_name": "Profile", "bean_brand": "Roaster",
+        "bean_type": "Coffee", "enjoyment": "Rating", "ratio": "Ratio",
+        "duration_seconds": "Duration", "dose_weight": "Dose", "final_weight": "Yield"
+    })
+    readonly property var sortFieldKeys: [
+        "timestamp", "profile_name", "bean_brand", "bean_type",
+        "enjoyment", "ratio", "duration_seconds", "dose_weight", "final_weight"
+    ]
+    readonly property var defaultSortDirections: ({
+        "timestamp": "DESC", "profile_name": "ASC", "bean_brand": "ASC",
+        "bean_type": "ASC", "enjoyment": "DESC", "ratio": "DESC",
+        "duration_seconds": "ASC", "dose_weight": "DESC", "final_weight": "DESC"
+    })
+
     StackView.onActivated: {
         root.currentPageTitle = TranslationManager.translate("shothistory.title", "Shot History")
         loadShots()
@@ -131,6 +150,8 @@ Page {
                 filter.searchText = searchText
             }
         }
+        filter.sortField = sortField
+        filter.sortDirection = sortDirection
         return filter
     }
 
@@ -308,6 +329,26 @@ Page {
                 accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
                 enabled: Settings.savedSearches.length > 0
                 onClicked: savedSearchesDialog.open()
+            }
+
+            // Sort field button
+            AccessibleButton {
+                text: sortFieldLabels[sortField] || "Date"
+                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(sortFieldLabels[sortField] || "Date")
+                onClicked: sortPickerDialog.open()
+            }
+
+            // Sort direction button
+            AccessibleButton {
+                text: sortDirection === "DESC" ? "\u25BC" : "\u25B2"
+                accessibleName: sortDirection === "DESC"
+                    ? TranslationManager.translate("shothistory.sortDescending", "Sort descending, tap to sort ascending")
+                    : TranslationManager.translate("shothistory.sortAscending", "Sort ascending, tap to sort descending")
+                onClicked: {
+                    sortDirection = (sortDirection === "DESC") ? "ASC" : "DESC"
+                    Settings.shotHistorySortDirection = sortDirection
+                    loadShots()
+                }
             }
 
             Timer {
@@ -890,6 +931,109 @@ Page {
                 Layout.rightMargin: Theme.scaled(20)
                 Layout.bottomMargin: Theme.scaled(20)
                 onClicked: savedSearchesDialog.close()
+            }
+        }
+    }
+
+    // Sort picker dialog
+    Dialog {
+        id: sortPickerDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(400), shotHistoryPage.width - Theme.scaled(40))
+        modal: true
+        padding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("shothistory.sortByTitle", "Sort By")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            ListView {
+                id: sortFieldList
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, Theme.scaled(400))
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(10)
+                Layout.rightMargin: Theme.scaled(10)
+                clip: true
+                model: sortFieldKeys
+                spacing: Theme.scaled(2)
+
+                delegate: Rectangle {
+                    width: sortFieldList.width
+                    height: Theme.scaled(44)
+                    radius: Theme.scaled(6)
+                    color: sortItemArea.pressed ? Qt.darker(Theme.surfaceColor, 1.1) : "transparent"
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: sortFieldLabels[modelData] || modelData
+                    Accessible.focusable: true
+                    Accessible.onPressAction: sortItemArea.clicked(null)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.scaled(10)
+                        anchors.rightMargin: Theme.scaled(10)
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: sortFieldLabels[modelData] || modelData
+                            font: Theme.bodyFont
+                            color: Theme.textColor
+                            Layout.fillWidth: true
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            text: "\u2713"
+                            font.pixelSize: Theme.scaled(18)
+                            color: Theme.primaryColor
+                            visible: sortField === modelData
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    MouseArea {
+                        id: sortItemArea
+                        anchors.fill: parent
+                        onClicked: {
+                            sortField = modelData
+                            sortDirection = defaultSortDirections[modelData] || "DESC"
+                            Settings.shotHistorySortField = sortField
+                            Settings.shotHistorySortDirection = sortDirection
+                            sortPickerDialog.close()
+                            loadShots()
+                        }
+                    }
+                }
+            }
+
+            // Close button
+            AccessibleButton {
+                text: TranslationManager.translate("shothistory.close", "Close")
+                accessibleName: TranslationManager.translate("shothistory.closeSortPicker", "Close sort picker")
+                Layout.alignment: Qt.AlignRight
+                Layout.topMargin: Theme.scaled(12)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                onClicked: sortPickerDialog.close()
             }
         }
     }

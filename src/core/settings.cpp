@@ -768,6 +768,29 @@ void Settings::removeSavedSearch(const QString& search) {
     }
 }
 
+// Shot history sort settings
+QString Settings::shotHistorySortField() const {
+    return m_settings.value("shotHistory/sortField", "timestamp").toString();
+}
+
+void Settings::setShotHistorySortField(const QString& field) {
+    if (shotHistorySortField() != field) {
+        m_settings.setValue("shotHistory/sortField", field);
+        emit shotHistorySortFieldChanged();
+    }
+}
+
+QString Settings::shotHistorySortDirection() const {
+    return m_settings.value("shotHistory/sortDirection", "DESC").toString();
+}
+
+void Settings::setShotHistorySortDirection(const QString& direction) {
+    if (shotHistorySortDirection() != direction) {
+        m_settings.setValue("shotHistory/sortDirection", direction);
+        emit shotHistorySortDirectionChanged();
+    }
+}
+
 // Hot water settings
 double Settings::waterTemperature() const {
     return m_settings.value("water/temperature", 85.0).toDouble();

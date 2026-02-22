@@ -106,6 +106,8 @@ struct ShotFilter {
     qint64 dateTo = 0;
     QString searchText;        // FTS search in notes
     bool onlyWithVisualizer = false;
+    QString sortColumn = "timestamp";
+    QString sortDirection = "DESC";
 };
 
 class ShotHistoryStorage : public QObject {
