@@ -20,6 +20,8 @@
     <string>1</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>This app uses Bluetooth to connect to your DE1 espresso machine and scales.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>This app uses your location to show where your espresso shots were made on the shot map.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
