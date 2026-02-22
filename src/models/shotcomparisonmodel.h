@@ -70,6 +70,11 @@ public:
     // Get shot metadata for display window
     Q_INVOKABLE QVariantMap getShotInfo(int index) const;
 
+    // Get data values nearest to `time` for a single shot slot (0..shotCount-1).
+    // Returns { hasTemperature, temperature, hasFlow, flow, hasWeight, weight }.
+    // A value is missing (has* = false) when no data point is within 1 second of time.
+    Q_INVOKABLE QVariantMap getValuesAtTime(int index, double time) const;
+
     // Colors for each shot in comparison (consistent assignment)
     Q_INVOKABLE QColor getShotColor(int index) const;
     Q_INVOKABLE QColor getShotColorLight(int index) const;  // For goal/secondary lines

@@ -306,7 +306,7 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
 
     // Format date
     QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.timestamp);
-    result["dateTime"] = dt.toString("MMM d, hh:mm");
+    result["dateTime"] = dt.toString("MMM d, HH:mm");
 
     // Ratio
     if (shot.doseWeight > 0) {
@@ -317,6 +317,50 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
 
     // Color
     result["color"] = getShotColor(index);
+
+    return result;
+}
+
+QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
+{
+    QVariantMap result;
+    if (index < 0 || index >= m_displayShots.size()) return result;
+
+    const auto& shot = m_displayShots[index];
+
+    // Returns the Y value of the nearest point within 1 second, or -1.0 if none.
+    auto findNearest = [](const QVector<QPointF>& points, double t) -> double {
+        if (points.isEmpty()) return -1.0;
+        double closest = points[0].y();
+        double minDist = std::abs(points[0].x() - t);
+        for (const auto& pt : points) {
+            double dist = std::abs(pt.x() - t);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = pt.y();
+            } else if (dist > minDist) {
+                break;  // data sorted by x
+            }
+        }
+        return minDist < 1.0 ? closest : -1.0;
+    };
+
+    double pressure   = findNearest(shot.pressure, time);
+    double flow       = findNearest(shot.flow, time);
+    double temp       = findNearest(shot.temperature, time);
+    double weight     = findNearest(shot.weight, time);
+    double weightFlow = findNearest(shot.weightFlowRate, time);
+
+    result["hasPressure"]    = pressure   >= 0.0;
+    result["hasFlow"]        = flow       >= 0.0;
+    result["hasTemperature"] = temp       >= 0.0;
+    result["hasWeight"]      = weight     >= 0.0;
+    result["hasWeightFlow"]  = weightFlow >= 0.0;
+    result["pressure"]       = pressure;
+    result["flow"]           = flow;
+    result["temperature"]    = temp;
+    result["weight"]         = weight;
+    result["weightFlow"]     = weightFlow;
 
     return result;
 }

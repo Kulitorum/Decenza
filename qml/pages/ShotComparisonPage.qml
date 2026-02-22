@@ -14,11 +14,16 @@ Page {
     // Persisted graph height
     property real graphHeight: Settings.value("comparison/graphHeight", Theme.scaled(280))
 
-    // Curve visibility toggles
-    property bool showPressure: true
-    property bool showFlow: true
-    property bool showWeight: true
-    property bool showWeightFlow: true
+    // Unique phase entries [{label, phaseIndex}] derived from graph data
+    readonly property var phaseEntries: {
+        var _dep = comparisonGraph.phaseData
+        var seen = {}, result = []
+        for (var i = 0; i < comparisonGraph.phaseData.length; i++) {
+            var pd = comparisonGraph.phaseData[i]
+            if (!seen[pd.label]) { seen[pd.label] = true; result.push({ label: pd.label, phaseIndex: pd.phaseIndex }) }
+        }
+        return result
+    }
 
     Component.onCompleted: {
         root.currentPageTitle = "Compare Shots"
@@ -43,39 +48,6 @@ Page {
             width: parent.width
             spacing: Theme.spacingSmall
 
-            // Legend
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingLarge
-
-                Repeater {
-                    model: comparisonModel.shots  // Use shots array so items refresh
-
-                    RowLayout {
-                        spacing: Theme.spacingSmall
-                        property int globalIndex: comparisonModel.windowStart + index
-
-                        Rectangle {
-                            width: Theme.scaled(16)
-                            height: Theme.scaled(16)
-                            radius: Theme.scaled(4)
-                            color: comparisonModel.getShotColor(globalIndex % 3)
-                        }
-
-                        Text {
-                            text: {
-                                var info = comparisonModel.getShotInfo(index)
-                                return (globalIndex + 1) + ". " + info.profileName + " - " + info.dateTime
-                            }
-                            font: Theme.labelFont
-                            color: Theme.textColor
-                            elide: Text.ElideRight
-                            Layout.preferredWidth: Theme.scaled(200)
-                        }
-                    }
-                }
-            }
-
             // Graph with resize handle and swipe navigation
             Rectangle {
                 id: graphCard
@@ -86,35 +58,28 @@ Page {
                 radius: Theme.cardRadius
                 clip: true
 
-                // Visual offset during swipe
-                transform: Translate { x: graphSwipeArea.swipeOffset * 0.3 }
-
                 ComparisonGraph {
                     id: comparisonGraph
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
                     comparisonModel: shotComparisonPage.comparisonModel
-                    showPressure: shotComparisonPage.showPressure
-                    showFlow: shotComparisonPage.showFlow
-                    showWeight: shotComparisonPage.showWeight
-                    showWeightFlow: shotComparisonPage.showWeightFlow
                 }
 
-                // Swipe handler overlay (above graph, below resize handle)
-                SwipeableArea {
-                    id: graphSwipeArea
+                // Crosshair drag handler (tap or drag to scrub; no swipe navigation)
+                MouseArea {
+                    id: graphMouseArea
                     anchors.fill: parent
                     anchors.bottomMargin: resizeHandle.height
-                    canSwipeLeft: comparisonModel.canShiftRight
-                    canSwipeRight: comparisonModel.canShiftLeft
+                    preventStealing: true
 
-                    onSwipedLeft: comparisonModel.shiftWindowRight()
-                    onSwipedRight: comparisonModel.shiftWindowLeft()
-                    onTapped: function(x, y) {
-                        // Convert page-relative position to graph-relative
-                        var graphPos = mapToItem(comparisonGraph, x, y)
-                        comparisonGraph.announceAtPosition(graphPos.x, graphPos.y)
+                    onPressed:  function(mouse) {
+                        var graphPos = mapToItem(comparisonGraph, mouse.x, mouse.y)
+                        comparisonGraph.inspectAtPosition(graphPos.x, graphPos.y)
+                    }
+                    onPositionChanged: function(mouse) {
+                        var graphPos = mapToItem(comparisonGraph, mouse.x, mouse.y)
+                        comparisonGraph.inspectAtPosition(graphPos.x, graphPos.y)
                     }
                 }
 
@@ -199,360 +164,101 @@ Page {
                 }
             }
 
-            // Curve type toggle buttons
-            RowLayout {
-                Layout.alignment: Qt.AlignHCenter
-                spacing: Theme.spacingMedium
+            // Card: crosshair data table + phase pills
+            Rectangle {
+                Layout.fillWidth: true
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+                implicitHeight: dataTableCard.implicitHeight + Theme.spacingMedium * 2
 
-                // Pressure toggle
-                Rectangle {
-                    width: pressureToggleContent.width + Theme.scaled(16)
-                    height: Theme.scaled(32)
-                    radius: Theme.scaled(16)
-                    color: showPressure ? Theme.surfaceColor : "transparent"
-                    border.color: showPressure ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
-                    opacity: showPressure ? 1.0 : 0.5
+                ColumnLayout {
+                    id: dataTableCard
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
 
-                    Accessible.role: Accessible.CheckBox
-                    Accessible.name: TranslationManager.translate("comparison.pressure", "Pressure")
-                    Accessible.checked: showPressure
-                    Accessible.focusable: true
-                    Accessible.onPressAction: showPressure = !showPressure
+                    ComparisonDataTable {
+                        graph: comparisonGraph
+                        comparisonModel: shotComparisonPage.comparisonModel
+                        Layout.fillWidth: true
+                    }
 
-                    RowLayout {
-                        id: pressureToggleContent
-                        anchors.centerIn: parent
+                    // Phase toggle pills
+                    Flow {
+                        Layout.fillWidth: true
                         spacing: Theme.spacingSmall
+                        visible: shotComparisonPage.phaseEntries.length > 0
 
-                        Rectangle { width: Theme.scaled(20); height: 2; color: showPressure ? Theme.textColor : Theme.textSecondaryColor; Accessible.ignored: true }
-                        Text {
-                            text: TranslationManager.translate("comparison.pressure", "Pressure")
-                            font: Theme.captionFont
-                            color: showPressure ? Theme.textColor : Theme.textSecondaryColor
-                            Accessible.ignored: true
-                        }
-                    }
+                        Repeater {
+                            model: shotComparisonPage.phaseEntries
 
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: showPressure = !showPressure
-                    }
-                }
+                            Rectangle {
+                                required property var modelData
+                                property color phaseColor: comparisonGraph.phaseColors[modelData.phaseIndex % comparisonGraph.phaseColors.length]
+                                property bool phaseOn: !comparisonGraph.hiddenPhaseLabels[modelData.label]
 
-                // Flow toggle
-                Rectangle {
-                    width: flowToggleContent.width + Theme.scaled(16)
-                    height: Theme.scaled(32)
-                    radius: Theme.scaled(16)
-                    color: showFlow ? Theme.surfaceColor : "transparent"
-                    border.color: showFlow ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
-                    opacity: showFlow ? 1.0 : 0.5
+                                height: Theme.scaled(26)
+                                width: pillRow.implicitWidth + Theme.scaled(16)
+                                radius: Theme.scaled(13)
+                                color: phaseOn ? Qt.rgba(phaseColor.r, phaseColor.g, phaseColor.b, 0.18) : "transparent"
+                                border.color: phaseOn ? phaseColor : Theme.borderColor
+                                border.width: 1
+                                opacity: phaseOn ? 1.0 : 0.55
 
-                    Accessible.role: Accessible.CheckBox
-                    Accessible.name: TranslationManager.translate("comparison.flow", "Flow")
-                    Accessible.checked: showFlow
-                    Accessible.focusable: true
-                    Accessible.onPressAction: showFlow = !showFlow
+                                Accessible.role: Accessible.CheckBox
+                                Accessible.name: modelData.label
+                                Accessible.checked: phaseOn
+                                Accessible.focusable: true
+                                Accessible.onPressAction: comparisonGraph.togglePhaseLabel(modelData.label)
 
-                    RowLayout {
-                        id: flowToggleContent
-                        anchors.centerIn: parent
-                        spacing: Theme.spacingSmall
+                                Row {
+                                    id: pillRow
+                                    anchors.centerIn: parent
+                                    spacing: Theme.scaled(4)
+                                    Rectangle {
+                                        width: Theme.scaled(6); height: Theme.scaled(6); radius: Theme.scaled(3)
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: phaseColor
+                                        Accessible.ignored: true
+                                    }
+                                    Text {
+                                        text: modelData.label
+                                        font: Theme.captionFont
+                                        color: phaseOn ? phaseColor : Theme.textSecondaryColor
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Accessible.ignored: true
+                                    }
+                                }
 
-                        Rectangle {
-                            width: Theme.scaled(20); height: 2; color: showFlow ? Theme.textColor : Theme.textSecondaryColor
-                            Rectangle { anchors.fill: parent; color: "transparent"; border.color: showFlow ? Theme.textColor : Theme.textSecondaryColor; border.width: 1 }
-                            Accessible.ignored: true
-                        }
-                        Text {
-                            text: TranslationManager.translate("comparison.flow", "Flow")
-                            font: Theme.captionFont
-                            color: showFlow ? Theme.textColor : Theme.textSecondaryColor
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: showFlow = !showFlow
-                    }
-                }
-
-                // Weight toggle
-                Rectangle {
-                    width: weightToggleContent.width + Theme.scaled(16)
-                    height: Theme.scaled(32)
-                    radius: Theme.scaled(16)
-                    color: showWeight ? Theme.surfaceColor : "transparent"
-                    border.color: showWeight ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
-                    opacity: showWeight ? 1.0 : 0.5
-
-                    Accessible.role: Accessible.CheckBox
-                    Accessible.name: TranslationManager.translate("comparison.weight", "Weight")
-                    Accessible.checked: showWeight
-                    Accessible.focusable: true
-                    Accessible.onPressAction: showWeight = !showWeight
-
-                    RowLayout {
-                        id: weightToggleContent
-                        anchors.centerIn: parent
-                        spacing: Theme.spacingSmall
-
-                        Row {
-                            spacing: Theme.scaled(3)
-                            Accessible.ignored: true
-                            Repeater {
-                                model: 4
-                                Rectangle { width: 3; height: 2; color: showWeight ? Theme.textColor : Theme.textSecondaryColor }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: comparisonGraph.togglePhaseLabel(modelData.label)
+                                }
                             }
                         }
-                        Text {
-                            text: TranslationManager.translate("comparison.weight", "Weight")
-                            font: Theme.captionFont
-                            color: showWeight ? Theme.textColor : Theme.textSecondaryColor
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: showWeight = !showWeight
-                    }
-                }
-
-                // Weight Flow toggle
-                Rectangle {
-                    width: weightFlowToggleContent.width + Theme.scaled(16)
-                    height: Theme.scaled(32)
-                    radius: Theme.scaled(16)
-                    color: showWeightFlow ? Theme.surfaceColor : "transparent"
-                    border.color: showWeightFlow ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
-                    opacity: showWeightFlow ? 1.0 : 0.5
-
-                    Accessible.role: Accessible.CheckBox
-                    Accessible.name: TranslationManager.translate("comparison.weightFlow", "Weight Flow")
-                    Accessible.checked: showWeightFlow
-                    Accessible.focusable: true
-                    Accessible.onPressAction: showWeightFlow = !showWeightFlow
-
-                    RowLayout {
-                        id: weightFlowToggleContent
-                        anchors.centerIn: parent
-                        spacing: Theme.spacingSmall
-
-                        Rectangle { width: Theme.scaled(20); height: 2; color: showWeightFlow ? Theme.weightFlowColor : Theme.textSecondaryColor; Accessible.ignored: true }
-                        Text {
-                            text: TranslationManager.translate("comparison.weightFlow", "Weight Flow")
-                            font: Theme.captionFont
-                            color: showWeightFlow ? Theme.textColor : Theme.textSecondaryColor
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: showWeightFlow = !showWeightFlow
                     }
                 }
             }
 
-            // Shot columns
-            RowLayout {
+            // Shot comparison table (rows = metrics + phases, columns = shots)
+            Rectangle {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingSmall
                 Layout.bottomMargin: Theme.spacingSmall
-                spacing: Theme.spacingMedium
+                color: Theme.surfaceColor
+                radius: Theme.cardRadius
+                implicitHeight: shotTable.implicitHeight + Theme.spacingMedium * 2
 
-                Repeater {
-                    model: comparisonModel.shots  // Use shots array so items refresh
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: shotColumn.height + Theme.spacingMedium * 2
-                        Layout.alignment: Qt.AlignTop
-                        color: Theme.surfaceColor
-                        radius: Theme.cardRadius
-
-                        property int globalIndex: comparisonModel.windowStart + index
-                        property color shotColor: comparisonModel.getShotColor(globalIndex % 3)
-
-                        ColumnLayout {
-                            id: shotColumn
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: Theme.spacingMedium
-                            spacing: Theme.spacingSmall
-
-                            // Shot header with color indicator
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.spacingSmall
-
-                                Rectangle {
-                                    width: Theme.scaled(12)
-                                    height: Theme.scaled(12)
-                                    radius: Theme.scaled(3)
-                                    color: shotColor
-                                }
-
-                                Text {
-                                    text: TranslationManager.translate("comparison.shot", "Shot") + " " + (globalIndex + 1)
-                                    font: Theme.subtitleFont
-                                    color: shotColor
-                                }
-                            }
-
-                            // Profile (Temp)
-                            Text {
-                                text: {
-                                    var info = comparisonModel.getShotInfo(index)
-                                    var name = info.profileName || "-"
-                                    var t = info.temperatureOverride
-                                    if (t !== undefined && t !== null && t > 0) {
-                                        return name + " (" + Math.round(t) + "\u00B0C)"
-                                    }
-                                    return name
-                                }
-                                font: Theme.labelFont
-                                color: Theme.textColor
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-
-                            // Date
-                            Text {
-                                text: comparisonModel.getShotInfo(index).dateTime || "-"
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                            }
-
-                            // Separator
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: Theme.scaled(1)
-                                color: Theme.borderColor
-                            }
-
-                            // Metrics grid
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 2
-                                columnSpacing: Theme.spacingSmall
-                                rowSpacing: Theme.spacingSmall
-
-                                Tr { key: "comparison.duration"; fallback: "Duration"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text { text: (comparisonModel.getShotInfo(index).duration || 0).toFixed(1) + "s"; font: Theme.labelFont; color: Theme.textColor }
-
-                                Tr { key: "comparison.dose"; fallback: "Dose"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text { text: (comparisonModel.getShotInfo(index).doseWeight || 0).toFixed(1) + "g"; font: Theme.labelFont; color: Theme.textColor }
-
-                                Tr { key: "comparison.output"; fallback: "Output"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text {
-                                    text: {
-                                        var info = comparisonModel.getShotInfo(index)
-                                        var actual = (info.finalWeight || 0).toFixed(1) + "g"
-                                        var y = info.yieldOverride
-                                        if (y !== undefined && y !== null && y > 0
-                                            && Math.abs(y - info.finalWeight) > 0.5) {
-                                            return actual + " (" + Math.round(y) + "g)"
-                                        }
-                                        return actual
-                                    }
-                                    font: Theme.labelFont; color: Theme.textColor
-                                }
-
-                                Tr { key: "comparison.ratio"; fallback: "Ratio"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text { text: comparisonModel.getShotInfo(index).ratio || "-"; font: Theme.labelFont; color: Theme.textColor }
-
-                                Tr { key: "comparison.rating"; fallback: "Rating"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text { text: (comparisonModel.getShotInfo(index).enjoyment || 0) + "%"; font: Theme.labelFont; color: Theme.warningColor }
-
-                                Tr { key: "comparison.bean"; fallback: "Bean"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text {
-                                    text: {
-                                        var info = comparisonModel.getShotInfo(index)
-                                        var bean = (info.beanBrand || "") + (info.beanType ? " " + info.beanType : "")
-                                        var grind = info.grinderSetting || ""
-                                        if (bean && grind) return bean + " (" + grind + ")"
-                                        if (bean) return bean
-                                        if (grind) return "(" + grind + ")"
-                                        return "-"
-                                    }
-                                    font: Theme.labelFont
-                                    color: Theme.textColor
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-
-                                Tr { key: "comparison.roast"; fallback: "Roast"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                Text {
-                                    text: {
-                                        var info = comparisonModel.getShotInfo(index)
-                                        var parts = []
-                                        if (info.roastLevel) parts.push(info.roastLevel)
-                                        if (info.roastDate) parts.push(info.roastDate)
-                                        return parts.length > 0 ? parts.join(", ") : "-"
-                                    }
-                                    font: Theme.labelFont
-                                    color: Theme.textColor
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-
-                                Tr { key: "comparison.tdsEy"; fallback: "TDS/EY"; font: Theme.captionFont; color: Theme.textSecondaryColor; visible: comparisonModel.getShotInfo(index).drinkTds > 0 || comparisonModel.getShotInfo(index).drinkEy > 0 }
-                                Text {
-                                    visible: comparisonModel.getShotInfo(index).drinkTds > 0 || comparisonModel.getShotInfo(index).drinkEy > 0
-                                    text: {
-                                        var info = comparisonModel.getShotInfo(index)
-                                        var parts = []
-                                        if (info.drinkTds > 0) parts.push(info.drinkTds.toFixed(2) + "%")
-                                        if (info.drinkEy > 0) parts.push(info.drinkEy.toFixed(1) + "%")
-                                        return parts.join(" / ")
-                                    }
-                                    font: Theme.labelFont
-                                    color: Theme.textColor
-                                }
-
-                                Tr { key: "comparison.barista"; fallback: "Barista"; font: Theme.captionFont; color: Theme.textSecondaryColor; visible: comparisonModel.getShotInfo(index).barista !== "" }
-                                Text {
-                                    visible: comparisonModel.getShotInfo(index).barista !== ""
-                                    text: comparisonModel.getShotInfo(index).barista || ""
-                                    font: Theme.labelFont
-                                    color: Theme.textColor
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-                            }
-
-                            // Separator
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: Theme.scaled(1)
-                                color: Theme.borderColor
-                            }
-
-                            // Notes section
-                            Tr {
-                                key: "comparison.notes"
-                                fallback: "Notes"
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                            }
-
-                            Text {
-                                text: comparisonModel.getShotInfo(index).notes || "-"
-                                font: Theme.labelFont
-                                color: Theme.textColor
-                                wrapMode: Text.Wrap
-                                Layout.fillWidth: true
-                            }
-                        }
-                    }
+                ComparisonShotTable {
+                    id: shotTable
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingMedium
+                    graph: comparisonGraph
+                    comparisonModel: shotComparisonPage.comparisonModel
                 }
             }
         }

@@ -20,52 +20,69 @@ ChartView {
     // Visibility toggles for curve types
     property bool showPressure: true
     property bool showFlow: true
+    property bool showTemperature: true
     property bool showWeight: true
     property bool showWeightFlow: true
 
-    // Colors for each shot (primary, flow/light, weight/lighter)
-    readonly property var shotColorSets: [
-        { primary: "#4CAF50", flow: "#81C784", weight: "#A5D6A7" },  // Green
-        { primary: "#2196F3", flow: "#64B5F6", weight: "#90CAF9" },  // Blue
-        { primary: "#FF9800", flow: "#FFB74D", weight: "#FFCC80" }   // Orange
-    ]
+    // Per-shot visibility (window slot 0/1/2)
+    property bool showShot0: true
+    property bool showShot1: true
+    property bool showShot2: true
+
+    // Phase marker data: [{shotIdx, time, label, phaseIndex}]
+    property var phaseData: []
+
+    // Per-phase colors (index = phaseIndex % count)
+    readonly property var phaseColors: ["#FFD600", "#E91E63", "#00E5FF", "#76FF03", "#FF6D00"]
+
+    // Hidden phase labels: {label: true} means hidden
+    property var hiddenPhaseLabels: ({})
+    function togglePhaseLabel(label) {
+        var h = Object.assign({}, hiddenPhaseLabels)
+        h[label] = !h[label]
+        hiddenPhaseLabels = h
+    }
+
+    // Crosshair / inspect state
+    property bool inspecting: false
+    property real inspectTime: 0
+    // Computed binding so the line stays correct when plotArea resizes
+    readonly property real inspectPixelX: inspecting
+        ? chart.plotArea.x + (inspectTime / timeAxis.max) * chart.plotArea.width
+        : 0
+    // Array of { dateTime, hasTemperature, temperature, hasFlow, flow, hasWeight, weight }
+    property var inspectShotValues: []
 
     // Load data from comparison model
     function loadData() {
         if (!comparisonModel) return
 
         // Clear all series
-        pressure1.clear(); flow1.clear(); weight1.clear(); weightFlow1.clear()
-        pressure2.clear(); flow2.clear(); weight2.clear(); weightFlow2.clear()
-        pressure3.clear(); flow3.clear(); weight3.clear(); weightFlow3.clear()
+        pressure1.clear(); flow1.clear(); temp1.clear(); weight1.clear(); weightFlow1.clear()
+        pressure2.clear(); flow2.clear(); temp2.clear(); weight2.clear(); weightFlow2.clear()
+        pressure3.clear(); flow3.clear(); temp3.clear(); weight3.clear(); weightFlow3.clear()
 
-        var windowStart = comparisonModel.windowStart
-
-        // Load each shot's data with colors based on global position
         for (var i = 0; i < comparisonModel.shotCount; i++) {
-            var pressureData = comparisonModel.getPressureData(i)
-            var flowData = comparisonModel.getFlowData(i)
-            var weightData = comparisonModel.getWeightData(i)
-            var weightFlowData = comparisonModel.getWeightFlowRateData(i)
+            var pressureData    = comparisonModel.getPressureData(i)
+            var flowData        = comparisonModel.getFlowData(i)
+            var tempData        = comparisonModel.getTemperatureData(i)
+            var weightData      = comparisonModel.getWeightData(i)
+            var weightFlowData  = comparisonModel.getWeightFlowRateData(i)
 
-            var pSeries = i === 0 ? pressure1 : (i === 1 ? pressure2 : pressure3)
-            var fSeries = i === 0 ? flow1 : (i === 1 ? flow2 : flow3)
-            var wSeries = i === 0 ? weight1 : (i === 1 ? weight2 : weight3)
+            var pSeries  = i === 0 ? pressure1  : (i === 1 ? pressure2  : pressure3)
+            var fSeries  = i === 0 ? flow1       : (i === 1 ? flow2       : flow3)
+            var tSeries  = i === 0 ? temp1       : (i === 1 ? temp2       : temp3)
+            var wSeries  = i === 0 ? weight1     : (i === 1 ? weight2     : weight3)
             var wfSeries = i === 0 ? weightFlow1 : (i === 1 ? weightFlow2 : weightFlow3)
-
-            // Set colors based on global position (windowStart + i) % 3
-            var colorIndex = (windowStart + i) % 3
-            var colors = shotColorSets[colorIndex]
-            pSeries.color = colors.primary
-            fSeries.color = colors.flow
-            wSeries.color = colors.weight
-            wfSeries.color = Qt.lighter(colors.weight, 1.3)
 
             for (var j = 0; j < pressureData.length; j++) {
                 pSeries.append(pressureData[j].x, pressureData[j].y)
             }
             for (j = 0; j < flowData.length; j++) {
                 fSeries.append(flowData[j].x, flowData[j].y)
+            }
+            for (j = 0; j < tempData.length; j++) {
+                tSeries.append(tempData[j].x, tempData[j].y)
             }
             for (j = 0; j < weightData.length; j++) {
                 wSeries.append(weightData[j].x, weightData[j].y / 5)  // Scale for display
@@ -75,8 +92,47 @@ ChartView {
             }
         }
 
-        // Update axes - fit to data with small padding (minimum 15s for very short shots)
+        // Fit time axis to data
         timeAxis.max = Math.max(15, comparisonModel.maxTime + 0.5)
+
+        // Build phase marker list (phaseIndex = stable color index per unique label)
+        var phases = []
+        var phaseIndexMap = {}, nextPhaseIndex = 0
+        for (var pi = 0; pi < comparisonModel.shotCount; pi++) {
+            var markers = comparisonModel.getPhaseMarkers(pi)
+            for (var mi = 0; mi < markers.length; mi++) {
+                var lbl = markers[mi].label
+                if (lbl === "Start") continue  // redundant — always 0.0s
+                if (phaseIndexMap[lbl] === undefined) phaseIndexMap[lbl] = nextPhaseIndex++
+                phases.push({ shotIdx: pi, time: markers[mi].time, label: lbl, phaseIndex: phaseIndexMap[lbl] })
+            }
+        }
+        phaseData = phases
+
+        // Default visibility: hide all phases except End and the one before it
+        var uniqueLabels = []
+        var seenLabels = {}
+        for (var ui = 0; ui < phases.length; ui++) {
+            var ul = phases[ui].label
+            if (!seenLabels[ul]) { seenLabels[ul] = true; uniqueLabels.push(ul) }
+        }
+        var hidden = {}
+        for (var hi = 0; hi < uniqueLabels.length - 2; hi++) {
+            hidden[uniqueLabels[hi]] = true
+        }
+        hiddenPhaseLabels = hidden
+
+        // Set crosshair at the default-visible phase (second-to-last): average time across shots
+        if (uniqueLabels.length >= 2) {
+            var targetLabel = uniqueLabels[uniqueLabels.length - 2]
+            var timeSum = 0, timeCount = 0
+            for (var ti = 0; ti < phases.length; ti++) {
+                if (phases[ti].label === targetLabel) { timeSum += phases[ti].time; timeCount++ }
+            }
+            if (timeCount > 0) Qt.callLater(inspectAtTime, timeSum / timeCount)
+        } else {
+            dismissInspect()
+        }
     }
 
     // Find the Y value in a LineSeries closest to the given time
@@ -94,48 +150,88 @@ ChartView {
                 break  // sorted by x, so we passed the closest
             }
         }
-        // Only return if within 1 second of the requested time
         return minDist < 1.0 ? closest.y : null
     }
 
-    // Announce curve values at a pixel position (called on tap)
-    function announceAtPosition(pixelX, pixelY) {
+    // Show crosshair at a pixel position and build per-shot inspect values
+    function inspectAtPosition(pixelX, pixelY) {
+        if (!comparisonModel) return
         var dataPoint = chart.mapToValue(Qt.point(pixelX, pixelY), pressure1)
         var time = dataPoint.x
-        if (time < 0 || time > timeAxis.max) return
-
-        var curveTypes = []
-        if (showPressure) curveTypes.push({ name: "Pressure", series: [pressure1, pressure2, pressure3] })
-        if (showFlow) curveTypes.push({ name: "Flow", series: [flow1, flow2, flow3] })
-        if (showWeightFlow) curveTypes.push({ name: "Weight flow", series: [weightFlow1, weightFlow2, weightFlow3] })
-        if (showWeight) curveTypes.push({ name: "Weight", series: [weight1, weight2, weight3], scale: 5 })
-
-        var groups = []
-        for (var c = 0; c < curveTypes.length; c++) {
-            var ct = curveTypes[c]
-            var values = []
-            for (var s = 0; s < ct.series.length; s++) {
-                var v = findValueAtTime(ct.series[s], time)
-                if (v !== null) values.push((ct.scale ? v * ct.scale : v).toFixed(1))
-            }
-            if (values.length > 0) groups.push({ name: ct.name, text: values.join(", ") })
+        if (time < 0 || time > timeAxis.max) {
+            dismissInspect()
+            return
         }
 
-        if (groups.length === 0) return
-        // One curve type: just time + values. Multiple: prefix each with name.
-        var body = groups.length === 1
-            ? groups[0].text
-            : groups.map(function(g) { return g.name + " " + g.text }).join(". ")
+        inspectTime = time
 
-        if (typeof AccessibilityManager !== "undefined") {
-            AccessibilityManager.announce(time.toFixed(1) + ". " + body, true)
+        var shotValues = []
+        for (var i = 0; i < comparisonModel.shotCount; i++) {
+            var vals = comparisonModel.getValuesAtTime(i, time)
+            var info = comparisonModel.getShotInfo(i)
+            shotValues.push({
+                dateTime:       info.dateTime,
+                hasPressure:    vals.hasPressure,
+                pressure:       vals.pressure,
+                hasFlow:        vals.hasFlow,
+                flow:           vals.flow,
+                hasTemperature: vals.hasTemperature,
+                temperature:    vals.temperature,
+                hasWeight:      vals.hasWeight,
+                weight:         vals.weight,
+                hasWeightFlow:  vals.hasWeightFlow,
+                weightFlow:     vals.weightFlow
+            })
         }
+        inspectShotValues = shotValues
+        inspecting = true
+
+        // Accessibility announcement
+        var parts = [time.toFixed(1) + "s"]
+        for (var s = 0; s < shotValues.length; s++) {
+            var sv = shotValues[s]
+            var metrics = []
+            if (sv.hasPressure)    metrics.push(sv.pressure.toFixed(1) + " bar")
+            if (sv.hasFlow)        metrics.push(sv.flow.toFixed(1) + " mL/s")
+            if (sv.hasTemperature) metrics.push(sv.temperature.toFixed(1) + " degrees")
+            if (sv.hasWeight)      metrics.push(sv.weight.toFixed(1) + " grams")
+            if (metrics.length > 0)
+                parts.push(sv.dateTime + ": " + metrics.join(", "))
+        }
+        if (typeof AccessibilityManager !== "undefined" && parts.length > 1)
+            AccessibilityManager.announce(parts.join(". "), true)
+    }
+
+    // Place crosshair at a specific time (no pixel mapping needed)
+    function inspectAtTime(time) {
+        if (!comparisonModel || time < 0 || time > timeAxis.max) return
+        inspectTime = time
+        var shotValues = []
+        for (var i = 0; i < comparisonModel.shotCount; i++) {
+            var vals = comparisonModel.getValuesAtTime(i, time)
+            var info = comparisonModel.getShotInfo(i)
+            shotValues.push({
+                dateTime:       info.dateTime,
+                hasPressure:    vals.hasPressure,   pressure:    vals.pressure,
+                hasFlow:        vals.hasFlow,        flow:        vals.flow,
+                hasTemperature: vals.hasTemperature, temperature: vals.temperature,
+                hasWeight:      vals.hasWeight,      weight:      vals.weight,
+                hasWeightFlow:  vals.hasWeightFlow,  weightFlow:  vals.weightFlow
+            })
+        }
+        inspectShotValues = shotValues
+        inspecting = true
+    }
+
+    // Dismiss the crosshair
+    function dismissInspect() {
+        inspecting = false
+        inspectShotValues = []
     }
 
     onComparisonModelChanged: loadData()
     Component.onCompleted: loadData()
 
-    // Connect to model changes
     Connections {
         target: comparisonModel
         function onShotsChanged() { loadData() }
@@ -154,7 +250,7 @@ ChartView {
         titleBrush: Theme.textSecondaryColor
     }
 
-    // Pressure/Flow axis (left Y)
+    // Pressure/Flow/WeightFlow axis (left Y)
     ValueAxis {
         id: pressureAxis
         min: 0
@@ -167,7 +263,15 @@ ChartView {
         titleBrush: Theme.textSecondaryColor
     }
 
-    // Weight axis (hidden)
+    // Temperature axis (hidden right axis — range 40–100 °C, matches HistoryShotGraph)
+    ValueAxis {
+        id: tempAxis
+        min: 40
+        max: 100
+        visible: false
+    }
+
+    // Weight axis (hidden — weight is scaled /5 onto pressureAxis)
     ValueAxis {
         id: weightAxis
         min: 0
@@ -175,123 +279,87 @@ ChartView {
         visible: false
     }
 
-    // Shot 1 series (Green)
-    LineSeries {
-        id: pressure1
-        name: "Pressure 1"
-        color: "#4CAF50"
-        width: Theme.graphLineWidth
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showPressure
-    }
-    LineSeries {
-        id: flow1
-        name: "Flow 1"
-        color: "#81C784"
-        width: Theme.graphLineWidth
-        style: Qt.DashLine
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showFlow
-    }
-    LineSeries {
-        id: weight1
-        name: "Weight 1"
-        color: "#A5D6A7"
-        width: Math.max(1, Theme.graphLineWidth - 1)
-        style: Qt.DotLine
-        axisX: timeAxis
-        axisY: weightAxis
-        visible: chart.showWeight
-    }
-    LineSeries {
-        id: weightFlow1
-        name: "Weight Flow 1"
-        color: Qt.lighter("#A5D6A7", 1.3)
-        width: Math.max(1, Theme.graphLineWidth - 1)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showWeightFlow
+    // ── Shot 1: solid lines ──────────────────────────────────────────────────
+    LineSeries { id: pressure1;   color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot0 }
+    LineSeries { id: flow1;       color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot0 }
+    LineSeries { id: temp1;       color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot0 }
+    LineSeries { id: weight1;     color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot0 }
+    LineSeries { id: weightFlow1; color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot0 }
+
+    // ── Shot 2: dashed lines ─────────────────────────────────────────────────
+    LineSeries { id: pressure2;   color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot1 }
+    LineSeries { id: flow2;       color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot1 }
+    LineSeries { id: temp2;       color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot1 }
+    LineSeries { id: weight2;     color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot1 }
+    LineSeries { id: weightFlow2; color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot1 }
+
+    // ── Shot 3: dash-dot lines ───────────────────────────────────────────────
+    LineSeries { id: pressure3;   color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot2 }
+    LineSeries { id: flow3;       color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot2 }
+    LineSeries { id: temp3;       color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot2 }
+    LineSeries { id: weight3;     color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot2 }
+    LineSeries { id: weightFlow3; color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot2 }
+
+    // Phase marker lines — Canvas for proper dashed patterns per shot style
+    Canvas {
+        id: phaseCanvas
+        x: chart.plotArea.x
+        y: chart.plotArea.y
+        width: chart.plotArea.width
+        height: chart.plotArea.height
+        z: 5
+        onXChanged: requestPaint()
+        onYChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections {
+            target: chart
+            function onPhaseDataChanged()         { phaseCanvas.requestPaint() }
+            function onHiddenPhaseLabelsChanged() { phaseCanvas.requestPaint() }
+        }
+        onPaint: {
+            var ctx = getContext("2d")
+            ctx.clearRect(0, 0, width, height)
+            for (var i = 0; i < chart.phaseData.length; i++) {
+                var pd = chart.phaseData[i]
+                if (chart.hiddenPhaseLabels[pd.label]) continue
+                var x = (pd.time / timeAxis.max) * width
+                ctx.strokeStyle = chart.phaseColors[pd.phaseIndex % chart.phaseColors.length]
+                ctx.globalAlpha = 0.7
+                ctx.lineWidth = 1.5
+                if      (pd.shotIdx === 0) ctx.setLineDash([])
+                else if (pd.shotIdx === 1) ctx.setLineDash([6, 5])
+                else                       ctx.setLineDash([10, 4, 2, 4])
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke()
+            }
+        }
     }
 
-    // Shot 2 series (Blue)
-    LineSeries {
-        id: pressure2
-        name: "Pressure 2"
-        color: "#2196F3"
-        width: Theme.graphLineWidth
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showPressure
-    }
-    LineSeries {
-        id: flow2
-        name: "Flow 2"
-        color: "#64B5F6"
-        width: Theme.graphLineWidth
-        style: Qt.DashLine
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showFlow
-    }
-    LineSeries {
-        id: weight2
-        name: "Weight 2"
-        color: "#90CAF9"
-        width: Math.max(1, Theme.graphLineWidth - 1)
-        style: Qt.DotLine
-        axisX: timeAxis
-        axisY: weightAxis
-        visible: chart.showWeight
-    }
-    LineSeries {
-        id: weightFlow2
-        name: "Weight Flow 2"
-        color: Qt.lighter("#90CAF9", 1.3)
-        width: Math.max(1, Theme.graphLineWidth - 1)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showWeightFlow
+    // Phase label text (shown at top of plot area, shot 0 only to avoid duplicates)
+    Repeater {
+        model: chart.phaseData
+        Text {
+            required property var modelData
+            visible: modelData.shotIdx === 0 && !chart.hiddenPhaseLabels[modelData.label]
+            x: chart.plotArea.x + (modelData.time / timeAxis.max) * chart.plotArea.width + Theme.scaled(2)
+            y: chart.plotArea.y
+            text: modelData.label
+            font: Theme.captionFont
+            color: chart.phaseColors[modelData.phaseIndex % chart.phaseColors.length]
+            opacity: 0.9
+            z: 6
+        }
     }
 
-    // Shot 3 series (Orange)
-    LineSeries {
-        id: pressure3
-        name: "Pressure 3"
-        color: "#FF9800"
-        width: Theme.graphLineWidth
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showPressure
-    }
-    LineSeries {
-        id: flow3
-        name: "Flow 3"
-        color: "#FFB74D"
-        width: Theme.graphLineWidth
-        style: Qt.DashLine
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showFlow
-    }
-    LineSeries {
-        id: weight3
-        name: "Weight 3"
-        color: "#FFCC80"
-        width: Math.max(1, Theme.graphLineWidth - 1)
-        style: Qt.DotLine
-        axisX: timeAxis
-        axisY: weightAxis
-        visible: chart.showWeight
-    }
-    LineSeries {
-        id: weightFlow3
-        name: "Weight Flow 3"
-        color: Qt.lighter("#FFCC80", 1.3)
-        width: Math.max(1, Theme.graphLineWidth - 1)
-        axisX: timeAxis
-        axisY: pressureAxis
-        visible: chart.showWeightFlow
+    // Crosshair vertical line
+    Rectangle {
+        id: crosshairLine
+        visible: chart.inspecting
+        x: chart.inspectPixelX - width / 2
+        y: chart.plotArea.y
+        width: Theme.scaled(1)
+        height: chart.plotArea.height
+        color: Theme.textColor
+        opacity: 0.6
     }
 }
