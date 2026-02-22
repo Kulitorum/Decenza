@@ -1446,6 +1446,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             drinkEy: %38
         };
     </script>
+)HTML" R"HTML(
 
     <script>
         function downloadProfile() {
@@ -1642,6 +1643,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         }
     </script>
+)HTML" R"HTML(
     <script>
         const pressureData = %15;
         const flowData = %16;
