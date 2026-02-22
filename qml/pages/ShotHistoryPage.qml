@@ -30,7 +30,6 @@ Page {
 
     StackView.onActivated: {
         root.currentPageTitle = TranslationManager.translate("shothistory.title", "Shot History")
-        refreshFilterOptions()
         loadShots()
     }
 
@@ -74,100 +73,8 @@ Page {
         isLoadingMore = false
     }
 
-    // Get filter values from the model arrays directly (more reliable than currentText)
-    property var profileOptions: []
-    property var roasterOptions: []
-    property var beanOptions: []
-
-    // Track current selections by value (not index) to preserve across option updates
-    property string selectedProfile: ""
-    property string selectedRoaster: ""
-    property string selectedBean: ""
-
-    function refreshFilterOptions() {
-        // Initial load - get all options
-        var profiles = MainController.shotHistory.getDistinctProfiles()
-        var roasters = MainController.shotHistory.getDistinctBeanBrands()
-        var beans = MainController.shotHistory.getDistinctBeanTypes()
-        profileOptions = [TranslationManager.translate("shothistory.allprofiles", "All Profiles")].concat(profiles)
-        roasterOptions = [TranslationManager.translate("shothistory.allroasters", "All Roasters")].concat(roasters)
-        beanOptions = [TranslationManager.translate("shothistory.allbeans", "All Beans")].concat(beans)
-
-        // Restore ComboBox indices from preserved selection values (e.g. after returning from shot detail)
-        var pIdx = selectedProfile ? profileOptions.indexOf(selectedProfile) : 0
-        profileFilter.currentIndex = pIdx >= 0 ? pIdx : 0
-        var rIdx = selectedRoaster ? roasterOptions.indexOf(selectedRoaster) : 0
-        roasterFilter.currentIndex = rIdx >= 0 ? rIdx : 0
-        var bIdx = selectedBean ? beanOptions.indexOf(selectedBean) : 0
-        beanFilter.currentIndex = bIdx >= 0 ? bIdx : 0
-    }
-
-    function updateCascadingFilters(changedFilter) {
-        var filter = {}
-
-        // Build filter from current selections
-        if (selectedProfile) filter.profileName = selectedProfile
-        if (selectedRoaster) filter.beanBrand = selectedRoaster
-        if (selectedBean) filter.beanType = selectedBean
-
-        // Update options for filters OTHER than the one that changed
-        if (changedFilter !== "profile") {
-            var profiles = MainController.shotHistory.getDistinctProfilesFiltered(filter)
-            var allProfiles = [TranslationManager.translate("shothistory.allprofiles", "All Profiles")]
-            profileOptions = allProfiles.concat(profiles)
-            // Restore selection if still valid
-            var pIdx = selectedProfile ? profileOptions.indexOf(selectedProfile) : 0
-            profileFilter.currentIndex = pIdx >= 0 ? pIdx : 0
-        }
-
-        if (changedFilter !== "roaster") {
-            var roasters = MainController.shotHistory.getDistinctBeanBrandsFiltered(filter)
-            var allRoasters = [TranslationManager.translate("shothistory.allroasters", "All Roasters")]
-            roasterOptions = allRoasters.concat(roasters)
-            // Restore selection if still valid
-            var rIdx = selectedRoaster ? roasterOptions.indexOf(selectedRoaster) : 0
-            roasterFilter.currentIndex = rIdx >= 0 ? rIdx : 0
-        }
-
-        if (changedFilter !== "bean") {
-            var beans = MainController.shotHistory.getDistinctBeanTypesFiltered(filter)
-            var allBeans = [TranslationManager.translate("shothistory.allbeans", "All Beans")]
-            beanOptions = allBeans.concat(beans)
-            // Restore selection if still valid
-            var bIdx = selectedBean ? beanOptions.indexOf(selectedBean) : 0
-            beanFilter.currentIndex = bIdx >= 0 ? bIdx : 0
-        }
-    }
-
-    function onProfileChanged() {
-        selectedProfile = profileFilter.currentIndex > 0 ? profileOptions[profileFilter.currentIndex] : ""
-        updateCascadingFilters("profile")
-        loadShots()
-    }
-
-    function onRoasterChanged() {
-        selectedRoaster = roasterFilter.currentIndex > 0 ? roasterOptions[roasterFilter.currentIndex] : ""
-        updateCascadingFilters("roaster")
-        loadShots()
-    }
-
-    function onBeanChanged() {
-        selectedBean = beanFilter.currentIndex > 0 ? beanOptions[beanFilter.currentIndex] : ""
-        updateCascadingFilters("bean")
-        loadShots()
-    }
-
     function buildFilter() {
         var filter = {}
-        if (selectedProfile) {
-            filter.profileName = selectedProfile
-        }
-        if (selectedRoaster) {
-            filter.beanBrand = selectedRoaster
-        }
-        if (selectedBean) {
-            filter.beanType = selectedBean
-        }
         if (searchField.text.length > 0) {
             var searchText = searchField.text
 
@@ -339,104 +246,6 @@ Page {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
 
-            StyledComboBox {
-                id: profileFilter
-                Layout.preferredWidth: Theme.scaled(140)
-                model: profileOptions
-                accessibleLabel: TranslationManager.translate("shothistory.filter.profile", "Profile filter")
-                onActivated: if (shotHistoryPage.visible) onProfileChanged()
-
-                background: Rectangle {
-                    color: Theme.surfaceColor
-                    radius: Theme.buttonRadius
-                    border.color: Theme.borderColor
-                    border.width: 1
-                }
-                contentItem: Text {
-                    text: profileFilter.displayText
-                    font: Theme.labelFont
-                    color: Theme.textColor
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.spacingSmall
-                    elide: Text.ElideRight
-                }
-            }
-
-            StyledComboBox {
-                id: roasterFilter
-                Layout.preferredWidth: Theme.scaled(140)
-                model: roasterOptions
-                accessibleLabel: TranslationManager.translate("shothistory.filter.roaster", "Roaster filter")
-                onActivated: if (shotHistoryPage.visible) onRoasterChanged()
-
-                background: Rectangle {
-                    color: Theme.surfaceColor
-                    radius: Theme.buttonRadius
-                    border.color: Theme.borderColor
-                    border.width: 1
-                }
-                contentItem: Text {
-                    text: roasterFilter.displayText
-                    font: Theme.labelFont
-                    color: Theme.textColor
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.spacingSmall
-                    elide: Text.ElideRight
-                }
-            }
-
-            StyledComboBox {
-                id: beanFilter
-                Layout.preferredWidth: Theme.scaled(140)
-                model: beanOptions
-                accessibleLabel: TranslationManager.translate("shothistory.filter.bean", "Bean filter")
-                onActivated: if (shotHistoryPage.visible) onBeanChanged()
-
-                background: Rectangle {
-                    color: Theme.surfaceColor
-                    radius: Theme.buttonRadius
-                    border.color: Theme.borderColor
-                    border.width: 1
-                }
-                contentItem: Text {
-                    text: beanFilter.displayText
-                    font: Theme.labelFont
-                    color: Theme.textColor
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.spacingSmall
-                    elide: Text.ElideRight
-                }
-            }
-
-            // Search help button
-            Rectangle {
-                width: Theme.scaled(32)
-                height: Theme.scaled(32)
-                radius: Theme.scaled(16)
-                color: Theme.surfaceColor
-                border.color: Theme.borderColor
-                border.width: 1
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("shothistory.searchhelp", "Search syntax help")
-                Accessible.focusable: true
-                Accessible.onPressAction: helpArea.clicked(null)
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "?"
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                    color: Theme.textSecondaryColor
-                    Accessible.ignored: true
-                }
-
-                MouseArea {
-                    id: helpArea
-                    anchors.fill: parent
-                    onClicked: searchHelpDialog.open()
-                }
-            }
-
             StyledTextField {
                 id: searchField
                 Layout.fillWidth: true
@@ -475,6 +284,26 @@ Page {
                         }
                     }
                 }
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("shothistory.keywords", "Keywords")
+                accessibleName: TranslationManager.translate("shothistory.searchhelp", "Search syntax help")
+                onClicked: searchHelpDialog.open()
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("shothistory.save", "Save")
+                accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
+                enabled: searchField.text.trim().length > 0
+                onClicked: Settings.addSavedSearch(searchField.text.trim())
+            }
+
+            AccessibleButton {
+                text: "\u2630 " + TranslationManager.translate("shothistory.saved", "Saved")
+                accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
+                enabled: Settings.savedSearches.length > 0
+                onClicked: savedSearchesDialog.open()
             }
 
             Timer {
@@ -902,6 +731,142 @@ Page {
         }
     }
 
+    function insertSearchKeyword(keyword) {
+        var currentText = searchField.text
+        if (currentText.length > 0 && !currentText.endsWith(" ")) {
+            currentText += " "
+        }
+        searchField.text = currentText + keyword
+        searchHelpDialog.close()
+        searchField.forceActiveFocus()
+        Qt.inputMethod.show()
+    }
+
+    // Saved searches dialog
+    Dialog {
+        id: savedSearchesDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(400), shotHistoryPage.width - Theme.scaled(40))
+        modal: true
+        padding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("shothistory.savedSearchesTitle", "Saved Searches")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            ListView {
+                id: savedSearchesList
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, Theme.scaled(300))
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(10)
+                Layout.rightMargin: Theme.scaled(10)
+                clip: true
+                model: Settings.savedSearches
+                spacing: Theme.scaled(2)
+
+                delegate: Rectangle {
+                    width: savedSearchesList.width
+                    height: Theme.scaled(44)
+                    radius: Theme.scaled(6)
+                    color: delegateTapArea.pressed ? Qt.darker(Theme.surfaceColor, 1.1) : "transparent"
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.applySavedSearch", "Apply search: %1").arg(modelData)
+                    Accessible.focusable: true
+                    Accessible.onPressAction: delegateTapArea.clicked(null)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.scaled(10)
+                        anchors.rightMargin: Theme.scaled(4)
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: modelData
+                            font: Theme.bodyFont
+                            color: Theme.textColor
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            Accessible.ignored: true
+                        }
+
+                        // Delete button
+                        Rectangle {
+                            width: Theme.scaled(28)
+                            height: Theme.scaled(28)
+                            radius: Theme.scaled(14)
+                            color: deleteArea.pressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("shothistory.deleteSavedSearch", "Delete search: %1").arg(modelData)
+                            Accessible.focusable: true
+                            Accessible.onPressAction: deleteArea.clicked(null)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "\u2715"
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                color: "white"
+                                Accessible.ignored: true
+                            }
+
+                            MouseArea {
+                                id: deleteArea
+                                anchors.fill: parent
+                                onClicked: {
+                                    Settings.removeSavedSearch(modelData)
+                                    if (Settings.savedSearches.length === 0) {
+                                        savedSearchesDialog.close()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        id: delegateTapArea
+                        anchors.fill: parent
+                        z: -1
+                        onClicked: {
+                            searchField.text = modelData
+                            savedSearchesDialog.close()
+                        }
+                    }
+                }
+            }
+
+            // Close button
+            AccessibleButton {
+                text: TranslationManager.translate("shothistory.close", "Close")
+                accessibleName: TranslationManager.translate("shothistory.closeSavedSearches", "Close saved searches")
+                Layout.alignment: Qt.AlignRight
+                Layout.topMargin: Theme.scaled(12)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                onClicked: savedSearchesDialog.close()
+            }
+        }
+    }
+
     // Search syntax help dialog
     Dialog {
         id: searchHelpDialog
@@ -933,7 +898,7 @@ Page {
             }
 
             Text {
-                text: TranslationManager.translate("shothistory.searchhelpintro", "Use keywords to filter by numeric fields:")
+                text: TranslationManager.translate("shothistory.searchhelpintro", "Use keywords to filter by numeric fields.\nTap a keyword below to add it to your search.")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
@@ -959,28 +924,94 @@ Page {
                 Text { text: TranslationManager.translate("shothistory.helpheaderfilters", "Filters"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
                 Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
 
-                // Data rows
-                Text { text: "rating:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                // Data rows — keyword column is tappable to insert into search
+                Rectangle {
+                    color: ratingArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: ratingLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: ratingLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("rating:")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: ratingArea.clicked(null)
+                    Text { id: ratingLabel; text: "rating:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: ratingArea; anchors.fill: parent; onClicked: insertSearchKeyword("rating:") }
+                }
                 Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Text { text: "dose:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Rectangle {
+                    color: doseArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: doseLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: doseLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("dose:")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: doseArea.clicked(null)
+                    Text { id: doseLabel; text: "dose:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: doseArea; anchors.fill: parent; onClicked: insertSearchKeyword("dose:") }
+                }
                 Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Text { text: "yield:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Rectangle {
+                    color: yieldArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: yieldLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: yieldLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("yield:")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: yieldArea.clicked(null)
+                    Text { id: yieldLabel; text: "yield:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: yieldArea; anchors.fill: parent; onClicked: insertSearchKeyword("yield:") }
+                }
                 Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Text { text: "time:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Rectangle {
+                    color: timeArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: timeLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: timeLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("time:")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: timeArea.clicked(null)
+                    Text { id: timeLabel; text: "time:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: timeArea; anchors.fill: parent; onClicked: insertSearchKeyword("time:") }
+                }
                 Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Text { text: "tds:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Rectangle {
+                    color: tdsArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: tdsLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: tdsLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("tds:")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: tdsArea.clicked(null)
+                    Text { id: tdsLabel; text: "tds:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: tdsArea; anchors.fill: parent; onClicked: insertSearchKeyword("tds:") }
+                }
                 Text { text: "TDS"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Text { text: "ey:"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                Rectangle {
+                    color: eyArea.pressed ? Theme.surfaceColor : "transparent"
+                    radius: Theme.scaled(4)
+                    implicitWidth: eyLabel.implicitWidth + Theme.scaled(8)
+                    implicitHeight: eyLabel.implicitHeight + Theme.scaled(4)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("ey:")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: eyArea.clicked(null)
+                    Text { id: eyLabel; text: "ey:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                    MouseArea { id: eyArea; anchors.fill: parent; onClicked: insertSearchKeyword("ey:") }
+                }
                 Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
             }
