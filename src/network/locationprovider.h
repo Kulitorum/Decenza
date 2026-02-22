@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QGeoPositionInfoSource>
+#include <QGuiApplication>
 #include <QNetworkAccessManager>
 #include <QTimer>
 
@@ -66,6 +67,7 @@ private slots:
     void onPositionUpdated(const QGeoPositionInfo& info);
     void onPositionError(QGeoPositionInfoSource::Error error);
     void onReverseGeocodeFinished(QNetworkReply* reply);
+    void onAppStateChanged(Qt::ApplicationState state);
 
 private:
     void reverseGeocode(double lat, double lon);

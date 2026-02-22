@@ -13,6 +13,11 @@
 #include <QJniObject>
 #endif
 
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+#include <QDesktopServices>
+#include <QPermissions>
+#endif
+
 LocationProvider::LocationProvider(QObject* parent)
     : QObject(parent)
     , m_networkManager(new QNetworkAccessManager(this))
@@ -53,6 +58,11 @@ LocationProvider::LocationProvider(QObject* parent)
     } else {
         qDebug() << "LocationProvider: No GPS source available";
     }
+
+    // Re-request location when app returns to foreground (e.g. after user grants
+    // permission in System Settings on macOS/iOS)
+    connect(qApp, &QGuiApplication::applicationStateChanged,
+            this, &LocationProvider::onAppStateChanged);
 
     if (!m_manualCity.isEmpty()) {
         qDebug() << "LocationProvider: Manual city configured:" << m_manualCity
@@ -99,6 +109,31 @@ void LocationProvider::requestUpdate()
         emit locationError("No GPS source available");
         return;
     }
+
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+    // Qt 6 requires explicit permission request before using CoreLocation
+    QLocationPermission locationPermission;
+    locationPermission.setAccuracy(QLocationPermission::Approximate);
+
+    auto status = qApp->checkPermission(locationPermission);
+    if (status == Qt::PermissionStatus::Undetermined) {
+        qDebug() << "LocationProvider: Requesting location permission...";
+        qApp->requestPermission(locationPermission, this, [this](const QPermission& permission) {
+            if (permission.status() == Qt::PermissionStatus::Granted) {
+                qDebug() << "LocationProvider: Location permission granted";
+                m_source->requestUpdate(60000);
+            } else {
+                qDebug() << "LocationProvider: Location permission denied by user";
+                emit locationError("Location permission denied");
+            }
+        });
+        return;
+    } else if (status == Qt::PermissionStatus::Denied) {
+        qDebug() << "LocationProvider: Location permission previously denied";
+        emit locationError("Location permission denied - enable in System Settings");
+        return;
+    }
+#endif
 
     qDebug() << "LocationProvider: Requesting position update (60s timeout)...";
     m_source->requestUpdate(60000);  // 60 second timeout (GPS cold start can take a while)
@@ -372,8 +407,14 @@ void LocationProvider::openLocationSettings()
     activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
 
     qDebug() << "LocationProvider: Location Settings opened";
+#elif defined(Q_OS_MACOS)
+    qDebug() << "LocationProvider: Opening macOS Location Settings";
+    QDesktopServices::openUrl(QUrl("x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"));
+#elif defined(Q_OS_IOS)
+    qDebug() << "LocationProvider: Opening iOS Settings";
+    QDesktopServices::openUrl(QUrl("app-settings:"));
 #else
-    qDebug() << "LocationProvider: openLocationSettings() only supported on Android";
+    qDebug() << "LocationProvider: openLocationSettings() not supported on this platform";
 #endif
 }
 
@@ -416,4 +457,31 @@ bool LocationProvider::isGpsEnabled() const
     // On desktop, assume GPS is available if we have a source
     return m_source != nullptr;
 #endif
+}
+
+void LocationProvider::onAppStateChanged(Qt::ApplicationState state)
+{
+    if (state != Qt::ApplicationActive)
+        return;
+
+    // If we already have a location (GPS or manual), nothing to do
+    if (m_currentLocation.valid || !m_manualCity.isEmpty())
+        return;
+
+    // No source yet (permission may have just been granted) — try creating one
+    if (!m_source) {
+        m_source = QGeoPositionInfoSource::createDefaultSource(this);
+        if (m_source) {
+            connect(m_source, &QGeoPositionInfoSource::positionUpdated,
+                    this, &LocationProvider::onPositionUpdated);
+            connect(m_source, &QGeoPositionInfoSource::errorOccurred,
+                    this, &LocationProvider::onPositionError);
+            m_source->setPreferredPositioningMethods(QGeoPositionInfoSource::AllPositioningMethods);
+            qDebug() << "LocationProvider: GPS source now available after app resume:" << m_source->sourceName();
+            emit availableChanged();
+        }
+    }
+
+    qDebug() << "LocationProvider: App resumed without location, re-requesting";
+    requestUpdate();
 }

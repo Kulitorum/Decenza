@@ -236,21 +236,48 @@ KeyboardAwareContainer {
 
                     // Location status (only when enabled)
                     Text {
+                        Layout.fillWidth: true
                         visible: MainController.shotReporter && MainController.shotReporter.enabled
+                             && MainController.shotReporter.hasLocation
                         text: {
                             if (!MainController.shotReporter) return ""
-                            if (MainController.shotReporter.hasLocation) {
-                                var city = MainController.shotReporter.currentCity()
-                                var country = MainController.shotReporter.currentCountryCode()
-                                var prefix = MainController.shotReporter.usingManualCity ? "Manual: " : "GPS: "
-                                var lat = MainController.shotReporter.latitude.toFixed(1)
-                                var lon = MainController.shotReporter.longitude.toFixed(1)
-                                return prefix + city + (country ? ", " + country : "") + " (" + lat + ", " + lon + ")"
-                            }
-                            return "GPS disabled - enable in Android Settings"
+                            var city = MainController.shotReporter.currentCity()
+                            var country = MainController.shotReporter.currentCountryCode()
+                            var prefix = MainController.shotReporter.usingManualCity ? "Manual: " : "GPS: "
+                            var lat = MainController.shotReporter.latitude.toFixed(1)
+                            var lon = MainController.shotReporter.longitude.toFixed(1)
+                            return prefix + city + (country ? ", " + country : "") + " (" + lat + ", " + lon + ")"
                         }
-                        color: MainController.shotReporter && MainController.shotReporter.hasLocation ? Theme.textColor : Theme.textSecondaryColor
+                        color: Theme.textColor
                         font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // Location unavailable - clickable to request permission / open settings
+                    Text {
+                        Layout.fillWidth: true
+                        visible: MainController.shotReporter && MainController.shotReporter.enabled
+                             && !MainController.shotReporter.hasLocation
+                        text: Qt.platform.os === "android"
+                              ? "GPS disabled - tap to open Settings"
+                              : "No location - tap to enable"
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        font.underline: true
+                        wrapMode: Text.WordWrap
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (!MainController.shotReporter) return
+                                // refreshLocation() handles the permission prompt on macOS/iOS;
+                                // openLocationSettings() is for Android (GPS system toggle)
+                                MainController.shotReporter.refreshLocation()
+                                if (Qt.platform.os === "android")
+                                    MainController.shotReporter.openLocationSettings()
+                            }
+                        }
                     }
 
                     // Manual city input (shown when enabled)
@@ -282,10 +309,17 @@ KeyboardAwareContainer {
                             }
 
                             AccessibleButton {
-                                text: "Test"
-                                accessibleName: TranslationManager.translate("settings.options.testLocation", "Test location on shot map")
-                                enabled: MainController.shotReporter && MainController.shotReporter.hasLocation
-                                onClicked: mapTestPopup.open()
+                                text: MainController.shotReporter && MainController.shotReporter.hasLocation ? "Test" : "Retry"
+                                accessibleName: MainController.shotReporter && MainController.shotReporter.hasLocation
+                                    ? TranslationManager.translate("settings.options.testLocation", "Test location on shot map")
+                                    : "Retry location request"
+                                onClicked: {
+                                    if (MainController.shotReporter && MainController.shotReporter.hasLocation) {
+                                        mapTestPopup.open()
+                                    } else if (MainController.shotReporter) {
+                                        MainController.shotReporter.refreshLocation()
+                                    }
+                                }
                             }
                         }
                     }

@@ -372,10 +372,11 @@ if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     )
 endif()
 
-# iOS/macOS: Use Darwin multimedia plugin (AVFoundation-based)
+# iOS/macOS: Use Darwin multimedia and location permission plugins
 if(IOS OR APPLE)
     qt_import_plugins(Decenza_DE1
         INCLUDE_BY_TYPE multimedia Qt6::QDarwinMediaPlugin
+        INCLUDE_BY_TYPE permissions Qt6::QDarwinLocationPermissionPlugin
     )
 endif()
 
