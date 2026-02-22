@@ -32,11 +32,8 @@ void WeightProcessor::processWeight(double weight)
         if (extractionTime < 3.0 && weight > 50.0) return;
     }
 
-    // Stop-at-weight check
-    if (!m_stopTriggered && m_targetWeight > 0) {
-        // Use short-window LSLR for less stale flow near end-of-shot
-        if (flowRateShort < 0.5) return;  // Not enough data yet
-
+    // Stop-at-weight check (requires valid flow rate for drip prediction)
+    if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
         double cappedFlow = qMin(flowRateShort, 12.0);
         double expectedDrip = getExpectedDrip(cappedFlow);
         double stopThreshold = m_targetWeight - expectedDrip;

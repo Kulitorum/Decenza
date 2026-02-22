@@ -257,19 +257,16 @@ int main(int argc, char *argv[])
                          weightProcessor.setCurrentFrame(frameNumber);
                      });
 
-    // Tare complete → WeightProcessor (so it knows when to start checking weights)
-    QObject::connect(&timingController, &ShotTimingController::tareCompleteChanged,
-                     [&weightProcessor, &timingController]() {
-                         if (timingController.isTareComplete()) {
-                             QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
-                                 weightProcessor.setTareComplete(true);
-                             }, Qt::QueuedConnection);
-                         }
-                     });
-
-    // Shot lifecycle → WeightProcessor: configure at shot start, stop at shot end
+    // Shot lifecycle → WeightProcessor: configure at shot start, stop at shot end.
+    // IMPORTANT: MainController::onEspressoCycleStarted runs BEFORE this lambda
+    // (connected earlier in MainController's constructor) and calls tare() synchronously.
+    // So by the time this lambda runs, isTareComplete() is already true.
+    // We include setTareComplete(true) in the SAME queued invocation as startExtraction()
+    // to guarantee correct ordering on the worker thread. A separate tareCompleteChanged
+    // connection would race: its queued setTareComplete(true) arrives on the worker BEFORE
+    // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
-                     [&weightProcessor, &machineState, &settings, &mainController]() {
+                     [&weightProcessor, &machineState, &settings, &mainController, &timingController]() {
                          // Build snapshot of learning data and configuration
                          double targetWeight = machineState.targetWeight();
                          QString scaleType = settings.scaleType();
@@ -295,10 +292,16 @@ int main(int argc, char *argv[])
                              }
                          }
 
+                         // Tare already happened synchronously in onEspressoCycleStarted
+                         bool tareComplete = timingController.isTareComplete();
+
                          QMetaObject::invokeMethod(&weightProcessor,
-                             [&weightProcessor, targetWeight, frameExitWeights, drips, flows, converged]() {
+                             [&weightProcessor, targetWeight, frameExitWeights, drips, flows, converged, tareComplete]() {
                                  weightProcessor.configure(targetWeight, frameExitWeights, drips, flows, converged);
                                  weightProcessor.startExtraction();
+                                 if (tareComplete) {
+                                     weightProcessor.setTareComplete(true);
+                                 }
                              }, Qt::QueuedConnection);
                      });
 
