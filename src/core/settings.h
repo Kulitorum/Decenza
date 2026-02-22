@@ -845,6 +845,14 @@ private:
     mutable QString m_layoutJsonCache;
     mutable bool m_layoutCacheValid = false;
     void invalidateLayoutCache();
+    // Cached DYE values (avoid QSettings::value() → CFPreferences on every QML binding read)
+    mutable QString m_dyeGrinderModelCache;
+    mutable QString m_dyeGrinderSettingCache;
+    mutable double m_dyeBeanWeightCache = 18.0;
+    mutable double m_dyeDrinkWeightCache = 36.0;
+    mutable bool m_dyeCacheInitialized = false;
+    void ensureDyeCacheLoaded() const;
+
     bool m_steamDisabled = false;  // Session-only, not persisted (for descaling)
     double m_temperatureOverride = 0;  // Session-only, for next shot
     bool m_hasTemperatureOverride = false;  // Session-only

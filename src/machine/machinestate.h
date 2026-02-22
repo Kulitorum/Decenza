@@ -133,8 +133,11 @@ private:
     double m_targetWeight = 36.0;
     double m_targetVolume = 36.0;
     double m_cumulativeVolume = 0.0;    // Total volume from flow meter (preinfusion + pour)
+    int m_lastEmittedCumulativeVolumeMl = -1;  // Throttle: only emit when rounded ml changes
     double m_preinfusionVolume = 0.0;   // Volume during preinfusion substate (ml)
+    int m_lastEmittedPreinfusionVolumeMl = -1;  // Throttle: only emit when rounded ml changes
     double m_pourVolume = 0.0;          // Volume during pouring substate (ml)
+    int m_lastEmittedPourVolumeMl = -1;         // Throttle: only emit when rounded ml changes
     StopAtType m_stopAtType = StopAtType::Weight;
 
     QTimer* m_shotTimer = nullptr;

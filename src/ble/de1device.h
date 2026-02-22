@@ -204,6 +204,8 @@ private:
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)
+    double m_lastEmittedWaterLevel = -1.0;  // Throttle: only emit when change >= 0.5%
+    int m_lastEmittedWaterLevelMl = -1;    // Throttle: also emit when ml changes (color thresholds)
     QString m_firmwareVersion;
 
     QQueue<std::function<void()>> m_commandQueue;
