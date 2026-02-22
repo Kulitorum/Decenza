@@ -9,6 +9,7 @@
 #include <QNetworkRequest>
 #include <QTimeZone>
 #include <QHash>
+#include <QLocale>
 #include <cmath>
 
 const QString WeatherManager::USER_AGENT = QStringLiteral("DecenzaDE1/1.0 (github.com/Kulitorum/de1-qt)");
@@ -77,6 +78,26 @@ QString WeatherManager::providerName() const
     case WeatherProvider::MetNorway:  return QStringLiteral("MET Norway");
     default:                          return QString();
     }
+}
+
+bool WeatherManager::useImperialUnits() const
+{
+    if (!m_locationProvider)
+        return false;
+    QString country = m_locationProvider->countryCode().toLower();
+    // Countries that use Fahrenheit: US + territories, plus other Fahrenheit nations
+    static const QStringList fahrenheitCountries = {
+        "us", "pr", "vi", "gu", "as", "mp",  // US + territories
+        "bs", "ky", "lr", "pw", "fm", "mh"   // Bahamas, Cayman Islands, Liberia, Palau, Micronesia, Marshall Islands
+    };
+    return fahrenheitCountries.contains(country);
+}
+
+bool WeatherManager::use12HourTime() const
+{
+    // Check system locale's time format for AM/PM indicator
+    QString fmt = QLocale::system().timeFormat(QLocale::ShortFormat);
+    return fmt.contains("AP", Qt::CaseInsensitive);
 }
 
 QVariantList WeatherManager::hourlyForecast() const

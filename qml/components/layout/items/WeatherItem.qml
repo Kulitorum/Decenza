@@ -16,7 +16,9 @@ Item {
         if (!WeatherManager.valid) return "Weather: not available"
         var forecast = WeatherManager.hourlyForecast
         if (forecast.length > 0) {
-            var temp = Math.round(forecast[0].temperature || 0)
+            var rawTemp = forecast[0].temperature || 0
+            var temp = WeatherManager.useImperialUnits
+                ? Math.round(rawTemp * 9 / 5 + 32) : Math.round(rawTemp)
             var loc = WeatherManager.locationName || ""
             return "Weather: " + temp + " degrees" + (loc ? ", " + loc : "")
         }
@@ -58,9 +60,25 @@ Item {
         }
     }
 
-    // Format temperature with degree sign
+    // Format temperature with degree sign (F for US, C otherwise)
     function formatTemp(temp) {
+        if (WeatherManager.useImperialUnits)
+            return Math.round(temp * 9 / 5 + 32) + "\u00B0"
         return Math.round(temp) + "\u00B0"
+    }
+
+    // Format hour string: 12h for locales that use it, 24h otherwise
+    // Input is "HH:mm" from the model
+    function formatHour(hourStr) {
+        if (!WeatherManager.use12HourTime)
+            return hourStr
+        var parts = (hourStr || "").split(":")
+        if (parts.length < 2) return hourStr
+        var h = parseInt(parts[0])
+        var suffix = h >= 12 ? "pm" : "am"
+        if (h === 0) h = 12
+        else if (h > 12) h -= 12
+        return h + suffix
     }
 
     // Wind direction arrow from degrees
@@ -116,7 +134,7 @@ Item {
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: modelData.hour || ""
+                        text: formatHour(modelData.hour || "")
                         color: index === 0 ? Theme.primaryColor : Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
@@ -210,7 +228,12 @@ Item {
                                 var f = forecast[0]
                                 var parts = []
                                 if (f.relativeHumidity > 0) parts.push(f.relativeHumidity + "%")
-                                if (f.windSpeed > 0) parts.push(windArrow(f.windDirection) + Math.round(f.windSpeed) + "km/h")
+                                if (f.windSpeed > 0) {
+                                    if (WeatherManager.useImperialUnits)
+                                        parts.push(windArrow(f.windDirection) + Math.round(f.windSpeed * 0.621371) + "mph")
+                                    else
+                                        parts.push(windArrow(f.windDirection) + Math.round(f.windSpeed) + "km/h")
+                                }
                                 return parts.join("  ")
                             }
                             return ""
@@ -261,7 +284,7 @@ Item {
                         // Hour
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: modelData.hour || ""
+                            text: formatHour(modelData.hour || "")
                             color: index === 0 ? Theme.primaryColor : Theme.textSecondaryColor
                             font: Theme.captionFont
                         }
@@ -350,10 +373,14 @@ Item {
                 var forecast = WeatherManager.hourlyForecast
                 if (forecast.length > 0) {
                     var f = forecast[0]
+                    var imperial = WeatherManager.useImperialUnits
+                    var tempVal = imperial ? Math.round(f.temperature * 9 / 5 + 32) : Math.round(f.temperature)
+                    var windVal = imperial ? Math.round(f.windSpeed * 0.621371) : Math.round(f.windSpeed)
+                    var windUnit = imperial ? "miles per hour" : "kilometers per hour"
                     var msg = "Weather: " + (f.weatherDescription || "unknown")
-                        + ", " + Math.round(f.temperature) + " degrees"
+                        + ", " + tempVal + " degrees"
                         + ", humidity " + f.relativeHumidity + " percent"
-                        + ", wind " + Math.round(f.windSpeed) + " kilometers per hour"
+                        + ", wind " + windVal + " " + windUnit
                     AccessibilityManager.announceLabel(msg)
                 }
             }

@@ -44,6 +44,8 @@ class WeatherManager : public QObject {
     Q_PROPERTY(QString locationName READ locationName NOTIFY weatherChanged)
     Q_PROPERTY(QDateTime lastUpdate READ lastUpdate NOTIFY weatherChanged)
     Q_PROPERTY(QVariantList hourlyForecast READ hourlyForecast NOTIFY weatherChanged)
+    Q_PROPERTY(bool useImperialUnits READ useImperialUnits NOTIFY weatherChanged)
+    Q_PROPERTY(bool use12HourTime READ use12HourTime NOTIFY weatherChanged)
 
 public:
     explicit WeatherManager(QObject* parent = nullptr);
@@ -57,6 +59,8 @@ public:
     QString locationName() const { return m_locationName; }
     QDateTime lastUpdate() const { return m_lastUpdate; }
     QVariantList hourlyForecast() const;
+    bool useImperialUnits() const;
+    bool use12HourTime() const;
 
     // Force a refresh
     Q_INVOKABLE void refresh();

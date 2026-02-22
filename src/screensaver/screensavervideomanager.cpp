@@ -10,6 +10,7 @@
 #include <QDebug>
 #include <QRandomGenerator>
 #include <QFileInfo>
+#include <QLocale>
 #include <utility>
 
 #ifdef Q_OS_ANDROID
@@ -62,7 +63,9 @@ ScreensaverVideoManager::ScreensaverVideoManager(Settings* settings, ProfileStor
     m_screensaverType = m_settings->value("screensaver/type", "videos").toString();
     m_pipesSpeed = m_settings->value("screensaver/pipesSpeed", 0.5).toDouble();
     m_pipesCameraSpeed = m_settings->value("screensaver/pipesCameraSpeed", 60.0).toDouble();
-    m_flipClockUse24Hour = m_settings->value("screensaver/flipClockUse24Hour", true).toBool();
+    // Default to locale: 24h unless system locale uses AM/PM
+    bool localeDefault = !QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
+    m_flipClockUse24Hour = m_settings->value("screensaver/flipClockUse24Hour", localeDefault).toBool();
     m_flipClockUse3D = m_settings->value("screensaver/flipClockUse3D", true).toBool();
     m_videosShowClock = m_settings->value("screensaver/videosShowClock", true).toBool();
     m_pipesShowClock = m_settings->value("screensaver/pipesShowClock", true).toBool();
