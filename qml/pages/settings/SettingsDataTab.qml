@@ -1017,8 +1017,8 @@ KeyboardAwareContainer {
         }
 
         function onAuthenticationFailed(error) {
-            migrationAuthError.text = error
             migrationTotpField.text = ""
+            migrationAuthError.text = error
             migrationTotpField.forceActiveFocus()
         }
     }

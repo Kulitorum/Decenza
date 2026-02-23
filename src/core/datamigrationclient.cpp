@@ -93,8 +93,8 @@ void DataMigrationClient::connectToServer(const QString& serverUrl)
     setCurrentOperation(tr("Connecting..."));
 
     // Load cached session token for this server
-    QUrl serverUrl(m_serverUrl);
-    QString host = serverUrl.host();
+    QUrl parsedUrl(m_serverUrl);
+    QString host = parsedUrl.host();
     m_sessionToken = loadSessionToken(host);
 
     // Fetch manifest
@@ -229,8 +229,8 @@ void DataMigrationClient::onAuthReply()
             m_sessionToken = match.captured(1);
 
             // Persist the token
-            QUrl serverUrl(m_serverUrl);
-            saveSessionToken(serverUrl.host(), m_sessionToken);
+            QUrl parsedUrl(m_serverUrl);
+            saveSessionToken(parsedUrl.host(), m_sessionToken);
 
             qDebug() << "DataMigrationClient: Authenticated successfully, session cached";
         }
