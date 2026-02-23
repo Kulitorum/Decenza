@@ -9,6 +9,12 @@
 #expr Exec(QtDir + "\bin\windeployqt.exe", """" + AppDeployDir + "\" + TargetName + ".exe"" --qmldir """ + SourceDir + "\qml"" --no-translations --no-system-d3d-compiler --no-opengl-sw", , , SW_SHOW)
 #expr Exec("cmd.exe", "/c copy /y """ + SourcePath + "\qt.conf"" """ + AppDeployDir + "\""", , , SW_HIDE)
 
+; Copy OpenSSL DLLs (required for TLS in Remote Access)
+#ifdef OpenSslDir
+#expr Exec("cmd.exe", "/c copy /y """ + OpenSslDir + "\libssl-3-x64.dll"" """ + AppDeployDir + "\""", , , SW_HIDE)
+#expr Exec("cmd.exe", "/c copy /y """ + OpenSslDir + "\libcrypto-3-x64.dll"" """ + AppDeployDir + "\""", , , SW_HIDE)
+#endif
+
 [Setup]
 ; Application identity
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
