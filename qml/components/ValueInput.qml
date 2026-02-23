@@ -175,20 +175,25 @@ Item {
                 MouseArea {
                     id: valueDragArea
                     anchors.fill: parent
-                    preventStealing: isDragging
+                    preventStealing: dragReady
 
                     property real startX: 0
                     property real startY: 0
                     property bool isDragging: false
+                    // Direction commitment flag: set when horizontal movement
+                    // dominates vertical past a threshold, meaning the user
+                    // intends a value drag rather than a scroll.
+                    property bool dragReady: false
                     property int currentGear: 0
 
                     onPressed: function(mouse) {
                         startX = mouse.x
                         startY = mouse.y
                         isDragging = false
+                        dragReady = false
                         currentGear = 0
 
-                        // Announce parameter name when bubble appears (accessibility)
+                        // Announce parameter name when touched (accessibility)
                         if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                             var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
                             AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
@@ -197,63 +202,73 @@ Item {
 
                     onPositionChanged: function(mouse) {
                         var deltaX = mouse.x - startX
+                        var deltaY = mouse.y - startY
+
+                        // Direction commitment: require horizontal movement to
+                        // dominate before activating drag. Vertical-dominant
+                        // movement passes through to ScrollView for scrolling
+                        // (preventStealing is false while dragReady is false).
+                        if (!dragReady) {
+                            var absX = Math.abs(deltaX)
+                            var absY = Math.abs(deltaY)
+                            if (absX > sc(15) && absX > absY) {
+                                dragReady = true
+                                isDragging = true
+                                startX = mouse.x
+                                startY = mouse.y
+                                return
+                            } else {
+                                return
+                            }
+                        }
 
                         if (root.geared) {
-                            if (!isDragging && (Math.abs(deltaX) > sc(5) || Math.abs(mouse.y - startY) > sc(5))) {
-                                isDragging = true
+                            // Gear based on vertical distance from center of widget
+                            var centerY = valueDragArea.height / 2
+                            var verticalDist = Math.abs(mouse.y - centerY)
+                            var widgetHeight = root.height
+                            var gear = Math.min(2, Math.floor(verticalDist / widgetHeight))
+
+                            if (gear !== currentGear) {
+                                currentGear = gear
+                                announceGearChange(gear)
                             }
 
-                            if (isDragging) {
-                                // Gear based on vertical distance from center of widget
-                                var centerY = valueDragArea.height / 2
-                                var verticalDist = Math.abs(mouse.y - centerY)
-                                var widgetHeight = root.height
-                                var gear = Math.min(2, Math.floor(verticalDist / widgetHeight))
+                            var gearMultiplier = Math.pow(10, gear)
+                            var effectiveStep = root.stepSize * gearMultiplier
 
-                                if (gear !== currentGear) {
-                                    currentGear = gear
-                                    announceGearChange(gear)
-                                }
-
-                                var gearMultiplier = Math.pow(10, gear)
-                                var effectiveStep = root.stepSize * gearMultiplier
-
-                                var dragStep = sc(20)
-                                var steps = Math.round(deltaX / dragStep)
-                                if (steps !== 0) {
-                                    adjustValueWithStep(steps, effectiveStep)
-                                    startX = mouse.x
-                                }
+                            var dragStep = sc(20)
+                            var steps = Math.round(deltaX / dragStep)
+                            if (steps !== 0) {
+                                adjustValueWithStep(steps, effectiveStep)
+                                startX = mouse.x
                             }
                         } else {
-                            var deltaY = startY - mouse.y
-                            var delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY
+                            var deltaY2 = startY - mouse.y
+                            var delta = Math.abs(deltaX) > Math.abs(deltaY2) ? deltaX : deltaY2
 
-                            if (Math.abs(delta) > sc(5)) {
-                                isDragging = true
-                            }
-
-                            if (isDragging) {
-                                var dragStep2 = sc(20)
-                                var steps2 = Math.round(delta / dragStep2)
-                                if (steps2 !== 0) {
-                                    adjustValue(steps2)
-                                    startX = mouse.x
-                                    startY = mouse.y
-                                }
+                            var dragStep2 = sc(20)
+                            var steps2 = Math.round(delta / dragStep2)
+                            if (steps2 !== 0) {
+                                adjustValue(steps2)
+                                startX = mouse.x
+                                startY = mouse.y
                             }
                         }
                     }
 
                     onReleased: {
-                        // Check before resetting - only open popup if we didn't drag
                         if (!isDragging) {
                             scrubberPopup.open()
                         }
                         isDragging = false
+                        dragReady = false
                     }
 
-                    onCanceled: isDragging = false
+                    onCanceled: {
+                        isDragging = false
+                        dragReady = false
+                    }
                 }
 
                 // Anchor point for bubble positioning (centered)
@@ -267,11 +282,11 @@ Item {
                 // Floating speech bubble - rendered in overlay to be always on top
                 Loader {
                     id: bubbleLoader
-                    active: valueDragArea.pressed
+                    active: valueDragArea.isDragging
                     sourceComponent: Item {
                         id: speechBubble
                         parent: Overlay.overlay
-                        visible: valueDragArea.pressed
+                        visible: valueDragArea.isDragging
 
                         // Calculate luminance to determine text color
                         function getContrastColor(c) {
@@ -286,8 +301,8 @@ Item {
                         height: bubbleRect.height + bubbleTail.height - sc(3)
 
                         // Pop-in animation
-                        scale: (valueDragArea.pressed) ? 1.0 : 0.5
-                        opacity: (valueDragArea.pressed) ? 1.0 : 0
+                        scale: valueDragArea.isDragging ? 1.0 : 0.5
+                        opacity: valueDragArea.isDragging ? 1.0 : 0
                         transformOrigin: Item.Bottom
                         Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 2 } }
                         Behavior on opacity { NumberAnimation { duration: 100 } }
