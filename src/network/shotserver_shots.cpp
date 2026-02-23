@@ -422,7 +422,6 @@ QString ShotServer::generateShotListPage() const
 
     // Part 6: Sort dropdown CSS
     html += R"HTML(
-        .sort-field-btn { position: relative; }
         .sort-dir-btn { min-width: 2.2rem; padding-left: 0.5rem; padding-right: 0.5rem; text-align: center; }
         .sort-dropdown {
             position: absolute;
@@ -611,8 +610,8 @@ QString ShotServer::generateShotListPage() const
                     <div class="sort-option" data-sort="dose" data-default-dir="desc" onclick="selectSort('dose')">Dose <span class="sort-check">&#10003;</span></div>
                     <div class="sort-option" data-sort="yield" data-default-dir="desc" onclick="selectSort('yield')">Yield <span class="sort-check">&#10003;</span></div>
                 </div>
+                <button class="search-action-btn sort-dir-btn" id="sortDirBtn" onclick="toggleSortDir()">&#9660;</button>
             </span>
-            <button class="search-action-btn sort-dir-btn" id="sortDirBtn" onclick="toggleSortDir()">&#9660;</button>
         </div>
         <div class="search-panels-anchor">
         <div class="saved-searches-panel" id="savedPanel">
