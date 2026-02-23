@@ -2301,6 +2301,17 @@ void Settings::setShotServerPort(int port) {
     }
 }
 
+bool Settings::webSecurityEnabled() const {
+    return m_settings.value("shotServer/webSecurityEnabled", false).toBool();
+}
+
+void Settings::setWebSecurityEnabled(bool enabled) {
+    if (webSecurityEnabled() != enabled) {
+        m_settings.setValue("shotServer/webSecurityEnabled", enabled);
+        emit webSecurityEnabledChanged();
+    }
+}
+
 // Auto-favorites settings
 QString Settings::autoFavoritesGroupBy() const {
     return m_settings.value("autoFavorites/groupBy", "bean_profile").toString();

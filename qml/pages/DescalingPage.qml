@@ -208,9 +208,10 @@ Page {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(8)
 
-                            Text {
-                                text: "\u2705"  // Checkmark
-                                font.pixelSize: Theme.scaled(24)
+                            Image {
+                                source: "qrc:/emoji/2705.svg"  // Checkmark
+                                sourceSize.width: Theme.scaled(24)
+                                sourceSize.height: Theme.scaled(24)
                             }
 
                             Tr {

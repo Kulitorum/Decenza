@@ -146,6 +146,7 @@ class Settings : public QObject {
     Q_PROPERTY(bool shotServerEnabled READ shotServerEnabled WRITE setShotServerEnabled NOTIFY shotServerEnabledChanged)
     Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged)
     Q_PROPERTY(int shotServerPort READ shotServerPort WRITE setShotServerPort NOTIFY shotServerPortChanged)
+    Q_PROPERTY(bool webSecurityEnabled READ webSecurityEnabled WRITE setWebSecurityEnabled NOTIFY webSecurityEnabledChanged)
 
     // Auto-favorites settings
     Q_PROPERTY(QString autoFavoritesGroupBy READ autoFavoritesGroupBy WRITE setAutoFavoritesGroupBy NOTIFY autoFavoritesGroupByChanged)
@@ -555,6 +556,8 @@ public:
     void setShotServerHostname(const QString& hostname);
     int shotServerPort() const;
     void setShotServerPort(int port);
+    bool webSecurityEnabled() const;
+    void setWebSecurityEnabled(bool enabled);
 
     // Auto-favorites settings
     QString autoFavoritesGroupBy() const;
@@ -782,6 +785,7 @@ signals:
     void shotServerEnabledChanged();
     void shotServerHostnameChanged();
     void shotServerPortChanged();
+    void webSecurityEnabledChanged();
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();
     void bleHealthRefreshEnabledChanged();

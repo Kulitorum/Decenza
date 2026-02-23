@@ -654,11 +654,20 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingMedium
 
-                    Tr {
-                        key: "shotdetail.uploadedtovisualizer"
-                        fallback: "\u2601 Uploaded to Visualizer"
-                        font: Theme.labelFont
-                        color: Theme.successColor
+                    Row {
+                        spacing: Theme.scaled(4)
+                        Image {
+                            source: "qrc:/emoji/2601.svg"
+                            sourceSize.width: Theme.labelFont.pixelSize
+                            sourceSize.height: Theme.labelFont.pixelSize
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Tr {
+                            key: "shotdetail.uploadedtovisualizer"
+                            fallback: "Uploaded to Visualizer"
+                            font: Theme.labelFont
+                            color: Theme.successColor
+                        }
                     }
 
                     Item { Layout.fillWidth: true }
@@ -774,10 +783,10 @@ Page {
                 anchors.centerIn: parent
                 spacing: Theme.scaled(6)
 
-                Text {
-                    text: "\u2601"  // Cloud icon
-                    font.pixelSize: Theme.scaled(16)
-                    color: "white"
+                Image {
+                    source: "qrc:/emoji/2601.svg"  // Cloud icon
+                    sourceSize.width: Theme.scaled(16)
+                    sourceSize.height: Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }

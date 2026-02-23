@@ -123,6 +123,12 @@ if(IOS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
 endif()
 
+# OpenSSL for HTTPS/TLS and WebAuthn signature verification
+# Android uses KDAB android_openssl (fetched above), other platforms use system OpenSSL
+if(NOT ANDROID)
+    find_package(OpenSSL REQUIRED)
+endif()
+
 # Address Sanitizer - enabled for single-config Debug builds (Makefiles, Ninja).
 # Multi-config generators (Visual Studio, Xcode) don't set CMAKE_BUILD_TYPE at
 # configure time, so flags would leak into Release builds. Android requires special
@@ -218,6 +224,7 @@ set(SOURCES
     src/network/shotserver_layout.cpp
     src/network/shotserver_theme.cpp
     src/network/shotserver_settings.cpp
+    src/network/shotserver_auth.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
@@ -366,6 +373,11 @@ target_link_libraries(Decenza_DE1 PRIVATE
     paho-mqtt3a-static
 )
 
+# Link OpenSSL (non-Android; Android uses add_android_openssl_libraries below)
+if(NOT ANDROID)
+    target_link_libraries(Decenza_DE1 PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
 # Optionally link Quick3D and add 3D screensaver sources
 if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     target_link_libraries(Decenza_DE1 PRIVATE Qt6::Quick3D)
@@ -498,6 +510,8 @@ set(QML_FILES
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml
     qml/components/ReportAdviceDialog.qml
+    qml/components/QrCode.qml
+    qml/components/qrcode.js
 
     qml/components/layout/LayoutItemDelegate.qml
     qml/components/layout/LayoutBarZone.qml

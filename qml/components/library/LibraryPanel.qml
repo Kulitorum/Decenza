@@ -324,10 +324,11 @@ Rectangle {
                 border.width: 1
                 opacity: canDeleteSelected ? 1.0 : 0.4
 
-                Text {
+                Image {
                     anchors.centerIn: parent
-                    text: "\uD83D\uDDD1"  // Wastebasket
-                    font.pixelSize: Theme.scaled(14)
+                    source: "qrc:/icons/cross-filled.svg"  // Delete
+                    sourceSize.width: Theme.scaled(14)
+                    sourceSize.height: Theme.scaled(14)
                 }
 
                 MouseArea {

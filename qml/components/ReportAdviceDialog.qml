@@ -105,11 +105,11 @@ Dialog {
                         color: Theme.warningColor
                         Accessible.ignored: true
 
-                        Text {
+                        Image {
                             anchors.centerIn: parent
-                            text: "\u26A0"
-                            font.pixelSize: Theme.scaled(18)
-                            color: "white"
+                            source: "qrc:/emoji/26a0.svg"  // Warning sign
+                            sourceSize.width: Theme.scaled(18)
+                            sourceSize.height: Theme.scaled(18)
                             Accessible.ignored: true
                         }
                     }

@@ -780,10 +780,10 @@ Page {
                 anchors.centerIn: parent
                 spacing: Theme.scaled(6)
 
-                Text {
-                    text: "\u2601"  // Cloud icon
-                    font.pixelSize: Theme.scaled(16)
-                    color: "white"
+                Image {
+                    source: "qrc:/emoji/2601.svg"  // Cloud icon
+                    sourceSize.width: Theme.scaled(16)
+                    sourceSize.height: Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }

@@ -3,6 +3,10 @@
 #include <QObject>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QSslServer>
+#include <QSslConfiguration>
+#include <QSslCertificate>
+#include <QSslKey>
 #include <QUdpSocket>
 #include <QHash>
 #include <QSet>
@@ -10,6 +14,7 @@
 #include <QJsonObject>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QDateTime>
 
 class ShotHistoryStorage;
 class DE1Device;
@@ -39,6 +44,7 @@ class ShotServer : public QObject {
     Q_PROPERTY(bool running READ isRunning NOTIFY runningChanged)
     Q_PROPERTY(QString url READ url NOTIFY urlChanged)
     Q_PROPERTY(int port READ port WRITE setPort NOTIFY portChanged)
+    Q_PROPERTY(bool hasTotpSecret READ hasStoredTotpSecret NOTIFY hasTotpSecretChanged)
 
 public:
     explicit ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* parent = nullptr);
@@ -51,6 +57,11 @@ public:
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE void stop();
+
+    // TOTP setup (called from QML settings dialog)
+    Q_INVOKABLE QVariantMap generateTotpSetup();
+    Q_INVOKABLE bool completeTotpSetup(const QString& secret, const QString& code);
+    Q_INVOKABLE void resetTotpSecret();
 
     // Screensaver video manager for personal media upload
     void setScreensaverVideoManager(ScreensaverVideoManager* manager) { m_screensaverManager = manager; }
@@ -74,6 +85,7 @@ signals:
     void runningChanged();
     void urlChanged();
     void portChanged();
+    void hasTotpSecretChanged();
     void clientConnected(const QString& address);
     void sleepRequested();  // Emitted when sleep command received via REST API
 
@@ -141,6 +153,33 @@ private:
     void handleGetSettings(QTcpSocket* socket);
     void handleSaveSettings(QTcpSocket* socket, const QByteArray& body);
 
+    // HTTPS / TLS
+    bool setupTls();
+    bool generateSelfSignedCert(const QString& certPath, const QString& keyPath);
+    bool isSecurityEnabled() const;
+
+    // Authentication (TOTP) - implemented in shotserver_auth.cpp
+    void handleAuthRoute(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
+    void handleTotpLogin(QTcpSocket* socket, const QByteArray& body);
+    bool checkSession(const QByteArray& request) const;
+    bool hasStoredTotpSecret() const;
+    QString extractCookie(const QByteArray& request, const QString& cookieName) const;
+    QString createSession(const QString& userAgent);
+    void sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie = QString());
+    void loadSessions();
+    void saveSessions();
+
+    // TOTP rate limiting
+    QHash<QString, QPair<int, QDateTime>> m_loginAttempts;  // IP -> (attempts, window start)
+    bool checkRateLimit(const QString& ip);
+
+    // Session info
+    struct SessionInfo {
+        QDateTime expiry;
+        QString userAgent;
+    };
+    QHash<QString, SessionInfo> m_sessions;
+
     QTcpServer* m_server = nullptr;
     QUdpSocket* m_discoverySocket = nullptr;
     ShotHistoryStorage* m_storage = nullptr;
@@ -160,6 +199,10 @@ private:
     QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications
     QSet<QTcpSocket*> m_sseThemeClients;   // SSE connections for theme change notifications
 
+    // TLS state
+    QSslCertificate m_sslCert;
+    QSslKey m_sslKey;
+
     // Limits to prevent resource exhaustion
     static constexpr qint64 MAX_HEADER_SIZE = 64 * 1024;           // 64 KB for headers
     static constexpr qint64 MAX_SMALL_BODY_SIZE = 1024 * 1024;     // 1 MB kept in memory
@@ -167,4 +210,5 @@ private:
     static constexpr int MAX_CONCURRENT_UPLOADS = 2;               // Limit concurrent media uploads
     static constexpr int CONNECTION_TIMEOUT_MS = 300000;           // 5 minute timeout
     static constexpr int DISCOVERY_PORT = 8889;                    // UDP port for device discovery
+    static constexpr int SESSION_LIFETIME_DAYS = 90;               // Auth session cookie lifetime
 };

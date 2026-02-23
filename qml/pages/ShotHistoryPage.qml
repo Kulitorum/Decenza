@@ -558,10 +558,10 @@ Page {
                                 Accessible.ignored: true
                             }
 
-                            Text {
-                                text: model.hasVisualizerUpload ? "\u2601" : ""
-                                font.pixelSize: Theme.scaled(16)
-                                color: Theme.successColor
+                            Image {
+                                source: "qrc:/emoji/2601.svg"  // Cloud icon
+                                sourceSize.width: Theme.scaled(16)
+                                sourceSize.height: Theme.scaled(16)
                                 visible: model.hasVisualizerUpload
                                 Accessible.ignored: true
                             }

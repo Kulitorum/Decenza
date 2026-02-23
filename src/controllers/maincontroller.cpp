@@ -199,6 +199,15 @@ MainController::MainController(Settings* settings, DE1Device* device,
                 m_shotServer->start();
             }
         });
+        connect(m_settings, &Settings::webSecurityEnabledChanged, this, [this]() {
+            bool wasRunning = m_shotServer->isRunning();
+            if (wasRunning) {
+                m_shotServer->stop();
+            }
+            if (wasRunning || m_settings->shotServerEnabled()) {
+                m_shotServer->start();
+            }
+        });
     }
 
     // Set MachineState on ShotServer for home automation API

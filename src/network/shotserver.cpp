@@ -1,6 +1,7 @@
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
+#include "webtemplates/auth_page.h"
 #include "../history/shothistorystorage.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -33,6 +34,15 @@
 #endif
 #include <QCoreApplication>
 #include <QRegularExpression>
+#include <QRandomGenerator>
+#include <QSslServer>
+
+#include <openssl/evp.h>
+#include <openssl/ec.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
+#include <openssl/rand.h>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -115,7 +125,13 @@ void ShotServer::onThemeChanged()
 QString ShotServer::url() const
 {
     if (!isRunning()) return QString();
-    return QString("http://%1:%2").arg(getLocalIpAddress()).arg(m_port);
+    QString scheme = isSecurityEnabled() ? "https" : "http";
+    return QString("%1://%2:%3").arg(scheme, getLocalIpAddress()).arg(m_port);
+}
+
+bool ShotServer::isSecurityEnabled() const
+{
+    return m_settings && m_settings->webSecurityEnabled();
 }
 
 void ShotServer::setPort(int port)
@@ -132,14 +148,60 @@ bool ShotServer::start()
         stop();
     }
 
-    m_server = new QTcpServer(this);
-    connect(m_server, &QTcpServer::newConnection, this, &ShotServer::onNewConnection);
+    if (isSecurityEnabled()) {
+        // Set up TLS with self-signed certificate
+        if (!setupTls()) {
+            qWarning() << "ShotServer: TLS setup failed, cannot start secure server";
+            return false;
+        } else {
+            auto* sslServer = new QSslServer(this);
+            QSslConfiguration sslConfig;
+            sslConfig.setLocalCertificate(m_sslCert);
+            sslConfig.setPrivateKey(m_sslKey);
+            sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+            sslServer->setSslConfiguration(sslConfig);
+            m_server = sslServer;
+            // Use pendingConnectionAvailable (not newConnection) for QSslServer:
+            // newConnection fires on TCP accept (before SSL handshake), when hasPendingConnections() is still false.
+            // pendingConnectionAvailable fires after handshake completes and socket is added to the pending queue.
+            connect(m_server, &QTcpServer::pendingConnectionAvailable, this, &ShotServer::onNewConnection);
+            connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* socket, const QList<QSslError>& errors) {
+                for (const auto& err : errors)
+                    qWarning() << "ShotServer: SSL error:" << err.errorString();
+            });
+            connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* socket, const QSslError& error) {
+                qWarning() << "ShotServer: SSL handshake interrupted:" << error.errorString();
+            });
+            connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* socket, const QSslError& error) {
+                qWarning() << "ShotServer: SSL peer verify error:" << error.errorString();
+            });
 
-    if (!m_server->listen(QHostAddress::Any, m_port)) {
-        qWarning() << "ShotServer: Failed to start on port" << m_port << m_server->errorString();
-        delete m_server;
-        m_server = nullptr;
-        return false;
+
+            if (!m_server->listen(QHostAddress::Any, m_port)) {
+                qWarning() << "ShotServer: Failed to start TLS on port" << m_port << m_server->errorString();
+                delete m_server;
+                m_server = nullptr;
+                return false;
+            }
+
+            // Load persisted sessions
+            loadSessions();
+
+            qDebug() << "ShotServer: HTTPS mode enabled";
+        }
+    }
+
+    if (!m_server) {
+        // Plain HTTP mode (security disabled)
+        m_server = new QTcpServer(this);
+        connect(m_server, &QTcpServer::newConnection, this, &ShotServer::onNewConnection);
+
+        if (!m_server->listen(QHostAddress::Any, m_port)) {
+            qWarning() << "ShotServer: Failed to start on port" << m_port << m_server->errorString();
+            delete m_server;
+            m_server = nullptr;
+            return false;
+        }
     }
 
     // Start UDP discovery socket
@@ -423,7 +485,9 @@ void ShotServer::cleanupStaleConnections()
     }
 
     for (QTcpSocket* socket : staleConnections) {
-        qWarning() << "ShotServer: Cleaning up stale connection from" << socket->peerAddress().toString();
+        QString addr = (socket->state() != QAbstractSocket::UnconnectedState)
+            ? socket->peerAddress().toString() : "unknown";
+        qWarning() << "ShotServer: Cleaning up stale connection from" << addr;
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->close();
@@ -463,6 +527,7 @@ void ShotServer::onDiscoveryDatagram()
             response["appVersion"] = QString(VERSION_STRING);
             response["serverUrl"] = url();
             response["port"] = m_port;
+            response["secure"] = isSecurityEnabled();
 
             QByteArray responseData = QJsonDocument(response).toJson(QJsonDocument::Compact);
             m_discoverySocket->writeDatagram(responseData, senderAddress, senderPort);
@@ -492,6 +557,35 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     // Don't log debug polling requests (too noisy)
     if (!path.startsWith("/api/debug")) {
         qDebug() << "ShotServer:" << method << path;
+    }
+
+    // Auth middleware: when security is enabled, check session before routing
+    if (isSecurityEnabled()) {
+        bool isAuthRoute = path.startsWith("/auth/") || path.startsWith("/api/auth/");
+        bool exempt = isAuthRoute || path == "/favicon.ico";
+
+        if (!exempt && !checkSession(request)) {
+            if (hasStoredTotpSecret()) {
+                sendResponse(socket, 200, "text/html; charset=utf-8", QByteArray(WEB_AUTH_LOGIN_PAGE));
+            } else {
+                sendResponse(socket, 200, "text/html; charset=utf-8", QByteArray(WEB_AUTH_SETUP_REQUIRED_PAGE));
+            }
+            return;
+        }
+
+        // Handle auth API routes
+        if (isAuthRoute) {
+            // Extract body for POST requests
+            QByteArray body;
+            int bodyStart = request.indexOf("\r\n\r\n");
+            if (bodyStart != -1) {
+                body = request.mid(bodyStart + 4);
+            }
+            // Store full request on socket for auth handlers that need cookie access
+            socket->setProperty("fullRequest", request);
+            handleAuthRoute(socket, method, path, body);
+            return;
+        }
     }
 
     // Route requests
@@ -1075,8 +1169,13 @@ void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString&
     QString statusText;
     switch (statusCode) {
         case 200: statusText = "OK"; break;
+        case 302: statusText = "Found"; break;
         case 400: statusText = "Bad Request"; break;
+        case 401: statusText = "Unauthorized"; break;
         case 404: statusText = "Not Found"; break;
+        case 413: statusText = "Payload Too Large"; break;
+        case 429: statusText = "Too Many Requests"; break;
+        case 503: statusText = "Service Unavailable"; break;
         default: statusText = "Unknown"; break;
     }
 
@@ -1084,7 +1183,9 @@ void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString&
     response.append(QString("HTTP/1.1 %1 %2\r\n").arg(statusCode).arg(statusText).toUtf8());
     response.append(QString("Content-Type: %1\r\n").arg(contentType).toUtf8());
     response.append(QString("Content-Length: %1\r\n").arg(body.size()).toUtf8());
-    response.append("Access-Control-Allow-Origin: *\r\n");
+    if (!isSecurityEnabled()) {
+        response.append("Access-Control-Allow-Origin: *\r\n");
+    }
     response.append("Connection: close\r\n");
     if (!extraHeaders.isEmpty()) {
         response.append(extraHeaders);
@@ -1094,7 +1195,18 @@ void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString&
 
     socket->write(response);
     socket->flush();
-    socket->close();
+    // Defer close to allow SSL to finish sending encrypted data
+    connect(socket, &QTcpSocket::bytesWritten, socket, [socket](qint64) {
+        if (socket->bytesToWrite() == 0) {
+            socket->disconnectFromHost();
+        }
+    });
+    // Fallback: close after timeout if bytesWritten never fires
+    QTimer::singleShot(5000, socket, [socket]() {
+        if (socket->state() != QAbstractSocket::UnconnectedState) {
+            socket->close();
+        }
+    });
 }
 
 void ShotServer::sendJson(QTcpSocket* socket, const QByteArray& json)
@@ -1169,6 +1281,177 @@ void ShotServer::sendFile(QTcpSocket* socket, const QString& path, const QString
         socket->abort();
     }
 }
+
+void ShotServer::sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie)
+{
+    QByteArray response;
+    response.append("HTTP/1.1 302 Found\r\n");
+    response.append(QString("Location: %1\r\n").arg(location).toUtf8());
+    if (!setCookie.isEmpty()) {
+        response.append(QString("Set-Cookie: %1\r\n").arg(setCookie).toUtf8());
+    }
+    response.append("Content-Length: 0\r\n");
+    response.append("Connection: close\r\n");
+    response.append("\r\n");
+    socket->write(response);
+    socket->flush();
+    connect(socket, &QTcpSocket::bytesWritten, socket, [socket](qint64) {
+        if (socket->bytesToWrite() == 0) {
+            socket->disconnectFromHost();
+        }
+    });
+    QTimer::singleShot(5000, socket, [socket]() {
+        if (socket->state() != QAbstractSocket::UnconnectedState) {
+            socket->close();
+        }
+    });
+}
+
+bool ShotServer::setupTls()
+{
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dataDir);
+    QString certPath = dataDir + "/server.crt";
+    QString keyPath = dataDir + "/server.key";
+
+    // Check if cert/key already exist
+    if (QFile::exists(certPath) && QFile::exists(keyPath)) {
+        QFile certFile(certPath);
+        QFile keyFile(keyPath);
+        if (certFile.open(QIODevice::ReadOnly) && keyFile.open(QIODevice::ReadOnly)) {
+            m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
+            m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
+            if (!m_sslCert.isNull() && !m_sslKey.isNull()) {
+                if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
+                    qDebug() << "ShotServer: TLS certificate expired, regenerating";
+                } else if (m_sslCert.subjectAlternativeNames().isEmpty()) {
+                    qDebug() << "ShotServer: TLS certificate missing SANs (required by browsers), regenerating";
+                } else {
+                    qDebug() << "ShotServer: Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Generate new self-signed certificate
+    if (!generateSelfSignedCert(certPath, keyPath)) {
+        qWarning() << "ShotServer: Failed to generate self-signed certificate";
+        return false;
+    }
+
+    // Load the newly generated cert/key
+    QFile certFile(certPath);
+    QFile keyFile(keyPath);
+    if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "ShotServer: Failed to read generated certificate files";
+        return false;
+    }
+
+    m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
+    m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
+
+    if (m_sslCert.isNull() || m_sslKey.isNull()) {
+        qWarning() << "ShotServer: Generated certificate or key is invalid";
+        return false;
+    }
+
+    qDebug() << "ShotServer: Generated new TLS certificate, expires" << m_sslCert.expiryDate().toString();
+    return true;
+}
+
+bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
+{
+    // Generate EC P-256 key pair using OpenSSL EVP API
+    EVP_PKEY* pkey = nullptr;
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
+    if (!pctx) return false;
+
+    bool success = false;
+    X509* x509 = nullptr;
+
+    do {
+        if (EVP_PKEY_keygen_init(pctx) <= 0) break;
+        if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0) break;
+        if (EVP_PKEY_keygen(pctx, &pkey) <= 0) break;
+
+        // Create X509 certificate
+        x509 = X509_new();
+        if (!x509) break;
+
+        // Set version to v3
+        X509_set_version(x509, 2);
+
+        // Set serial number (random)
+        ASN1_INTEGER* serialNumber = X509_get_serialNumber(x509);
+        unsigned char serial_bytes[16];
+        RAND_bytes(serial_bytes, sizeof(serial_bytes));
+        BIGNUM* bn = BN_bin2bn(serial_bytes, sizeof(serial_bytes), nullptr);
+        BN_to_ASN1_INTEGER(bn, serialNumber);
+        BN_free(bn);
+
+        // Set validity: now to 10 years from now
+        X509_gmtime_adj(X509_get_notBefore(x509), 0);
+        X509_gmtime_adj(X509_get_notAfter(x509), 10L * 365 * 24 * 60 * 60);
+
+        // Set subject and issuer (self-signed)
+        X509_NAME* name = X509_get_subject_name(x509);
+        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                                    reinterpret_cast<const unsigned char*>("Decenza DE1"), -1, -1, 0);
+        X509_set_issuer_name(x509, name);
+
+        // Set public key
+        X509_set_pubkey(x509, pkey);
+
+        // Add Subject Alternative Names (required by modern browsers)
+        // Include all local IP addresses so the cert works regardless of which interface is used
+        QStringList sanEntries;
+        sanEntries << "IP:127.0.0.1" << "DNS:localhost";
+        for (const QHostAddress& addr : QNetworkInterface::allAddresses()) {
+            if (!addr.isLoopback() && addr.protocol() == QAbstractSocket::IPv4Protocol) {
+                sanEntries << QString("IP:%1").arg(addr.toString());
+            }
+        }
+        QByteArray sanStr = sanEntries.join(",").toUtf8();
+
+        X509V3_CTX ctx;
+        X509V3_set_ctx(&ctx, x509, x509, nullptr, nullptr, 0);
+        X509_EXTENSION* sanExt = X509V3_EXT_conf_nid(nullptr, &ctx, NID_subject_alt_name, sanStr.constData());
+        if (sanExt) {
+            X509_add_ext(x509, sanExt, -1);
+            X509_EXTENSION_free(sanExt);
+        }
+
+        // Sign with our private key
+        if (X509_sign(x509, pkey, EVP_sha256()) <= 0) break;
+
+        // Write certificate to PEM file
+        FILE* certFile = fopen(certPath.toLocal8Bit().constData(), "wb");
+        if (!certFile) break;
+        PEM_write_X509(certFile, x509);
+        fclose(certFile);
+
+        // Write private key to PEM file
+        FILE* keyFile = fopen(keyPath.toLocal8Bit().constData(), "wb");
+        if (!keyFile) break;
+        PEM_write_PrivateKey(keyFile, pkey, nullptr, nullptr, 0, nullptr, nullptr);
+        fclose(keyFile);
+
+        // Restrict private key file permissions (owner-only)
+        QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+
+        success = true;
+    } while (false);
+
+    if (x509) X509_free(x509);
+    if (pkey) EVP_PKEY_free(pkey);
+    EVP_PKEY_CTX_free(pctx);
+
+    return success;
+}
+
+// Session management, extractCookie, checkSession, createSession, hasStoredTotpSecret,
+// loadSessions, saveSessions are all in shotserver_auth.cpp
 
 QString ShotServer::getLocalIpAddress() const
 {

@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QSettings>
 #include <QIcon>
 #include <QTimer>
@@ -9,6 +10,7 @@
 #include <QGuiApplication>
 #include <QAccessible>
 #include <QDebug>
+#include <QOperatingSystemVersion>
 #include <memory>
 #include <QElapsedTimer>
 #include "version.h"
@@ -90,6 +92,23 @@ int main(int argc, char *argv[])
     WebDebugLogger::install();
 
     QApplication app(argc, argv);
+
+#ifdef Q_OS_MACOS
+    // Workaround for macOS Tahoe (26.x) beta crash in Apple Color Emoji rendering.
+    // PNGReadPlugin::InitializePluginData crashes at 0x0bad4007 when CoreText tries
+    // to decode color emoji bitmaps from the sbix font table via CTFontDrawGlyphs →
+    // CopyEmojiImage. NativeTextRendering calls QCoreTextFontEngine::imageForGlyph
+    // which triggers this path. QtTextRendering uses distance fields instead, which
+    // gets glyph outlines (not bitmaps) from CoreText, completely avoiding the crash.
+    // This app renders emoji as SVG images (Theme.emojiToImage), so bitmap emoji
+    // glyphs are not needed.
+    // Apply on macOS 16+ (Tahoe). The version may be reported as 16 or 26
+    // depending on the beta build, so check >= 16 to cover both cases.
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion(QOperatingSystemVersion::MacOS, 16, 0)) {
+        QQuickWindow::setTextRenderType(QQuickWindow::QtTextRendering);
+        qInfo() << "macOS 16+ detected: using QtTextRendering to workaround PNGReadPlugin crash";
+    }
+#endif
 
     // Set application metadata
     app.setOrganizationName("DecentEspresso");
