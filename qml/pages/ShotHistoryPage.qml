@@ -181,11 +181,9 @@ Page {
 
     function openComparison() {
         MainController.shotComparison.clearAll()
-        // Sort selected shots chronologically before adding
+        // Sort selected shots chronologically, then batch-add in one DB load
         var sortedShots = selectedShots.slice().sort(function(a, b) { return a - b })
-        for (var i = 0; i < sortedShots.length; i++) {
-            MainController.shotComparison.addShot(sortedShots[i])
-        }
+        MainController.shotComparison.addShots(sortedShots)
         pageStack.push(Qt.resolvedUrl("ShotComparisonPage.qml"))
     }
 

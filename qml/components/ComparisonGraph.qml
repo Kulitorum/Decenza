@@ -58,45 +58,11 @@ ChartView {
     function loadData() {
         if (!comparisonModel) return
 
-        // Clear all series
-        pressure1.clear(); flow1.clear(); temp1.clear(); weight1.clear(); weightFlow1.clear(); resistance1.clear()
-        pressure2.clear(); flow2.clear(); temp2.clear(); weight2.clear(); weightFlow2.clear(); resistance2.clear()
-        pressure3.clear(); flow3.clear(); temp3.clear(); weight3.clear(); weightFlow3.clear(); resistance3.clear()
-
-        for (var i = 0; i < comparisonModel.shotCount; i++) {
-            var pressureData    = comparisonModel.getPressureData(i)
-            var flowData        = comparisonModel.getFlowData(i)
-            var tempData        = comparisonModel.getTemperatureData(i)
-            var weightData      = comparisonModel.getWeightData(i)
-            var weightFlowData  = comparisonModel.getWeightFlowRateData(i)
-            var resistanceRawData = comparisonModel.getResistanceData(i)
-
-            var pSeries  = i === 0 ? pressure1   : (i === 1 ? pressure2   : pressure3)
-            var fSeries  = i === 0 ? flow1       : (i === 1 ? flow2       : flow3)
-            var tSeries  = i === 0 ? temp1       : (i === 1 ? temp2       : temp3)
-            var wSeries  = i === 0 ? weight1     : (i === 1 ? weight2     : weight3)
-            var wfSeries = i === 0 ? weightFlow1 : (i === 1 ? weightFlow2 : weightFlow3)
-            var rSeries  = i === 0 ? resistance1 : (i === 1 ? resistance2 : resistance3)
-
-            for (var j = 0; j < pressureData.length; j++) {
-                pSeries.append(pressureData[j].x, pressureData[j].y)
-            }
-            for (j = 0; j < flowData.length; j++) {
-                fSeries.append(flowData[j].x, flowData[j].y)
-            }
-            for (j = 0; j < tempData.length; j++) {
-                tSeries.append(tempData[j].x, tempData[j].y)
-            }
-            for (j = 0; j < weightData.length; j++) {
-                wSeries.append(weightData[j].x, weightData[j].y / 5)  // Scale for display
-            }
-            for (j = 0; j < weightFlowData.length; j++) {
-                wfSeries.append(weightFlowData[j].x, weightFlowData[j].y)
-            }
-            for (j = 0; j < resistanceRawData.length; j++) {
-                rSeries.append(resistanceRawData[j].x, resistanceRawData[j].y)
-            }
-        }
+        // Bulk-populate all 3 shot slots via C++ QXYSeries::replace() — out-of-range
+        // indices clear the series automatically.
+        comparisonModel.populateSeries(0, pressure1, flow1, temp1, weight1, weightFlow1, resistance1)
+        comparisonModel.populateSeries(1, pressure2, flow2, temp2, weight2, weightFlow2, resistance2)
+        comparisonModel.populateSeries(2, pressure3, flow3, temp3, weight3, weightFlow3, resistance3)
 
         // Fit time axis to data
         timeAxis.max = Math.max(15, comparisonModel.maxTime + 0.5)

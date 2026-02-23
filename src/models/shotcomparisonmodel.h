@@ -50,6 +50,8 @@ public:
 
     // Add/remove shots to comparison (unlimited)
     Q_INVOKABLE bool addShot(qint64 shotId);
+    // Batch-add multiple shots with a single DB load and one shotsChanged emission.
+    Q_INVOKABLE void addShots(const QVariantList& shotIds);
     Q_INVOKABLE void removeShot(qint64 shotId);
     Q_INVOKABLE void clearAll();
     Q_INVOKABLE bool hasShotId(qint64 shotId) const;
@@ -58,6 +60,13 @@ public:
     Q_INVOKABLE void shiftWindowLeft();   // Show older shots
     Q_INVOKABLE void shiftWindowRight();  // Show newer shots
     Q_INVOKABLE void setWindowStart(int index);
+
+    // Bulk-populate LineSeries objects for one shot slot using C++ replace().
+    // Pass the QML LineSeries objects directly; out-of-range index clears all series.
+    Q_INVOKABLE void populateSeries(int shotIdx,
+                                    QObject* pSeries, QObject* fSeries,
+                                    QObject* tSeries, QObject* wSeries,
+                                    QObject* wfSeries, QObject* rSeries) const;
 
     // Get data for specific shot in display window (0, 1, or 2)
     Q_INVOKABLE QVariantList getPressureData(int index) const;

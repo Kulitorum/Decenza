@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <algorithm>
+#include <QtCharts/QXYSeries>
 
 // Shot colors: Green, Blue, Orange
 const QList<QColor> ShotComparisonModel::SHOT_COLORS = {
@@ -34,6 +35,28 @@ QVariantList ShotComparisonModel::shotsVariant() const
         result.append(getShotInfo(i));
     }
     return result;
+}
+
+void ShotComparisonModel::addShots(const QVariantList& shotIds)
+{
+    if (!m_storage) {
+        emit errorOccurred("Storage not available");
+        return;
+    }
+
+    bool changed = false;
+    for (const QVariant& v : shotIds) {
+        qint64 id = v.toLongLong();
+        if (!m_shotIds.contains(id)) {
+            m_shotIds.append(id);
+            changed = true;
+        }
+    }
+    if (!changed) return;
+
+    std::sort(m_shotIds.begin(), m_shotIds.end());
+    loadDisplayWindow();
+    emit shotsChanged();
 }
 
 bool ShotComparisonModel::addShot(qint64 shotId)
@@ -219,6 +242,41 @@ void ShotComparisonModel::calculateMaxValues()
                 m_maxWeight = pt.y() + 10.0;
             }
         }
+    }
+}
+
+void ShotComparisonModel::populateSeries(int shotIdx,
+                                          QObject* pObj, QObject* fObj,
+                                          QObject* tObj, QObject* wObj,
+                                          QObject* wfObj, QObject* rObj) const
+{
+    using QtCharts::QXYSeries;
+
+    auto clearSeries = [](QObject* obj) {
+        if (auto* s = qobject_cast<QXYSeries*>(obj)) s->clear();
+    };
+
+    if (shotIdx < 0 || shotIdx >= m_displayShots.size()) {
+        clearSeries(pObj); clearSeries(fObj); clearSeries(tObj);
+        clearSeries(wObj); clearSeries(wfObj); clearSeries(rObj);
+        return;
+    }
+
+    const auto& shot = m_displayShots[shotIdx];
+
+    if (auto* s = qobject_cast<QXYSeries*>(pObj))  s->replace(shot.pressure);
+    if (auto* s = qobject_cast<QXYSeries*>(fObj))  s->replace(shot.flow);
+    if (auto* s = qobject_cast<QXYSeries*>(tObj))  s->replace(shot.temperature);
+    if (auto* s = qobject_cast<QXYSeries*>(wfObj)) s->replace(shot.weightFlowRate);
+    if (auto* s = qobject_cast<QXYSeries*>(rObj))  s->replace(shot.resistance);
+
+    // Weight is scaled /5 to overlay on the pressure axis (0–50g → 0–10 bar range)
+    if (auto* s = qobject_cast<QXYSeries*>(wObj)) {
+        QList<QPointF> scaled;
+        scaled.reserve(shot.weight.size());
+        for (const auto& pt : shot.weight)
+            scaled.append(QPointF(pt.x(), pt.y() / 5.0));
+        s->replace(scaled);
     }
 }
 
