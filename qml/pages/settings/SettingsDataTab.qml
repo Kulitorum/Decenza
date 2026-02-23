@@ -6,7 +6,7 @@ import "../../components"
 
 KeyboardAwareContainer {
     id: dataTab
-    textFields: [manualIpField, totpCodeField]
+    textFields: [manualIpField, totpCodeField, migrationTotpField]
 
     // Track backup operation state
     property bool backupInProgress: false
@@ -752,11 +752,80 @@ KeyboardAwareContainer {
                 // Error message
                 Text {
                     Layout.fillWidth: true
-                    visible: MainController.dataMigration.errorMessage !== ""
+                    visible: MainController.dataMigration.errorMessage !== "" &&
+                             !MainController.dataMigration.needsAuthentication
                     text: MainController.dataMigration.errorMessage
                     color: Theme.errorColor
                     font.pixelSize: Theme.scaled(11)
                     wrapMode: Text.WordWrap
+                }
+
+                // Authentication prompt (when server requires TOTP)
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    visible: MainController.dataMigration.needsAuthentication
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("settings.data.authneeded",
+                            "This device requires authentication. Enter the 6-digit code from your authenticator app.")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        StyledTextField {
+                            id: migrationTotpField
+                            Layout.preferredWidth: Theme.scaled(140)
+                            maximumLength: 6
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            horizontalAlignment: TextInput.AlignHCenter
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                            font.letterSpacing: Theme.scaled(3)
+                            placeholderText: ""
+                            accessibleName: TranslationManager.translate("settings.data.migrationTotpFieldAccessible",
+                                "Six digit authenticator code for remote device")
+
+                            onTextChanged: migrationAuthError.text = ""
+
+                            Keys.onReturnPressed: {
+                                if (text.length === 6) migrationAuthButton.clicked()
+                            }
+
+                            onVisibleChanged: {
+                                if (visible) forceActiveFocus()
+                            }
+                        }
+
+                        AccessibleButton {
+                            id: migrationAuthButton
+                            primary: true
+                            text: MainController.dataMigration.isConnecting ?
+                                  TranslationManager.translate("settings.data.authenticating", "Verifying...") :
+                                  TranslationManager.translate("settings.data.authenticate", "Verify")
+                            accessibleName: TranslationManager.translate("settings.data.authenticateAccessible",
+                                "Submit authenticator code to connect to remote device")
+                            enabled: migrationTotpField.text.length === 6 && !MainController.dataMigration.isConnecting
+                            onClicked: {
+                                MainController.dataMigration.authenticate(migrationTotpField.text)
+                            }
+                        }
+                    }
+
+                    Text {
+                        id: migrationAuthError
+                        Layout.fillWidth: true
+                        visible: text !== ""
+                        color: Theme.errorColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WordWrap
+                    }
                 }
 
                 // Manifest display (when connected)
@@ -953,6 +1022,16 @@ KeyboardAwareContainer {
 
         function onConnectionFailed(error) {
             // Error is already shown via errorMessage property
+        }
+
+        function onAuthenticationSucceeded() {
+            migrationTotpField.text = ""
+        }
+
+        function onAuthenticationFailed(error) {
+            migrationTotpField.text = ""
+            migrationAuthError.text = error
+            migrationTotpField.forceActiveFocus()
         }
     }
 
