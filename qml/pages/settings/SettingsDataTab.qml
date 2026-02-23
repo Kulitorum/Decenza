@@ -788,7 +788,7 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                             font.letterSpacing: Theme.scaled(3)
-                            placeholderText: "000000"
+                            placeholderText: ""
                             accessibleName: TranslationManager.translate("settings.data.migrationTotpFieldAccessible",
                                 "Six digit authenticator code for remote device")
 
