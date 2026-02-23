@@ -225,6 +225,8 @@ Page {
                         Image {
                             anchors.verticalCenter: parent.verticalCenter
                             source: Theme.emojiToImage("🔍")
+                            sourceSize.width: Theme.scaled(14)
+                            sourceSize.height: Theme.scaled(14)
                             width: Theme.scaled(14)
                             height: Theme.scaled(14)
                         }
