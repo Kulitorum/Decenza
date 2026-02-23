@@ -420,42 +420,40 @@ QString ShotServer::generateShotListPage() const
         .clickable:hover { color: var(--accent) !important; text-decoration: underline; }
 )HTML";
 
-    // Part 6: Collapsible and sort CSS
+    // Part 6: Sort dropdown CSS
     html += R"HTML(
-        .collapsible-section {
+        .sort-dir-btn { min-width: 2.2rem; padding-left: 0.5rem; padding-right: 0.5rem; text-align: center; }
+        .sort-dropdown {
+            position: absolute;
+            top: 100%%;
+            right: 0;
+            margin-top: 0.25rem;
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
-            margin-bottom: 1rem;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            min-width: 10rem;
+            z-index: 100;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.15s;
         }
-        .collapsible-header {
+        .sort-dropdown.open { visibility: visible; opacity: 1; }
+        .sort-option {
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--text);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 0.75rem 1rem;
-            cursor: pointer;
-            user-select: none;
         }
-        .collapsible-header:hover { background: var(--surface-hover); border-radius: 8px; }
-        .collapsible-header h3 { font-size: 0.9rem; font-weight: 600; color: var(--text); margin: 0; }
-        .collapsible-arrow { color: var(--text-secondary); transition: transform 0.2s; }
-        .collapsible-section.open .collapsible-arrow { transform: rotate(180deg); }
-        .collapsible-content { display: none; padding: 0 1rem 1rem; border-top: 1px solid var(--border); }
-        .collapsible-section.open .collapsible-content { display: block; }
-        .sort-controls { display: flex; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.75rem; align-items: flex-end; }
-        .sort-btn {
-            padding: 0.5rem 1rem;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .sort-btn:hover { border-color: var(--accent); }
-        .sort-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-        .sort-btn .sort-dir { margin-left: 0.3rem; }
+        .sort-option:first-child { border-radius: 8px 8px 0 0; }
+        .sort-option:last-child { border-radius: 0 0 8px 8px; }
+        .sort-option:hover { background: var(--surface-hover); }
+        .sort-option .sort-check { display: none; color: var(--accent); margin-left: 0.5rem; }
+        .sort-option.active .sort-check { display: inline; }
+        .sort-anchor { position: relative; }
         .visible-count { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
 )HTML";
 
@@ -568,8 +566,8 @@ QString ShotServer::generateShotListPage() const
         @media (max-width: 600px) {
             .shot-grid { grid-template-columns: 1fr; }
             .container { padding: 1rem; padding-bottom: 5rem; }
-            .sort-controls { flex-direction: column; }
             .search-row { flex-wrap: wrap; }
+            .sort-dropdown { right: auto; left: 0; }
         }
     </style>
 </head>
@@ -599,6 +597,21 @@ QString ShotServer::generateShotListPage() const
             <button class="search-action-btn" id="keywordsBtn" onclick="toggleKeywords()">Keywords</button>
             <button class="search-action-btn" id="saveBtn" onclick="saveSearch()" disabled>Save</button>
             <button class="search-action-btn" id="savedBtn" onclick="toggleSavedSearches()" style="display:none;">&#9776; Saved</button>
+            <span class="sort-anchor">
+                <button class="search-action-btn sort-field-btn" id="sortFieldBtn" onclick="toggleSortMenu()">Date &#9662;</button>
+                <div class="sort-dropdown" id="sortDropdown">
+                    <div class="sort-option active" data-sort="date" data-default-dir="desc" onclick="selectSort('date')">Date <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="profile" data-default-dir="asc" onclick="selectSort('profile')">Profile <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="brand" data-default-dir="asc" onclick="selectSort('brand')">Roaster <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="coffee" data-default-dir="asc" onclick="selectSort('coffee')">Coffee <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="rating" data-default-dir="desc" onclick="selectSort('rating')">Rating <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="ratio" data-default-dir="desc" onclick="selectSort('ratio')">Ratio <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="duration" data-default-dir="asc" onclick="selectSort('duration')">Duration <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="dose" data-default-dir="desc" onclick="selectSort('dose')">Dose <span class="sort-check">&#10003;</span></div>
+                    <div class="sort-option" data-sort="yield" data-default-dir="desc" onclick="selectSort('yield')">Yield <span class="sort-check">&#10003;</span></div>
+                </div>
+                <button class="search-action-btn sort-dir-btn" id="sortDirBtn" onclick="toggleSortDir()">&#9660;</button>
+            </span>
         </div>
         <div class="search-panels-anchor">
         <div class="saved-searches-panel" id="savedPanel">
@@ -620,27 +633,8 @@ QString ShotServer::generateShotListPage() const
         </div>
 )HTML";
 
-    // Part 10: Sort section and grid
+    // Part 10: Grid
     html += QString(R"HTML(
-        <div class="collapsible-section" id="sortSection">
-            <div class="collapsible-header" onclick="toggleSection('sortSection')">
-                <h3>&#8645; Sort</h3>
-                <span class="collapsible-arrow">&#9660;</span>
-            </div>
-            <div class="collapsible-content">
-                <div class="sort-controls">
-                    <button class="sort-btn active" data-sort="date" data-dir="desc" onclick="setSort('date')">Date <span class="sort-dir">&#9660;</span></button>
-                    <button class="sort-btn" data-sort="profile" data-dir="asc" onclick="setSort('profile')">Profile <span class="sort-dir">&#9650;</span></button>
-                    <button class="sort-btn" data-sort="brand" data-dir="asc" onclick="setSort('brand')">Roaster <span class="sort-dir">&#9650;</span></button>
-                    <button class="sort-btn" data-sort="coffee" data-dir="asc" onclick="setSort('coffee')">Coffee <span class="sort-dir">&#9650;</span></button>
-                    <button class="sort-btn" data-sort="rating" data-dir="desc" onclick="setSort('rating')">Rating <span class="sort-dir">&#9660;</span></button>
-                    <button class="sort-btn" data-sort="ratio" data-dir="desc" onclick="setSort('ratio')">Ratio <span class="sort-dir">&#9660;</span></button>
-                    <button class="sort-btn" data-sort="duration" data-dir="asc" onclick="setSort('duration')">Duration <span class="sort-dir">&#9650;</span></button>
-                    <button class="sort-btn" data-sort="dose" data-dir="desc" onclick="setSort('dose')">Dose <span class="sort-dir">&#9660;</span></button>
-                    <button class="sort-btn" data-sort="yield" data-dir="desc" onclick="setSort('yield')">Yield <span class="sort-dir">&#9660;</span></button>
-                </div>
-            </div>
-        </div>
         <div class="visible-count" id="visibleCount">Showing %1 shots</div>
         <div class="shot-grid" id="shotGrid">
             %2
@@ -722,9 +716,6 @@ QString ShotServer::generateShotListPage() const
             }).catch(function() { alert("Failed to delete shots."); });
         }
 
-        function toggleSection(id) {
-            document.getElementById(id).classList.toggle('open');
-        }
 )HTML";
 
     // Part 12: Script - search parsing (port of QML buildFilter)
@@ -955,22 +946,34 @@ QString ShotServer::generateShotListPage() const
 
     // Part 14: Script - sort and menu functions
     html += R"HTML(
-        function setSort(field) {
-            var btns = document.querySelectorAll('.sort-btn');
-            btns.forEach(function(btn) {
-                if (btn.dataset.sort === field) {
-                    if (btn.classList.contains('active')) {
-                        var newDir = btn.dataset.dir === 'asc' ? 'desc' : 'asc';
-                        btn.dataset.dir = newDir;
-                        btn.querySelector('.sort-dir').innerHTML = newDir === 'asc' ? '&#9650;' : '&#9660;';
-                    }
-                    btn.classList.add('active');
-                    currentSort.field = field;
-                    currentSort.dir = btn.dataset.dir;
+        var sortLabels = { date: "Date", profile: "Profile", brand: "Roaster", coffee: "Coffee", rating: "Rating", ratio: "Ratio", duration: "Duration", dose: "Dose", yield: "Yield" };
+
+        function toggleSortMenu() {
+            document.getElementById("sortDropdown").classList.toggle("open");
+        }
+
+        function selectSort(field) {
+            var opts = document.querySelectorAll('.sort-option');
+            var defaultDir = 'desc';
+            opts.forEach(function(opt) {
+                if (opt.dataset.sort === field) {
+                    opt.classList.add('active');
+                    defaultDir = opt.dataset.defaultDir;
                 } else {
-                    btn.classList.remove('active');
+                    opt.classList.remove('active');
                 }
             });
+            currentSort.field = field;
+            currentSort.dir = defaultDir;
+            document.getElementById("sortFieldBtn").innerHTML = sortLabels[field] + " &#9662;";
+            document.getElementById("sortDirBtn").innerHTML = defaultDir === 'asc' ? "&#9650;" : "&#9660;";
+            document.getElementById("sortDropdown").classList.remove("open");
+            onSearchChange();
+        }
+
+        function toggleSortDir() {
+            currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            document.getElementById("sortDirBtn").innerHTML = currentSort.dir === 'asc' ? "&#9650;" : "&#9660;";
             onSearchChange();
         }
 
@@ -982,6 +985,10 @@ QString ShotServer::generateShotListPage() const
             var menu = document.getElementById("menuDropdown");
             if (!e.target.closest(".menu-btn") && menu.classList.contains("open")) {
                 menu.classList.remove("open");
+            }
+            var sortDrop = document.getElementById("sortDropdown");
+            if (!e.target.closest(".sort-anchor") && sortDrop.classList.contains("open")) {
+                sortDrop.classList.remove("open");
             }
         });
 )HTML";
