@@ -566,9 +566,9 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
         if (!exempt && !checkSession(request)) {
             if (hasStoredTotpSecret()) {
-                sendResponse(socket, 200, "text/html; charset=utf-8", QByteArray(WEB_AUTH_LOGIN_PAGE));
+                sendResponse(socket, 401, "text/html; charset=utf-8", QByteArray(WEB_AUTH_LOGIN_PAGE));
             } else {
-                sendResponse(socket, 200, "text/html; charset=utf-8", QByteArray(WEB_AUTH_SETUP_REQUIRED_PAGE));
+                sendResponse(socket, 401, "text/html; charset=utf-8", QByteArray(WEB_AUTH_SETUP_REQUIRED_PAGE));
             }
             return;
         }

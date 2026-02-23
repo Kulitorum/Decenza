@@ -107,11 +107,29 @@ static QString extractUserAgent(const QByteArray& request)
     return QString();
 }
 
+// ─── Session token hashing ──────────────────────────────────────────────────
+
+static QString hashToken(const QString& token)
+{
+    return QCryptographicHash::hash(token.toUtf8(), QCryptographicHash::Sha256).toHex();
+}
+
 // ─── Rate limiting ──────────────────────────────────────────────────────────
 
 bool ShotServer::checkRateLimit(const QString& ip)
 {
     auto now = QDateTime::currentDateTimeUtc();
+
+    // Periodic cleanup: evict stale entries to prevent unbounded memory growth
+    if (m_loginAttempts.size() > 100) {
+        QMutableHashIterator<QString, QPair<int, QDateTime>> cleanup(m_loginAttempts);
+        while (cleanup.hasNext()) {
+            cleanup.next();
+            if (cleanup.value().second.secsTo(now) > 60)
+                cleanup.remove();
+        }
+    }
+
     auto it = m_loginAttempts.find(ip);
     if (it != m_loginAttempts.end()) {
         // Reset window if older than 60 seconds
@@ -133,9 +151,9 @@ bool ShotServer::checkRateLimit(const QString& ip)
 
 QVariantMap ShotServer::generateTotpSetup()
 {
-    // Generate random 20-byte secret
+    // Generate random 20-byte secret using OS CSPRNG
     QByteArray secretBytes(20, 0);
-    QRandomGenerator::global()->fillRange(
+    QRandomGenerator::system()->fillRange(
         reinterpret_cast<quint32*>(secretBytes.data()),
         secretBytes.size() / static_cast<int>(sizeof(quint32)));
 
@@ -300,7 +318,8 @@ bool ShotServer::checkSession(const QByteArray& request) const
     QString token = extractCookie(request, "decenza_session");
     if (token.isEmpty()) return false;
 
-    auto it = m_sessions.find(token);
+    QString hashed = hashToken(token);
+    auto it = m_sessions.find(hashed);
     if (it == m_sessions.end()) return false;
 
     return it->expiry > QDateTime::currentDateTimeUtc();
@@ -309,15 +328,15 @@ bool ShotServer::checkSession(const QByteArray& request) const
 QString ShotServer::createSession(const QString& userAgent)
 {
     QByteArray tokenBytes(32, 0);
-    for (int i = 0; i < 32; i++) {
-        tokenBytes[i] = static_cast<char>(QRandomGenerator::global()->bounded(256));
-    }
+    QRandomGenerator::system()->fillRange(
+        reinterpret_cast<quint32*>(tokenBytes.data()),
+        tokenBytes.size() / static_cast<int>(sizeof(quint32)));
     QString token = tokenBytes.toHex();
 
     SessionInfo info;
     info.expiry = QDateTime::currentDateTimeUtc().addDays(SESSION_LIFETIME_DAYS);
     info.userAgent = userAgent;
-    m_sessions[token] = info;
+    m_sessions[hashToken(token)] = info;  // Store hashed, return plaintext for cookie
 
     saveSessions();
     return token;
@@ -337,12 +356,14 @@ void ShotServer::loadSessions()
     int count = settings.beginReadArray("webAuth/sessions");
     for (int i = 0; i < count; i++) {
         settings.setArrayIndex(i);
-        QString token = settings.value("token").toString();
+        QString tokenOrHash = settings.value("token").toString();
         SessionInfo info;
         info.expiry = settings.value("expiry").toDateTime();
         info.userAgent = settings.value("userAgent").toString();
         if (info.expiry > QDateTime::currentDateTimeUtc()) {
-            m_sessions[token] = info;
+            // Store with hash as key (old plaintext tokens get hashed on next save)
+            QString key = (tokenOrHash.length() == 64) ? tokenOrHash : hashToken(tokenOrHash);
+            m_sessions[key] = info;
         }
     }
     settings.endArray();
@@ -365,7 +386,7 @@ void ShotServer::saveSessions()
     int i = 0;
     for (auto sit = m_sessions.constBegin(); sit != m_sessions.constEnd(); ++sit, ++i) {
         settings.setArrayIndex(i);
-        settings.setValue("token", sit.key());
+        settings.setValue("token", sit.key());  // Already hashed
         settings.setValue("expiry", sit.value().expiry);
         settings.setValue("userAgent", sit.value().userAgent);
     }
