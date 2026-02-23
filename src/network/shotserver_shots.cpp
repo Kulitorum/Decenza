@@ -789,8 +789,14 @@ QString ShotServer::generateShotListPage() const
                 if (f.maxTds !== undefined) { if (parseFloat(card.dataset.tds) > f.maxTds) show = false; }
                 if (f.minEy !== undefined) { if (parseFloat(card.dataset.ey) < f.minEy) show = false; }
                 if (f.maxEy !== undefined) { if (parseFloat(card.dataset.ey) > f.maxEy) show = false; }
-                // Text search on remaining text
-                if (remaining && !card.textContent.toLowerCase().includes(remaining)) show = false;
+                // Text search: split into words (AND logic, matching app behavior)
+                if (remaining) {
+                    var searchWords = remaining.replace(/[\-\/.]/g, ' ').split(/\s+/);
+                    var cardText = card.textContent.toLowerCase();
+                    for (var w = 0; w < searchWords.length; w++) {
+                        if (searchWords[w] && !cardText.includes(searchWords[w])) { show = false; break; }
+                    }
+                }
                 card.style.display = show ? '' : 'none';
                 if (show) visibleCount++;
             });
