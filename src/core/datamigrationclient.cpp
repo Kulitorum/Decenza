@@ -152,6 +152,9 @@ void DataMigrationClient::startImport(const QStringList& types)
     if (types.contains("media")) {
         m_totalBytes += m_manifest["mediaSize"].toLongLong();
     }
+    if (types.contains("ai_conversations")) {
+        m_totalBytes += m_manifest["aiConversationsSize"].toLongLong();
+    }
     m_receivedBytes = 0;
 
     // Set up the import queue
@@ -295,7 +298,7 @@ void DataMigrationClient::onAIConversationsReply()
                     QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
 
                 if (m_aiManager)
-                    m_aiManager->loadConversationIndex();
+                    m_aiManager->reloadConversations();
             }
 
             qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported << "AI conversations";

@@ -1172,7 +1172,10 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         QString key = (slashIdx >= 0) ? remainder.left(slashIdx) : remainder;
         // Parse format from query string
         QString format = "json";
-        if (path.contains("format=text")) format = "text";
+        if (path.contains("?")) {
+            QUrlQuery query(path.mid(path.indexOf("?") + 1));
+            if (query.queryItemValue("format") == "text") format = "text";
+        }
         handleAIConversationDownload(socket, key, format);
     }
     else if (path.startsWith("/icons/") && path.endsWith(".svg")) {

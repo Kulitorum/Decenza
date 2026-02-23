@@ -368,7 +368,11 @@ QString AIManager::getRecentShotContext(const QString& beanBrand, const QString&
     if (shotSections.isEmpty())
         return QString();
 
-    return "## Previous Shots with This Bean & Profile\n\n" + shotSections.join("\n\n");
+    return "## Previous Shots with This Bean & Profile\n\n"
+           "All shots below use the same profile as the current shot. "
+           "Do NOT report profile recipe differences — focus on what the user changed "
+           "(grind, dose, temperature) and how it affected the outcome.\n\n" +
+           shotSections.join("\n\n");
 }
 
 void AIManager::testConnection()

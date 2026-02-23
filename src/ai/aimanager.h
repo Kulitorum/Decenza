@@ -193,8 +193,9 @@ private:
     QString m_lastUserPrompt;
 
 public:
-    void loadConversationIndex();
+    void reloadConversations() { loadConversationIndex(); }
 private:
+    void loadConversationIndex();
     void saveConversationIndex();
     void touchConversationEntry(const QString& key);
     void evictOldestConversation();

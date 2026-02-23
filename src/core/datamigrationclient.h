@@ -22,7 +22,7 @@ class AIManager;
  * @brief Client for importing data from another Decenza device over WiFi.
  *
  * Connects to a remote Decenza device running the shot server and imports
- * settings, profiles, shot history, and personal media.
+ * settings, profiles, shot history, personal media, and AI conversations.
  */
 class DataMigrationClient : public QObject {
     Q_OBJECT

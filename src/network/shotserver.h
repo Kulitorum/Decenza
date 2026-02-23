@@ -135,6 +135,7 @@ private:
     void handleBackupMediaList(QTcpSocket* socket);
     void handleBackupMediaFile(QTcpSocket* socket, const QString& filename);
     void handleBackupAIConversations(QTcpSocket* socket);
+    QJsonArray serializeAIConversations() const;
 
     // Full backup download/restore
     void handleBackupFull(QTcpSocket* socket);

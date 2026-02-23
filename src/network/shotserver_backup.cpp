@@ -139,8 +139,16 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
     if (m_aiManager) {
         int convCount = m_aiManager->conversationIndex().size();
         manifest["aiConversationCount"] = convCount;
+        // Estimate size: read messages JSON for each conversation
+        qint64 aiSize = 0;
+        QSettings settings;
+        for (const auto& entry : m_aiManager->conversationIndex()) {
+            aiSize += settings.value("ai/conversations/" + entry.key + "/messages").toByteArray().size();
+        }
+        manifest["aiConversationsSize"] = aiSize;
     } else {
         manifest["aiConversationCount"] = 0;
+        manifest["aiConversationsSize"] = 0;
     }
 
     // Personal media info
@@ -324,12 +332,10 @@ void ShotServer::handleBackupMediaFile(QTcpSocket* socket, const QString& filena
     sendFile(socket, filePath, contentType);
 }
 
-void ShotServer::handleBackupAIConversations(QTcpSocket* socket)
+QJsonArray ShotServer::serializeAIConversations() const
 {
-    if (!m_aiManager) {
-        sendJson(socket, "[]");
-        return;
-    }
+    if (!m_aiManager)
+        return QJsonArray();
 
     QSettings settings;
     QJsonArray result;
@@ -337,39 +343,35 @@ void ShotServer::handleBackupAIConversations(QTcpSocket* socket)
     for (const auto& entry : m_aiManager->conversationIndex()) {
         QString prefix = "ai/conversations/" + entry.key + "/";
 
-        QString systemPrompt = settings.value(prefix + "systemPrompt").toString();
-        QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
-        QString timestamp = settings.value(prefix + "timestamp").toString();
-        QString contextLabel = settings.value(prefix + "contextLabel").toString();
-
         QJsonObject conv;
         conv["key"] = entry.key;
         conv["beanBrand"] = entry.beanBrand;
         conv["beanType"] = entry.beanType;
         conv["profileName"] = entry.profileName;
-        conv["timestamp"] = timestamp;
-        conv["systemPrompt"] = systemPrompt;
-        conv["contextLabel"] = contextLabel;
+        conv["timestamp"] = settings.value(prefix + "timestamp").toString();
+        conv["systemPrompt"] = settings.value(prefix + "systemPrompt").toString();
+        conv["contextLabel"] = settings.value(prefix + "contextLabel").toString();
+        conv["indexTimestamp"] = entry.timestamp;
 
-        // Parse messages JSON into array
+        QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
         if (!messagesJson.isEmpty()) {
             QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
-            if (msgDoc.isArray()) {
-                conv["messages"] = msgDoc.array();
-            } else {
-                conv["messages"] = QJsonArray();
-            }
+            if (msgDoc.isArray()) conv["messages"] = msgDoc.array();
+            else conv["messages"] = QJsonArray();
         } else {
             conv["messages"] = QJsonArray();
         }
 
-        // Include index entry timestamp as fallback
-        conv["indexTimestamp"] = entry.timestamp;
-
         result.append(conv);
     }
 
-    sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    return result;
+}
+
+void ShotServer::handleBackupAIConversations(QTcpSocket* socket)
+{
+    QJsonArray conversations = serializeAIConversations();
+    sendJson(socket, QJsonDocument(conversations).toJson(QJsonDocument::Compact));
 }
 
 // ============================================================================
@@ -452,30 +454,8 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
     }
 
     // 5. AI conversations
-    if (m_aiManager) {
-        QSettings settings;
-        QJsonArray conversations;
-        for (const auto& entry : m_aiManager->conversationIndex()) {
-            QString prefix = "ai/conversations/" + entry.key + "/";
-            QJsonObject conv;
-            conv["key"] = entry.key;
-            conv["beanBrand"] = entry.beanBrand;
-            conv["beanType"] = entry.beanType;
-            conv["profileName"] = entry.profileName;
-            conv["timestamp"] = settings.value(prefix + "timestamp").toString();
-            conv["systemPrompt"] = settings.value(prefix + "systemPrompt").toString();
-            conv["contextLabel"] = settings.value(prefix + "contextLabel").toString();
-            conv["indexTimestamp"] = entry.timestamp;
-            QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
-            if (!messagesJson.isEmpty()) {
-                QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
-                if (msgDoc.isArray()) conv["messages"] = msgDoc.array();
-                else conv["messages"] = QJsonArray();
-            } else {
-                conv["messages"] = QJsonArray();
-            }
-            conversations.append(conv);
-        }
+    {
+        QJsonArray conversations = serializeAIConversations();
         if (!conversations.isEmpty()) {
             QByteArray convData = QJsonDocument(conversations).toJson(QJsonDocument::Compact);
             entries.append({"ai_conversations.json", convData});
@@ -1080,7 +1060,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                         settings.setValue("ai/conversations/index",
                             QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
                         settings.sync();
-                        m_aiManager->loadConversationIndex();
+                        m_aiManager->reloadConversations();
                         qDebug() << "ShotServer: Imported" << aiConversationsImported << "AI conversations";
                     }
                 }
