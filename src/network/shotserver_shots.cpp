@@ -1030,7 +1030,11 @@ QString ShotServer::generateShotListPage() const
 
         fetchPowerState();
         loadSavedSearches();
-        setInterval(fetchPowerState, 5000);
+        var pwrTimer = setInterval(fetchPowerState, 5000);
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) { clearInterval(pwrTimer); }
+            else { fetchPowerState(); pwrTimer = setInterval(fetchPowerState, 5000); }
+        });
     </script>
 </body>
 </html>
@@ -2092,7 +2096,11 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                 .then(function() { setTimeout(fetchPowerState, 1000); });
         }
         fetchPowerState();
-        setInterval(fetchPowerState, 5000);
+        var pwrTimer2 = setInterval(fetchPowerState, 5000);
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) { clearInterval(pwrTimer2); }
+            else { fetchPowerState(); pwrTimer2 = setInterval(fetchPowerState, 5000); }
+        });
     </script>
 </body>
 </html>
@@ -2663,7 +2671,11 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 .then(function() { setTimeout(fetchPowerState, 1000); });
         }
         fetchPowerState();
-        setInterval(fetchPowerState, 5000);
+        var pwrTimer3 = setInterval(fetchPowerState, 5000);
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) { clearInterval(pwrTimer3); }
+            else { fetchPowerState(); pwrTimer3 = setInterval(fetchPowerState, 5000); }
+        });
     </script>
 </body>
 </html>
@@ -2891,7 +2903,11 @@ QString ShotServer::generateDebugPage() const
         }
 
         // Poll every 500ms
-        setInterval(fetchLogs, 500);
+        var logTimer = setInterval(fetchLogs, 500);
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) { clearInterval(logTimer); }
+            else { fetchLogs(); logTimer = setInterval(fetchLogs, 500); }
+        });
         fetchLogs();
     </script>
 </body>

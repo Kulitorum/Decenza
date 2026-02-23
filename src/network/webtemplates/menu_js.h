@@ -38,5 +38,13 @@ inline constexpr const char* WEB_JS_MENU = R"JS(
         }
 
         updatePowerStatus();
-        setInterval(updatePowerStatus, 10000);
+        var powerTimer = setInterval(updatePowerStatus, 10000);
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                clearInterval(powerTimer);
+            } else {
+                updatePowerStatus();
+                powerTimer = setInterval(updatePowerStatus, 10000);
+            }
+        });
 )JS";

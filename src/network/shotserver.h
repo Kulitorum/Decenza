@@ -125,6 +125,7 @@ private:
     QDateTime extractVideoDate(const QString& videoPath) const;
     QDateTime extractDateWithExiftool(const QString& filePath) const;
     void cleanupPendingRequest(QTcpSocket* socket);
+    void resetKeepAliveTimer(QTcpSocket* socket);
 
     // Data migration backup API
     void handleBackupManifest(QTcpSocket* socket);
@@ -198,6 +199,7 @@ private:
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
     QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications
     QSet<QTcpSocket*> m_sseThemeClients;   // SSE connections for theme change notifications
+    QHash<QTcpSocket*, QTimer*> m_keepAliveTimers;  // Idle timers for keep-alive connections
 
     // TLS state
     QSslCertificate m_sslCert;
@@ -209,6 +211,7 @@ private:
     static constexpr qint64 MAX_UPLOAD_SIZE = 500 * 1024 * 1024;   // 500 MB max per file
     static constexpr int MAX_CONCURRENT_UPLOADS = 2;               // Limit concurrent media uploads
     static constexpr int CONNECTION_TIMEOUT_MS = 300000;           // 5 minute timeout
+    static constexpr int KEEPALIVE_TIMEOUT_S = 30;                 // Close idle keep-alive connections after 30s
     static constexpr int DISCOVERY_PORT = 8889;                    // UDP port for device discovery
     static constexpr int SESSION_LIFETIME_DAYS = 90;               // Auth session cookie lifetime
 };

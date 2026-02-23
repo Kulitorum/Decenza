@@ -111,7 +111,15 @@ inline QString generateVitalStatsScript()
     }
 
     update();
-    setInterval(update, 3000);
+    var vitalTimer = setInterval(update, 3000);
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            clearInterval(vitalTimer);
+        } else {
+            update();
+            vitalTimer = setInterval(update, 3000);
+        }
+    });
 })();
 </script>
 )HTML");
