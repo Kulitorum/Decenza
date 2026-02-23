@@ -192,6 +192,12 @@ Item {
                         isDragging = false
                         dragReady = false
                         currentGear = 0
+
+                        // Announce parameter name when touched (accessibility)
+                        if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                            var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
+                            AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
+                        }
                     }
 
                     onPositionChanged: function(mouse) {
@@ -201,12 +207,13 @@ Item {
                         // Direction commitment: require horizontal movement to
                         // dominate before activating drag. Vertical-dominant
                         // movement passes through to ScrollView for scrolling
-                        // (preventStealing is false while isDragging is false).
+                        // (preventStealing is false while dragReady is false).
                         if (!dragReady) {
                             var absX = Math.abs(deltaX)
                             var absY = Math.abs(deltaY)
                             if (absX > sc(15) && absX > absY) {
                                 dragReady = true
+                                isDragging = true
                                 startX = mouse.x
                                 startY = mouse.y
                                 return
@@ -216,15 +223,6 @@ Item {
                         }
 
                         if (root.geared) {
-                            if (!isDragging) {
-                                isDragging = true
-                                // Announce parameter name on first drag activation (accessibility)
-                                if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                    var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
-                                    AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
-                                }
-                            }
-
                             // Gear based on vertical distance from center of widget
                             var centerY = valueDragArea.height / 2
                             var verticalDist = Math.abs(mouse.y - centerY)
@@ -246,15 +244,6 @@ Item {
                                 startX = mouse.x
                             }
                         } else {
-                            if (!isDragging) {
-                                isDragging = true
-                                // Announce parameter name on first drag activation (accessibility)
-                                if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                    var valueStr2 = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
-                                    AccessibilityManager.announce(root.accessibleName + ": " + valueStr2)
-                                }
-                            }
-
                             var deltaY2 = startY - mouse.y
                             var delta = Math.abs(deltaX) > Math.abs(deltaY2) ? deltaX : deltaY2
 
