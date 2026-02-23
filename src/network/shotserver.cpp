@@ -266,6 +266,10 @@ void ShotServer::onReadyRead()
     if (m_sseLayoutClients.contains(socket)) return;
     if (m_sseThemeClients.contains(socket)) return;
 
+    // Stop keep-alive idle timer while processing incoming request data
+    if (QTimer* t = m_keepAliveTimers.value(socket))
+        t->stop();
+
     try {
         PendingRequest& pending = m_pendingRequests[socket];
         pending.lastActivity.start();
@@ -1123,6 +1127,8 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         socket->write(sseHeaders);
         socket->flush();
         m_sseThemeClients.insert(socket);
+        if (QTimer* t = m_keepAliveTimers.take(socket))
+            t->stop();
     }
     // Theme API endpoints
     else if (path == "/api/theme" || path.startsWith("/api/theme/")) {
@@ -1144,6 +1150,8 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         socket->write(headers);
         socket->flush();
         m_sseLayoutClients.insert(socket);
+        if (QTimer* t = m_keepAliveTimers.take(socket))
+            t->stop();
     }
     else if (path == "/api/layout" || path.startsWith("/api/layout/") || path.startsWith("/api/layout?")
              || path.startsWith("/api/library") || path.startsWith("/api/community")) {
