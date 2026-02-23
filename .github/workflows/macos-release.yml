@@ -109,13 +109,17 @@ jobs:
 
       - name: Configure CMake
         run: |
+          OPENSSL_PREFIX="${RUNNER_TEMP}/openssl-universal"
           mkdir -p build/macos
           cd build/macos
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DOPENSSL_ROOT_DIR="${RUNNER_TEMP}/openssl-universal"
+            -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
+            -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
+            -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \
+            -DOPENSSL_SSL_LIBRARY="${OPENSSL_PREFIX}/lib/libssl.a"
 
       - name: Build Release
         run: |
