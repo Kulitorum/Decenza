@@ -15,6 +15,10 @@
 #include <QFileInfo>
 #include <QUrl>
 #include <QNetworkInterface>
+#include <QSslError>
+#include <QSslConfiguration>
+#include <QSettings>
+#include <QRegularExpression>
 
 DataMigrationClient::DataMigrationClient(QObject* parent)
     : QObject(parent)
@@ -26,6 +30,39 @@ DataMigrationClient::~DataMigrationClient()
 {
     cancel();
     delete m_tempDir;
+}
+
+void DataMigrationClient::setupSslHandling(QNetworkReply* reply)
+{
+    // Ignore SSL errors for self-signed certificates on LAN migration servers
+    connect(reply, &QNetworkReply::sslErrors, this, [reply](const QList<QSslError>& errors) {
+        qDebug() << "DataMigrationClient: Ignoring SSL errors for LAN migration:" << errors.size();
+        reply->ignoreSslErrors();
+    });
+}
+
+void DataMigrationClient::addSessionCookie(QNetworkRequest& request)
+{
+    if (!m_sessionToken.isEmpty()) {
+        request.setRawHeader("Cookie", QString("decenza_session=%1").arg(m_sessionToken).toUtf8());
+    }
+}
+
+void DataMigrationClient::saveSessionToken(const QString& serverHost, const QString& token)
+{
+    QSettings settings;
+    settings.beginGroup("migration_sessions");
+    settings.setValue(serverHost, token);
+    settings.endGroup();
+}
+
+QString DataMigrationClient::loadSessionToken(const QString& serverHost)
+{
+    QSettings settings;
+    settings.beginGroup("migration_sessions");
+    QString token = settings.value(serverHost).toString();
+    settings.endGroup();
+    return token;
 }
 
 void DataMigrationClient::connectToServer(const QString& serverUrl)
@@ -45,18 +82,29 @@ void DataMigrationClient::connectToServer(const QString& serverUrl)
 
     m_connecting = true;
     m_errorMessage.clear();
+    if (m_needsAuthentication) {
+        m_needsAuthentication = false;
+        emit needsAuthenticationChanged();
+    }
     emit isConnectingChanged();
     emit serverUrlChanged();
     emit errorMessageChanged();
 
     setCurrentOperation(tr("Connecting..."));
 
+    // Load cached session token for this server
+    QUrl serverUrl(m_serverUrl);
+    QString host = serverUrl.host();
+    m_sessionToken = loadSessionToken(host);
+
     // Fetch manifest
     QUrl url(m_serverUrl + "/api/backup/manifest");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza-Migration/1.0");
+    addSessionCookie(request);
 
     m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onManifestReply);
 }
 
@@ -82,6 +130,19 @@ void DataMigrationClient::onManifestReply()
 
     m_connecting = false;
     emit isConnectingChanged();
+
+    // Check for 401 (authentication required)
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (statusCode == 401) {
+        qDebug() << "DataMigrationClient: Server requires authentication (401)";
+        reply->deleteLater();
+        m_currentReply = nullptr;
+        m_sessionToken.clear();
+        m_needsAuthentication = true;
+        emit needsAuthenticationChanged();
+        setCurrentOperation(tr("Authentication required"));
+        return;
+    }
 
     if (reply->error() != QNetworkReply::NoError) {
         setError(tr("Connection failed: %1").arg(reply->errorString()));
@@ -113,6 +174,83 @@ void DataMigrationClient::onManifestReply()
              << "- Profiles:" << m_manifest["profileCount"].toInt()
              << "- Shots:" << m_manifest["shotCount"].toInt()
              << "- Media:" << m_manifest["mediaCount"].toInt();
+}
+
+void DataMigrationClient::authenticate(const QString& totpCode)
+{
+    if (m_serverUrl.isEmpty()) {
+        return;
+    }
+
+    m_connecting = true;
+    m_errorMessage.clear();
+    emit isConnectingChanged();
+    emit errorMessageChanged();
+    setCurrentOperation(tr("Authenticating..."));
+
+    QUrl url(m_serverUrl + "/api/auth/login");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza-Migration/1.0");
+
+    QJsonObject body;
+    body["code"] = totpCode.trimmed();
+    QByteArray postData = QJsonDocument(body).toJson(QJsonDocument::Compact);
+
+    m_currentReply = m_networkManager->post(request, postData);
+    setupSslHandling(m_currentReply);
+    connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onAuthReply);
+}
+
+void DataMigrationClient::onAuthReply()
+{
+    QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+
+    if (reply != m_currentReply) {
+        reply->deleteLater();
+        return;
+    }
+
+    m_connecting = false;
+    emit isConnectingChanged();
+
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QByteArray data = reply->readAll();
+    QString setCookie = QString::fromUtf8(reply->rawHeader("Set-Cookie"));
+    reply->deleteLater();
+    m_currentReply = nullptr;
+
+    if (statusCode == 200) {
+        // Extract session token from Set-Cookie header
+        QRegularExpression re("decenza_session=([^;]+)");
+        QRegularExpressionMatch match = re.match(setCookie);
+        if (match.hasMatch()) {
+            m_sessionToken = match.captured(1);
+
+            // Persist the token
+            QUrl serverUrl(m_serverUrl);
+            saveSessionToken(serverUrl.host(), m_sessionToken);
+
+            qDebug() << "DataMigrationClient: Authenticated successfully, session cached";
+        }
+
+        m_needsAuthentication = false;
+        emit needsAuthenticationChanged();
+        emit authenticationSucceeded();
+
+        // Retry connecting now that we have a session
+        connectToServer(m_serverUrl);
+    } else {
+        // Parse error from response
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QString errorMsg = tr("Authentication failed");
+        if (doc.isObject() && doc.object().contains("error")) {
+            errorMsg = doc.object()["error"].toString();
+        }
+        setError(errorMsg);
+        emit authenticationFailed(errorMsg);
+    }
 }
 
 void DataMigrationClient::startImport(const QStringList& types)
@@ -241,8 +379,10 @@ void DataMigrationClient::doImportSettings()
 
     QUrl url(m_serverUrl + "/api/backup/settings");
     QNetworkRequest request(url);
+    addSessionCookie(request);
 
     m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onSettingsReply);
     connect(m_currentReply, &QNetworkReply::downloadProgress, this, &DataMigrationClient::onDownloadProgress);
 }
@@ -285,8 +425,10 @@ void DataMigrationClient::doImportProfiles()
     // First fetch the list of profiles
     QUrl url(m_serverUrl + "/api/backup/profiles");
     QNetworkRequest request(url);
+    addSessionCookie(request);
 
     m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onProfileListReply);
 }
 
@@ -357,8 +499,10 @@ void DataMigrationClient::downloadNextProfile()
     QString encodedFilename = QUrl::toPercentEncoding(pd.filename);
     QUrl url(m_serverUrl + "/api/backup/profile/" + pd.category + "/" + encodedFilename);
     QNetworkRequest request(url);
+    addSessionCookie(request);
 
     m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
     m_currentReply->setProperty("category", pd.category);
     m_currentReply->setProperty("filename", pd.filename);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onProfileFileReply);
@@ -463,8 +607,10 @@ void DataMigrationClient::doImportShots()
 
     QUrl url(m_serverUrl + "/api/backup/shots");
     QNetworkRequest request(url);
+    addSessionCookie(request);
 
     m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onShotsReply);
     connect(m_currentReply, &QNetworkReply::downloadProgress, this, &DataMigrationClient::onDownloadProgress);
 }
@@ -519,8 +665,10 @@ void DataMigrationClient::doImportMedia()
     // First fetch the list of media files
     QUrl url(m_serverUrl + "/api/backup/media");
     QNetworkRequest request(url);
+    addSessionCookie(request);
 
     m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onMediaListReply);
 }
 
@@ -590,8 +738,10 @@ void DataMigrationClient::downloadNextMedia()
     QString encodedFilename = QUrl::toPercentEncoding(md.filename);
     QUrl url(m_serverUrl + "/api/backup/media/" + encodedFilename);
     QNetworkRequest request(url);
+    addSessionCookie(request);
 
     m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
     m_currentReply->setProperty("filename", md.filename);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onMediaFileReply);
     connect(m_currentReply, &QNetworkReply::downloadProgress, this, &DataMigrationClient::onDownloadProgress);

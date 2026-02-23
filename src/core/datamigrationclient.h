@@ -11,6 +11,7 @@
 #include <QList>
 #include <QTimer>
 #include <QPointer>
+#include <QSettings>
 
 class Settings;
 class ProfileStorage;
@@ -35,6 +36,7 @@ class DataMigrationClient : public QObject {
     Q_PROPERTY(QVariantMap manifest READ manifest NOTIFY manifestChanged)
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY serverUrlChanged)
     Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY discoveredDevicesChanged)
+    Q_PROPERTY(bool needsAuthentication READ needsAuthentication NOTIFY needsAuthenticationChanged)
 
 public:
     explicit DataMigrationClient(QObject* parent = nullptr);
@@ -56,6 +58,10 @@ public:
     QVariantMap manifest() const { return m_manifest; }
     QString serverUrl() const { return m_serverUrl; }
     QVariantList discoveredDevices() const { return m_discoveredDevices; }
+    bool needsAuthentication() const { return m_needsAuthentication; }
+
+    // Authentication
+    Q_INVOKABLE void authenticate(const QString& totpCode);
 
     // Device discovery
     Q_INVOKABLE void startDiscovery();
@@ -94,6 +100,9 @@ signals:
     void importComplete(int settingsImported, int profilesImported, int shotsImported, int mediaImported);
     void importFailed(const QString& error);
     void discoveryComplete();
+    void needsAuthenticationChanged();
+    void authenticationFailed(const QString& error);
+    void authenticationSucceeded();
 
 private slots:
     void onManifestReply();
@@ -106,6 +115,7 @@ private slots:
     void onDownloadProgress(qint64 received, qint64 total);
     void onDiscoveryDatagram();
     void onDiscoveryTimeout();
+    void onAuthReply();
 
 private:
     // Helper structs for tracking downloads
@@ -123,6 +133,10 @@ private:
     void setProgress(double progress);
     void setCurrentOperation(const QString& operation);
     void setError(const QString& error);
+    void setupSslHandling(QNetworkReply* reply);
+    void addSessionCookie(QNetworkRequest& request);
+    void saveSessionToken(const QString& serverHost, const QString& token);
+    QString loadSessionToken(const QString& serverHost);
     void startImport(const QStringList& types);  // Common setup for all import methods
     void startNextImport();
     void downloadNextProfile();
@@ -174,4 +188,8 @@ private:
     bool m_searching = false;
     static constexpr int DISCOVERY_PORT = 8889;
     static constexpr int DISCOVERY_TIMEOUT_MS = 3000;  // Search for 3 seconds
+
+    // Authentication
+    bool m_needsAuthentication = false;
+    QString m_sessionToken;  // Current session cookie token
 };
