@@ -582,6 +582,25 @@ The tablet lacks Google certification, so:
 - Some Google apps may prompt to install Play Services
 - GPS-only location works once enabled (see above)
 
+## Windows Installer
+
+The Windows installer is built with Inno Setup (`installer/setup.iss`). It uses a local config file `installer/setupvars.iss` (gitignored) to define machine-specific paths.
+
+### Local setupvars.iss
+Create `installer/setupvars.iss` with paths for your machine:
+```iss
+#define SourceDir "C:\CODE\de1-qt"
+#define AppBuildDir "C:\CODE\de1-qt\build\Release"
+#define AppDeployDir "C:\CODE\de1-qt\installer\deploy"
+#define QtDir "C:\Qt\6.10.2\msvc2022_64"
+#define VcRedistDir "C:\CODE\de1-qt\vcredist"
+#define VcRedistFile "vc_redist.x64.exe"
+#define OpenSslDir "C:\Program Files\OpenSSL-Win64\bin"
+```
+
+### OpenSSL Dependency
+The app links OpenSSL directly (for TLS certificate generation in Remote Access). The installer must bundle `libssl-3-x64.dll` and `libcrypto-3-x64.dll`. If `OpenSslDir` is defined in `setupvars.iss`, the installer copies them automatically. Install OpenSSL for Windows from https://slproweb.com/products/Win32OpenSSL.html if you don't have it.
+
 ## Android Build & Signing
 
 ### Build Process

@@ -50,6 +50,18 @@ jobs:
         with:
           arch: x64
 
+      - name: Install OpenSSL
+        shell: powershell
+        run: |
+          choco install openssl -y --no-progress
+          $opensslBin = "C:\Program Files\OpenSSL-Win64\bin"
+          if (Test-Path "$opensslBin\libssl-3-x64.dll") {
+            Write-Host "OpenSSL 3 found at: $opensslBin"
+          } else {
+            Write-Error "libssl-3-x64.dll not found in $opensslBin"
+            exit 1
+          }
+
       - name: Configure CMake
         run: |
           mkdir build
@@ -98,6 +110,7 @@ jobs:
           #define QtDir "$QT_DIR"
           #define VcRedistDir "$WORKSPACE\vcredist"
           #define VcRedistFile "vc_redist.x64.exe"
+          #define OpenSslDir "C:\Program Files\OpenSSL-Win64\bin"
           "@ | Out-File -FilePath "installer\setupvars.iss" -Encoding ASCII
 
           Write-Host "=== version.iss ==="
