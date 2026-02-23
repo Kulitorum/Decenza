@@ -330,16 +330,6 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, c
     QString prevLabel = prev.shotLabel;
 
     if (!prevContent.isEmpty()) {
-        // === Recipe dedup: skip recipe if same profile ===
-        QString newProfile = extractMetric(processed, s_profileRe);
-        QString prevProfile = extractMetric(prevContent, s_profileRe);
-
-        if (!newProfile.isEmpty() && newProfile == prevProfile) {
-            // Remove the "## Profile Recipe" section — it's identical
-            static const QRegularExpression recipeRe("## Profile Recipe[^\\n]*\\n(?:(?!## ).+\\n)*\\n?");
-            processed.replace(recipeRe, "(Same profile recipe as previous shot)\n\n");
-        }
-
         // === Change detection ===
         QStringList changes;
 
@@ -389,8 +379,6 @@ QString AIConversation::multiShotSystemPrompt(const QString& beverageType)
         "\n\n## Multi-Shot Context\n\n"
         "You are helping the user dial in across multiple shots in a single session. "
         "Track progress across shots and reference previous attempts to identify trends. "
-        "When the same profile is used across shots, focus on what changed (grind, dose, temperature) and how it affected the outcome. "
-        "When the profile recipe is marked as 'same as previous shot', don't re-explain the profile — focus on differences in execution and results. "
         "Keep advice to ONE specific change per shot — don't overload with multiple adjustments.");
     return base;
 }

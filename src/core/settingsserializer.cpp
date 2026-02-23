@@ -10,6 +10,7 @@ QStringList SettingsSerializer::sensitiveKeys()
         "openaiApiKey",
         "anthropicApiKey",
         "geminiApiKey",
+        "openrouterApiKey",
         "mqttPassword"
     };
 }
@@ -28,6 +29,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     scale["address"] = settings->scaleAddress();
     scale["type"] = settings->scaleType();
     scale["name"] = settings->scaleName();
+    scale["useFlowScale"] = settings->useFlowScale();
     root["scale"] = scale;
 
     // Espresso settings
@@ -43,6 +45,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["timeout"] = settings->steamTimeout();
     steam["flow"] = settings->steamFlow();
     steam["keepHeaterOn"] = settings->keepSteamHeaterOn();
+    steam["disabled"] = settings->steamDisabled();
+    steam["autoFlushSeconds"] = settings->steamAutoFlushSeconds();
+    steam["twoTapStop"] = settings->steamTwoTapStop();
     steam["selectedPitcher"] = settings->selectedSteamPitcher();
 
     // Steam pitcher presets
@@ -63,10 +68,14 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     headless["skipPurgeConfirm"] = settings->headlessSkipPurgeConfirm();
     root["headless"] = headless;
 
+    // Launcher mode
+    root["launcherMode"] = settings->launcherMode();
+
     // Hot water settings
     QJsonObject water;
     water["temperature"] = settings->waterTemperature();
     water["volume"] = settings->waterVolume();
+    water["volumeMode"] = settings->waterVolumeMode();
     water["selectedVessel"] = settings->selectedWaterVessel();
 
     // Water vessel presets
@@ -76,6 +85,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         QVariantMap m = preset.toMap();
         p["name"] = m["name"].toString();
         p["volume"] = m["volume"].toInt();
+        p["mode"] = m["mode"].toString();
+        p["flowRate"] = m["flowRate"].toInt();
         vesselPresets.append(p);
     }
     water["vesselPresets"] = vesselPresets;
@@ -139,6 +150,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         selectedBuiltIns.append(s);
     }
     profile["selectedBuiltIns"] = selectedBuiltIns;
+
+    QJsonArray hiddenProfiles;
+    for (const QString& s : settings->hiddenProfiles()) {
+        hiddenProfiles.append(s);
+    }
+    profile["hiddenProfiles"] = hiddenProfiles;
     root["profile"] = profile;
 
     // Shot history settings
@@ -157,6 +174,23 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     ui["skin"] = settings->skin();
     ui["screenBrightness"] = settings->screenBrightness();
     ui["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
+
+    // Custom font sizes
+    QJsonObject fontSizes;
+    QVariantMap sizes = settings->customFontSizes();
+    for (auto it = sizes.begin(); it != sizes.end(); ++it) {
+        fontSizes[it.key()] = it.value().toDouble();
+    }
+    ui["customFontSizes"] = fontSizes;
+
+    // Shader settings
+    ui["activeShader"] = settings->activeShader();
+    QJsonObject shaderParams;
+    QVariantMap params = settings->shaderParams();
+    for (auto it = params.begin(); it != params.end(); ++it) {
+        shaderParams[it.key()] = QJsonValue::fromVariant(it.value());
+    }
+    ui["shaderParams"] = shaderParams;
     root["ui"] = ui;
 
     // Theme settings
@@ -190,6 +224,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     visualizer["extendedMetadata"] = settings->visualizerExtendedMetadata();
     visualizer["showAfterShot"] = settings->visualizerShowAfterShot();
     visualizer["clearNotesOnStart"] = settings->visualizerClearNotesOnStart();
+    visualizer["defaultShotRating"] = settings->defaultShotRating();
     root["visualizer"] = visualizer;
 
     // AI settings
@@ -202,6 +237,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     }
     ai["ollamaEndpoint"] = settings->ollamaEndpoint();
     ai["ollamaModel"] = settings->ollamaModel();
+    if (includeSensitive) {
+        ai["openrouterApiKey"] = settings->openrouterApiKey();
+    }
+    ai["openrouterModel"] = settings->openrouterModel();
     root["ai"] = ai;
 
     // DYE (Describe Your Espresso) metadata
@@ -219,6 +258,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     dye["espressoEnjoyment"] = settings->dyeEspressoEnjoyment();
     dye["shotNotes"] = settings->dyeShotNotes();
     dye["barista"] = settings->dyeBarista();
+    dye["shotDateTime"] = settings->dyeShotDateTime();
     root["dye"] = dye;
 
     // Shot server settings
@@ -226,11 +266,13 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     shotServer["enabled"] = settings->shotServerEnabled();
     shotServer["hostname"] = settings->shotServerHostname();
     shotServer["port"] = settings->shotServerPort();
+    shotServer["webSecurityEnabled"] = settings->webSecurityEnabled();
     root["shotServer"] = shotServer;
 
     // Auto-update settings
     QJsonObject updates;
     updates["autoCheck"] = settings->autoCheckUpdates();
+    updates["betaUpdatesEnabled"] = settings->betaUpdatesEnabled();
     root["updates"] = updates;
 
     // Developer settings - intentionally not exported (session-only Easter eggs)
@@ -243,7 +285,54 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         schedule.append(QJsonValue::fromVariant(day));
     }
     autoWake["schedule"] = schedule;
+    autoWake["stayAwakeEnabled"] = settings->autoWakeStayAwakeEnabled();
+    autoWake["stayAwakeMinutes"] = settings->autoWakeStayAwakeMinutes();
     root["autoWake"] = autoWake;
+
+    // Auto-favorites settings
+    QJsonObject autoFavorites;
+    autoFavorites["groupBy"] = settings->autoFavoritesGroupBy();
+    autoFavorites["maxItems"] = settings->autoFavoritesMaxItems();
+    autoFavorites["openBrewSettings"] = settings->autoFavoritesOpenBrewSettings();
+    autoFavorites["hideUnrated"] = settings->autoFavoritesHideUnrated();
+    root["autoFavorites"] = autoFavorites;
+
+    // MQTT settings (Home Automation)
+    QJsonObject mqtt;
+    mqtt["enabled"] = settings->mqttEnabled();
+    mqtt["brokerHost"] = settings->mqttBrokerHost();
+    mqtt["brokerPort"] = settings->mqttBrokerPort();
+    mqtt["username"] = settings->mqttUsername();
+    if (includeSensitive) {
+        mqtt["password"] = settings->mqttPassword();
+    }
+    mqtt["baseTopic"] = settings->mqttBaseTopic();
+    mqtt["publishInterval"] = settings->mqttPublishInterval();
+    mqtt["retainMessages"] = settings->mqttRetainMessages();
+    mqtt["homeAssistantDiscovery"] = settings->mqttHomeAssistantDiscovery();
+    mqtt["clientId"] = settings->mqttClientId();
+    root["mqtt"] = mqtt;
+
+    // Layout configuration
+    root["layoutConfiguration"] = settings->layoutConfiguration();
+
+    // Machine tuning
+    QJsonObject machineTuning;
+    machineTuning["waterRefillPoint"] = settings->waterRefillPoint();
+    machineTuning["refillKitOverride"] = settings->refillKitOverride();
+    machineTuning["heaterIdleTemp"] = settings->heaterIdleTemp();
+    machineTuning["heaterWarmupFlow"] = settings->heaterWarmupFlow();
+    machineTuning["heaterTestFlow"] = settings->heaterTestFlow();
+    machineTuning["heaterWarmupTimeout"] = settings->heaterWarmupTimeout();
+    machineTuning["hotWaterFlowRate"] = settings->hotWaterFlowRate();
+    machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
+    root["machineTuning"] = machineTuning;
+
+    // BLE health refresh
+    root["bleHealthRefreshEnabled"] = settings->bleHealthRefreshEnabled();
+
+    // Daily backup hour
+    root["dailyBackupHour"] = settings->dailyBackupHour();
 
     return root;
 }
@@ -265,6 +354,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (scale.contains("address")) settings->setScaleAddress(scale["address"].toString());
         if (scale.contains("type")) settings->setScaleType(scale["type"].toString());
         if (scale.contains("name")) settings->setScaleName(scale["name"].toString());
+        if (scale.contains("useFlowScale")) settings->setUseFlowScale(scale["useFlowScale"].toBool());
     }
 
     // Espresso settings
@@ -282,6 +372,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("timeout")) settings->setSteamTimeout(steam["timeout"].toInt());
         if (steam.contains("flow")) settings->setSteamFlow(steam["flow"].toInt());
         if (steam.contains("keepHeaterOn")) settings->setKeepSteamHeaterOn(steam["keepHeaterOn"].toBool());
+        if (steam.contains("disabled")) settings->setSteamDisabled(steam["disabled"].toBool());
+        if (steam.contains("autoFlushSeconds")) settings->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
+        if (steam.contains("twoTapStop")) settings->setSteamTwoTapStop(steam["twoTapStop"].toBool());
         if (steam.contains("selectedPitcher")) settings->setSelectedSteamCup(steam["selectedPitcher"].toInt());
 
         // Import pitcher presets
@@ -308,11 +401,17 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
     }
 
+    // Launcher mode
+    if (json.contains("launcherMode") && !excludeKeys.contains("launcherMode")) {
+        settings->setLauncherMode(json["launcherMode"].toBool());
+    }
+
     // Hot water settings
     if (json.contains("water") && !excludeKeys.contains("water")) {
         QJsonObject water = json["water"].toObject();
         if (water.contains("temperature")) settings->setWaterTemperature(water["temperature"].toDouble());
         if (water.contains("volume")) settings->setWaterVolume(water["volume"].toInt());
+        if (water.contains("volumeMode")) settings->setWaterVolumeMode(water["volumeMode"].toString());
         if (water.contains("selectedVessel")) settings->setSelectedWaterCup(water["selectedVessel"].toInt());
 
         // Import vessel presets
@@ -404,6 +503,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             }
             settings->setSelectedBuiltInProfiles(builtIns);
         }
+
+        if (profile.contains("hiddenProfiles")) {
+            QStringList hidden;
+            QJsonArray arr = profile["hiddenProfiles"].toArray();
+            for (const QJsonValue& v : arr) {
+                hidden.append(v.toString());
+            }
+            settings->setHiddenProfiles(hidden);
+        }
     }
 
     // Shot history settings
@@ -429,6 +537,23 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (ui.contains("skin")) settings->setSkin(ui["skin"].toString());
         if (ui.contains("screenBrightness")) settings->setScreenBrightness(ui["screenBrightness"].toDouble());
         if (ui.contains("waterLevelDisplayUnit")) settings->setWaterLevelDisplayUnit(ui["waterLevelDisplayUnit"].toString());
+
+        if (ui.contains("customFontSizes")) {
+            QVariantMap sizes;
+            QJsonObject fontSizes = ui["customFontSizes"].toObject();
+            for (auto it = fontSizes.begin(); it != fontSizes.end(); ++it) {
+                sizes[it.key()] = it.value().toDouble();
+            }
+            settings->setCustomFontSizes(sizes);
+        }
+
+        if (ui.contains("activeShader")) settings->setActiveShader(ui["activeShader"].toString());
+        if (ui.contains("shaderParams")) {
+            QJsonObject sp = ui["shaderParams"].toObject();
+            for (auto it = sp.begin(); it != sp.end(); ++it) {
+                settings->setShaderParam(it.key(), it.value().toDouble());
+            }
+        }
     }
 
     // Theme settings
@@ -467,6 +592,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (visualizer.contains("extendedMetadata")) settings->setVisualizerExtendedMetadata(visualizer["extendedMetadata"].toBool());
         if (visualizer.contains("showAfterShot")) settings->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());
         if (visualizer.contains("clearNotesOnStart")) settings->setVisualizerClearNotesOnStart(visualizer["clearNotesOnStart"].toBool());
+        if (visualizer.contains("defaultShotRating")) settings->setDefaultShotRating(visualizer["defaultShotRating"].toInt());
     }
 
     // AI settings
@@ -484,6 +610,10 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
         if (ai.contains("ollamaEndpoint")) settings->setOllamaEndpoint(ai["ollamaEndpoint"].toString());
         if (ai.contains("ollamaModel")) settings->setOllamaModel(ai["ollamaModel"].toString());
+        if (ai.contains("openrouterApiKey") && !excludeKeys.contains("openrouterApiKey")) {
+            settings->setOpenrouterApiKey(ai["openrouterApiKey"].toString());
+        }
+        if (ai.contains("openrouterModel")) settings->setOpenrouterModel(ai["openrouterModel"].toString());
     }
 
     // DYE metadata
@@ -504,6 +634,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (dye.contains("shotNotes")) settings->setDyeShotNotes(dye["shotNotes"].toString());
         else if (dye.contains("espressoNotes")) settings->setDyeShotNotes(dye["espressoNotes"].toString());
         if (dye.contains("barista")) settings->setDyeBarista(dye["barista"].toString());
+        if (dye.contains("shotDateTime")) settings->setDyeShotDateTime(dye["shotDateTime"].toString());
     }
 
     // Shot server settings
@@ -512,12 +643,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (shotServer.contains("enabled")) settings->setShotServerEnabled(shotServer["enabled"].toBool());
         if (shotServer.contains("hostname")) settings->setShotServerHostname(shotServer["hostname"].toString());
         if (shotServer.contains("port")) settings->setShotServerPort(shotServer["port"].toInt());
+        if (shotServer.contains("webSecurityEnabled")) settings->setWebSecurityEnabled(shotServer["webSecurityEnabled"].toBool());
     }
 
     // Auto-update settings
     if (json.contains("updates") && !excludeKeys.contains("updates")) {
         QJsonObject updates = json["updates"].toObject();
         if (updates.contains("autoCheck")) settings->setAutoCheckUpdates(updates["autoCheck"].toBool());
+        if (updates.contains("betaUpdatesEnabled")) settings->setBetaUpdatesEnabled(updates["betaUpdatesEnabled"].toBool());
     }
 
     // Developer settings
@@ -540,6 +673,62 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             }
             settings->setAutoWakeSchedule(schedule);
         }
+        if (autoWake.contains("stayAwakeEnabled")) settings->setAutoWakeStayAwakeEnabled(autoWake["stayAwakeEnabled"].toBool());
+        if (autoWake.contains("stayAwakeMinutes")) settings->setAutoWakeStayAwakeMinutes(autoWake["stayAwakeMinutes"].toInt());
+    }
+
+    // Auto-favorites settings
+    if (json.contains("autoFavorites") && !excludeKeys.contains("autoFavorites")) {
+        QJsonObject af = json["autoFavorites"].toObject();
+        if (af.contains("groupBy")) settings->setAutoFavoritesGroupBy(af["groupBy"].toString());
+        if (af.contains("maxItems")) settings->setAutoFavoritesMaxItems(af["maxItems"].toInt());
+        if (af.contains("openBrewSettings")) settings->setAutoFavoritesOpenBrewSettings(af["openBrewSettings"].toBool());
+        if (af.contains("hideUnrated")) settings->setAutoFavoritesHideUnrated(af["hideUnrated"].toBool());
+    }
+
+    // MQTT settings
+    if (json.contains("mqtt") && !excludeKeys.contains("mqtt")) {
+        QJsonObject mqtt = json["mqtt"].toObject();
+        if (mqtt.contains("enabled")) settings->setMqttEnabled(mqtt["enabled"].toBool());
+        if (mqtt.contains("brokerHost")) settings->setMqttBrokerHost(mqtt["brokerHost"].toString());
+        if (mqtt.contains("brokerPort")) settings->setMqttBrokerPort(mqtt["brokerPort"].toInt());
+        if (mqtt.contains("username")) settings->setMqttUsername(mqtt["username"].toString());
+        if (mqtt.contains("password") && !excludeKeys.contains("mqttPassword")) {
+            settings->setMqttPassword(mqtt["password"].toString());
+        }
+        if (mqtt.contains("baseTopic")) settings->setMqttBaseTopic(mqtt["baseTopic"].toString());
+        if (mqtt.contains("publishInterval")) settings->setMqttPublishInterval(mqtt["publishInterval"].toInt());
+        if (mqtt.contains("retainMessages")) settings->setMqttRetainMessages(mqtt["retainMessages"].toBool());
+        if (mqtt.contains("homeAssistantDiscovery")) settings->setMqttHomeAssistantDiscovery(mqtt["homeAssistantDiscovery"].toBool());
+        if (mqtt.contains("clientId")) settings->setMqttClientId(mqtt["clientId"].toString());
+    }
+
+    // Layout configuration
+    if (json.contains("layoutConfiguration") && !excludeKeys.contains("layoutConfiguration")) {
+        settings->setLayoutConfiguration(json["layoutConfiguration"].toString());
+    }
+
+    // Machine tuning
+    if (json.contains("machineTuning") && !excludeKeys.contains("machineTuning")) {
+        QJsonObject mt = json["machineTuning"].toObject();
+        if (mt.contains("waterRefillPoint")) settings->setWaterRefillPoint(mt["waterRefillPoint"].toInt());
+        if (mt.contains("refillKitOverride")) settings->setRefillKitOverride(mt["refillKitOverride"].toInt());
+        if (mt.contains("heaterIdleTemp")) settings->setHeaterIdleTemp(mt["heaterIdleTemp"].toInt());
+        if (mt.contains("heaterWarmupFlow")) settings->setHeaterWarmupFlow(mt["heaterWarmupFlow"].toInt());
+        if (mt.contains("heaterTestFlow")) settings->setHeaterTestFlow(mt["heaterTestFlow"].toInt());
+        if (mt.contains("heaterWarmupTimeout")) settings->setHeaterWarmupTimeout(mt["heaterWarmupTimeout"].toInt());
+        if (mt.contains("hotWaterFlowRate")) settings->setHotWaterFlowRate(mt["hotWaterFlowRate"].toInt());
+        if (mt.contains("flowCalibrationMultiplier")) settings->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
+    }
+
+    // BLE health refresh
+    if (json.contains("bleHealthRefreshEnabled") && !excludeKeys.contains("bleHealthRefreshEnabled")) {
+        settings->setBleHealthRefreshEnabled(json["bleHealthRefreshEnabled"].toBool());
+    }
+
+    // Daily backup hour
+    if (json.contains("dailyBackupHour") && !excludeKeys.contains("dailyBackupHour")) {
+        settings->setDailyBackupHour(json["dailyBackupHour"].toInt());
     }
 
     // Sync to disk

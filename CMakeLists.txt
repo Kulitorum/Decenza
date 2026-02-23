@@ -235,6 +235,7 @@ set(SOURCES
     src/network/shotserver_theme.cpp
     src/network/shotserver_settings.cpp
     src/network/shotserver_auth.cpp
+    src/network/shotserver_ai.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
@@ -526,7 +527,6 @@ set(QML_FILES
     qml/components/CrashReportDialog.qml
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml
-    qml/components/ReportAdviceDialog.qml
     qml/components/QrCode.qml
     qml/components/qrcode.js
 

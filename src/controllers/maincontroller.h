@@ -124,6 +124,8 @@ public:
         m_aiManager = aiManager;
         if (m_aiManager && m_shotHistory)
             m_aiManager->setShotHistoryStorage(m_shotHistory);
+        if (m_aiManager && m_dataMigration)
+            m_dataMigration->setAIManager(m_aiManager);
     }
     void setBLEManager(BLEManager* bleManager) { m_bleManager = bleManager; }
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }

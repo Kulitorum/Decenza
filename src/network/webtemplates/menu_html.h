@@ -33,6 +33,7 @@ inline QString generateMenuHtml(bool includeUploadApk = false)
                         <a href="/theme" class="menu-item">&#127752; Theme Editor</a>
                         <a href="/api/backup/full" class="menu-item">&#128230; Download Backup</a>
                         <a href="/restore" class="menu-item">&#128229; Restore Backup</a>
+                        <a href="/ai-conversations" class="menu-item">&#129302; AI Conversations</a>
                     </div>
                 </div>)HTML";
 

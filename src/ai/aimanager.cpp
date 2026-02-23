@@ -17,7 +17,6 @@
 #include <QCryptographicHash>
 #include <QJsonDocument>
 #include <QJsonParseError>
-#include <QRegularExpression>
 #include <cmath>
 
 AIManager::AIManager(Settings* settings, QObject* parent)
@@ -360,12 +359,6 @@ QString AIManager::getRecentShotContext(const QString& beanBrand, const QString&
         QString summary = generateHistoryShotSummary(fullShot);
         if (summary.isEmpty()) continue;
 
-        // Strip the profile recipe section from historical summaries — the current
-        // shot already has the full recipe, and stored profile JSONs can differ
-        // between shots even for the same profile name (app updates, edits)
-        static const QRegularExpression recipeRe("## Profile Recipe[^\\n]*\\n(?:(?!## ).+\\n)*\\n?");
-        summary.replace(recipeRe, QString());
-
         // Format date for header
         QString dateStr = QDateTime::fromSecsSinceEpoch(timestamp).toString("MMM d, HH:mm");
 
@@ -375,11 +368,7 @@ QString AIManager::getRecentShotContext(const QString& beanBrand, const QString&
     if (shotSections.isEmpty())
         return QString();
 
-    return "## Previous Shots with This Bean & Profile\n\n"
-           "All shots below use the same profile as the current shot. "
-           "Do NOT report profile recipe differences — focus on what the user changed "
-           "(grind, dose, temperature) and how it affected the outcome.\n\n" +
-           shotSections.join("\n\n");
+    return "## Previous Shots with This Bean & Profile\n\n" + shotSections.join("\n\n");
 }
 
 void AIManager::testConnection()

@@ -814,7 +814,10 @@ KeyboardAwareContainer {
                                   TranslationManager.translate("settings.data.settings", "Settings") + ": " +
                                   (MainController.dataMigration.manifest.hasSettings ?
                                    TranslationManager.translate("common.yes", "Yes") :
-                                   TranslationManager.translate("common.no", "No"))
+                                   TranslationManager.translate("common.no", "No")) +
+                                  ((MainController.dataMigration.manifest.aiConversationCount || 0) > 0 ?
+                                   " • " + TranslationManager.translate("settings.data.aiconversations", "AI Conversations") + ": " +
+                                   MainController.dataMigration.manifest.aiConversationCount : "")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -916,6 +919,14 @@ KeyboardAwareContainer {
                             enabled: (MainController.dataMigration.manifest.mediaCount || 0) > 0
                             onClicked: MainController.dataMigration.importOnlyMedia()
                         }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.data.importaiconversations", "Import AI Conversations") +
+                                  " (" + (MainController.dataMigration.manifest.aiConversationCount || 0) + ")"
+                            accessibleName: TranslationManager.translate("settings.data.importAIConversationsAccessible", "Import only AI conversations from remote device")
+                            enabled: (MainController.dataMigration.manifest.aiConversationCount || 0) > 0
+                            onClicked: MainController.dataMigration.importOnlyAIConversations()
+                        }
                     }
                 }
 
@@ -928,11 +939,12 @@ KeyboardAwareContainer {
     Connections {
         target: MainController.dataMigration
 
-        function onImportComplete(settingsImported, profilesImported, shotsImported, mediaImported) {
+        function onImportComplete(settingsImported, profilesImported, shotsImported, mediaImported, aiConversationsImported) {
             importCompletePopup.settingsCount = settingsImported
             importCompletePopup.profilesCount = profilesImported
             importCompletePopup.shotsCount = shotsImported
             importCompletePopup.mediaCount = mediaImported
+            importCompletePopup.aiConversationsCount = aiConversationsImported
             importCompletePopup.open()
 
             // Refresh profiles list
@@ -957,6 +969,7 @@ KeyboardAwareContainer {
         property int profilesCount: 0
         property int shotsCount: 0
         property int mediaCount: 0
+        property int aiConversationsCount: 0
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1052,6 +1065,20 @@ KeyboardAwareContainer {
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(13)
                     visible: importCompletePopup.mediaCount > 0
+                }
+
+                Tr {
+                    key: "settings.data.aiconversations"
+                    fallback: "AI Conversations:"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(13)
+                    visible: importCompletePopup.aiConversationsCount > 0
+                }
+                Text {
+                    text: importCompletePopup.aiConversationsCount
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(13)
+                    visible: importCompletePopup.aiConversationsCount > 0
                 }
             }
 

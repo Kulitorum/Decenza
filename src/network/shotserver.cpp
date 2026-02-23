@@ -1084,6 +1084,9 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         QString filename = QUrl::fromPercentEncoding(path.mid(18).toUtf8());
         handleBackupMediaFile(socket, filename);
     }
+    else if (path == "/api/backup/ai-conversations") {
+        handleBackupAIConversations(socket);
+    }
     // Full backup download/restore
     else if (path == "/api/backup/full") {
         handleBackupFull(socket);
@@ -1158,6 +1161,19 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         qsizetype headerEndPos = request.indexOf("\r\n\r\n");
         QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
         handleLayoutApi(socket, method, path, body);
+    }
+    else if (path == "/ai-conversations") {
+        sendHtml(socket, generateAIConversationsPage());
+    }
+    else if (path.startsWith("/api/ai-conversation/")) {
+        // /api/ai-conversation/<key>/download?format=json|text
+        QString remainder = path.mid(QString("/api/ai-conversation/").length());
+        int slashIdx = remainder.indexOf('/');
+        QString key = (slashIdx >= 0) ? remainder.left(slashIdx) : remainder;
+        // Parse format from query string
+        QString format = "json";
+        if (path.contains("format=text")) format = "text";
+        handleAIConversationDownload(socket, key, format);
     }
     else if (path.startsWith("/icons/") && path.endsWith(".svg")) {
         // Serve SVG icons from Qt resources for web layout editor

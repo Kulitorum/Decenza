@@ -86,8 +86,7 @@ public:
     Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& shotLabel, const QString& beverageType = "espresso");
 
     /**
-     * Process a shot summary for conversation: deduplicates profile recipe if same
-     * profile as previous shot, and prepends a "changes from previous" section.
+     * Process a shot summary for conversation: prepends a "changes from previous" section.
      * Call this before sending via ask()/followUp() to avoid redundant data.
      * shotLabel is a human-readable date/time string (e.g. "Feb 15, 14:30") identifying the shot.
      */

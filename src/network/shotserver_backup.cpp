@@ -33,6 +33,7 @@
 #endif
 #include <QCoreApplication>
 #include <QRegularExpression>
+#include <QSettings>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -132,6 +133,14 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
     } else {
         manifest["shotCount"] = 0;
         manifest["shotsSize"] = 0;
+    }
+
+    // AI conversations info
+    if (m_aiManager) {
+        int convCount = m_aiManager->conversationIndex().size();
+        manifest["aiConversationCount"] = convCount;
+    } else {
+        manifest["aiConversationCount"] = 0;
     }
 
     // Personal media info
@@ -315,6 +324,54 @@ void ShotServer::handleBackupMediaFile(QTcpSocket* socket, const QString& filena
     sendFile(socket, filePath, contentType);
 }
 
+void ShotServer::handleBackupAIConversations(QTcpSocket* socket)
+{
+    if (!m_aiManager) {
+        sendJson(socket, "[]");
+        return;
+    }
+
+    QSettings settings;
+    QJsonArray result;
+
+    for (const auto& entry : m_aiManager->conversationIndex()) {
+        QString prefix = "ai/conversations/" + entry.key + "/";
+
+        QString systemPrompt = settings.value(prefix + "systemPrompt").toString();
+        QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
+        QString timestamp = settings.value(prefix + "timestamp").toString();
+        QString contextLabel = settings.value(prefix + "contextLabel").toString();
+
+        QJsonObject conv;
+        conv["key"] = entry.key;
+        conv["beanBrand"] = entry.beanBrand;
+        conv["beanType"] = entry.beanType;
+        conv["profileName"] = entry.profileName;
+        conv["timestamp"] = timestamp;
+        conv["systemPrompt"] = systemPrompt;
+        conv["contextLabel"] = contextLabel;
+
+        // Parse messages JSON into array
+        if (!messagesJson.isEmpty()) {
+            QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
+            if (msgDoc.isArray()) {
+                conv["messages"] = msgDoc.array();
+            } else {
+                conv["messages"] = QJsonArray();
+            }
+        } else {
+            conv["messages"] = QJsonArray();
+        }
+
+        // Include index entry timestamp as fallback
+        conv["indexTimestamp"] = entry.timestamp;
+
+        result.append(conv);
+    }
+
+    sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+}
+
 // ============================================================================
 // Full Backup Download/Restore
 // ============================================================================
@@ -392,6 +449,70 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
                 }
             }
         }
+    }
+
+    // 5. AI conversations
+    if (m_aiManager) {
+        QSettings settings;
+        QJsonArray conversations;
+        for (const auto& entry : m_aiManager->conversationIndex()) {
+            QString prefix = "ai/conversations/" + entry.key + "/";
+            QJsonObject conv;
+            conv["key"] = entry.key;
+            conv["beanBrand"] = entry.beanBrand;
+            conv["beanType"] = entry.beanType;
+            conv["profileName"] = entry.profileName;
+            conv["timestamp"] = settings.value(prefix + "timestamp").toString();
+            conv["systemPrompt"] = settings.value(prefix + "systemPrompt").toString();
+            conv["contextLabel"] = settings.value(prefix + "contextLabel").toString();
+            conv["indexTimestamp"] = entry.timestamp;
+            QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
+            if (!messagesJson.isEmpty()) {
+                QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
+                if (msgDoc.isArray()) conv["messages"] = msgDoc.array();
+                else conv["messages"] = QJsonArray();
+            } else {
+                conv["messages"] = QJsonArray();
+            }
+            conversations.append(conv);
+        }
+        if (!conversations.isEmpty()) {
+            QByteArray convData = QJsonDocument(conversations).toJson(QJsonDocument::Compact);
+            entries.append({"ai_conversations.json", convData});
+        }
+    }
+
+    // 6. Extra QSettings data (not in Settings class)
+    {
+        QSettings settings;
+        QJsonObject extra;
+
+        // Shot map location
+        QJsonObject shotMap;
+        shotMap["manualCity"] = settings.value("shotMap/manualCity", "").toString();
+        shotMap["manualLat"] = settings.value("shotMap/manualLat", 0.0).toDouble();
+        shotMap["manualLon"] = settings.value("shotMap/manualLon", 0.0).toDouble();
+        shotMap["manualCountryCode"] = settings.value("shotMap/manualCountryCode", "").toString();
+        shotMap["manualGeocoded"] = settings.value("shotMap/manualGeocoded", false).toBool();
+        extra["shotMap"] = shotMap;
+
+        // Accessibility settings
+        QJsonObject accessibility;
+        accessibility["enabled"] = settings.value("accessibility/enabled", false).toBool();
+        accessibility["ttsEnabled"] = settings.value("accessibility/ttsEnabled", true).toBool();
+        accessibility["tickEnabled"] = settings.value("accessibility/tickEnabled", true).toBool();
+        accessibility["tickSoundIndex"] = settings.value("accessibility/tickSoundIndex", 1).toInt();
+        accessibility["tickVolume"] = settings.value("accessibility/tickVolume", 100).toInt();
+        accessibility["extractionAnnouncementsEnabled"] = settings.value("accessibility/extractionAnnouncementsEnabled", true).toBool();
+        accessibility["extractionAnnouncementInterval"] = settings.value("accessibility/extractionAnnouncementInterval", 5).toInt();
+        accessibility["extractionAnnouncementMode"] = settings.value("accessibility/extractionAnnouncementMode", "both").toString();
+        extra["accessibility"] = accessibility;
+
+        // Language
+        extra["language"] = settings.value("localization/language", "en").toString();
+
+        QByteArray extraData = QJsonDocument(extra).toJson(QJsonDocument::Compact);
+        entries.append({"extra_settings.json", extraData});
     }
 
     // Build binary archive
@@ -572,7 +693,7 @@ QString ShotServer::generateRestorePage() const
             <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
                 <div class="upload-icon">&#128229;</div>
                 <div class="upload-text">Click or drag a .dcbackup file here</div>
-                <div class="upload-hint">Restores settings, profiles, shots, and media</div>
+                <div class="upload-hint">Restores settings, profiles, shots, media, and AI conversations</div>
             </div>
             <input type="file" id="fileInput" accept=".dcbackup" onchange="handleFile(this.files[0])">
             <div class="progress-bar" id="progressBar">
@@ -588,6 +709,7 @@ QString ShotServer::generateRestorePage() const
                 <li>Shot history will be merged (no duplicates)</li>
                 <li>Profiles with the same name are skipped (not overwritten)</li>
                 <li>Media with the same name is skipped (not overwritten)</li>
+                <li>AI conversations are merged (existing ones are not overwritten)</li>
                 <li>The app may need a restart for some settings to take effect</li>
             </ul>
         </div>
@@ -659,6 +781,7 @@ QString ShotServer::generateRestorePage() const
                         if (r.profilesSkipped > 0) parts.push(r.profilesSkipped + " profiles already existed");
                         if (r.mediaImported > 0) parts.push(r.mediaImported + " media imported");
                         if (r.mediaSkipped > 0) parts.push(r.mediaSkipped + " media already existed");
+                        if (r.aiConversationsImported > 0) parts.push(r.aiConversationsImported + " AI conversations imported");
                         if (parts.length === 0) parts.push("Nothing to restore");
                         showStatus("success", "Restore complete: " + parts.join(", "));
                     } catch (e) {
@@ -765,6 +888,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     int profilesSkipped = 0;
     int mediaImported = 0;
     int mediaSkipped = 0;
+    int aiConversationsImported = 0;
 
     for (quint32 i = 0; i < entryCount; i++) {
         // Read name length
@@ -873,12 +997,102 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 }
             }
         }
+        else if (name == "extra_settings.json") {
+            QJsonDocument doc = QJsonDocument::fromJson(entryData);
+            if (doc.isObject()) {
+                QSettings settings;
+                QJsonObject extra = doc.object();
+
+                // Shot map location
+                if (extra.contains("shotMap")) {
+                    QJsonObject sm = extra["shotMap"].toObject();
+                    settings.setValue("shotMap/manualCity", sm["manualCity"].toString());
+                    settings.setValue("shotMap/manualLat", sm["manualLat"].toDouble());
+                    settings.setValue("shotMap/manualLon", sm["manualLon"].toDouble());
+                    settings.setValue("shotMap/manualCountryCode", sm["manualCountryCode"].toString());
+                    settings.setValue("shotMap/manualGeocoded", sm["manualGeocoded"].toBool());
+                }
+
+                // Accessibility (only write keys that are present to avoid overwriting defaults)
+                if (extra.contains("accessibility")) {
+                    QJsonObject a = extra["accessibility"].toObject();
+                    if (a.contains("enabled")) settings.setValue("accessibility/enabled", a["enabled"].toBool());
+                    if (a.contains("ttsEnabled")) settings.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
+                    if (a.contains("tickEnabled")) settings.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
+                    if (a.contains("tickSoundIndex")) settings.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
+                    if (a.contains("tickVolume")) settings.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
+                    if (a.contains("extractionAnnouncementsEnabled")) settings.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
+                    if (a.contains("extractionAnnouncementInterval")) settings.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
+                    if (a.contains("extractionAnnouncementMode")) settings.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
+                }
+
+                // Language
+                if (extra.contains("language")) {
+                    settings.setValue("localization/language", extra["language"].toString());
+                }
+
+                settings.sync();
+                qDebug() << "ShotServer: Restored extra settings (location, accessibility, language)";
+            }
+        }
+        else if (name == "ai_conversations.json") {
+            if (m_aiManager) {
+                QJsonDocument doc = QJsonDocument::fromJson(entryData);
+                if (doc.isArray()) {
+                    QSettings settings;
+                    // Load existing index to merge
+                    QJsonDocument existingDoc = QJsonDocument::fromJson(
+                        settings.value("ai/conversations/index").toByteArray());
+                    QJsonArray existingIndex = existingDoc.isArray() ? existingDoc.array() : QJsonArray();
+                    QSet<QString> existingKeys;
+                    for (const QJsonValue& v : existingIndex) {
+                        existingKeys.insert(v.toObject()["key"].toString());
+                    }
+
+                    QJsonArray conversations = doc.array();
+                    for (const QJsonValue& val : conversations) {
+                        QJsonObject conv = val.toObject();
+                        QString key = conv["key"].toString();
+                        if (key.isEmpty() || existingKeys.contains(key)) continue;
+
+                        // Write conversation data to QSettings
+                        QString prefix = "ai/conversations/" + key + "/";
+                        settings.setValue(prefix + "systemPrompt", conv["systemPrompt"].toString());
+                        settings.setValue(prefix + "contextLabel", conv["contextLabel"].toString());
+                        settings.setValue(prefix + "timestamp", conv["timestamp"].toString());
+                        QJsonArray messages = conv["messages"].toArray();
+                        settings.setValue(prefix + "messages",
+                            QJsonDocument(messages).toJson(QJsonDocument::Compact));
+
+                        // Add to index
+                        QJsonObject indexEntry;
+                        indexEntry["key"] = key;
+                        indexEntry["beanBrand"] = conv["beanBrand"].toString();
+                        indexEntry["beanType"] = conv["beanType"].toString();
+                        indexEntry["profileName"] = conv["profileName"].toString();
+                        indexEntry["timestamp"] = conv["indexTimestamp"].toVariant().toLongLong();
+                        existingIndex.append(indexEntry);
+                        existingKeys.insert(key);
+                        aiConversationsImported++;
+                    }
+
+                    if (aiConversationsImported > 0) {
+                        settings.setValue("ai/conversations/index",
+                            QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
+                        settings.sync();
+                        m_aiManager->loadConversationIndex();
+                        qDebug() << "ShotServer: Imported" << aiConversationsImported << "AI conversations";
+                    }
+                }
+            }
+        }
     }
 
     qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored
              << "shots:" << shotsRestored
              << "profiles:" << profilesImported << "(skipped:" << profilesSkipped << ")"
-             << "media:" << mediaImported << "(skipped:" << mediaSkipped << ")";
+             << "media:" << mediaImported << "(skipped:" << mediaSkipped << ")"
+             << "aiConversations:" << aiConversationsImported;
 
     // Build response
     QJsonObject result;
@@ -889,6 +1103,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     result["profilesSkipped"] = profilesSkipped;
     result["mediaImported"] = mediaImported;
     result["mediaSkipped"] = mediaSkipped;
+    result["aiConversationsImported"] = aiConversationsImported;
 
     sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     cleanupTempFile();

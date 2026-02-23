@@ -5,6 +5,7 @@
 #include "../profile/profile.h"
 #include "../history/shothistorystorage.h"
 #include "../screensaver/screensavervideomanager.h"
+#include "../ai/aimanager.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -15,6 +16,8 @@
 #include <QFileInfo>
 #include <QUrl>
 #include <QNetworkInterface>
+#include <QSettings>
+#include <QSet>
 
 DataMigrationClient::DataMigrationClient(QObject* parent)
     : QObject(parent)
@@ -127,6 +130,7 @@ void DataMigrationClient::startImport(const QStringList& types)
     m_profilesImported = 0;
     m_shotsImported = 0;
     m_mediaImported = 0;
+    m_aiConversationsImported = 0;
     m_progress = 0.0;
     m_errorMessage.clear();
 
@@ -172,6 +176,9 @@ void DataMigrationClient::importAll()
     if (m_manifest["mediaCount"].toInt() > 0) {
         types << "media";
     }
+    if (m_manifest["aiConversationCount"].toInt() > 0) {
+        types << "ai_conversations";
+    }
 
     startImport(types);
 }
@@ -204,6 +211,102 @@ void DataMigrationClient::importOnlyMedia()
     }
 }
 
+void DataMigrationClient::importOnlyAIConversations()
+{
+    if (m_manifest["aiConversationCount"].toInt() > 0) {
+        startImport(QStringList{"ai_conversations"});
+    }
+}
+
+void DataMigrationClient::doImportAIConversations()
+{
+    setCurrentOperation(tr("Importing AI conversations..."));
+
+    QUrl url(m_serverUrl + "/api/backup/ai-conversations");
+    QNetworkRequest request(url);
+
+    m_currentReply = m_networkManager->get(request);
+    connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onAIConversationsReply);
+    connect(m_currentReply, &QNetworkReply::downloadProgress, this, &DataMigrationClient::onDownloadProgress);
+}
+
+void DataMigrationClient::onAIConversationsReply()
+{
+    QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+
+    if (m_cancelled || reply != m_currentReply) {
+        reply->deleteLater();
+        return;
+    }
+
+    if (reply->error() != QNetworkReply::NoError) {
+        qWarning() << "DataMigrationClient: Failed to import AI conversations:" << reply->errorString();
+    } else {
+        QByteArray data = reply->readAll();
+        m_receivedBytes += data.size();
+
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (doc.isArray()) {
+            QSettings settings;
+            QJsonArray conversations = doc.array();
+
+            // Load existing index to know which keys to skip
+            QJsonArray existingIndex;
+            QByteArray existingIndexData = settings.value("ai/conversations/index").toByteArray();
+            if (!existingIndexData.isEmpty()) {
+                QJsonDocument indexDoc = QJsonDocument::fromJson(existingIndexData);
+                if (indexDoc.isArray()) existingIndex = indexDoc.array();
+            }
+            QSet<QString> existingKeys;
+            for (const QJsonValue& v : existingIndex) {
+                existingKeys.insert(v.toObject()["key"].toString());
+            }
+
+            for (const QJsonValue& val : conversations) {
+                QJsonObject conv = val.toObject();
+                QString key = conv["key"].toString();
+                if (key.isEmpty() || existingKeys.contains(key)) continue;
+
+                // Write conversation data to QSettings
+                QString prefix = "ai/conversations/" + key + "/";
+                settings.setValue(prefix + "systemPrompt", conv["systemPrompt"].toString());
+                settings.setValue(prefix + "messages",
+                    QJsonDocument(conv["messages"].toArray()).toJson(QJsonDocument::Compact));
+                settings.setValue(prefix + "timestamp", conv["timestamp"].toString());
+                settings.setValue(prefix + "contextLabel", conv["contextLabel"].toString());
+
+                // Add to index
+                QJsonObject indexEntry;
+                indexEntry["key"] = key;
+                indexEntry["beanBrand"] = conv["beanBrand"].toString();
+                indexEntry["beanType"] = conv["beanType"].toString();
+                indexEntry["profileName"] = conv["profileName"].toString();
+                indexEntry["timestamp"] = conv["indexTimestamp"].toVariant().toLongLong();
+                existingIndex.append(indexEntry);
+                existingKeys.insert(key);
+
+                m_aiConversationsImported++;
+            }
+
+            // Save updated index and reload
+            if (m_aiConversationsImported > 0) {
+                settings.setValue("ai/conversations/index",
+                    QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
+
+                if (m_aiManager)
+                    m_aiManager->loadConversationIndex();
+            }
+
+            qDebug() << "DataMigrationClient: Imported" << m_aiConversationsImported << "AI conversations";
+        }
+    }
+
+    reply->deleteLater();
+    m_currentReply = nullptr;
+    startNextImport();
+}
+
 void DataMigrationClient::startNextImport()
 {
     if (m_cancelled) {
@@ -218,7 +321,7 @@ void DataMigrationClient::startNextImport()
         setProgress(1.0);
         setCurrentOperation(tr("Import complete"));
         emit isImportingChanged();
-        emit importComplete(m_settingsImported, m_profilesImported, m_shotsImported, m_mediaImported);
+        emit importComplete(m_settingsImported, m_profilesImported, m_shotsImported, m_mediaImported, m_aiConversationsImported);
         return;
     }
 
@@ -232,6 +335,8 @@ void DataMigrationClient::startNextImport()
         doImportShots();
     } else if (next == "media") {
         doImportMedia();
+    } else if (next == "ai_conversations") {
+        doImportAIConversations();
     }
 }
 

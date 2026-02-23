@@ -16,6 +16,7 @@ class Settings;
 class ProfileStorage;
 class ShotHistoryStorage;
 class ScreensaverVideoManager;
+class AIManager;
 
 /**
  * @brief Client for importing data from another Decenza device over WiFi.
@@ -45,6 +46,7 @@ public:
     void setProfileStorage(ProfileStorage* profileStorage) { m_profileStorage = profileStorage; }
     void setShotHistoryStorage(ShotHistoryStorage* shotHistory) { m_shotHistory = shotHistory; }
     void setScreensaverVideoManager(ScreensaverVideoManager* screensaver) { m_screensaver = screensaver; }
+    void setAIManager(AIManager* aiManager) { m_aiManager = aiManager; }
 
     // Property getters
     bool isConnecting() const { return m_connecting; }
@@ -75,6 +77,7 @@ public:
     Q_INVOKABLE void importOnlyProfiles();
     Q_INVOKABLE void importOnlyShots();
     Q_INVOKABLE void importOnlyMedia();
+    Q_INVOKABLE void importOnlyAIConversations();
 
     // Cancel ongoing import
     Q_INVOKABLE void cancel();
@@ -91,7 +94,7 @@ signals:
     void discoveredDevicesChanged();
     void connected();
     void connectionFailed(const QString& error);
-    void importComplete(int settingsImported, int profilesImported, int shotsImported, int mediaImported);
+    void importComplete(int settingsImported, int profilesImported, int shotsImported, int mediaImported, int aiConversationsImported);
     void importFailed(const QString& error);
     void discoveryComplete();
 
@@ -103,6 +106,7 @@ private slots:
     void onShotsReply();
     void onMediaListReply();
     void onMediaFileReply();
+    void onAIConversationsReply();
     void onDownloadProgress(qint64 received, qint64 total);
     void onDiscoveryDatagram();
     void onDiscoveryTimeout();
@@ -133,6 +137,7 @@ private:
     void doImportProfiles();
     void doImportShots();
     void doImportMedia();
+    void doImportAIConversations();
 
     QNetworkAccessManager* m_networkManager;
     QPointer<QNetworkReply> m_currentReply;
@@ -142,6 +147,7 @@ private:
     ProfileStorage* m_profileStorage = nullptr;
     ShotHistoryStorage* m_shotHistory = nullptr;
     ScreensaverVideoManager* m_screensaver = nullptr;
+    AIManager* m_aiManager = nullptr;
 
     QString m_serverUrl;
     QVariantMap m_manifest;
@@ -158,6 +164,7 @@ private:
     int m_profilesImported = 0;
     int m_shotsImported = 0;
     int m_mediaImported = 0;
+    int m_aiConversationsImported = 0;
 
     // Pending downloads
     QList<ProfileDownload> m_pendingProfiles;

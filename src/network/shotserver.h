@@ -134,6 +134,7 @@ private:
     void handleBackupProfileFile(QTcpSocket* socket, const QString& category, const QString& filename);
     void handleBackupMediaList(QTcpSocket* socket);
     void handleBackupMediaFile(QTcpSocket* socket, const QString& filename);
+    void handleBackupAIConversations(QTcpSocket* socket);
 
     // Full backup download/restore
     void handleBackupFull(QTcpSocket* socket);
@@ -153,6 +154,10 @@ private:
     QString generateSettingsPage() const;
     void handleGetSettings(QTcpSocket* socket);
     void handleSaveSettings(QTcpSocket* socket, const QByteArray& body);
+
+    // AI Conversations web UI
+    QString generateAIConversationsPage() const;
+    void handleAIConversationDownload(QTcpSocket* socket, const QString& key, const QString& format);
 
     // HTTPS / TLS
     bool setupTls();
