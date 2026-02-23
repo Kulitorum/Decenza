@@ -130,9 +130,9 @@ if(NOT ANDROID AND NOT IOS)
 endif()
 
 # Paho MQTT bundles its own SHA1 which conflicts with OpenSSL's SHA1_* symbols
-# when both are linked as static libraries. Use ld_classic to allow duplicates.
+# when both are linked as static libraries. Suppress duplicate symbol errors.
 if(APPLE AND NOT IOS)
-    add_link_options("-Wl,-ld_classic")
+    add_link_options("-Wl,-ld_classic" "-Wl,-multiply_defined,suppress")
 endif()
 
 # Address Sanitizer - enabled for single-config Debug builds (Makefiles, Ninja).
