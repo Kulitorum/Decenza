@@ -798,7 +798,7 @@ KeyboardAwareContainer {
                                 if (text.length === 6) migrationAuthButton.clicked()
                             }
 
-                            Component.onCompleted: {
+                            onVisibleChanged: {
                                 if (visible) forceActiveFocus()
                             }
                         }

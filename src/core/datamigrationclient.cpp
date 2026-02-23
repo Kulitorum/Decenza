@@ -137,7 +137,12 @@ void DataMigrationClient::onManifestReply()
         qDebug() << "DataMigrationClient: Server requires authentication (401)";
         reply->deleteLater();
         m_currentReply = nullptr;
+
+        // Clear stale token from memory and persistent storage
         m_sessionToken.clear();
+        QUrl parsedUrl(m_serverUrl);
+        saveSessionToken(parsedUrl.host(), QString());
+
         m_needsAuthentication = true;
         emit needsAuthenticationChanged();
         setCurrentOperation(tr("Authentication required"));
@@ -214,6 +219,15 @@ void DataMigrationClient::onAuthReply()
 
     m_connecting = false;
     emit isConnectingChanged();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        QString errorMsg = tr("Connection failed: %1").arg(reply->errorString());
+        reply->deleteLater();
+        m_currentReply = nullptr;
+        setError(errorMsg);
+        emit authenticationFailed(errorMsg);
+        return;
+    }
 
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QByteArray data = reply->readAll();
