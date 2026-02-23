@@ -71,6 +71,42 @@ jobs:
           echo "Installed certificates:"
           security find-identity -v -p codesigning $KEYCHAIN_PATH
 
+      - name: Build universal OpenSSL
+        run: |
+          OPENSSL_VERSION="3.5.0"
+          OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
+          INSTALL_PREFIX="${RUNNER_TEMP}/openssl-universal"
+
+          cd $RUNNER_TEMP
+          curl -L "$OPENSSL_URL" | tar xz
+          cd "openssl-${OPENSSL_VERSION}"
+
+          # Build arm64
+          ./Configure darwin64-arm64-cc no-shared no-tests \
+            --prefix="${INSTALL_PREFIX}/arm64" \
+            -mmacosx-version-min=12.0
+          make -j$(sysctl -n hw.ncpu)
+          make install_sw
+          make clean
+
+          # Build x86_64
+          ./Configure darwin64-x86_64-cc no-shared no-tests \
+            --prefix="${INSTALL_PREFIX}/x86_64" \
+            -mmacosx-version-min=12.0
+          make -j$(sysctl -n hw.ncpu)
+          make install_sw
+
+          # Create universal libs
+          mkdir -p "${INSTALL_PREFIX}/lib"
+          cp -R "${INSTALL_PREFIX}/arm64/include" "${INSTALL_PREFIX}/"
+          for lib in libssl.a libcrypto.a; do
+            lipo -create \
+              "${INSTALL_PREFIX}/arm64/lib/${lib}" \
+              "${INSTALL_PREFIX}/x86_64/lib/${lib}" \
+              -output "${INSTALL_PREFIX}/lib/${lib}"
+          done
+          echo "Universal OpenSSL installed at ${INSTALL_PREFIX}"
+
       - name: Configure CMake
         run: |
           mkdir -p build/macos
@@ -78,7 +114,8 @@ jobs:
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DOPENSSL_ROOT_DIR="${RUNNER_TEMP}/openssl-universal"
 
       - name: Build Release
         run: |
