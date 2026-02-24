@@ -17,12 +17,13 @@ ChartView {
     // Shot comparison model
     property var comparisonModel: null
 
-    // Visibility toggles for curve types
-    property bool showPressure: true
-    property bool showFlow: true
-    property bool showTemperature: true
-    property bool showWeight: true
-    property bool showWeightFlow: true
+    // Visibility toggles for curve types (shared with HistoryShotGraph via Settings)
+    property bool showPressure: Settings.value("graph/showPressure", true)
+    property bool showFlow: Settings.value("graph/showFlow", true)
+    property bool showTemperature: Settings.value("graph/showTemperature", true)
+    property bool showWeight: Settings.value("graph/showWeight", true)
+    property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
+    property bool showResistance: Settings.value("graph/showResistance", false)
 
     // Per-shot visibility (window slot 0/1/2)
     property bool showShot0: true
@@ -58,9 +59,9 @@ ChartView {
         if (!comparisonModel) return
 
         // Clear all series
-        pressure1.clear(); flow1.clear(); temp1.clear(); weight1.clear(); weightFlow1.clear()
-        pressure2.clear(); flow2.clear(); temp2.clear(); weight2.clear(); weightFlow2.clear()
-        pressure3.clear(); flow3.clear(); temp3.clear(); weight3.clear(); weightFlow3.clear()
+        pressure1.clear(); flow1.clear(); temp1.clear(); weight1.clear(); weightFlow1.clear(); resistance1.clear()
+        pressure2.clear(); flow2.clear(); temp2.clear(); weight2.clear(); weightFlow2.clear(); resistance2.clear()
+        pressure3.clear(); flow3.clear(); temp3.clear(); weight3.clear(); weightFlow3.clear(); resistance3.clear()
 
         for (var i = 0; i < comparisonModel.shotCount; i++) {
             var pressureData    = comparisonModel.getPressureData(i)
@@ -68,12 +69,14 @@ ChartView {
             var tempData        = comparisonModel.getTemperatureData(i)
             var weightData      = comparisonModel.getWeightData(i)
             var weightFlowData  = comparisonModel.getWeightFlowRateData(i)
+            var resistanceRawData = comparisonModel.getResistanceData(i)
 
-            var pSeries  = i === 0 ? pressure1  : (i === 1 ? pressure2  : pressure3)
+            var pSeries  = i === 0 ? pressure1   : (i === 1 ? pressure2   : pressure3)
             var fSeries  = i === 0 ? flow1       : (i === 1 ? flow2       : flow3)
             var tSeries  = i === 0 ? temp1       : (i === 1 ? temp2       : temp3)
             var wSeries  = i === 0 ? weight1     : (i === 1 ? weight2     : weight3)
             var wfSeries = i === 0 ? weightFlow1 : (i === 1 ? weightFlow2 : weightFlow3)
+            var rSeries  = i === 0 ? resistance1 : (i === 1 ? resistance2 : resistance3)
 
             for (var j = 0; j < pressureData.length; j++) {
                 pSeries.append(pressureData[j].x, pressureData[j].y)
@@ -89,6 +92,9 @@ ChartView {
             }
             for (j = 0; j < weightFlowData.length; j++) {
                 wfSeries.append(weightFlowData[j].x, weightFlowData[j].y)
+            }
+            for (j = 0; j < resistanceRawData.length; j++) {
+                rSeries.append(resistanceRawData[j].x, resistanceRawData[j].y)
             }
         }
 
@@ -180,7 +186,9 @@ ChartView {
                 hasWeight:      vals.hasWeight,
                 weight:         vals.weight,
                 hasWeightFlow:  vals.hasWeightFlow,
-                weightFlow:     vals.weightFlow
+                weightFlow:     vals.weightFlow,
+                hasResistance:  vals.hasResistance,
+                resistance:     vals.resistance
             })
         }
         inspectShotValues = shotValues
@@ -216,7 +224,8 @@ ChartView {
                 hasFlow:        vals.hasFlow,        flow:        vals.flow,
                 hasTemperature: vals.hasTemperature, temperature: vals.temperature,
                 hasWeight:      vals.hasWeight,      weight:      vals.weight,
-                hasWeightFlow:  vals.hasWeightFlow,  weightFlow:  vals.weightFlow
+                hasWeightFlow:  vals.hasWeightFlow,  weightFlow:  vals.weightFlow,
+                hasResistance:  vals.hasResistance,  resistance:  vals.resistance
             })
         }
         inspectShotValues = shotValues
@@ -280,25 +289,28 @@ ChartView {
     }
 
     // ── Shot 1: solid lines ──────────────────────────────────────────────────
-    LineSeries { id: pressure1;   color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot0 }
-    LineSeries { id: flow1;       color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot0 }
-    LineSeries { id: temp1;       color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot0 }
-    LineSeries { id: weight1;     color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot0 }
-    LineSeries { id: weightFlow1; color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot0 }
+    LineSeries { id: pressure1;    color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot0 }
+    LineSeries { id: flow1;        color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot0 }
+    LineSeries { id: temp1;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.SolidLine;   axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot0 }
+    LineSeries { id: weight1;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot0 }
+    LineSeries { id: weightFlow1;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot0 }
+    LineSeries { id: resistance1;  color: Theme.resistanceColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.SolidLine;   axisX: timeAxis; axisY: pressureAxis;      visible: chart.showResistance  && chart.showShot0 }
 
     // ── Shot 2: dashed lines ─────────────────────────────────────────────────
-    LineSeries { id: pressure2;   color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot1 }
-    LineSeries { id: flow2;       color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot1 }
-    LineSeries { id: temp2;       color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot1 }
-    LineSeries { id: weight2;     color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot1 }
-    LineSeries { id: weightFlow2; color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot1 }
+    LineSeries { id: pressure2;    color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot1 }
+    LineSeries { id: flow2;        color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot1 }
+    LineSeries { id: temp2;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashLine;    axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot1 }
+    LineSeries { id: weight2;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot1 }
+    LineSeries { id: weightFlow2;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot1 }
+    LineSeries { id: resistance2;  color: Theme.resistanceColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashLine;    axisX: timeAxis; axisY: pressureAxis;      visible: chart.showResistance  && chart.showShot1 }
 
     // ── Shot 3: dash-dot lines ───────────────────────────────────────────────
-    LineSeries { id: pressure3;   color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot2 }
-    LineSeries { id: flow3;       color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot2 }
-    LineSeries { id: temp3;       color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot2 }
-    LineSeries { id: weight3;     color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot2 }
-    LineSeries { id: weightFlow3; color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot2 }
+    LineSeries { id: pressure3;    color: Theme.pressureColor;    width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showPressure    && chart.showShot2 }
+    LineSeries { id: flow3;        color: Theme.flowColor;        width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showFlow        && chart.showShot2 }
+    LineSeries { id: temp3;        color: Theme.temperatureColor; width: Theme.graphLineWidth;                style: Qt.DashDotLine; axisX: timeAxis; axisYRight: tempAxis;     visible: chart.showTemperature && chart.showShot2 }
+    LineSeries { id: weight3;      color: Theme.weightColor;      width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: weightAxis;        visible: chart.showWeight      && chart.showShot2 }
+    LineSeries { id: weightFlow3;  color: Theme.weightFlowColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showWeightFlow  && chart.showShot2 }
+    LineSeries { id: resistance3;  color: Theme.resistanceColor;  width: Math.max(1, Theme.graphLineWidth-1); style: Qt.DashDotLine; axisX: timeAxis; axisY: pressureAxis;      visible: chart.showResistance  && chart.showShot2 }
 
     // Phase marker lines — Canvas for proper dashed patterns per shot style
     Canvas {

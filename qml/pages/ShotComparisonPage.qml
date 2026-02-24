@@ -121,21 +121,28 @@ Page {
                     anchors.bottomMargin: Theme.spacingSmall
                     spacing: 0
 
-                    AccessibleButton {
+                    Rectangle {
                         width: Theme.scaled(28)
                         height: Theme.scaled(24)
                         radius: Theme.scaled(12)
                         color: comparisonModel.canShiftLeft ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
-                        accessibleName: TranslationManager.translate("comparison.previousShots", "Previous shots")
-                        enabled: comparisonModel.canShiftLeft
-                        onClicked: comparisonModel.shiftWindowLeft()
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("comparison.previousShots", "Previous shots")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: leftArrowArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
                             text: "\u25C0"
                             font.pixelSize: Theme.captionFont.pixelSize
-                            color: parent.enabled ? "white" : Qt.rgba(1, 1, 1, 0.4)
+                            color: comparisonModel.canShiftLeft ? "white" : Qt.rgba(1, 1, 1, 0.4)
                             Accessible.ignored: true
+                        }
+                        MouseArea {
+                            id: leftArrowArea
+                            anchors.fill: parent
+                            enabled: comparisonModel.canShiftLeft
+                            onClicked: comparisonModel.shiftWindowLeft()
                         }
                     }
 
@@ -156,21 +163,28 @@ Page {
                         }
                     }
 
-                    AccessibleButton {
+                    Rectangle {
                         width: Theme.scaled(28)
                         height: Theme.scaled(24)
                         radius: Theme.scaled(12)
                         color: comparisonModel.canShiftRight ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
-                        accessibleName: TranslationManager.translate("comparison.nextShots", "Next shots")
-                        enabled: comparisonModel.canShiftRight
-                        onClicked: comparisonModel.shiftWindowRight()
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("comparison.nextShots", "Next shots")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: rightArrowArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
                             text: "\u25B6"
                             font.pixelSize: Theme.captionFont.pixelSize
-                            color: parent.enabled ? "white" : Qt.rgba(1, 1, 1, 0.4)
+                            color: comparisonModel.canShiftRight ? "white" : Qt.rgba(1, 1, 1, 0.4)
                             Accessible.ignored: true
+                        }
+                        MouseArea {
+                            id: rightArrowArea
+                            anchors.fill: parent
+                            enabled: comparisonModel.canShiftRight
+                            onClicked: comparisonModel.shiftWindowRight()
                         }
                     }
                 }

@@ -43,6 +43,7 @@ ColumnLayout {
             case "temp":        return sv.hasTemperature ? sv.temperature.toFixed(1) + " \u00B0C" : "\u2014"
             case "weight":      return sv.hasWeight      ? sv.weight.toFixed(1)      + " g"    : "\u2014"
             case "weightFlow":  return sv.hasWeightFlow  ? sv.weightFlow.toFixed(1)  + " g/s"  : "\u2014"
+            case "resistance":  return sv.hasResistance  ? sv.resistance.toFixed(1)           : "\u2014"
         }
         return "\u2014"
     }
@@ -53,7 +54,8 @@ ColumnLayout {
         { key: "showFlow",        dataKey: "flow",       label: "F",  unit: "mL/s", dotColor: Theme.flowColor        },
         { key: "showTemperature", dataKey: "temp",       label: "T",  unit: "°C",   dotColor: Theme.temperatureColor },
         { key: "showWeight",      dataKey: "weight",     label: "W",  unit: "g",    dotColor: Theme.weightColor      },
-        { key: "showWeightFlow",  dataKey: "weightFlow", label: "WF", unit: "g/s",  dotColor: Theme.weightFlowColor  }
+        { key: "showWeightFlow",  dataKey: "weightFlow", label: "WF", unit: "g/s",  dotColor: Theme.weightFlowColor  },
+        { key: "showResistance",  dataKey: "resistance", label: "R",  unit: "",     dotColor: Theme.resistanceColor  }
     ]
 
     // ── Header row ─────────────────────────────────────────────────────────────
@@ -262,6 +264,14 @@ ColumnLayout {
                 horizontalAlignment: Text.AlignHCenter
                 font: Theme.captionFont
                 color: Theme.weightFlowColor
+                Accessible.ignored: true
+            }
+            Text {
+                Layout.preferredWidth: root.dataColW
+                text: root.cellText(shotRow.shotIdx, "resistance")
+                horizontalAlignment: Text.AlignHCenter
+                font: Theme.captionFont
+                color: Theme.resistanceColor
                 Accessible.ignored: true
             }
 
