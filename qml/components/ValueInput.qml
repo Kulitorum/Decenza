@@ -244,11 +244,15 @@ Item {
                                 startX = mouse.x
                             }
                         } else {
+                            var deltaY2 = startY - mouse.y
+                            var delta = Math.abs(deltaX) > Math.abs(deltaY2) ? deltaX : deltaY2
+
                             var dragStep2 = sc(20)
-                            var steps2 = Math.round(deltaX / dragStep2)
+                            var steps2 = Math.round(delta / dragStep2)
                             if (steps2 !== 0) {
                                 adjustValue(steps2)
                                 startX = mouse.x
+                                startY = mouse.y
                             }
                         }
                     }
