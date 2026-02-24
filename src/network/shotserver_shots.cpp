@@ -2186,6 +2186,17 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
     QJsonArray allPhasesArray;
     int shotIndex = 0;
 
+    // Escape for safe embedding in JS string literals (double-quoted)
+    auto jsEscape = [](const QString& s) -> QString {
+        QString r = s;
+        r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
+        r.replace(QLatin1String("\""), QLatin1String("\\\""));
+        r.replace(QLatin1String("\n"), QLatin1String("\\n"));
+        r.replace(QLatin1String("\r"), QLatin1String(""));
+        r.replace(QLatin1String("<"), QLatin1String("\\u003c"));
+        return r;
+    };
+
     for (const QVariantMap& shot : std::as_const(shots)) {
         QString color = shotColors[shotIndex % shotColors.size()];
         QString name = shot["profileName"].toString();
@@ -2206,7 +2217,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             { label: "Yield - %1", data: %6, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y2", borderDash: %9, shotIndex: %4, curveType: "weight" },
             { label: "Temp - %1", data: %7, borderColor: "%3", borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: "y3", borderDash: %9, shotIndex: %4, curveType: "temp" },
             { label: "Weight Flow - %1", data: %8, borderColor: "#d4a574", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "weightFlow" },
-        )HTML").arg(label.toHtmlEscaped(), pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData, dashPattern);
+        )HTML").arg(jsEscape(label), pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData, dashPattern);
 
         // Build shot info JSON for JS
         QJsonObject info;
