@@ -60,42 +60,59 @@ Page {
 
     function loadShots() {
         loadMoreTimer.stop()
+        isLoadingMore = false
         currentOffset = 0
         hasMoreShots = true
-        var filter = buildFilter()
-        var shots = MainController.shotHistory.getShotsFiltered(filter, 0, pageSize)
-
         shotListView.contentY = 0
-
-        // In-place model update to avoid flicker
-        var i
-        for (i = 0; i < shots.length; i++) {
-            if (i < shotListModel.count) {
-                shotListModel.set(i, shots[i])
-            } else {
-                shotListModel.append(shots[i])
-            }
-        }
-        while (shotListModel.count > shots.length) {
-            shotListModel.remove(shotListModel.count - 1)
-        }
-
-        currentOffset = shots.length
-        hasMoreShots = shots.length >= pageSize
-        filteredTotalCount = MainController.shotHistory.getFilteredShotCount(filter)
+        var filter = buildFilter()
+        MainController.shotHistory.requestShotsFiltered(filter, 0, pageSize)
     }
 
     function loadMoreShots() {
         if (isLoadingMore || !hasMoreShots) return
         isLoadingMore = true
         var filter = buildFilter()
-        var shots = MainController.shotHistory.getShotsFiltered(filter, currentOffset, pageSize)
-        for (var i = 0; i < shots.length; i++) {
-            shotListModel.append(shots[i])
+        MainController.shotHistory.requestShotsFiltered(filter, currentOffset, pageSize)
+    }
+
+    // Reload after async batch delete completes
+    Connections {
+        target: MainController.shotHistory
+        function onShotsDeleted() {
+            loadShots()
         }
-        currentOffset += shots.length
-        hasMoreShots = shots.length >= pageSize
-        isLoadingMore = false
+    }
+
+    // Handle async results from requestShotsFiltered()
+    Connections {
+        target: MainController.shotHistory
+        function onShotsFilteredReady(results, isAppend, totalCount) {
+            if (isAppend) {
+                // loadMoreShots result
+                for (var i = 0; i < results.length; i++) {
+                    shotListModel.append(results[i])
+                }
+                currentOffset += results.length
+                hasMoreShots = results.length >= pageSize
+                isLoadingMore = false
+            } else {
+                // loadShots result (full refresh)
+                var j
+                for (j = 0; j < results.length; j++) {
+                    if (j < shotListModel.count) {
+                        shotListModel.set(j, results[j])
+                    } else {
+                        shotListModel.append(results[j])
+                    }
+                }
+                while (shotListModel.count > results.length) {
+                    shotListModel.remove(shotListModel.count - 1)
+                }
+                currentOffset = results.length
+                hasMoreShots = results.length >= pageSize
+            }
+            filteredTotalCount = totalCount
+        }
     }
 
     function buildFilter() {
@@ -189,11 +206,8 @@ Page {
 
     function deleteSelectedShots() {
         var toDelete = selectedShots.slice()  // snapshot before signals can modify selectedShots
-        for (var i = 0; i < toDelete.length; i++) {
-            MainController.shotHistory.deleteShot(toDelete[i])
-        }
+        MainController.shotHistory.deleteShots(toDelete)
         clearSelection()
-        loadShots()
     }
 
     // Get the list of shot IDs for navigation (selected shots or all loaded shots)

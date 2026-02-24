@@ -23,26 +23,35 @@ Page {
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 
-    // Load shot data for editing
+    // Load shot data for editing (async)
     function loadShotForEditing() {
         if (editShotId <= 0) return
-        editShotData = MainController.shotHistory.getShot(editShotId)
-        if (editShotData.id) {
-            // Populate editing fields
-            editBeanBrand = editShotData.beanBrand || ""
-            editBeanType = editShotData.beanType || ""
-            editRoastDate = editShotData.roastDate || ""
-            editRoastLevel = editShotData.roastLevel || ""
-            editGrinderModel = editShotData.grinderModel || ""
-            editGrinderSetting = editShotData.grinderSetting || ""
-            editBarista = editShotData.barista || ""
-            editDoseWeight = editShotData.doseWeight || 0
-            editDrinkWeight = editShotData.finalWeight || 0
-            editDrinkTds = editShotData.drinkTds || 0
-            editDrinkEy = editShotData.drinkEy || 0
-            editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
-            editNotes = editShotData.espressoNotes || ""
-            editBeverageType = editShotData.beverageType || "espresso"
+        MainController.shotHistory.requestShot(editShotId)
+    }
+
+    // Handle async shot data
+    Connections {
+        target: MainController.shotHistory
+        function onShotReady(shotId, shot) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            editShotData = shot
+            if (editShotData.id) {
+                // Populate editing fields
+                editBeanBrand = editShotData.beanBrand || ""
+                editBeanType = editShotData.beanType || ""
+                editRoastDate = editShotData.roastDate || ""
+                editRoastLevel = editShotData.roastLevel || ""
+                editGrinderModel = editShotData.grinderModel || ""
+                editGrinderSetting = editShotData.grinderSetting || ""
+                editBarista = editShotData.barista || ""
+                editDoseWeight = editShotData.doseWeight || 0
+                editDrinkWeight = editShotData.finalWeight || 0
+                editDrinkTds = editShotData.drinkTds || 0
+                editDrinkEy = editShotData.drinkEy || 0
+                editEnjoyment = editShotData.enjoyment ?? 0  // Use ?? to avoid treating 0 as falsy
+                editNotes = editShotData.espressoNotes || ""
+                editBeverageType = editShotData.beverageType || "espresso"
+            }
         }
     }
 

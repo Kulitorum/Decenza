@@ -19,6 +19,8 @@ class ShotHistoryStorage;
 class DatabaseBackupManager : public QObject {
     Q_OBJECT
 
+    Q_PROPERTY(QStringList availableBackups READ availableBackups NOTIFY availableBackupsChanged)
+
 public:
     explicit DatabaseBackupManager(Settings* settings, ShotHistoryStorage* storage, QObject* parent = nullptr);
 
@@ -32,8 +34,14 @@ public:
     /// @param force If true, overwrites existing backup for today
     Q_INVOKABLE bool createBackup(bool force = false);
 
+    /// Get cached list of available backups (returns list of filenames)
+    QStringList availableBackups() const { return m_cachedBackups; }
+
     /// Get list of available backups (returns list of filenames)
     Q_INVOKABLE QStringList getAvailableBackups() const;
+
+    /// Refresh the cached backup list (called on start and after backup creation)
+    void refreshBackupList();
 
     /// Restore a backup by filename
     /// @param filename The backup filename (e.g., "shots_backup_20260210.zip")
@@ -65,6 +73,9 @@ signals:
     /// Emitted when storage permission is needed (Android only)
     void storagePermissionNeeded();
 
+    /// Emitted when the cached backup list changes
+    void availableBackupsChanged();
+
 private slots:
     void onTimerFired();
 
@@ -81,4 +92,5 @@ private:
     QDate m_lastBackupDate;  // Track when we last backed up
     bool m_backupInProgress = false;  // Prevent concurrent backups
     bool m_restoreInProgress = false;  // Prevent concurrent restores
+    QStringList m_cachedBackups;       // Cached result of getAvailableBackups()
 };

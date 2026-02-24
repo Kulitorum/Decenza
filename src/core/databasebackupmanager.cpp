@@ -32,11 +32,23 @@ void DatabaseBackupManager::start()
         return;
     }
 
+    // Populate the cached backup list so QML can bind immediately
+    refreshBackupList();
+
     // Check immediately on startup (in case we missed a backup)
     onTimerFired();
 
     // Then check every hour
     scheduleNextCheck();
+}
+
+void DatabaseBackupManager::refreshBackupList()
+{
+    QStringList newList = getAvailableBackups();
+    if (newList != m_cachedBackups) {
+        m_cachedBackups = newList;
+        emit availableBackupsChanged();
+    }
 }
 
 void DatabaseBackupManager::stop()
@@ -282,6 +294,7 @@ bool DatabaseBackupManager::createBackup(bool force)
 
         m_backupInProgress = false;
         emit backupCreated(zipPath);
+        refreshBackupList();
         return true;
     } else if (existingZip.exists()) {
         // File exists - delete it to create fresh backup
@@ -416,6 +429,7 @@ bool DatabaseBackupManager::createBackup(bool force)
 
     m_backupInProgress = false;
     emit backupCreated(finalPath);
+    refreshBackupList();
 
     // Clean up old backups after successful backup
     cleanOldBackups(backupDir);

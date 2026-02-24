@@ -30,7 +30,16 @@ Page {
 
     function loadShot() {
         if (shotId > 0) {
-            shotData = MainController.shotHistory.getShot(shotId)
+            MainController.shotHistory.requestShot(shotId)
+        }
+    }
+
+    // Handle async shot data
+    Connections {
+        target: MainController.shotHistory
+        function onShotReady(id, shot) {
+            if (id !== shotDetailPage.shotId) return
+            shotData = shot
         }
     }
 
