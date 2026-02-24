@@ -11,7 +11,6 @@ Page {
     background: Rectangle { color: Theme.backgroundColor }
 
     Component.onCompleted: root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
 
     // Requested tab to switch to (set before pushing page)
     property int requestedTabIndex: -1
@@ -29,24 +28,19 @@ Page {
         }
     }
 
-    // Timer to switch tab after page is fully loaded
-    Timer {
-        id: tabSwitchTimer
-        interval: 500  // Wait for all tabs to be created
-        repeat: false
-        onTriggered: {
-            if (settingsPage.requestedTabIndex >= 0) {
-                settingsPage.markTabLoaded(settingsPage.requestedTabIndex)
-                tabBar.currentIndex = settingsPage.requestedTabIndex
-                settingsPage.requestedTabIndex = -1
-            }
-        }
-    }
-
     StackView.onActivating: {
         if (requestedTabIndex >= 0) {
             markTabLoaded(requestedTabIndex)
-            tabSwitchTimer.start()
+        }
+    }
+
+    // Switch to requested tab after page transition completes (page is fully laid out)
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
+        if (requestedTabIndex >= 0) {
+            markTabLoaded(requestedTabIndex)
+            tabBar.currentIndex = requestedTabIndex
+            requestedTabIndex = -1
         }
     }
 

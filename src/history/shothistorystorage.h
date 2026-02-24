@@ -171,7 +171,7 @@ public:
 
     // Delete shot(s)
     Q_INVOKABLE bool deleteShot(qint64 shotId);
-    Q_INVOKABLE bool deleteShots(const QVariantList& shotIds);
+    Q_INVOKABLE void deleteShots(const QVariantList& shotIds);
 
     // Update shot metadata (for editing existing shots)
     Q_INVOKABLE bool updateShotMetadata(qint64 shotId, const QVariantMap& metadata);
@@ -244,6 +244,7 @@ signals:
     void totalShotsChanged();
     void shotSaved(qint64 shotId);
     void shotDeleted(qint64 shotId);
+    void shotsDeleted(const QVariantList& shotIds);
     void errorOccurred(const QString& message);
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
@@ -271,7 +272,7 @@ private:
     void invalidateDistinctCache();
 
     // Convert ShotRecord to QVariantMap (shared by getShot and requestShot)
-    QVariantMap getShot_convertRecord(const ShotRecord& record);
+    QVariantMap convertShotRecord(const ShotRecord& record);
 
     // Backfill beverage_type from profile_json for existing rows
     void backfillBeverageType();

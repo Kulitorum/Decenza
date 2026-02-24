@@ -41,7 +41,7 @@ public:
     Q_INVOKABLE QStringList getAvailableBackups() const;
 
     /// Refresh the cached backup list (called on start and after backup creation)
-    Q_INVOKABLE void refreshBackupList();
+    void refreshBackupList();
 
     /// Restore a backup by filename
     /// @param filename The backup filename (e.g., "shots_backup_20260210.zip")

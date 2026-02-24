@@ -1089,7 +1089,7 @@ qint64 ShotHistoryStorage::getShotTimestamp(qint64 shotId)
 
 QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
 {
-    return getShot_convertRecord(getShotRecord(shotId));
+    return convertShotRecord(getShotRecord(shotId));
 }
 
 void ShotHistoryStorage::requestShot(qint64 shotId)
@@ -1118,7 +1118,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
 
         // Convert to QVariantMap on main thread (touches QML-visible data)
         QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record)]() {
-            emit shotReady(shotId, getShot_convertRecord(record));
+            emit shotReady(shotId, convertShotRecord(record));
         }, Qt::QueuedConnection);
     });
 
@@ -1126,7 +1126,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
     thread->start();
 }
 
-QVariantMap ShotHistoryStorage::getShot_convertRecord(const ShotRecord& record)
+QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
 {
     QVariantMap result;
     if (record.summary.id == 0) return result;
@@ -1196,7 +1196,7 @@ QVariantMap ShotHistoryStorage::getShot_convertRecord(const ShotRecord& record)
     result["phases"] = phases;
 
     QDateTime dt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
-    result["dateTime"] = dt.toString("yyyy-MM-dd hh:mm:ss");
+    result["dateTime"] = dt.toString("yyyy-MM-dd HH:mm:ss");
 
     return result;
 }
@@ -1391,38 +1391,62 @@ bool ShotHistoryStorage::deleteShot(qint64 shotId)
     return true;
 }
 
-bool ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
+void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
 {
-    if (!m_ready || shotIds.isEmpty()) return false;
+    if (!m_ready || shotIds.isEmpty()) return;
 
-    // Build placeholders: DELETE FROM shots WHERE id IN (?, ?, ...)
+    const QString dbPath = m_dbPath;
+
+    // Build placeholders on main thread (pure computation, fast)
     QStringList placeholders;
     placeholders.reserve(shotIds.size());
     for (int i = 0; i < shotIds.size(); ++i)
         placeholders << "?";
+    QString sql = "DELETE FROM shots WHERE id IN (" + placeholders.join(",") + ")";
 
-    m_db.transaction();
+    QThread* thread = QThread::create([this, dbPath, sql, shotIds]() {
+        const QString connName = QString("shs_delete_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
-    QSqlQuery query(m_db);
-    query.prepare("DELETE FROM shots WHERE id IN (" + placeholders.join(",") + ")");
-    for (int i = 0; i < shotIds.size(); ++i)
-        query.bindValue(i, shotIds[i].toLongLong());
+        bool success = false;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+                db.transaction();
+                QSqlQuery query(db);
+                if (query.prepare(sql)) {
+                    for (int i = 0; i < shotIds.size(); ++i)
+                        query.bindValue(i, shotIds[i].toLongLong());
+                    if (query.exec()) {
+                        db.commit();
+                        success = true;
+                    } else {
+                        qWarning() << "ShotHistoryStorage: Failed to batch delete shots:" << query.lastError().text();
+                        db.rollback();
+                    }
+                }
+            } else {
+                qWarning() << "ShotHistoryStorage: Failed to open DB for async deleteShots";
+            }
+        }
+        QSqlDatabase::removeDatabase(connName);
 
-    if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage: Failed to batch delete shots:" << query.lastError().text();
-        m_db.rollback();
-        return false;
-    }
+        QMetaObject::invokeMethod(this, [this, shotIds, success]() {
+            if (success) {
+                updateTotalShots();
+                invalidateDistinctCache();
+                for (const auto& id : shotIds)
+                    emit shotDeleted(id.toLongLong());
+                emit shotsDeleted(shotIds);
+                qDebug() << "ShotHistoryStorage: Batch deleted" << shotIds.size() << "shots";
+            }
+        }, Qt::QueuedConnection);
+    });
 
-    m_db.commit();
-
-    updateTotalShots();
-    invalidateDistinctCache();
-    for (const auto& id : shotIds)
-        emit shotDeleted(id.toLongLong());
-
-    qDebug() << "ShotHistoryStorage: Batch deleted" << shotIds.size() << "shots";
-    return true;
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 bool ShotHistoryStorage::updateShotMetadata(qint64 shotId, const QVariantMap& metadata)

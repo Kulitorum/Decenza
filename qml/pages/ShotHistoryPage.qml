@@ -60,6 +60,7 @@ Page {
 
     function loadShots() {
         loadMoreTimer.stop()
+        isLoadingMore = false
         currentOffset = 0
         hasMoreShots = true
         shotListView.contentY = 0
@@ -72,6 +73,14 @@ Page {
         isLoadingMore = true
         var filter = buildFilter()
         MainController.shotHistory.requestShotsFiltered(filter, currentOffset, pageSize)
+    }
+
+    // Reload after async batch delete completes
+    Connections {
+        target: MainController.shotHistory
+        function onShotsDeleted() {
+            loadShots()
+        }
     }
 
     // Handle async results from requestShotsFiltered()
@@ -199,7 +208,6 @@ Page {
         var toDelete = selectedShots.slice()  // snapshot before signals can modify selectedShots
         MainController.shotHistory.deleteShots(toDelete)
         clearSelection()
-        loadShots()
     }
 
     // Get the list of shot IDs for navigation (selected shots or all loaded shots)
