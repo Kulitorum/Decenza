@@ -2478,21 +2478,6 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             white-space: nowrap;
         }
         .menu-item:hover { background: var(--surface); }
-        .shot-summary { margin-top: 1rem; }
-        .shot-summary-item {
-            padding: 0.5rem 0.75rem;
-            border-bottom: 1px solid var(--border);
-        }
-        .shot-summary-item:last-child { border-bottom: none; }
-        .shot-summary-name {
-            font-weight: 500;
-            font-size: 0.875rem;
-        }
-        .shot-summary-details {
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            margin-top: 0.15rem;
-        }
         @media (max-width: 600px) {
             .container { padding: 1rem; }
             .chart-wrapper { height: 350px; }
@@ -2533,7 +2518,6 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 <canvas id="compareChart"></canvas>
             </div>
         </div>
-        <div id="shotSummary" class="shot-summary"></div>
         <div id="phasePills" class="phase-pills"></div>
         <div class="data-section">
             <table id="crosshairTable" class="data-table"></table>
@@ -2579,39 +2563,6 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         function escapeAttr(s) {
             if (!s) return "";
             return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        }
-        function buildShotSummary() {
-            var el = document.getElementById("shotSummary");
-            var h = "";
-            for (var si = 0; si < shotInfo.length; si++) {
-                var s = shotInfo[si];
-                var lc = lineClasses[si % lineClasses.length];
-                // Line 1: profile (temp) (date)
-                var line1 = escapeHtml(s.name);
-                if (s.temperatureOverride > 0) line1 += " (" + Math.round(s.temperatureOverride) + "\u00B0C)";
-                line1 += " (" + escapeHtml(s.date) + ")";
-                // Line 2: dose | yield | ratio | duration | grinder
-                var parts = [];
-                parts.push((s.dose || 0).toFixed(1) + "g in");
-                var yld = (s.finalWeight || 0).toFixed(1) + "g";
-                if (s.yieldOverride > 0 && Math.abs(s.yieldOverride - s.finalWeight) > 0.5)
-                    yld += "(" + Math.round(s.yieldOverride) + "g)";
-                parts.push(yld + " out");
-                if (s.dose > 0) parts.push("1:" + (s.finalWeight / s.dose).toFixed(1));
-                parts.push((s.duration || 0).toFixed(1) + "s");
-                var grinder = "";
-                if (s.grinderModel && s.grinderSetting) grinder = s.grinderModel + " @ " + s.grinderSetting;
-                else if (s.grinderModel) grinder = s.grinderModel;
-                else if (s.grinderSetting) grinder = "@ " + s.grinderSetting;
-                if (grinder) parts.push(escapeHtml(grinder));
-                h += "<div class='shot-summary-item'>";
-                h += "<div class='shot-summary-name'><span class='line-ind " + lc + "'></span>";
-                h += "<span class='shot-dot' style='background:" + s.color + "'></span>" + line1 + "</div>";
-                h += "<div class='shot-summary-details'>" + parts.join(" | ") + "</div>";
-                h += "</div>";
-            }
-            el.textContent = "";
-            el.insertAdjacentHTML("afterbegin", h);
         }
         function findClosestPoint(data, targetX) {
             if (!data || data.length === 0) return null;
@@ -2722,7 +2673,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
-                interaction: { mode: "nearest", axis: "x", intersect: false },
+                events: [],
                 plugins: { legend: { display: false }, tooltip: { enabled: false } },
                 scales: {
                     x: {
@@ -3071,7 +3022,6 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         });
 
         // === Init ===
-        buildShotSummary();
         buildPhasePills();
         buildMetricsTable();
         updateCrosshairTable();
