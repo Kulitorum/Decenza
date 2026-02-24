@@ -1119,6 +1119,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
     QString tempData = pointsToJson(shot["temperature"].toList());
     QString weightData = pointsToJson(shot["weight"].toList());
     QString weightFlowRateData = pointsToJson(shot["weightFlowRate"].toList());
+    QString resistanceData = pointsToJson(shot["resistance"].toList());
     QString pressureGoalData = goalPointsToJson(shot["pressureGoal"].toList());
     QString flowGoalData = goalPointsToJson(shot["flowGoal"].toList());
 
@@ -1171,6 +1172,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
             --temp: #e73249;
             --weight: #a2693d;
             --weightFlow: #d4a574;
+            --resistance: #eae83d;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -1297,6 +1299,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         .toggle-btn.temp .dot { background: var(--temp); }
         .toggle-btn.weight .dot { background: var(--weight); }
         .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
+        .toggle-btn.resistance .dot { background: var(--resistance); }
         .chart-wrapper {
             position: relative;
             height: 400px;
@@ -1500,6 +1503,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                     </button>
                     <button class="toggle-btn weightFlow active" onclick="toggleDataset(6, this)">
                         <span class="dot"></span> Weight Flow
+                    </button>
+                    <button class="toggle-btn resistance" onclick="toggleDataset(7, this)">
+                        <span class="dot"></span> Resistance
                     </button>
                 </div>
             </div>
@@ -1796,6 +1802,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         const flowGoalData = %20;
         const phaseData = %22;
         const weightFlowRateData = %23;
+        const resistanceData = %39;
 
         // Chart.js plugin: draw vertical phase marker lines and labels
         const phaseMarkerPlugin = {
@@ -1992,6 +1999,17 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                         pointRadius: 0,
                         tension: 0.3,
                         yAxisID: 'y'
+                    },
+                    {
+                        label: 'Resistance',
+                        data: resistanceData,
+                        borderColor: '#eae83d',
+                        backgroundColor: 'rgba(234, 232, 61, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.3,
+                        yAxisID: 'y',
+                        hidden: true
                     }
                 ]
             },
@@ -2147,7 +2165,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                   ? QStringLiteral("espresso")
                   : shot["beverageType"].toString()))                                // %36 beverageType
     .arg(shot["drinkTds"].toDouble(), 0, 'f', 2)                                    // %37 drinkTds
-    .arg(shot["drinkEy"].toDouble(), 0, 'f', 1);                                    // %38 drinkEy
+    .arg(shot["drinkEy"].toDouble(), 0, 'f', 1)                                     // %38 drinkEy
+    .arg(resistanceData);                                                            // %39 resistance
 }
 
 QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
@@ -2209,15 +2228,21 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         QString weightData = pointsToJson(shot["weight"].toList());
         QString tempData = pointsToJson(shot["temperature"].toList());
         QString wfData = pointsToJson(shot["weightFlowRate"].toList());
+        QString resData = pointsToJson(shot["resistance"].toList());
 
         // Add datasets for this shot — all curves share the shot's dash pattern
+        // Note: resistance is added in a separate QString::arg() pass because Qt's %N only supports 1-9
+        QString shotLabel = jsEscape(label);
         datasets += QString(R"HTML(
             { label: "Pressure - %1", data: %2, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "pressure" },
             { label: "Flow - %1", data: %5, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "flow" },
             { label: "Yield - %1", data: %6, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y2", borderDash: %9, shotIndex: %4, curveType: "weight" },
             { label: "Temp - %1", data: %7, borderColor: "%3", borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: "y3", borderDash: %9, shotIndex: %4, curveType: "temp" },
             { label: "Weight Flow - %1", data: %8, borderColor: "#d4a574", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "weightFlow" },
-        )HTML").arg(jsEscape(label), pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData, dashPattern);
+        )HTML").arg(shotLabel, pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData, dashPattern);
+        datasets += QString(R"HTML(
+            { label: "Resistance - %1", data: %2, borderColor: "#eae83d", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %3, shotIndex: %4, curveType: "resistance", hidden: true },
+        )HTML").arg(shotLabel, resData, dashPattern).arg(shotIndex);
 
         // Build shot info JSON for JS
         QJsonObject info;
@@ -2287,6 +2312,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             --temp: #e73249;
             --weight: #a2693d;
             --weightFlow: #d4a574;
+            --resistance: #eae83d;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; overflow: hidden; }
@@ -2375,6 +2401,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         .toggle-btn.weight .dot { background: var(--weight); }
         .toggle-btn.temp .dot { background: var(--temp); }
         .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
+        .toggle-btn.resistance .dot { background: var(--resistance); }
         .chart-wrapper { position: relative; flex: 1; min-height: 150px; cursor: crosshair; }
         .phase-pills {
             display: flex;
@@ -2544,6 +2571,9 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                     <button class="toggle-btn weightFlow active" data-curve="weightFlow" onclick="toggleCurve('weightFlow', this)">
                         <span class="dot"></span> Weight Flow
                     </button>
+                    <button class="toggle-btn resistance" data-curve="resistance" onclick="toggleCurve('resistance', this)">
+                        <span class="dot"></span> Resistance
+                    </button>
                 </div>
             </div>
             <div class="chart-wrapper">
@@ -2566,7 +2596,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         var allPhases = %4;
 
         // === State ===
-        var visibleCurves = {pressure: true, flow: true, weight: true, temp: true, weightFlow: true};
+        var visibleCurves = {pressure: true, flow: true, weight: true, temp: true, weightFlow: true, resistance: false};
         var visibleShots = {};
         var hiddenPhases = {};
         var crosshairTime = null;
@@ -2812,7 +2842,8 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             { key: "flow", label: "F", unit: "mL/s", color: "var(--flow)" },
             { key: "temp", label: "T", unit: "\u00B0C", color: "var(--temp)" },
             { key: "weight", label: "W", unit: "g", color: "var(--weight)" },
-            { key: "weightFlow", label: "WF", unit: "g/s", color: "var(--weightFlow)" }
+            { key: "weightFlow", label: "WF", unit: "g/s", color: "var(--weightFlow)" },
+            { key: "resistance", label: "R", unit: "", color: "var(--resistance)" }
         ];
 
         function updateCrosshairTable() {

@@ -38,7 +38,9 @@ Item {
             { name: "flowGoalColor", display: "Flow Goal" },
             { name: "temperatureColor", display: "Temperature" },
             { name: "temperatureGoalColor", display: "Temp Goal" },
-            { name: "weightColor", display: "Weight" }
+            { name: "weightColor", display: "Weight" },
+            { name: "weightFlowColor", display: "Weight Flow" },
+            { name: "resistanceColor", display: "Resistance" }
         ]}
     ]
 

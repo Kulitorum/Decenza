@@ -170,6 +170,7 @@ void ShotComparisonModel::loadDisplayWindow()
         shot.temperature = record.temperature;
         shot.weight = record.weight;
         shot.weightFlowRate = record.weightFlowRate;
+        shot.resistance = record.resistance;
 
         for (const auto& phase : record.phases) {
             ComparisonShot::PhaseMarker marker;
@@ -263,6 +264,12 @@ QVariantList ShotComparisonModel::getWeightFlowRateData(int index) const
     return pointsToVariant(m_displayShots[index].weightFlowRate);
 }
 
+QVariantList ShotComparisonModel::getResistanceData(int index) const
+{
+    if (index < 0 || index >= m_displayShots.size()) return QVariantList();
+    return pointsToVariant(m_displayShots[index].resistance);
+}
+
 QVariantList ShotComparisonModel::getPhaseMarkers(int index) const
 {
     if (index < 0 || index >= m_displayShots.size()) return QVariantList();
@@ -345,22 +352,25 @@ QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
         return minDist < 1.0 ? closest : -1.0;
     };
 
-    double pressure   = findNearest(shot.pressure, time);
-    double flow       = findNearest(shot.flow, time);
-    double temp       = findNearest(shot.temperature, time);
-    double weight     = findNearest(shot.weight, time);
-    double weightFlow = findNearest(shot.weightFlowRate, time);
+    double pressure    = findNearest(shot.pressure, time);
+    double flow        = findNearest(shot.flow, time);
+    double temp        = findNearest(shot.temperature, time);
+    double weight      = findNearest(shot.weight, time);
+    double weightFlow  = findNearest(shot.weightFlowRate, time);
+    double resistance  = findNearest(shot.resistance, time);
 
-    result["hasPressure"]    = pressure   >= 0.0;
-    result["hasFlow"]        = flow       >= 0.0;
-    result["hasTemperature"] = temp       >= 0.0;
-    result["hasWeight"]      = weight     >= 0.0;
-    result["hasWeightFlow"]  = weightFlow >= 0.0;
+    result["hasPressure"]    = pressure    >= 0.0;
+    result["hasFlow"]        = flow        >= 0.0;
+    result["hasTemperature"] = temp        >= 0.0;
+    result["hasWeight"]      = weight      >= 0.0;
+    result["hasWeightFlow"]  = weightFlow  >= 0.0;
+    result["hasResistance"]  = resistance  >= 0.0;
     result["pressure"]       = pressure;
     result["flow"]           = flow;
     result["temperature"]    = temp;
     result["weight"]         = weight;
     result["weightFlow"]     = weightFlow;
+    result["resistance"]     = resistance;
 
     return result;
 }
