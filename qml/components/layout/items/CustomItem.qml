@@ -203,14 +203,13 @@ Item {
         } else if (category === "command") {
             switch (target) {
                 case "sleep":
-                    if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled) {
-                        if (typeof ScaleDevice !== "undefined" && ScaleDevice.connected)
-                            ScaleDevice.disableLcd()
+                    if (typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected)
+                        ScaleDevice.disableLcd()
+                    if (typeof DE1Device !== "undefined")
                         DE1Device.goToSleep()
-                        var win = Window.window
-                        if (win && typeof win.goToScreensaver === "function")
-                            win.goToScreensaver()
-                    }
+                    var win = Window.window
+                    if (win && typeof win.goToScreensaver === "function")
+                        win.goToScreensaver()
                     break
                 case "startEspresso":
                     if (typeof DE1Device !== "undefined" && DE1Device.guiEnabled)
@@ -383,5 +382,6 @@ Item {
             onAccessibleLongPressed: root.executeActionString(root.longPressAction)
             onAccessibleDoubleClicked: root.executeActionString(root.doubleclickAction)
         }
+
     }
 }

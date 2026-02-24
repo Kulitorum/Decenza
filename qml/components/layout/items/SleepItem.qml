@@ -13,7 +13,6 @@ Item {
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function doSleep() {
-        if (!DE1Device.guiEnabled) return
         if (ScaleDevice && ScaleDevice.connected) {
             ScaleDevice.disableLcd()
         }
@@ -42,7 +41,7 @@ Item {
             anchors.bottomMargin: Theme.spacingSmall
             color: sleepCompactTap.isPressed ? Qt.darker("#555555", 1.2) : "#555555"
             radius: Theme.cardRadius
-            opacity: DE1Device.guiEnabled ? 1.0 : 0.5
+            opacity: 1.0
         }
 
         RowLayout {
@@ -69,7 +68,6 @@ Item {
         AccessibleTapHandler {
             id: sleepCompactTap
             anchors.fill: parent
-            enabled: DE1Device.guiEnabled
             supportLongPress: true
             longPressInterval: 1000
             accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
@@ -91,7 +89,6 @@ Item {
             translationKey: "idle.button.sleep"
             translationFallback: "Sleep"
             iconSource: "qrc:/icons/sleep.svg"
-            enabled: DE1Device.guiEnabled
             backgroundColor: "#555555"
             onClicked: root.doSleep()
             onPressAndHold: Qt.quit()
