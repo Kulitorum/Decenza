@@ -2213,7 +2213,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         QString color = shotColors[shotIndex % shotColors.size()];
         QString name = shot.summary.profileName;
         QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.summary.timestamp);
-        QString date = dt.toString("yyyy-MM-dd hh:mm");
+        QString date = dt.toString("yyyy-MM-dd HH:mm");
         QString label = QString("%1 (%2)").arg(name, date);
         QString dashPattern = shotDashPatterns[shotIndex % shotDashPatterns.size()];
 
