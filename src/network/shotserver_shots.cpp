@@ -2171,14 +2171,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
 
 QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
 {
-    // Load all shots
-    QList<QVariantMap> shots;
-    for (qint64 id : shotIds) {
-        QVariantMap shot = m_storage->getShot(id);
-        if (!shot.isEmpty()) {
-            shots << shot;
-        }
-    }
+    // Batch-load all shots in one pass (avoids per-shot QVariantMap conversion)
+    QList<ShotRecord> shots = m_storage->getShotsForComparison(shotIds);
 
     if (shots.size() < 2) {
         return QStringLiteral("<!DOCTYPE html><html><body>Not enough valid shots to compare</body></html>");
@@ -2187,11 +2181,10 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
     // Colors for each shot (up to 5)
     QStringList shotColors = {"#c9a227", "#e85d75", "#4ecdc4", "#a855f7", "#f97316"};
 
-    auto pointsToJson = [](const QVariantList& points) -> QString {
+    auto pointsToJson = [](const QVector<QPointF>& points) -> QString {
         QStringList items;
-        for (const QVariant& p : points) {
-            QVariantMap pt = p.toMap();
-            items << QString("{x:%1,y:%2}").arg(pt["x"].toDouble(), 0, 'f', 2).arg(pt["y"].toDouble(), 0, 'f', 2);
+        for (const auto& pt : points) {
+            items << QString("{x:%1,y:%2}").arg(pt.x(), 0, 'f', 2).arg(pt.y(), 0, 'f', 2);
         }
         return "[" + items.join(",") + "]";
     };
@@ -2216,19 +2209,20 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         return r;
     };
 
-    for (const QVariantMap& shot : std::as_const(shots)) {
+    for (const ShotRecord& shot : std::as_const(shots)) {
         QString color = shotColors[shotIndex % shotColors.size()];
-        QString name = shot["profileName"].toString();
-        QString date = shot["dateTime"].toString().left(16);
+        QString name = shot.summary.profileName;
+        QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.summary.timestamp);
+        QString date = dt.toString("yyyy-MM-dd hh:mm");
         QString label = QString("%1 (%2)").arg(name, date);
         QString dashPattern = shotDashPatterns[shotIndex % shotDashPatterns.size()];
 
-        QString pressureData = pointsToJson(shot["pressure"].toList());
-        QString flowData = pointsToJson(shot["flow"].toList());
-        QString weightData = pointsToJson(shot["weight"].toList());
-        QString tempData = pointsToJson(shot["temperature"].toList());
-        QString wfData = pointsToJson(shot["weightFlowRate"].toList());
-        QString resData = pointsToJson(shot["resistance"].toList());
+        QString pressureData = pointsToJson(shot.pressure);
+        QString flowData = pointsToJson(shot.flow);
+        QString weightData = pointsToJson(shot.weight);
+        QString tempData = pointsToJson(shot.temperature);
+        QString wfData = pointsToJson(shot.weightFlowRate);
+        QString resData = pointsToJson(shot.resistance);
 
         // Add datasets for this shot — all curves share the shot's dash pattern
         // Note: resistance is added in a separate QString::arg() pass because Qt's %N only supports 1-9
@@ -2249,34 +2243,32 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         info["color"] = color;
         info["name"] = name;
         info["date"] = date;
-        info["duration"] = shot["duration"].toDouble();
-        info["dose"] = shot["doseWeight"].toDouble();
-        info["finalWeight"] = shot["finalWeight"].toDouble();
-        info["yieldOverride"] = shot["yieldOverride"].toDouble();
-        info["temperatureOverride"] = shot["temperatureOverride"].toDouble();
-        info["enjoyment"] = shot["enjoyment"].toInt();
-        info["beanBrand"] = shot["beanBrand"].toString();
-        info["beanType"] = shot["beanType"].toString();
-        info["roastDate"] = shot["roastDate"].toString();
-        info["roastLevel"] = shot["roastLevel"].toString();
-        info["grinderModel"] = shot["grinderModel"].toString();
-        info["grinderSetting"] = shot["grinderSetting"].toString();
-        info["drinkTds"] = shot["drinkTds"].toDouble();
-        info["drinkEy"] = shot["drinkEy"].toDouble();
-        info["barista"] = shot["barista"].toString();
-        info["notes"] = shot["espressoNotes"].toString();
+        info["duration"] = shot.summary.duration;
+        info["dose"] = shot.summary.doseWeight;
+        info["finalWeight"] = shot.summary.finalWeight;
+        info["yieldOverride"] = shot.yieldOverride;
+        info["temperatureOverride"] = shot.temperatureOverride;
+        info["enjoyment"] = shot.summary.enjoyment;
+        info["beanBrand"] = shot.summary.beanBrand;
+        info["beanType"] = shot.summary.beanType;
+        info["roastDate"] = shot.roastDate;
+        info["roastLevel"] = shot.roastLevel;
+        info["grinderModel"] = shot.grinderModel;
+        info["grinderSetting"] = shot.grinderSetting;
+        info["drinkTds"] = shot.drinkTds;
+        info["drinkEy"] = shot.drinkEy;
+        info["barista"] = shot.barista;
+        info["notes"] = shot.espressoNotes;
         shotInfoArray.append(info);
 
         // Build phase data for this shot
         QJsonArray shotPhases;
-        const QVariantList phases = shot["phases"].toList();
-        for (const QVariant& p : phases) {
-            QVariantMap phase = p.toMap();
-            if (phase["label"].toString() == "Start") continue;
+        for (const auto& phase : shot.phases) {
+            if (phase.label == "Start") continue;
             QJsonObject phaseObj;
-            phaseObj["time"] = phase["time"].toDouble();
-            phaseObj["label"] = phase["label"].toString();
-            phaseObj["reason"] = phase["transitionReason"].toString();
+            phaseObj["time"] = phase.time;
+            phaseObj["label"] = phase.label;
+            phaseObj["reason"] = phase.transitionReason;
             shotPhases.append(phaseObj);
         }
         allPhasesArray.append(shotPhases);
