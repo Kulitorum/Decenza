@@ -133,6 +133,9 @@ private:
     // Sunrise/sunset times per day (for isDaytime calculation)
     QVector<QPair<QDateTime, QDateTime>> m_sunTimes;
 
+    // Cached locale check (avoids creating ICU objects on every call)
+    bool m_use12HourTime = false;
+
     // Track last fetch coordinates to detect significant moves
     double m_lastFetchLat = 0.0;
     double m_lastFetchLon = 0.0;

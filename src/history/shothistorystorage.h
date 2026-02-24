@@ -2,11 +2,14 @@
 
 #include <QObject>
 #include <QSqlDatabase>
+#include <QHash>
 #include <QVariantList>
 #include <QVector>
 #include <QPointF>
 #include <QDateTime>
 #include <atomic>
+
+class QThread;
 
 class ShotDataModel;
 class Profile;
@@ -115,6 +118,7 @@ class ShotHistoryStorage : public QObject {
 
     Q_PROPERTY(int totalShots READ totalShots NOTIFY totalShotsChanged)
     Q_PROPERTY(bool isReady READ isReady NOTIFY readyChanged)
+    Q_PROPERTY(bool loadingFiltered READ loadingFiltered NOTIFY loadingFilteredChanged)
 
 public:
     explicit ShotHistoryStorage(QObject* parent = nullptr);
@@ -124,6 +128,7 @@ public:
     bool initialize(const QString& dbPath = QString());
     bool isReady() const { return m_ready; }
     int totalShots() const { return m_totalShots; }
+    bool loadingFiltered() const { return m_loadingFiltered; }
 
     // Save a completed shot
     qint64 saveShot(ShotDataModel* shotData,
@@ -145,6 +150,9 @@ public:
     Q_INVOKABLE QVariantList getShots(int offset = 0, int limit = 50);
     Q_INVOKABLE QVariantList getShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
 
+    // Async version: runs SQL on a background thread and emits shotsFilteredReady()
+    Q_INVOKABLE void requestShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
+
     // Get just the timestamp of a shot (lightweight, no time-series)
     Q_INVOKABLE qint64 getShotTimestamp(qint64 shotId);
 
@@ -152,14 +160,18 @@ public:
     Q_INVOKABLE QVariantMap getShot(qint64 shotId);
     ShotRecord getShotRecord(qint64 shotId);
 
+    // Async version: runs on background thread, emits shotReady()
+    Q_INVOKABLE void requestShot(qint64 shotId);
+
     // Get multiple shots for comparison (efficient batch load)
     QList<ShotRecord> getShotsForComparison(const QList<qint64>& shotIds);
 
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
 
-    // Delete shot
+    // Delete shot(s)
     Q_INVOKABLE bool deleteShot(qint64 shotId);
+    Q_INVOKABLE bool deleteShots(const QVariantList& shotIds);
 
     // Update shot metadata (for editing existing shots)
     Q_INVOKABLE bool updateShotMetadata(qint64 shotId, const QVariantMap& metadata);
@@ -233,6 +245,9 @@ signals:
     void shotSaved(qint64 shotId);
     void shotDeleted(qint64 shotId);
     void errorOccurred(const QString& message);
+    void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
+    void loadingFilteredChanged();
+    void shotReady(qint64 shotId, const QVariantMap& shot);
 
 private:
     bool createTables();
@@ -252,6 +267,12 @@ private:
     // Helper to apply smart sorting for grinder settings
     void sortGrinderSettings(QStringList& settings);
 
+    // Invalidate all cached getDistinct*() results (call after save/delete/import)
+    void invalidateDistinctCache();
+
+    // Convert ShotRecord to QVariantMap (shared by getShot and requestShot)
+    QVariantMap getShot_convertRecord(const ShotRecord& record);
+
     // Backfill beverage_type from profile_json for existing rows
     void backfillBeverageType();
 
@@ -270,6 +291,13 @@ private:
     qint64 m_lastSavedShotId = 0;
     std::atomic<bool> m_backupInProgress{false};  // Prevent concurrent backup/export operations (thread-safe)
     std::atomic<bool> m_importInProgress{false};   // Prevent concurrent import/restore operations (thread-safe)
+
+    // Cache for getDistinct*() results (invalidated on save/delete/import)
+    QHash<QString, QStringList> m_distinctCache;
+
+    // Async filter support
+    bool m_loadingFiltered = false;
+    int m_filterSerial = 0;
 
     static const QString DB_CONNECTION_NAME;
 };

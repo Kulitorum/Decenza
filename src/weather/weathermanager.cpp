@@ -44,6 +44,10 @@ WeatherManager::WeatherManager(QObject* parent)
     : QObject(parent)
     , m_networkManager(new QNetworkAccessManager(this))
 {
+    // Cache locale's 12-hour preference once (avoids repeated ICU object creation)
+    QString fmt = QLocale::system().timeFormat(QLocale::ShortFormat);
+    m_use12HourTime = fmt.contains("AP", Qt::CaseInsensitive);
+
     m_refreshTimer.setInterval(REFRESH_INTERVAL_MS);
     connect(&m_refreshTimer, &QTimer::timeout, this, &WeatherManager::onRefreshTimer);
 }
@@ -95,9 +99,7 @@ bool WeatherManager::useImperialUnits() const
 
 bool WeatherManager::use12HourTime() const
 {
-    // Check system locale's time format for AM/PM indicator
-    QString fmt = QLocale::system().timeFormat(QLocale::ShortFormat);
-    return fmt.contains("AP", Qt::CaseInsensitive);
+    return m_use12HourTime;
 }
 
 QVariantList WeatherManager::hourlyForecast() const

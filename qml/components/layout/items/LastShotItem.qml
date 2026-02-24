@@ -21,6 +21,8 @@ Item {
     property var shotData: ({})
     readonly property bool hasData: !!(shotData && shotData.pressure && shotData.pressure.length > 0)
 
+    property int _pendingShotId: 0
+
     function loadLastShot() {
         var shotId = MainController.lastSavedShotId
         if (shotId <= 0) {
@@ -29,7 +31,8 @@ Item {
             if (recent.length > 0) shotId = recent[0].id
         }
         if (shotId > 0) {
-            shotData = MainController.shotHistory.getShot(shotId)
+            _pendingShotId = shotId
+            MainController.shotHistory.requestShot(shotId)
         }
     }
 
@@ -38,6 +41,15 @@ Item {
     Connections {
         target: MainController
         function onLastSavedShotIdChanged() { root.loadLastShot() }
+    }
+
+    // Handle async shot data
+    Connections {
+        target: MainController.shotHistory
+        function onShotReady(shotId, shot) {
+            if (shotId !== root._pendingShotId) return
+            shotData = shot
+        }
     }
 
     function goToShotDetail() {

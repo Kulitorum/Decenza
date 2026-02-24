@@ -426,43 +426,27 @@ KeyboardAwareContainer {
                     id: restoreBackupCombo
                     Layout.fillWidth: true
                     accessibleLabel: TranslationManager.translate("settings.data.restorefrombackup", "Restore backup")
-                    enabled: MainController.backupManager && availableBackups.length > 0
-                    model: availableBackups.length > 0 ? availableBackups : [TranslationManager.translate("settings.data.nobackups", "No backups available")]
+                    enabled: MainController.backupManager && displayNames.length > 0
+                    model: displayNames.length > 0 ? displayNames : [TranslationManager.translate("settings.data.nobackups", "No backups available")]
                     currentIndex: 0
 
-                    property var availableBackups: []
-                    property var backupFilenames: []
-
-                    function refreshBackupList() {
-                        if (!MainController.backupManager) {
-                            availableBackups = [];
-                            backupFilenames = [];
-                            return;
+                    // Derived from the cached C++ property (no blocking I/O)
+                    readonly property var rawBackups: MainController.backupManager ? MainController.backupManager.availableBackups : []
+                    readonly property var displayNames: {
+                        var list = [];
+                        for (var i = 0; i < rawBackups.length; i++) {
+                            var parts = rawBackups[i].split("|");
+                            if (parts.length === 2) list.push(parts[0]);
                         }
-                        var backups = MainController.backupManager.getAvailableBackups();
-                        var displayList = [];
-                        var filenames = [];
-
-                        for (var i = 0; i < backups.length; i++) {
-                            var parts = backups[i].split("|");
-                            if (parts.length === 2) {
-                                displayList.push(parts[0]);
-                                filenames.push(parts[1]);
-                            }
-                        }
-
-                        backupFilenames = filenames;
-                        availableBackups = displayList;
+                        return list;
                     }
-
-                    Component.onCompleted: refreshBackupList()
-
-                    // Refresh list when backup is created
-                    Connections {
-                        target: MainController.backupManager
-                        function onBackupCreated() {
-                            restoreBackupCombo.refreshBackupList();
+                    readonly property var backupFilenames: {
+                        var list = [];
+                        for (var i = 0; i < rawBackups.length; i++) {
+                            var parts = rawBackups[i].split("|");
+                            if (parts.length === 2) list.push(parts[1]);
                         }
+                        return list;
                     }
                 }
 
@@ -470,14 +454,14 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.data.restorebutton", "Restore Shots")
                     enabled: MainController.backupManager &&
-                             restoreBackupCombo.availableBackups.length > 0 &&
+                             restoreBackupCombo.displayNames.length > 0 &&
                              restoreBackupCombo.currentIndex >= 0
                     accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
                         "Restore shot history from selected backup")
                     onClicked: {
                         if (MainController.backupManager && restoreBackupCombo.currentIndex >= 0) {
                             restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupFilenames[restoreBackupCombo.currentIndex];
-                            restoreConfirmDialog.displayName = restoreBackupCombo.availableBackups[restoreBackupCombo.currentIndex];
+                            restoreConfirmDialog.displayName = restoreBackupCombo.displayNames[restoreBackupCombo.currentIndex];
                             restoreConfirmDialog.open();
                         }
                     }

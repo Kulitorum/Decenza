@@ -34,10 +34,19 @@ Page {
 
     function loadData() {
         if (shotId > 0)
-            shotData = MainController.shotHistory.getShot(shotId)
+            MainController.shotHistory.requestShot(shotId)
 
         groupDetails = MainController.shotHistory.getAutoFavoriteGroupDetails(
             groupBy, beanBrand, beanType, profileName, grinderModel, grinderSetting)
+    }
+
+    // Handle async shot data
+    Connections {
+        target: MainController.shotHistory
+        function onShotReady(id, shot) {
+            if (id !== autoFavoriteInfoPage.shotId) return
+            shotData = shot
+        }
     }
 
     // Helper properties for conditional display

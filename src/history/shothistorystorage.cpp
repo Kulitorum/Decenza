@@ -631,6 +631,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
              << "- Samples:" << sampleCount
              << "- Compressed size:" << compressedData.size() << "bytes";
 
+    invalidateDistinctCache();
     emit shotSaved(shotId);
     return shotId;
 }
@@ -915,6 +916,166 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
     return results;
 }
 
+void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int offset, int limit)
+{
+    bool isAppend = (offset > 0);
+
+    if (!m_ready) {
+        emit shotsFilteredReady(QVariantList(), isAppend, 0);
+        return;
+    }
+
+    ++m_filterSerial;
+    int serial = m_filterSerial;
+    const QString dbPath = m_dbPath;
+
+    // Build SQL on main thread (pure computation, fast)
+    ShotFilter filter = parseFilterMap(filterMap);
+    QVariantList bindValues;
+    QString whereClause = buildFilterQuery(filter, bindValues);
+
+    QString orderByExpr = s_sortColumnMap.value(filter.sortColumn, "timestamp");
+    QString sortDir = (filter.sortDirection == "ASC") ? "ASC" : "DESC";
+    QString orderByClause = QString("ORDER BY %1 %2").arg(orderByExpr, sortDir);
+
+    QString ftsQuery;
+    if (!filter.searchText.isEmpty())
+        ftsQuery = formatFtsQuery(filter.searchText);
+
+    QString sql;
+    if (!ftsQuery.isEmpty()) {
+        QString extraConditions;
+        if (!whereClause.isEmpty()) {
+            extraConditions = whereClause;
+            extraConditions.replace(extraConditions.indexOf("WHERE"), 5, "AND");
+        }
+        sql = QString(R"(
+            SELECT id, uuid, timestamp, profile_name, duration_seconds,
+                   final_weight, dose_weight, bean_brand, bean_type,
+                   enjoyment, visualizer_id, grinder_setting,
+                   temperature_override, yield_override, beverage_type,
+                   drink_tds, drink_ey
+            FROM shots
+            WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
+            %2
+            %3
+            LIMIT ? OFFSET ?
+        )").arg(ftsQuery).arg(extraConditions).arg(orderByClause);
+    } else {
+        sql = QString(R"(
+            SELECT id, uuid, timestamp, profile_name, duration_seconds,
+                   final_weight, dose_weight, bean_brand, bean_type,
+                   enjoyment, visualizer_id, grinder_setting,
+                   temperature_override, yield_override, beverage_type,
+                   drink_tds, drink_ey
+            FROM shots
+            %1
+            %2
+            LIMIT ? OFFSET ?
+        )").arg(whereClause).arg(orderByClause);
+    }
+
+    // Count SQL
+    QString countSql;
+    if (!ftsQuery.isEmpty()) {
+        QString extraConditions;
+        if (!whereClause.isEmpty()) {
+            extraConditions = whereClause;
+            extraConditions.replace(extraConditions.indexOf("WHERE"), 5, "AND");
+        }
+        countSql = QString("SELECT COUNT(*) FROM shots WHERE id IN "
+                           "(SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1') %2")
+                       .arg(ftsQuery).arg(extraConditions);
+    } else {
+        countSql = "SELECT COUNT(*) FROM shots" + whereClause;
+    }
+
+    // Separate bind values: data query gets limit+offset appended
+    QVariantList countBindValues = bindValues;
+    bindValues << limit << offset;
+
+    if (!m_loadingFiltered) {
+        m_loadingFiltered = true;
+        emit loadingFilteredChanged();
+    }
+
+    QThread* thread = QThread::create(
+        [this, dbPath, sql, countSql, bindValues, countBindValues, serial, isAppend]() {
+            const QString connName = QString("shs_filter_%1")
+                .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+            QVariantList results;
+            int totalCount = 0;
+
+            {
+                QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+                db.setDatabaseName(dbPath);
+                if (db.open()) {
+                    // Data query
+                    QSqlQuery query(db);
+                    if (query.prepare(sql)) {
+                        for (int i = 0; i < bindValues.size(); ++i)
+                            query.bindValue(i, bindValues[i]);
+
+                        if (query.exec()) {
+                            while (query.next()) {
+                                QVariantMap shot;
+                                shot["id"] = query.value(0).toLongLong();
+                                shot["uuid"] = query.value(1).toString();
+                                shot["timestamp"] = query.value(2).toLongLong();
+                                shot["profileName"] = query.value(3).toString();
+                                shot["duration"] = query.value(4).toDouble();
+                                shot["finalWeight"] = query.value(5).toDouble();
+                                shot["doseWeight"] = query.value(6).toDouble();
+                                shot["beanBrand"] = query.value(7).toString();
+                                shot["beanType"] = query.value(8).toString();
+                                shot["enjoyment"] = query.value(9).toInt();
+                                shot["hasVisualizerUpload"] = !query.value(10).isNull();
+                                shot["grinderSetting"] = query.value(11).toString();
+                                shot["temperatureOverride"] = query.value(12).toDouble();
+                                shot["yieldOverride"] = query.value(13).toDouble();
+                                shot["beverageType"] = query.value(14).toString();
+                                shot["drinkTds"] = query.value(15).toDouble();
+                                shot["drinkEy"] = query.value(16).toDouble();
+
+                                QDateTime dt = QDateTime::fromSecsSinceEpoch(
+                                    query.value(2).toLongLong());
+                                shot["dateTime"] = dt.toString("yyyy-MM-dd HH:mm");
+
+                                results.append(shot);
+                            }
+                        }
+                    }
+
+                    // Count query
+                    QSqlQuery countQuery(db);
+                    if (countQuery.prepare(countSql)) {
+                        for (int i = 0; i < countBindValues.size(); ++i)
+                            countQuery.bindValue(i, countBindValues[i]);
+                        if (countQuery.exec() && countQuery.next())
+                            totalCount = countQuery.value(0).toInt();
+                    }
+                } else {
+                    qWarning() << "ShotHistoryStorage: Failed to open DB for async filter";
+                }
+            }
+            QSqlDatabase::removeDatabase(connName);
+
+            QMetaObject::invokeMethod(
+                this,
+                [this, results = std::move(results), serial, isAppend, totalCount]() mutable {
+                    if (serial != m_filterSerial) return;
+                    m_loadingFiltered = false;
+                    emit loadingFilteredChanged();
+                    emit shotsFilteredReady(results, isAppend, totalCount);
+                },
+                Qt::QueuedConnection);
+        });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
 qint64 ShotHistoryStorage::getShotTimestamp(qint64 shotId)
 {
     if (!m_ready) return 0;
@@ -928,14 +1089,48 @@ qint64 ShotHistoryStorage::getShotTimestamp(qint64 shotId)
 
 QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
 {
-    ShotRecord record = getShotRecord(shotId);
-    QVariantMap result;
+    return getShot_convertRecord(getShotRecord(shotId));
+}
 
-    if (record.summary.id == 0) {
-        return result;
+void ShotHistoryStorage::requestShot(qint64 shotId)
+{
+    if (!m_ready) {
+        emit shotReady(shotId, QVariantMap());
+        return;
     }
 
-    // Summary fields
+    const QString dbPath = m_dbPath;
+
+    QThread* thread = QThread::create([this, dbPath, shotId]() {
+        const QString connName = QString("shs_shot_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+        ShotRecord record;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open())
+                record = loadShotRecordStatic(db, shotId);
+            else
+                qWarning() << "ShotHistoryStorage: Failed to open DB for async getShot";
+        }
+        QSqlDatabase::removeDatabase(connName);
+
+        // Convert to QVariantMap on main thread (touches QML-visible data)
+        QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record)]() {
+            emit shotReady(shotId, getShot_convertRecord(record));
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+QVariantMap ShotHistoryStorage::getShot_convertRecord(const ShotRecord& record)
+{
+    QVariantMap result;
+    if (record.summary.id == 0) return result;
+
     result["id"] = record.summary.id;
     result["uuid"] = record.summary.uuid;
     result["timestamp"] = record.summary.timestamp;
@@ -948,8 +1143,6 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["enjoyment"] = record.summary.enjoyment;
     result["hasVisualizerUpload"] = record.summary.hasVisualizerUpload;
     result["beverageType"] = record.summary.beverageType;
-
-    // Full metadata
     result["roastDate"] = record.roastDate;
     result["roastLevel"] = record.roastLevel;
     result["grinderModel"] = record.grinderModel;
@@ -963,14 +1156,10 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["visualizerId"] = record.visualizerId;
     result["visualizerUrl"] = record.visualizerUrl;
     result["debugLog"] = record.debugLog;
-
-    // Export overrides (always have values - user override or profile default)
     result["temperatureOverride"] = record.temperatureOverride;
     result["yieldOverride"] = record.yieldOverride;
-
     result["profileJson"] = record.profileJson;
 
-    // Convert time-series to variant lists
     auto pointsToVariant = [](const QVector<QPointF>& points) {
         QVariantList list;
         for (const auto& pt : points) {
@@ -994,7 +1183,6 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     result["weight"] = pointsToVariant(record.weight);
     result["weightFlowRate"] = pointsToVariant(record.weightFlowRate);
 
-    // Phase markers
     QVariantList phases;
     for (const auto& phase : record.phases) {
         QVariantMap p;
@@ -1007,7 +1195,6 @@ QVariantMap ShotHistoryStorage::getShot(qint64 shotId)
     }
     result["phases"] = phases;
 
-    // Format date
     QDateTime dt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
     result["dateTime"] = dt.toString("yyyy-MM-dd hh:mm:ss");
 
@@ -1197,9 +1384,44 @@ bool ShotHistoryStorage::deleteShot(qint64 shotId)
     }
 
     updateTotalShots();
+    invalidateDistinctCache();
     emit shotDeleted(shotId);
 
     qDebug() << "ShotHistoryStorage: Deleted shot" << shotId;
+    return true;
+}
+
+bool ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
+{
+    if (!m_ready || shotIds.isEmpty()) return false;
+
+    // Build placeholders: DELETE FROM shots WHERE id IN (?, ?, ...)
+    QStringList placeholders;
+    placeholders.reserve(shotIds.size());
+    for (int i = 0; i < shotIds.size(); ++i)
+        placeholders << "?";
+
+    m_db.transaction();
+
+    QSqlQuery query(m_db);
+    query.prepare("DELETE FROM shots WHERE id IN (" + placeholders.join(",") + ")");
+    for (int i = 0; i < shotIds.size(); ++i)
+        query.bindValue(i, shotIds[i].toLongLong());
+
+    if (!query.exec()) {
+        qWarning() << "ShotHistoryStorage: Failed to batch delete shots:" << query.lastError().text();
+        m_db.rollback();
+        return false;
+    }
+
+    m_db.commit();
+
+    updateTotalShots();
+    invalidateDistinctCache();
+    for (const auto& id : shotIds)
+        emit shotDeleted(id.toLongLong());
+
+    qDebug() << "ShotHistoryStorage: Batch deleted" << shotIds.size() << "shots";
     return true;
 }
 
@@ -1249,6 +1471,7 @@ bool ShotHistoryStorage::updateShotMetadata(qint64 shotId, const QVariantMap& me
         return false;
     }
 
+    invalidateDistinctCache();
     qDebug() << "ShotHistoryStorage: Updated metadata for shot" << shotId;
     return true;
 }
@@ -1261,6 +1484,10 @@ static const QStringList s_allowedColumns = {
 
 QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
 {
+    // Return cached result if available
+    if (m_distinctCache.contains(column))
+        return m_distinctCache.value(column);
+
     QStringList results;
     if (!m_ready) return results;
     if (!s_allowedColumns.contains(column)) {
@@ -1279,7 +1506,14 @@ QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
             results << value;
         }
     }
+
+    m_distinctCache.insert(column, results);
     return results;
+}
+
+void ShotHistoryStorage::invalidateDistinctCache()
+{
+    m_distinctCache.clear();
 }
 
 // Helper for all getDistinct*Filtered methods
@@ -2048,6 +2282,7 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
     QSqlDatabase::removeDatabase("import_connection");
 
     updateTotalShots();
+    invalidateDistinctCache();
 
     m_importInProgress = false;
 
