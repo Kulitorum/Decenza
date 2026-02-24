@@ -2251,6 +2251,10 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
     QString shotInfoJson = QString::fromUtf8(QJsonDocument(shotInfoArray).toJson(QJsonDocument::Compact));
     QString phasesJson = QString::fromUtf8(QJsonDocument(allPhasesArray).toJson(QJsonDocument::Compact));
 
+    // Prevent </script> injection when embedding JSON in <script> block
+    shotInfoJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
+    phasesJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
+
     return QString(R"HTML(
 <!DOCTYPE html>
 <html lang="en">
@@ -2866,7 +2870,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                     return (y > 0 && Math.abs(y - s.finalWeight) > 0.5) ? a + " (" + Math.round(y) + "g)" : a;
                 }
                 case "ratio": return s.dose > 0 ? "1:" + (s.finalWeight / s.dose).toFixed(1) : "\u2014";
-                case "rating": return (s.enjoyment || 0) + "\u0025";
+                case "rating": return s.enjoyment > 0 ? s.enjoyment + "\u0025" : "\u2014";
                 case "bean": {
                     var b = ((s.beanBrand || "") + (s.beanType ? " " + s.beanType : "")).trim();
                     return b || "\u2014";
@@ -2898,6 +2902,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             for (var i = 0; i < shotInfo.length; i++) {
                 var s = shotInfo[i];
                 switch (key) {
+                    case "rating": if (s.enjoyment > 0) return true; break;
                     case "grinder": if (s.grinderModel || s.grinderSetting) return true; break;
                     case "tdsEy": if (s.drinkTds > 0 || s.drinkEy > 0) return true; break;
                     case "barista": if (s.barista) return true; break;
