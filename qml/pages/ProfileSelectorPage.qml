@@ -638,6 +638,7 @@ Page {
                                     MouseArea {
                                         id: dragArea
                                         anchors.fill: parent
+                                        preventStealing: true
                                         drag.target: favoritePill
                                         drag.axis: Drag.YAxis
 
@@ -649,14 +650,18 @@ Page {
                                         }
 
                                         onReleased: {
-                                            favoritePill.anchors.fill = favoriteDelegate
-                                            // Calculate new position based on Y (pill.y is relative to delegate, so add delegate.y for list position)
+                                            // Read position BEFORE restoring anchors (anchors.fill resets y to 0)
                                             var contentPos = favoriteDelegate.y + favoritePill.y
-                                            var newIndex = Math.floor((contentPos + favoritePill.height/2) / (Theme.scaled(60) + Theme.scaled(8)))
+                                            var newIndex = Math.floor((contentPos + favoritePill.height/2) / (favoriteDelegate.height + favoritesList.spacing))
                                             newIndex = Math.max(0, Math.min(newIndex, Settings.favoriteProfiles.length - 1))
+                                            favoritePill.anchors.fill = favoriteDelegate
                                             if (newIndex !== startIndex && startIndex >= 0) {
                                                 Settings.moveFavoriteProfile(startIndex, newIndex)
                                             }
+                                        }
+
+                                        onCanceled: {
+                                            favoritePill.anchors.fill = favoriteDelegate
                                         }
                                     }
                                 }
