@@ -91,7 +91,7 @@ QString ShotServer::generateShotListPage() const
         // Build profile header: "Profile (Temp°C)"
         QString profileDisplay = profileHtml;
         if (tempOverride > 0) {
-            profileDisplay += QString(" <span class=\"shot-temp\">(%1&deg;C)</span>")
+            profileDisplay += QString(" <span class=\"shot-temp\">(%1\u00B0C)</span>")
                 .arg(tempOverride, 0, 'f', 0);
         }
 
@@ -2106,7 +2106,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
 </html>
 )HTML")
     .arg(tempOverride > 0
-         ? shot["profileName"].toString().toHtmlEscaped() + QString(" (%1&deg;C)").arg(tempOverride, 0, 'f', 0)
+         ? shot["profileName"].toString().toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
          : shot["profileName"].toString().toHtmlEscaped())
     .arg(shot["dateTime"].toString())
     .arg(shot["doseWeight"].toDouble(), 0, 'f', 1)
@@ -2177,16 +2177,32 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         return "[" + items.join(",") + "]";
     };
 
-    // Build datasets for each shot
+    // Per-shot line dash patterns (matching in-app: solid, dashed, dash-dot)
+    QStringList shotDashPatterns = {"[]", "[5,3]", "[8,4,2,4]"};
+
+    // Build datasets and shot info for each shot
     QString datasets;
-    QString legendItems;
+    QJsonArray shotInfoArray;
+    QJsonArray allPhasesArray;
     int shotIndex = 0;
+
+    // Escape for safe embedding in JS string literals (double-quoted)
+    auto jsEscape = [](const QString& s) -> QString {
+        QString r = s;
+        r.replace(QLatin1String("\\"), QLatin1String("\\\\"));
+        r.replace(QLatin1String("\""), QLatin1String("\\\""));
+        r.replace(QLatin1String("\n"), QLatin1String("\\n"));
+        r.replace(QLatin1String("\r"), QLatin1String(""));
+        r.replace(QLatin1String("<"), QLatin1String("\\u003c"));
+        return r;
+    };
 
     for (const QVariantMap& shot : std::as_const(shots)) {
         QString color = shotColors[shotIndex % shotColors.size()];
         QString name = shot["profileName"].toString();
-        QString date = shot["dateTime"].toString().left(10);
+        QString date = shot["dateTime"].toString().left(16);
         QString label = QString("%1 (%2)").arg(name, date);
+        QString dashPattern = shotDashPatterns[shotIndex % shotDashPatterns.size()];
 
         QString pressureData = pointsToJson(shot["pressure"].toList());
         QString flowData = pointsToJson(shot["flow"].toList());
@@ -2194,52 +2210,61 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         QString tempData = pointsToJson(shot["temperature"].toList());
         QString wfData = pointsToJson(shot["weightFlowRate"].toList());
 
-        // Add datasets for this shot
+        // Add datasets for this shot — all curves share the shot's dash pattern
         datasets += QString(R"HTML(
-            { label: "Pressure - %1", data: %2, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", shotIndex: %4, curveType: "pressure" },
-            { label: "Flow - %1", data: %5, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: [5,3], shotIndex: %4, curveType: "flow" },
-            { label: "Yield - %1", data: %6, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y2", borderDash: [2,2], shotIndex: %4, curveType: "weight" },
-            { label: "Temp - %1", data: %7, borderColor: "%3", borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: "y3", borderDash: [8,4], shotIndex: %4, curveType: "temp" },
-            { label: "Weight Flow - %1", data: %8, borderColor: "#d4a574", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", shotIndex: %4, curveType: "weightFlow" },
-        )HTML").arg(label.toHtmlEscaped(), pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData);
+            { label: "Pressure - %1", data: %2, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "pressure" },
+            { label: "Flow - %1", data: %5, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "flow" },
+            { label: "Yield - %1", data: %6, borderColor: "%3", borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: "y2", borderDash: %9, shotIndex: %4, curveType: "weight" },
+            { label: "Temp - %1", data: %7, borderColor: "%3", borderWidth: 1, pointRadius: 0, tension: 0.3, yAxisID: "y3", borderDash: %9, shotIndex: %4, curveType: "temp" },
+            { label: "Weight Flow - %1", data: %8, borderColor: "#d4a574", borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: "y", borderDash: %9, shotIndex: %4, curveType: "weightFlow" },
+        )HTML").arg(jsEscape(label), pressureData, color).arg(shotIndex).arg(flowData, weightData, tempData, wfData, dashPattern);
 
-        double ratio = shot["doseWeight"].toDouble() > 0 ?
-            shot["finalWeight"].toDouble() / shot["doseWeight"].toDouble() : 0;
+        // Build shot info JSON for JS
+        QJsonObject info;
+        info["color"] = color;
+        info["name"] = name;
+        info["date"] = date;
+        info["duration"] = shot["duration"].toDouble();
+        info["dose"] = shot["doseWeight"].toDouble();
+        info["finalWeight"] = shot["finalWeight"].toDouble();
+        info["yieldOverride"] = shot["yieldOverride"].toDouble();
+        info["temperatureOverride"] = shot["temperatureOverride"].toDouble();
+        info["enjoyment"] = shot["enjoyment"].toInt();
+        info["beanBrand"] = shot["beanBrand"].toString();
+        info["beanType"] = shot["beanType"].toString();
+        info["roastDate"] = shot["roastDate"].toString();
+        info["roastLevel"] = shot["roastLevel"].toString();
+        info["grinderModel"] = shot["grinderModel"].toString();
+        info["grinderSetting"] = shot["grinderSetting"].toString();
+        info["drinkTds"] = shot["drinkTds"].toDouble();
+        info["drinkEy"] = shot["drinkEy"].toDouble();
+        info["barista"] = shot["barista"].toString();
+        info["notes"] = shot["espressoNotes"].toString();
+        shotInfoArray.append(info);
 
-        // Build yield text with optional target
-        double cmpFinalWeight = shot["finalWeight"].toDouble();
-        double cmpYieldOverride = shot["yieldOverride"].toDouble();
-        QString cmpYieldText = QString("%1g").arg(cmpFinalWeight, 0, 'f', 1);
-        if (cmpYieldOverride > 0 && qAbs(cmpYieldOverride - cmpFinalWeight) > 0.5) {
-            cmpYieldText += QString("(%1g)").arg(cmpYieldOverride, 0, 'f', 0);
+        // Build phase data for this shot
+        QJsonArray shotPhases;
+        const QVariantList phases = shot["phases"].toList();
+        for (const QVariant& p : phases) {
+            QVariantMap phase = p.toMap();
+            if (phase["label"].toString() == "Start") continue;
+            QJsonObject phaseObj;
+            phaseObj["time"] = phase["time"].toDouble();
+            phaseObj["label"] = phase["label"].toString();
+            phaseObj["reason"] = phase["transitionReason"].toString();
+            shotPhases.append(phaseObj);
         }
-
-        // Build profile label with temp: "Profile (Temp°C) (date)"
-        double cmpTemp = shot["temperatureOverride"].toDouble();
-        QString profileWithTemp = name;
-        if (cmpTemp > 0) {
-            profileWithTemp += QString(" (%1&deg;C)").arg(cmpTemp, 0, 'f', 0);
-        }
-        QString legendLabel = QString("%1 (%2)").arg(profileWithTemp, date);
-
-        legendItems += QString(R"HTML(
-            <div class="legend-item">
-                <span class="legend-color" style="background:%1"></span>
-                <div class="legend-info">
-                    <div class="legend-name">%2</div>
-                    <div class="legend-details">%3 | %4g in | %5 out | 1:%6 | %7s</div>
-                </div>
-            </div>
-        )HTML").arg(color)
-               .arg(legendLabel.toHtmlEscaped())
-               .arg(date)
-               .arg(shot["doseWeight"].toDouble(), 0, 'f', 1)
-               .arg(cmpYieldText)
-               .arg(ratio, 0, 'f', 1)
-               .arg(shot["duration"].toDouble(), 0, 'f', 1);
+        allPhasesArray.append(shotPhases);
 
         shotIndex++;
     }
+
+    QString shotInfoJson = QString::fromUtf8(QJsonDocument(shotInfoArray).toJson(QJsonDocument::Compact));
+    QString phasesJson = QString::fromUtf8(QJsonDocument(allPhasesArray).toJson(QJsonDocument::Compact));
+
+    // Prevent </script> injection when embedding JSON in <script> block
+    shotInfoJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
+    phasesJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
 
     return QString(R"HTML(
 <!DOCTYPE html>
@@ -2264,18 +2289,20 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             --weightFlow: #d4a574;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: var(--bg);
             color: var(--text);
             line-height: 1.5;
+            display: flex;
+            flex-direction: column;
         }
         .header {
             background: var(--surface);
             border-bottom: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            position: sticky;
-            top: 0;
+            padding: 0.75rem 1.5rem;
+            flex-shrink: 0;
             z-index: 100;
         }
         .header-content {
@@ -2294,23 +2321,33 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         h1 { font-size: 1.125rem; font-weight: 600; }
         .container {
             max-width: 1400px;
+            width: 100%;
             margin: 0 auto;
-            padding: 1.5rem;
+            padding: 1rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
         .chart-container {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1rem;
-            margin-bottom: 1.5rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
         .chart-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
             flex-wrap: wrap;
-            gap: 0.75rem;
+            gap: 0.5rem;
+            flex-shrink: 0;
         }
         .chart-title { font-size: 1rem; font-weight: 600; }
         .curve-toggles {
@@ -2338,58 +2375,109 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         .toggle-btn.weight .dot { background: var(--weight); }
         .toggle-btn.temp .dot { background: var(--temp); }
         .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
-        .chart-wrapper { position: relative; height: 450px; }
-        .legend {
+        .chart-wrapper { position: relative; flex: 1; min-height: 150px; cursor: crosshair; }
+        .phase-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .phase-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.8125rem;
+            cursor: pointer;
+            opacity: 0.55;
+            transition: opacity 0.15s, background 0.15s;
+        }
+        .phase-pill.active { opacity: 1; }
+        .phase-pill .pill-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+        .below-chart {
+            flex-shrink: 0;
+            max-height: 40vh;
+            overflow-y: auto;
+            margin-top: 0.5rem;
+        }
+        .data-section {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1rem;
+            margin-bottom: 0.5rem;
+            overflow-x: auto;
         }
-        .legend-title {
-            font-size: 0.875rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8125rem;
+        }
+        .data-table th,
+        .data-table td {
+            padding: 0.375rem 0.5rem;
+            text-align: left;
+            white-space: nowrap;
+        }
+        .data-table thead th {
             color: var(--text-secondary);
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.5rem 0;
+            font-weight: 500;
             border-bottom: 1px solid var(--border);
         }
-        .legend-item:last-child { border-bottom: none; }
-        .legend-color {
+        .data-table td { color: var(--text); }
+        .data-table .shot-row { cursor: pointer; }
+        .data-table .shot-row:hover { background: rgba(255,255,255,0.03); }
+        .data-table .dimmed { opacity: 0.4; }
+        .shot-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+        .line-ind {
+            display: inline-block;
             width: 16px;
-            height: 16px;
-            border-radius: 4px;
-            flex-shrink: 0;
-        }
-        .legend-name { font-weight: 500; }
-        .legend-details { font-size: 0.75rem; color: var(--text-secondary); }
-        .curve-legend {
-            display: flex;
-            gap: 1.5rem;
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border);
-            flex-wrap: wrap;
-        }
-        .curve-legend-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
-        .curve-line {
-            width: 24px;
             height: 2px;
+            margin-right: 4px;
+            vertical-align: middle;
         }
-        .curve-line.solid { background: var(--text-secondary); }
-        .curve-line.dashed { background: repeating-linear-gradient(90deg, var(--text-secondary) 0, var(--text-secondary) 4px, transparent 4px, transparent 7px); }
-        .curve-line.dotted { background: repeating-linear-gradient(90deg, var(--text-secondary) 0, var(--text-secondary) 2px, transparent 2px, transparent 5px); }
-        .curve-line.longdash { background: repeating-linear-gradient(90deg, var(--text-secondary) 0, var(--text-secondary) 8px, transparent 8px, transparent 12px); }
+        .line-solid { background: var(--text); }
+        .line-dashed {
+            background: repeating-linear-gradient(90deg,
+                var(--text) 0, var(--text) 3px,
+                transparent 3px, transparent 5px);
+        }
+        .line-dashdot {
+            background: repeating-linear-gradient(90deg,
+                var(--text) 0, var(--text) 5px,
+                transparent 5px, transparent 7px,
+                var(--text) 7px, var(--text) 9px,
+                transparent 9px, transparent 11px);
+        }
+        .col-hdr { cursor: pointer; user-select: none; text-align: center; }
+        .col-hdr:hover { color: var(--text); }
+        .metric-label {
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            min-width: 70px;
+        }
+        .notes-cell {
+            white-space: normal;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         .menu-wrapper { position: relative; margin-left: auto; }
         .menu-btn {
             background: none;
@@ -2424,8 +2512,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         }
         .menu-item:hover { background: var(--surface); }
         @media (max-width: 600px) {
-            .container { padding: 1rem; }
-            .chart-wrapper { height: 350px; }
+            .container { padding: 0.5rem; }
         }
     </style>
 </head>)HTML" R"HTML(
@@ -2442,19 +2529,19 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             <div class="chart-header">
                 <div class="chart-title">Extraction Curves</div>
                 <div class="curve-toggles">
-                    <button class="toggle-btn pressure active" onclick="toggleCurve('pressure', this)">
+                    <button class="toggle-btn pressure active" data-curve="pressure" onclick="toggleCurve('pressure', this)">
                         <span class="dot"></span> Pressure
                     </button>
-                    <button class="toggle-btn flow active" onclick="toggleCurve('flow', this)">
+                    <button class="toggle-btn flow active" data-curve="flow" onclick="toggleCurve('flow', this)">
                         <span class="dot"></span> Flow
                     </button>
-                    <button class="toggle-btn weight active" onclick="toggleCurve('weight', this)">
+                    <button class="toggle-btn weight active" data-curve="weight" onclick="toggleCurve('weight', this)">
                         <span class="dot"></span> Yield
                     </button>
-                    <button class="toggle-btn temp active" onclick="toggleCurve('temp', this)">
+                    <button class="toggle-btn temp active" data-curve="temp" onclick="toggleCurve('temp', this)">
                         <span class="dot"></span> Temp
                     </button>
-                    <button class="toggle-btn weightFlow active" onclick="toggleCurve('weightFlow', this)">
+                    <button class="toggle-btn weightFlow active" data-curve="weightFlow" onclick="toggleCurve('weightFlow', this)">
                         <span class="dot"></span> Weight Flow
                     </button>
                 </div>
@@ -2463,130 +2550,165 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 <canvas id="compareChart"></canvas>
             </div>
         </div>
-        <div class="legend">
-            <div class="legend-title">Shots</div>
-            %2
-            <div class="curve-legend">
-                <div class="curve-legend-item"><span class="curve-line solid"></span> Pressure</div>
-                <div class="curve-legend-item"><span class="curve-line dashed"></span> Flow</div>
-                <div class="curve-legend-item"><span class="curve-line dotted"></span> Yield</div>
-                <div class="curve-legend-item"><span class="curve-line longdash"></span> Temp</div>
-                <div class="curve-legend-item"><span class="curve-line solid" style="border-color: var(--weightFlow);"></span> Weight Flow</div>
+        <div class="below-chart">
+            <div id="phasePills" class="phase-pills"></div>
+            <div class="data-section">
+                <table id="crosshairTable" class="data-table"></table>
+            </div>
+            <div class="data-section">
+                <table id="metricsTable" class="data-table"></table>
             </div>
         </div>
     </main>
     <script>
-        var visibleCurves = { pressure: true, flow: true, weight: true, temp: true, weightFlow: true };
+        // === Data from C++ ===
+        var shotInfo = %3;
+        var allPhases = %4;
 
-        // Find closest data point in a dataset to a given x value
+        // === State ===
+        var visibleCurves = {pressure: true, flow: true, weight: true, temp: true, weightFlow: true};
+        var visibleShots = {};
+        var hiddenPhases = {};
+        var crosshairTime = null;
+        var phaseColors = ["#c9a227", "#e85d75", "#4ecdc4", "#66bb6a", "#ff9800"];
+        var lineClasses = ["line-solid", "line-dashed", "line-dashdot"];
+
+        // Init shot visibility
+        for (var _i = 0; _i < shotInfo.length; _i++) visibleShots[_i] = true;
+
+        // Collect unique phase labels
+        var uniquePhaseLabels = [];
+        for (var _si = 0; _si < allPhases.length; _si++) {
+            for (var _pi = 0; _pi < allPhases[_si].length; _pi++) {
+                var _lbl = allPhases[_si][_pi].label;
+                if (uniquePhaseLabels.indexOf(_lbl) === -1) uniquePhaseLabels.push(_lbl);
+            }
+        }
+        // Default: only last 2 phase labels visible
+        for (var _j = 0; _j < Math.max(0, uniquePhaseLabels.length - 2); _j++) {
+            hiddenPhases[uniquePhaseLabels[_j]] = true;
+        }
+
+        // === Helpers ===
+        function escapeHtml(s) {
+            if (!s) return "";
+            return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+        function escapeAttr(s) {
+            if (!s) return "";
+            return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
         function findClosestPoint(data, targetX) {
             if (!data || data.length === 0) return null;
-            var closest = data[0];
-            var closestDist = Math.abs(data[0].x - targetX);
+            var closest = data[0], closestDist = Math.abs(data[0].x - targetX);
             for (var i = 1; i < data.length; i++) {
                 var dist = Math.abs(data[i].x - targetX);
-                if (dist < closestDist) {
-                    closestDist = dist;
-                    closest = data[i];
-                }
+                if (dist < closestDist) { closestDist = dist; closest = data[i]; }
             }
             return closest;
         }
+)HTML" R"HTML(
+        // === Phase marker plugin ===
+        var phaseMarkerPlugin = {
+            id: "phaseMarkers",
+            afterDraw: function(chart) {
+                if (!allPhases || allPhases.length === 0) return;
+                var ctx = chart.ctx;
+                var xScale = chart.scales.x;
+                var yScale = chart.scales.y;
+                var top = yScale.top, bottom = yScale.bottom;
+                var dashPats = [[], [6, 5], [10, 4, 2, 4]];
 
-        // Track mouse position for tooltip
-        var mouseX = 0, mouseY = 0;
-        document.addEventListener("mousemove", function(e) {
-            mouseX = e.pageX;
-            mouseY = e.pageY;
-        });
+                ctx.save();
+                for (var si = 0; si < allPhases.length; si++) {
+                    if (!visibleShots[si]) continue;
+                    var phases = allPhases[si];
+                    var color = shotInfo[si].color;
+                    var dash = dashPats[si % dashPats.length];
 
-        // Custom external tooltip
-        function externalTooltip(context) {
-            var tooltipEl = document.getElementById("chartTooltip");
-            if (!tooltipEl) {
-                tooltipEl = document.createElement("div");
-                tooltipEl.id = "chartTooltip";
-                tooltipEl.style.cssText = "position:absolute;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 14px;pointer-events:none;font-size:13px;color:#e6edf3;z-index:100;max-width:400px;";
-                document.body.appendChild(tooltipEl);
-            }
+                    for (var pi = 0; pi < phases.length; pi++) {
+                        var mk = phases[pi];
+                        if (hiddenPhases[mk.label]) continue;
+                        var x = xScale.getPixelForValue(mk.time);
+                        if (x < xScale.left || x > xScale.right) continue;
 
-            var tooltip = context.tooltip;
-            if (tooltip.opacity === 0) {
-                tooltipEl.style.opacity = 0;
-                return;
-            }
+                        ctx.beginPath();
+                        ctx.setLineDash(dash);
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 1;
+                        ctx.globalAlpha = 0.6;
+                        ctx.moveTo(x, top);
+                        ctx.lineTo(x, bottom);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        ctx.globalAlpha = 1.0;
 
-            // Get x position from the nearest point
-            if (!tooltip.dataPoints || !tooltip.dataPoints.length) {
-                tooltipEl.style.opacity = 0;
-                return;
-            }
-
-            var targetX = tooltip.dataPoints[0].parsed.x;
-            var datasets = context.chart.data.datasets;
-
-            // Group by shot, collect all curve values at this time
-            var shotData = {};
-            for (var i = 0; i < datasets.length; i++) {
-                var ds = datasets[i];
-                var meta = context.chart.getDatasetMeta(i);
-                if (meta.hidden || !visibleCurves[ds.curveType]) continue;
-
-                var pt = findClosestPoint(ds.data, targetX);
-                if (!pt) continue;
-
-                var key = ds.shotIndex;
-                if (!shotData[key]) {
-                    shotData[key] = { color: ds.borderColor, label: ds.label.split(" - ")[1] || ds.label, values: {} };
-                }
-                shotData[key].values[ds.curveType] = pt.y;
-            }
-
-            // Build HTML
-            var html = "<div style='font-weight:600;margin-bottom:6px;'>" + targetX.toFixed(1) + "s</div>";
-            var curveInfo = { pressure: {l:"P", u:"bar"}, flow: {l:"F", u:"ml/s"}, weight: {l:"W", u:"g"}, temp: {l:"T", u:"°C"}, weightFlow: {l:"WF", u:"g/s"} };
-
-            for (var shotIdx in shotData) {
-                var shot = shotData[shotIdx];
-                var parts = [];
-                ["pressure", "flow", "weight", "temp"].forEach(function(ct) {
-                    if (shot.values[ct] !== undefined && visibleCurves[ct]) {
-                        parts.push("<span style='color:" + shot.color + "'>" + curveInfo[ct].l + ":</span>" + shot.values[ct].toFixed(1) + curveInfo[ct].u);
+                        // Label only for first visible shot with this phase
+                        var isFirst = true;
+                        for (var prev = 0; prev < si; prev++) {
+                            if (!visibleShots[prev]) continue;
+                            for (var pp = 0; pp < allPhases[prev].length; pp++) {
+                                if (allPhases[prev][pp].label === mk.label) { isFirst = false; break; }
+                            }
+                            if (!isFirst) break;
+                        }
+                        if (isFirst) {
+                            var suffix = "";
+                            if (mk.reason === "weight") suffix = " [W]";
+                            else if (mk.reason === "pressure") suffix = " [P]";
+                            else if (mk.reason === "flow") suffix = " [F]";
+                            else if (mk.reason === "time") suffix = " [T]";
+                            ctx.save();
+                            ctx.translate(x + 4, top + 10);
+                            ctx.rotate(-Math.PI / 2);
+                            ctx.font = (mk.label === "End" ? "bold " : "") + "11px sans-serif";
+                            ctx.fillStyle = color;
+                            ctx.globalAlpha = 0.8;
+                            ctx.textAlign = "right";
+                            ctx.fillText(mk.label + suffix, 0, 0);
+                            ctx.restore();
+                        }
                     }
-                });
-                if (parts.length > 0) {
-                    html += "<div style='margin-top:4px;'><span style='display:inline-block;width:10px;height:10px;border-radius:2px;background:" + shot.color + ";margin-right:6px;'></span>" + shot.label + "</div>";
-                    html += "<div style='color:#8b949e;margin-left:16px;'>" + parts.join(" &nbsp;") + "</div>";
                 }
+                ctx.restore();
             }
+        };
 
-            tooltipEl.innerHTML = html;
-            tooltipEl.style.opacity = 1;
-
-            // Position tooltip near mouse cursor (offset to avoid covering cursor)
-            tooltipEl.style.left = (mouseX + 15) + "px";
-            tooltipEl.style.top = (mouseY - 10) + "px";
-        })HTML" R"HTML(
-
+        // === Crosshair plugin ===
+        var crosshairPlugin = {
+            id: "crosshairLine",
+            afterDraw: function(chart) {
+                if (crosshairTime === null) return;
+                var ctx = chart.ctx;
+                var xScale = chart.scales.x;
+                var yScale = chart.scales.y;
+                var x = xScale.getPixelForValue(crosshairTime);
+                if (x < xScale.left || x > xScale.right) return;
+                ctx.save();
+                ctx.beginPath();
+                ctx.setLineDash([3, 3]);
+                ctx.strokeStyle = "rgba(255,255,255,0.7)";
+                ctx.lineWidth = 1;
+                ctx.moveTo(x, yScale.top);
+                ctx.lineTo(x, yScale.bottom);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+            }
+        };
+)HTML" R"HTML(
+        // === Create chart ===
         var ctx = document.getElementById("compareChart").getContext("2d");
         var chart = new Chart(ctx, {
             type: "line",
-            data: {
-                datasets: [
-                    %3
-                ]
-            },
+            plugins: [phaseMarkerPlugin, crosshairPlugin],
+            data: { datasets: [%2] },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { mode: "nearest", axis: "x", intersect: false },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        enabled: false,
-                        external: externalTooltip
-                    }
-                },
+                animation: false,
+                events: [],
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
                 scales: {
                     x: {
                         type: "linear",
@@ -2621,42 +2743,299 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             }
         });
 
+        // === Crosshair interaction ===
+        var cvs = chart.canvas;
+        var isDragging = false;
+        var touchCommit = null;
+        var touchStartX = 0, touchStartY = 0;
+
+        function getTimeFromEvent(e) {
+            var rect = cvs.getBoundingClientRect();
+            var cx = e.touches ? e.touches[0].clientX : e.clientX;
+            var canvasX = cx - rect.left;
+            var xScale = chart.scales.x;
+            var t = xScale.getValueForPixel(canvasX);
+            return Math.max(xScale.min, Math.min(xScale.max, t));
+        }
+        function setCrosshair(t) {
+            crosshairTime = t;
+            chart.update("none");
+            updateCrosshairTable();
+        }
+
+        cvs.addEventListener("mousedown", function(e) {
+            isDragging = true;
+            setCrosshair(getTimeFromEvent(e));
+        });
+        document.addEventListener("mousemove", function(e) {
+            if (!isDragging) return;
+            setCrosshair(getTimeFromEvent(e));
+        });
+        document.addEventListener("mouseup", function() { isDragging = false; });
+
+        cvs.addEventListener("touchstart", function(e) {
+            if (e.touches.length !== 1) return;
+            touchCommit = null;
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+        cvs.addEventListener("touchmove", function(e) {
+            if (e.touches.length !== 1) return;
+            var dx = e.touches[0].clientX - touchStartX;
+            var dy = e.touches[0].clientY - touchStartY;
+            if (!touchCommit) {
+                if (Math.sqrt(dx * dx + dy * dy) > 10) {
+                    touchCommit = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
+                }
+            }
+            if (touchCommit === "h") {
+                e.preventDefault();
+                setCrosshair(getTimeFromEvent(e));
+            }
+        }, { passive: false });
+        cvs.addEventListener("touchend", function(e) {
+            if (!touchCommit) {
+                var rect = cvs.getBoundingClientRect();
+                var touch = e.changedTouches[0];
+                var cx = touch.clientX - rect.left;
+                var xScale = chart.scales.x;
+                var t = xScale.getValueForPixel(cx);
+                t = Math.max(xScale.min, Math.min(xScale.max, t));
+                setCrosshair(t);
+            }
+            touchCommit = null;
+        });
+)HTML" R"HTML(
+        // === Crosshair data table ===
+        var curveInfo = [
+            { key: "pressure", label: "P", unit: "bar", color: "var(--pressure)" },
+            { key: "flow", label: "F", unit: "mL/s", color: "var(--flow)" },
+            { key: "temp", label: "T", unit: "\u00B0C", color: "var(--temp)" },
+            { key: "weight", label: "W", unit: "g", color: "var(--weight)" },
+            { key: "weightFlow", label: "WF", unit: "g/s", color: "var(--weightFlow)" }
+        ];
+
+        function updateCrosshairTable() {
+            var tbl = document.getElementById("crosshairTable");
+            var h = "<thead><tr><th style='min-width:140px'>" +
+                (crosshairTime !== null ? crosshairTime.toFixed(1) + "s" : "") + "</th>";
+            for (var ci = 0; ci < curveInfo.length; ci++) {
+                var c = curveInfo[ci];
+                var on = visibleCurves[c.key];
+                h += "<th class='col-hdr" + (on ? "" : " dimmed") + "' onclick=\"toggleCurveFromTable('" + c.key + "')\" style='text-align:center'>";
+                h += "<span style='display:inline-block;width:6px;height:6px;border-radius:50%;background:" + c.color + ";margin-right:3px;vertical-align:middle;opacity:" + (on ? "1" : "0.3") + "'></span>";
+                h += c.label + "</th>";
+            }
+            h += "</tr></thead><tbody>";
+
+            var ds = chart.data.datasets;
+            for (var si = 0; si < shotInfo.length; si++) {
+                var s = shotInfo[si];
+                var vis = visibleShots[si];
+                var lc = lineClasses[si % lineClasses.length];
+                h += "<tr class='shot-row" + (vis ? "" : " dimmed") + "' onclick='toggleShot(" + si + ")'>";
+                h += "<td><span class='line-ind " + lc + "'></span>";
+                h += "<span class='shot-dot' style='background:" + s.color + "'></span>";
+                h += "<span style='font-weight:500'>" + escapeHtml(s.name) + "</span> ";
+                h += "<span style='color:var(--text-secondary);font-size:0.75rem'>" + escapeHtml(s.date) + "</span></td>";
+
+                for (var ci2 = 0; ci2 < curveInfo.length; ci2++) {
+                    var c2 = curveInfo[ci2];
+                    var val = "\u2014";
+                    if (crosshairTime !== null && vis && visibleCurves[c2.key]) {
+                        for (var di = 0; di < ds.length; di++) {
+                            if (ds[di].shotIndex === si && ds[di].curveType === c2.key) {
+                                var pt = findClosestPoint(ds[di].data, crosshairTime);
+                                if (pt && pt.y !== null) val = pt.y.toFixed(1) + " " + c2.unit;
+                                break;
+                            }
+                        }
+                    }
+                    h += "<td style='text-align:center;color:" + c2.color + "'>" + val + "</td>";
+                }
+                h += "</tr>";
+            }
+            h += "</tbody>";
+            tbl.textContent = "";
+            tbl.insertAdjacentHTML("afterbegin", h);
+        }
+
+        // === Phase pills ===
+        function buildPhasePills() {
+            var el = document.getElementById("phasePills");
+            if (uniquePhaseLabels.length === 0) { el.style.display = "none"; return; }
+            var h = "";
+            for (var i = 0; i < uniquePhaseLabels.length; i++) {
+                var label = uniquePhaseLabels[i];
+                var color = phaseColors[i % phaseColors.length];
+                var on = !hiddenPhases[label];
+                h += "<button class='phase-pill" + (on ? " active" : "") + "' ";
+                h += "data-label='" + escapeAttr(label) + "' onclick='togglePhase(this)' ";
+                if (on) h += "style='background:" + color + "22;border-color:" + color + ";color:" + color + "' ";
+                h += "><span class='pill-dot' style='background:" + color + "'></span>" + escapeHtml(label) + "</button>";
+            }
+            el.textContent = "";
+            el.insertAdjacentHTML("afterbegin", h);
+        }
+        function togglePhase(btn) {
+            var label = btn.getAttribute("data-label");
+            if (hiddenPhases[label]) delete hiddenPhases[label];
+            else hiddenPhases[label] = true;
+            buildPhasePills();
+            chart.update("none");
+        }
+)HTML" R"HTML(
+        // === Shot metrics table ===
+        function metricVal(key, s) {
+            switch (key) {
+                case "profile": {
+                    var n = s.name || "\u2014";
+                    return s.temperatureOverride > 0 ? n + " (" + Math.round(s.temperatureOverride) + "\u00B0C)" : n;
+                }
+                case "duration": return (s.duration || 0).toFixed(1) + "s";
+                case "dose": return (s.dose || 0).toFixed(1) + "g";
+                case "output": {
+                    var a = (s.finalWeight || 0).toFixed(1) + "g";
+                    var y = s.yieldOverride;
+                    return (y > 0 && Math.abs(y - s.finalWeight) > 0.5) ? a + " (" + Math.round(y) + "g)" : a;
+                }
+                case "ratio": return s.dose > 0 ? "1:" + (s.finalWeight / s.dose).toFixed(1) : "\u2014";
+                case "rating": return s.enjoyment > 0 ? s.enjoyment + "\u0025" : "\u2014";
+                case "bean": {
+                    var b = ((s.beanBrand || "") + (s.beanType ? " " + s.beanType : "")).trim();
+                    return b || "\u2014";
+                }
+                case "grinder": {
+                    var m = s.grinderModel || "";
+                    var g = s.grinderSetting || "";
+                    if (m && g) return m + " @ " + g;
+                    return m || g || "\u2014";
+                }
+                case "roast": {
+                    var p = [];
+                    if (s.roastLevel) p.push(s.roastLevel);
+                    if (s.roastDate) p.push(s.roastDate);
+                    return p.length > 0 ? p.join(", ") : "\u2014";
+                }
+                case "tdsEy": {
+                    var p = [];
+                    if (s.drinkTds > 0) p.push(s.drinkTds.toFixed(2) + "\u0025");
+                    if (s.drinkEy > 0) p.push(s.drinkEy.toFixed(1) + "\u0025");
+                    return p.join(" / ") || "\u2014";
+                }
+                case "barista": return s.barista || "\u2014";
+                case "notes": return s.notes || "\u2014";
+            }
+            return "\u2014";
+        }
+        function metricRowVis(key) {
+            for (var i = 0; i < shotInfo.length; i++) {
+                var s = shotInfo[i];
+                switch (key) {
+                    case "rating": if (s.enjoyment > 0) return true; break;
+                    case "grinder": if (s.grinderModel || s.grinderSetting) return true; break;
+                    case "tdsEy": if (s.drinkTds > 0 || s.drinkEy > 0) return true; break;
+                    case "barista": if (s.barista) return true; break;
+                    case "notes": if (s.notes) return true; break;
+                    default: return true;
+                }
+            }
+            return false;
+        }
+        function buildMetricsTable() {
+            var tbl = document.getElementById("metricsTable");
+            var metrics = [
+                {key: "duration", label: "Duration"}, {key: "dose", label: "Dose"},
+                {key: "output", label: "Output"}, {key: "ratio", label: "Ratio"},
+                {key: "rating", label: "Rating"}, {key: "bean", label: "Bean"},
+                {key: "grinder", label: "Grinder"}, {key: "roast", label: "Roast"},
+                {key: "tdsEy", label: "TDS/EY"},
+                {key: "barista", label: "Barista"}, {key: "notes", label: "Notes"}
+            ];
+            var h = "<thead><tr><th></th>";
+            for (var si = 0; si < shotInfo.length; si++) {
+                var s = shotInfo[si];
+                var lc = lineClasses[si % lineClasses.length];
+                h += "<th><span class='line-ind " + lc + "'></span>";
+                h += "<span class='shot-dot' style='background:" + s.color + "'></span>";
+                h += escapeHtml(metricVal("profile", s));
+                h += "<br><span style='color:var(--text-secondary);font-size:0.7rem'>" + escapeHtml(s.date) + "</span></th>";
+            }
+            h += "</tr></thead><tbody>";
+            for (var mi = 0; mi < metrics.length; mi++) {
+                var m = metrics[mi];
+                if (!metricRowVis(m.key)) continue;
+                h += "<tr><td class='metric-label'>" + m.label + "</td>";
+                for (var si2 = 0; si2 < shotInfo.length; si2++) {
+                    var val = metricVal(m.key, shotInfo[si2]);
+                    var cls = m.key === "notes" ? " class='notes-cell'" : "";
+                    var sty = m.key === "rating" ? " style='color:#f0a500'" : "";
+                    h += "<td" + cls + sty + ">" + escapeHtml(val) + "</td>";
+                }
+                h += "</tr>";
+            }
+            h += "</tbody>";
+            tbl.textContent = "";
+            tbl.insertAdjacentHTML("afterbegin", h);
+        }
+
+        // === Toggle functions ===
         function toggleCurve(curveType, btn) {
             visibleCurves[curveType] = !visibleCurves[curveType];
             btn.classList.toggle("active");
-
             chart.data.datasets.forEach(function(ds, i) {
                 if (ds.curveType === curveType) {
-                    chart.getDatasetMeta(i).hidden = !visibleCurves[curveType];
+                    chart.getDatasetMeta(i).hidden = !visibleShots[ds.shotIndex] || !visibleCurves[curveType];
                 }
             });
             chart.update();
+            updateCrosshairTable();
+        }
+        function toggleCurveFromTable(curveType) {
+            visibleCurves[curveType] = !visibleCurves[curveType];
+            document.querySelectorAll(".toggle-btn").forEach(function(btn) {
+                if (btn.getAttribute("data-curve") === curveType)
+                    btn.classList.toggle("active", visibleCurves[curveType]);
+            });
+            chart.data.datasets.forEach(function(ds, i) {
+                if (ds.curveType === curveType) {
+                    chart.getDatasetMeta(i).hidden = !visibleShots[ds.shotIndex] || !visibleCurves[curveType];
+                }
+            });
+            chart.update();
+            updateCrosshairTable();
+        }
+        function toggleShot(idx) {
+            visibleShots[idx] = !visibleShots[idx];
+            chart.data.datasets.forEach(function(ds, i) {
+                if (ds.shotIndex === idx) {
+                    chart.getDatasetMeta(i).hidden = !visibleShots[idx] || !visibleCurves[ds.curveType];
+                }
+            });
+            chart.update("none");
+            updateCrosshairTable();
         }
 
+        // === Menu ===
         function toggleMenu() {
-            var menu = document.getElementById("menuDropdown");
-            menu.classList.toggle("open");
+            document.getElementById("menuDropdown").classList.toggle("open");
         }
-
         document.addEventListener("click", function(e) {
             var menu = document.getElementById("menuDropdown");
-            var btn = e.target.closest(".menu-btn");
-            if (!btn && menu.classList.contains("open")) {
+            if (!e.target.closest(".menu-btn") && menu.classList.contains("open"))
                 menu.classList.remove("open");
-            }
         });
 
-        // Power toggle
+        // === Power toggle ===
         var powerState = {awake: false, state: "Unknown"};
         function updatePowerButton() {
             var btn = document.getElementById("powerToggle");
-            if (powerState.state === "Unknown" || !powerState.connected) {
+            if (powerState.state === "Unknown" || !powerState.connected)
                 btn.innerHTML = "&#128268; Disconnected";
-            } else if (powerState.awake) {
+            else if (powerState.awake)
                 btn.innerHTML = "&#128164; Put to Sleep";
-            } else {
+            else
                 btn.innerHTML = "&#9889; Wake Up";
-            }
         }
         function fetchPowerState() {
             fetch("/api/power/status")
@@ -2672,15 +3051,21 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         }
         fetchPowerState();
         var pwrTimer3 = setInterval(fetchPowerState, 5000);
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden) { clearInterval(pwrTimer3); }
+        document.addEventListener("visibilitychange", function() {
+            if (document.hidden) clearInterval(pwrTimer3);
             else { fetchPowerState(); pwrTimer3 = setInterval(fetchPowerState, 5000); }
         });
+
+        // === Init ===
+        buildPhasePills();
+        buildMetricsTable();
+        updateCrosshairTable();
     </script>
 </body>
 </html>
-)HTML").arg(shots.size()).arg(legendItems).arg(datasets);
+)HTML").arg(QString::number(shots.size()), datasets, shotInfoJson, phasesJson);
 }
+
 
 QString ShotServer::generateDebugPage() const
 {
