@@ -2289,18 +2289,20 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             --weightFlow: #d4a574;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: var(--bg);
             color: var(--text);
             line-height: 1.5;
+            display: flex;
+            flex-direction: column;
         }
         .header {
             background: var(--surface);
             border-bottom: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            position: sticky;
-            top: 0;
+            padding: 0.75rem 1.5rem;
+            flex-shrink: 0;
             z-index: 100;
         }
         .header-content {
@@ -2319,23 +2321,33 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         h1 { font-size: 1.125rem; font-weight: 600; }
         .container {
             max-width: 1400px;
+            width: 100%;
             margin: 0 auto;
-            padding: 1.5rem;
+            padding: 1rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
         .chart-container {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1rem;
-            margin-bottom: 1rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
         .chart-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
             flex-wrap: wrap;
-            gap: 0.75rem;
+            gap: 0.5rem;
+            flex-shrink: 0;
         }
         .chart-title { font-size: 1rem; font-weight: 600; }
         .curve-toggles {
@@ -2363,7 +2375,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         .toggle-btn.weight .dot { background: var(--weight); }
         .toggle-btn.temp .dot { background: var(--temp); }
         .toggle-btn.weightFlow .dot { background: var(--weightFlow); }
-        .chart-wrapper { position: relative; height: 450px; cursor: crosshair; }
+        .chart-wrapper { position: relative; flex: 1; min-height: 150px; cursor: crosshair; }
         .phase-pills {
             display: flex;
             flex-wrap: wrap;
@@ -2391,12 +2403,18 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
             height: 6px;
             border-radius: 50%;
         }
+        .below-chart {
+            flex-shrink: 0;
+            max-height: 40vh;
+            overflow-y: auto;
+            margin-top: 0.5rem;
+        }
         .data-section {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1rem;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
             overflow-x: auto;
         }
         .data-table {
@@ -2494,8 +2512,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         }
         .menu-item:hover { background: var(--surface); }
         @media (max-width: 600px) {
-            .container { padding: 1rem; }
-            .chart-wrapper { height: 350px; }
+            .container { padding: 0.5rem; }
         }
     </style>
 </head>)HTML" R"HTML(
@@ -2533,12 +2550,14 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
                 <canvas id="compareChart"></canvas>
             </div>
         </div>
-        <div id="phasePills" class="phase-pills"></div>
-        <div class="data-section">
-            <table id="crosshairTable" class="data-table"></table>
-        </div>
-        <div class="data-section">
-            <table id="metricsTable" class="data-table"></table>
+        <div class="below-chart">
+            <div id="phasePills" class="phase-pills"></div>
+            <div class="data-section">
+                <table id="crosshairTable" class="data-table"></table>
+            </div>
+            <div class="data-section">
+                <table id="metricsTable" class="data-table"></table>
+            </div>
         </div>
     </main>
     <script>
