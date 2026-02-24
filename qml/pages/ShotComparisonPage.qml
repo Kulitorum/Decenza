@@ -129,7 +129,7 @@ Page {
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("comparison.previousShots", "Previous shots")
                         Accessible.focusable: true
-                        Accessible.onPressAction: leftArrowArea.clicked(null)
+                        Accessible.onPressAction: prevMouseArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
@@ -139,7 +139,7 @@ Page {
                             Accessible.ignored: true
                         }
                         MouseArea {
-                            id: leftArrowArea
+                            id: prevMouseArea
                             anchors.fill: parent
                             enabled: comparisonModel.canShiftLeft
                             onClicked: comparisonModel.shiftWindowLeft()
@@ -171,7 +171,7 @@ Page {
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("comparison.nextShots", "Next shots")
                         Accessible.focusable: true
-                        Accessible.onPressAction: rightArrowArea.clicked(null)
+                        Accessible.onPressAction: nextMouseArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
@@ -181,7 +181,7 @@ Page {
                             Accessible.ignored: true
                         }
                         MouseArea {
-                            id: rightArrowArea
+                            id: nextMouseArea
                             anchors.fill: parent
                             enabled: comparisonModel.canShiftRight
                             onClicked: comparisonModel.shiftWindowRight()

@@ -155,6 +155,9 @@ public:
     // Get multiple shots for comparison (efficient batch load)
     QList<ShotRecord> getShotsForComparison(const QList<qint64>& shotIds);
 
+    // Static version for background-thread use — caller provides their own connection.
+    static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
+
     // Delete shot
     Q_INVOKABLE bool deleteShot(qint64 shotId);
 
@@ -235,7 +238,7 @@ private:
     bool createTables();
     bool runMigrations();
     QByteArray compressSampleData(ShotDataModel* shotData);
-    void decompressSampleData(const QByteArray& blob, ShotRecord* record);
+    static void decompressSampleData(const QByteArray& blob, ShotRecord* record);
     void updateTotalShots();
     QString buildFilterQuery(const ShotFilter& filter, QVariantList& bindValues);
     ShotFilter parseFilterMap(const QVariantMap& filterMap);
