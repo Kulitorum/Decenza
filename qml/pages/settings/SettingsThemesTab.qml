@@ -98,7 +98,8 @@ Item {
 
             // Left panel - Color list
             Rectangle {
-                Layout.preferredWidth: parent.width * 0.4
+                Layout.fillWidth: true
+                Layout.maximumWidth: Math.max(0, themesTab.width * 0.4)
                 Layout.fillHeight: true
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
