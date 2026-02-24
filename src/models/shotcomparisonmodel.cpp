@@ -2,6 +2,8 @@
 #include "../history/shothistorystorage.h"
 
 #include <QDateTime>
+#include <QSqlDatabase>
+#include <QThread>
 #include <algorithm>
 #include <QtCharts/QXYSeries>
 
@@ -55,7 +57,7 @@ void ShotComparisonModel::addShots(const QVariantList& shotIds)
     if (!changed) return;
 
     std::sort(m_shotIds.begin(), m_shotIds.end());
-    loadDisplayWindow();
+    scheduleLoad();
     emit shotsChanged();
 }
 
@@ -75,7 +77,7 @@ bool ShotComparisonModel::addShot(qint64 shotId)
     std::sort(m_shotIds.begin(), m_shotIds.end());
 
     // Update window start if needed (keep showing the same relative position)
-    loadDisplayWindow();
+    scheduleLoad();
     emit shotsChanged();
     return true;
 }
@@ -90,7 +92,7 @@ void ShotComparisonModel::removeShot(qint64 shotId)
         if (m_windowStart >= shotCount) {
             m_windowStart = std::max(0, shotCount - DISPLAY_WINDOW_SIZE);
         }
-        loadDisplayWindow();
+        scheduleLoad();
         emit shotsChanged();
         emit windowChanged();
     }
@@ -98,6 +100,7 @@ void ShotComparisonModel::removeShot(qint64 shotId)
 
 void ShotComparisonModel::clearAll()
 {
+    ++m_loadSerial;  // Invalidate any in-flight background loads
     m_shotIds.clear();
     m_displayShots.clear();
     m_windowStart = 0;
@@ -105,6 +108,10 @@ void ShotComparisonModel::clearAll()
     m_maxPressure = 12.0;
     m_maxFlow = 8.0;
     m_maxWeight = 50.0;
+    if (m_loading) {
+        m_loading = false;
+        emit loadingChanged();
+    }
     emit shotsChanged();
     emit windowChanged();
 }
@@ -113,7 +120,7 @@ void ShotComparisonModel::shiftWindowLeft()
 {
     if (canShiftLeft()) {
         m_windowStart--;
-        loadDisplayWindow();
+        scheduleLoad();
         emit shotsChanged();  // Triggers graph/data refresh
         emit windowChanged();
     }
@@ -123,7 +130,7 @@ void ShotComparisonModel::shiftWindowRight()
 {
     if (canShiftRight()) {
         m_windowStart++;
-        loadDisplayWindow();
+        scheduleLoad();
         emit shotsChanged();  // Triggers graph/data refresh
         emit windowChanged();
     }
@@ -135,7 +142,7 @@ void ShotComparisonModel::setWindowStart(int index)
     int newStart = std::max(0, std::min(index, maxStart));
     if (newStart != m_windowStart) {
         m_windowStart = newStart;
-        loadDisplayWindow();
+        scheduleLoad();
         emit shotsChanged();  // Triggers graph/data refresh
         emit windowChanged();
     }
@@ -146,67 +153,114 @@ bool ShotComparisonModel::hasShotId(qint64 shotId) const
     return m_shotIds.contains(shotId);
 }
 
-void ShotComparisonModel::loadDisplayWindow()
+void ShotComparisonModel::scheduleLoad()
 {
-    m_displayShots.clear();
+    // Increment serial so any in-flight load knows its result is stale
+    ++m_loadSerial;
+    int serial = m_loadSerial;
 
-    if (!m_storage || m_shotIds.isEmpty()) return;
+    if (m_shotIds.isEmpty() || !m_storage) {
+        m_displayShots.clear();
+        calculateMaxValues();
+        if (m_loading) {
+            m_loading = false;
+            emit loadingChanged();
+        }
+        return;
+    }
 
-    // Ensure window start is valid
+    // Compute window indices on the main thread before going async
     int shotCount = static_cast<int>(m_shotIds.size());
     if (m_windowStart < 0) m_windowStart = 0;
-    if (m_windowStart >= shotCount) m_windowStart = std::max(0, shotCount - DISPLAY_WINDOW_SIZE);
+    if (m_windowStart >= shotCount)
+        m_windowStart = std::max(0, shotCount - DISPLAY_WINDOW_SIZE);
 
-    // Get the subset of shot IDs for the current window
     QList<qint64> windowIds;
     int windowEnd = std::min(m_windowStart + DISPLAY_WINDOW_SIZE, shotCount);
-    for (int i = m_windowStart; i < windowEnd; ++i) {
+    for (int i = m_windowStart; i < windowEnd; ++i)
         windowIds.append(m_shotIds[i]);
+
+    const QString dbPath = m_storage->databasePath();
+
+    if (!m_loading) {
+        m_loading = true;
+        emit loadingChanged();
     }
 
-    QList<ShotRecord> records = m_storage->getShotsForComparison(windowIds);
+    // Open a dedicated SQLite connection on the worker thread, load the shots,
+    // and deliver results back to the main thread via a queued invocation.
+    // Qt guarantees the functor is not called if `this` is already destroyed.
+    QThread* thread = QThread::create([this, dbPath, windowIds, serial]() {
+        const QString connName = QString("scm_load_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
-    for (const ShotRecord& record : records) {
-        ComparisonShot shot;
-        shot.id = record.summary.id;
-        shot.profileName = record.summary.profileName;
-        shot.beanBrand = record.summary.beanBrand;
-        shot.beanType = record.summary.beanType;
-        shot.roastDate = record.roastDate;
-        shot.roastLevel = record.roastLevel;
-        shot.grinderModel = record.grinderModel;
-        shot.grinderSetting = record.grinderSetting;
-        shot.duration = record.summary.duration;
-        shot.doseWeight = record.summary.doseWeight;
-        shot.finalWeight = record.summary.finalWeight;
-        shot.drinkTds = record.drinkTds;
-        shot.drinkEy = record.drinkEy;
-        shot.enjoyment = record.summary.enjoyment;
-        shot.timestamp = record.summary.timestamp;
-        shot.notes = record.espressoNotes;
-        shot.barista = record.barista;
-        shot.temperatureOverride = record.temperatureOverride;
-        shot.yieldOverride = record.yieldOverride;
+        QList<ComparisonShot> shots;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                for (qint64 id : windowIds) {
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id);
+                    if (record.summary.id == 0) continue;
 
-        shot.pressure = record.pressure;
-        shot.flow = record.flow;
-        shot.temperature = record.temperature;
-        shot.weight = record.weight;
-        shot.weightFlowRate = record.weightFlowRate;
-        shot.resistance = record.resistance;
+                    ComparisonShot shot;
+                    shot.id = record.summary.id;
+                    shot.profileName = record.summary.profileName;
+                    shot.beanBrand = record.summary.beanBrand;
+                    shot.beanType = record.summary.beanType;
+                    shot.roastDate = record.roastDate;
+                    shot.roastLevel = record.roastLevel;
+                    shot.grinderModel = record.grinderModel;
+                    shot.grinderSetting = record.grinderSetting;
+                    shot.duration = record.summary.duration;
+                    shot.doseWeight = record.summary.doseWeight;
+                    shot.finalWeight = record.summary.finalWeight;
+                    shot.drinkTds = record.drinkTds;
+                    shot.drinkEy = record.drinkEy;
+                    shot.enjoyment = record.summary.enjoyment;
+                    shot.timestamp = record.summary.timestamp;
+                    shot.notes = record.espressoNotes;
+                    shot.barista = record.barista;
+                    shot.temperatureOverride = record.temperatureOverride;
+                    shot.yieldOverride = record.yieldOverride;
+                    shot.pressure = record.pressure;
+                    shot.flow = record.flow;
+                    shot.temperature = record.temperature;
+                    shot.weight = record.weight;
+                    shot.weightFlowRate = record.weightFlowRate;
+                    shot.resistance = record.resistance;
 
-        for (const auto& phase : record.phases) {
-            ComparisonShot::PhaseMarker marker;
-            marker.time = phase.time;
-            marker.label = phase.label;
-            marker.transitionReason = phase.transitionReason;
-            shot.phases.append(marker);
+                    for (const auto& phase : record.phases) {
+                        ComparisonShot::PhaseMarker marker;
+                        marker.time = phase.time;
+                        marker.label = phase.label;
+                        marker.transitionReason = phase.transitionReason;
+                        shot.phases.append(marker);
+                    }
+
+                    shots.append(shot);
+                }
+            } else {
+                qWarning() << "ShotComparisonModel: failed to open DB for comparison load";
+            }
         }
+        QSqlDatabase::removeDatabase(connName);
 
-        m_displayShots.append(shot);
-    }
+        // Post results back to the main thread.
+        // Qt discards this call automatically if `this` has been destroyed.
+        QMetaObject::invokeMethod(this, [this, shots = std::move(shots), serial]() mutable {
+            if (serial != m_loadSerial) return;  // superseded by a newer load
+            m_displayShots = std::move(shots);
+            calculateMaxValues();
+            m_loading = false;
+            emit loadingChanged();
+            emit shotsChanged();
+        }, Qt::QueuedConnection);
+    });
 
-    calculateMaxValues();
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    m_loadThread = thread;
+    thread->start();
 }
 
 void ShotComparisonModel::calculateMaxValues()
@@ -250,8 +304,6 @@ void ShotComparisonModel::populateSeries(int shotIdx,
                                           QObject* tObj, QObject* wObj,
                                           QObject* wfObj, QObject* rObj) const
 {
-    using QtCharts::QXYSeries;
-
     auto clearSeries = [](QObject* obj) {
         if (auto* s = qobject_cast<QXYSeries*>(obj)) s->clear();
     };

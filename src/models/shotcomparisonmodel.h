@@ -5,6 +5,7 @@
 #include <QPointF>
 #include <QVariantList>
 #include <QColor>
+#include <QThread>
 
 class ShotHistoryStorage;
 struct ShotRecord;
@@ -27,14 +28,15 @@ class ShotComparisonModel : public QObject {
     Q_PROPERTY(bool canShiftLeft READ canShiftLeft NOTIFY windowChanged)
     Q_PROPERTY(bool canShiftRight READ canShiftRight NOTIFY windowChanged)
 
+    // True while shot data is being loaded in the background
+    Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+
 public:
     explicit ShotComparisonModel(QObject* parent = nullptr);
 
     void setStorage(ShotHistoryStorage* storage);
 
-    // Display window count (max 3 visible at a time)
     int displayShotCount() const { return static_cast<int>(m_displayShots.size()); }
-    // Total shots in selection
     int totalShots() const { return static_cast<int>(m_shotIds.size()); }
 
     QVariantList shotsVariant() const;
@@ -43,32 +45,30 @@ public:
     double maxFlow() const { return m_maxFlow; }
     double maxWeight() const { return m_maxWeight; }
 
-    // Window navigation
+    bool loading() const { return m_loading; }
+
     int windowStart() const { return m_windowStart; }
     bool canShiftLeft() const { return m_windowStart > 0; }
     bool canShiftRight() const { return m_windowStart + DISPLAY_WINDOW_SIZE < static_cast<int>(m_shotIds.size()); }
 
-    // Add/remove shots to comparison (unlimited)
     Q_INVOKABLE bool addShot(qint64 shotId);
-    // Batch-add multiple shots with a single DB load and one shotsChanged emission.
+    // Batch-add: one DB load, one shotsChanged emission.
     Q_INVOKABLE void addShots(const QVariantList& shotIds);
     Q_INVOKABLE void removeShot(qint64 shotId);
     Q_INVOKABLE void clearAll();
     Q_INVOKABLE bool hasShotId(qint64 shotId) const;
 
-    // Window navigation (shift by 1 shot at a time)
-    Q_INVOKABLE void shiftWindowLeft();   // Show older shots
-    Q_INVOKABLE void shiftWindowRight();  // Show newer shots
+    Q_INVOKABLE void shiftWindowLeft();
+    Q_INVOKABLE void shiftWindowRight();
     Q_INVOKABLE void setWindowStart(int index);
 
-    // Bulk-populate LineSeries objects for one shot slot using C++ replace().
-    // Pass the QML LineSeries objects directly; out-of-range index clears all series.
+    // Bulk-populate LineSeries objects for one shot slot using C++ QXYSeries::replace().
+    // Out-of-range shotIdx clears all series.
     Q_INVOKABLE void populateSeries(int shotIdx,
                                     QObject* pSeries, QObject* fSeries,
                                     QObject* tSeries, QObject* wSeries,
                                     QObject* wfSeries, QObject* rSeries) const;
 
-    // Get data for specific shot in display window (0, 1, or 2)
     Q_INVOKABLE QVariantList getPressureData(int index) const;
     Q_INVOKABLE QVariantList getFlowData(int index) const;
     Q_INVOKABLE QVariantList getTemperatureData(int index) const;
@@ -77,25 +77,22 @@ public:
     Q_INVOKABLE QVariantList getResistanceData(int index) const;
     Q_INVOKABLE QVariantList getPhaseMarkers(int index) const;
 
-    // Get shot metadata for display window
     Q_INVOKABLE QVariantMap getShotInfo(int index) const;
-
-    // Get data values nearest to `time` for a single shot slot (0..shotCount-1).
-    // Returns { hasTemperature, temperature, hasFlow, flow, hasWeight, weight }.
-    // A value is missing (has* = false) when no data point is within 1 second of time.
     Q_INVOKABLE QVariantMap getValuesAtTime(int index, double time) const;
 
-    // Colors for each shot in comparison (consistent assignment)
     Q_INVOKABLE QColor getShotColor(int index) const;
-    Q_INVOKABLE QColor getShotColorLight(int index) const;  // For goal/secondary lines
+    Q_INVOKABLE QColor getShotColorLight(int index) const;
 
 signals:
     void shotsChanged();
     void windowChanged();
+    void loadingChanged();
     void errorOccurred(const QString& message);
 
 private:
-    void loadDisplayWindow();
+    // Start a background QThread that opens its own SQLite connection, loads the
+    // current window, and delivers results back to the main thread via finished().
+    void scheduleLoad();
     void calculateMaxValues();
     QVariantList pointsToVariant(const QVector<QPointF>& points) const;
 
@@ -136,9 +133,12 @@ private:
     };
 
     ShotHistoryStorage* m_storage = nullptr;
-    QList<qint64> m_shotIds;              // All selected shot IDs (chronological order)
-    QList<ComparisonShot> m_displayShots; // Currently displayed shots (max 3)
-    int m_windowStart = 0;                // Start index in m_shotIds for display window
+    QList<qint64> m_shotIds;
+    QList<ComparisonShot> m_displayShots;
+    int m_windowStart = 0;
+    bool m_loading = false;
+    QThread* m_loadThread = nullptr;  // Tracked so superseded loads can be abandoned
+    int m_loadSerial = 0;             // Incremented on each scheduleLoad(); stale results ignored
 
     double m_maxTime = 60.0;
     double m_maxPressure = 12.0;

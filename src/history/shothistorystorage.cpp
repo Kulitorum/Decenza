@@ -1107,6 +1107,82 @@ QList<ShotRecord> ShotHistoryStorage::getShotsForComparison(const QList<qint64>&
     return records;
 }
 
+ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 shotId)
+{
+    ShotRecord record;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, uuid, timestamp, profile_name, profile_json,
+               duration_seconds, final_weight, dose_weight,
+               bean_brand, bean_type, roast_date, roast_level,
+               grinder_model, grinder_setting,
+               drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
+               profile_notes, visualizer_id, visualizer_url, debug_log,
+               temperature_override, yield_override, beverage_type
+        FROM shots WHERE id = ?
+    )");
+    query.bindValue(0, shotId);
+
+    if (!query.exec() || !query.next()) {
+        qWarning() << "ShotHistoryStorage::loadShotRecordStatic: Shot not found:" << shotId;
+        return record;
+    }
+
+    record.summary.id = query.value(0).toLongLong();
+    record.summary.uuid = query.value(1).toString();
+    record.summary.timestamp = query.value(2).toLongLong();
+    record.summary.profileName = query.value(3).toString();
+    record.profileJson = query.value(4).toString();
+    record.summary.duration = query.value(5).toDouble();
+    record.summary.finalWeight = query.value(6).toDouble();
+    record.summary.doseWeight = query.value(7).toDouble();
+    record.summary.beanBrand = query.value(8).toString();
+    record.summary.beanType = query.value(9).toString();
+    record.roastDate = query.value(10).toString();
+    record.roastLevel = query.value(11).toString();
+    record.grinderModel = query.value(12).toString();
+    record.grinderSetting = query.value(13).toString();
+    record.drinkTds = query.value(14).toDouble();
+    record.drinkEy = query.value(15).toDouble();
+    record.summary.enjoyment = query.value(16).toInt();
+    record.espressoNotes = query.value(17).toString();
+    record.beanNotes = query.value(18).toString();
+    record.barista = query.value(19).toString();
+    record.profileNotes = query.value(20).toString();
+    record.visualizerId = query.value(21).toString();
+    record.visualizerUrl = query.value(22).toString();
+    record.debugLog = query.value(23).toString();
+    record.temperatureOverride = query.value(24).toDouble();
+    record.yieldOverride = query.value(25).toDouble();
+    record.summary.beverageType = query.value(26).toString();
+    record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
+
+    query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?");
+    query.bindValue(0, shotId);
+    if (query.exec() && query.next()) {
+        QByteArray blob = query.value(0).toByteArray();
+        decompressSampleData(blob, &record);
+    }
+
+    query.prepare("SELECT time_offset, label, frame_number, is_flow_mode, transition_reason "
+                  "FROM shot_phases WHERE shot_id = ? ORDER BY time_offset");
+    query.bindValue(0, shotId);
+    if (query.exec()) {
+        while (query.next()) {
+            HistoryPhaseMarker marker;
+            marker.time = query.value(0).toDouble();
+            marker.label = query.value(1).toString();
+            marker.frameNumber = query.value(2).toInt();
+            marker.isFlowMode = query.value(3).toInt() != 0;
+            marker.transitionReason = query.value(4).toString();
+            record.phases.append(marker);
+        }
+    }
+
+    return record;
+}
+
 bool ShotHistoryStorage::deleteShot(qint64 shotId)
 {
     if (!m_ready) return false;
