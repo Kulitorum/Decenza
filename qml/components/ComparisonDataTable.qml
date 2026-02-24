@@ -48,6 +48,23 @@ ColumnLayout {
         return "\u2014"
     }
 
+    // Settings keys corresponding to each graph property (for persistence)
+    readonly property var settingsKeys: ({
+        "showPressure":    "graph/showPressure",
+        "showFlow":        "graph/showFlow",
+        "showTemperature": "graph/showTemperature",
+        "showWeight":      "graph/showWeight",
+        "showWeightFlow":  "graph/showWeightFlow",
+        "showResistance":  "graph/showResistance"
+    })
+
+    function toggleCurve(key) {
+        var newVal = !graph[key]
+        graph[key] = newVal
+        var sKey = settingsKeys[key]
+        if (sKey) Settings.setValue(sKey, newVal)
+    }
+
     // Column definitions (order matches data cells in each shot row)
     readonly property var columns: [
         { key: "showPressure",    dataKey: "pressure",   label: "P",  unit: "bar",  dotColor: Theme.pressureColor    },
@@ -94,7 +111,7 @@ ColumnLayout {
                 Accessible.name: modelData.label
                 Accessible.checked: graph[modelData.key]
                 Accessible.focusable: true
-                Accessible.onPressAction: graph[modelData.key] = !graph[modelData.key]
+                Accessible.onPressAction: root.toggleCurve(modelData.key)
 
                 RowLayout {
                     anchors.centerIn: parent
@@ -114,7 +131,7 @@ ColumnLayout {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: graph[modelData.key] = !graph[modelData.key]
+                    onClicked: root.toggleCurve(modelData.key)
                 }
             }
         }
