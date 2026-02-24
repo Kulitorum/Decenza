@@ -51,14 +51,39 @@ jobs:
           arch: x64
 
       - name: Install OpenSSL
+        id: openssl
         shell: powershell
         run: |
           choco install openssl -y --no-progress
-          $opensslBin = "C:\Program Files\OpenSSL-Win64\bin"
-          if (Test-Path "$opensslBin\libssl-3-x64.dll") {
+
+          # Find libssl-3-x64.dll - Chocolatey may install to different paths
+          $candidates = @(
+            "C:\Program Files\OpenSSL-Win64\bin",
+            "C:\Program Files\OpenSSL\bin",
+            "C:\OpenSSL-Win64\bin"
+          )
+
+          $opensslBin = $null
+          foreach ($dir in $candidates) {
+            if (Test-Path "$dir\libssl-3-x64.dll") {
+              $opensslBin = $dir
+              break
+            }
+          }
+
+          # Fallback: search Program Files for the DLL
+          if (-not $opensslBin) {
+            $found = Get-ChildItem "C:\Program Files" -Recurse -Filter "libssl-3-x64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) {
+              $opensslBin = $found.DirectoryName
+            }
+          }
+
+          if ($opensslBin) {
             Write-Host "OpenSSL 3 found at: $opensslBin"
+            echo "dir=$opensslBin" >> $env:GITHUB_OUTPUT
           } else {
-            Write-Error "libssl-3-x64.dll not found in $opensslBin"
+            Write-Error "libssl-3-x64.dll not found in any known location"
             exit 1
           }
 
@@ -110,7 +135,7 @@ jobs:
           #define QtDir "$QT_DIR"
           #define VcRedistDir "$WORKSPACE\vcredist"
           #define VcRedistFile "vc_redist.x64.exe"
-          #define OpenSslDir "C:\Program Files\OpenSSL-Win64\bin"
+          #define OpenSslDir "${{ steps.openssl.outputs.dir }}"
           "@ | Out-File -FilePath "installer\setupvars.iss" -Encoding ASCII
 
           Write-Host "=== version.iss ==="
