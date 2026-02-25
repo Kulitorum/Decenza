@@ -1939,7 +1939,7 @@ KeyboardAwareContainer {
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.data.factoryresetbody",
-                        "This will permanently delete ALL your data: settings, favourites, profiles, shot history, themes, and everything else. This cannot be undone.")
+                        "This will permanently delete ALL your data: settings, favourites, profiles, shot history, themes, and everything else. This cannot be undone.\n\nYour backups will NOT be deleted. You can find them in your Documents/Decenza Backups folder if you need to restore later, or delete them manually.")
                     color: Theme.textColor
                     font: Theme.bodyFont
                     wrapMode: Text.WordWrap
