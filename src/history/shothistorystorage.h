@@ -8,6 +8,7 @@
 #include <QPointF>
 #include <QDateTime>
 #include <atomic>
+#include <memory>
 
 class QThread;
 
@@ -312,6 +313,9 @@ private:
     // Async filter support
     bool m_loadingFiltered = false;
     int m_filterSerial = 0;
+
+    // Shared flag for destructor safety in background thread lambdas
+    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
 
     static const QString DB_CONNECTION_NAME;
 };

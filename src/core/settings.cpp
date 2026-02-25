@@ -3534,7 +3534,9 @@ void Settings::factoryReset()
 
     // 6. Delete public Documents directories
     QString docsDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    QStringList publicDirs = {"Decenza", "Decenza Backups", "ai_logs"};
+    QStringList publicDirs = {"Decenza", "ai_logs"};
+    // Note: "Decenza Backups" is intentionally NOT deleted — backups are preserved
+    // so the user can restore data on a fresh install if needed.
     for (const QString& pubDir : publicDirs) {
         QDir dir(docsDir + "/" + pubDir);
         if (dir.exists()) {
