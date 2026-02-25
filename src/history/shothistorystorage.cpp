@@ -2323,6 +2323,7 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
     const QString connName = QString("backup_%1")
         .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
+    bool copySuccess = false;
     {
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
         db.setDatabaseName(dbPath);
@@ -2351,19 +2352,21 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
             }
         }
 
+        // Copy while this connection is still open — prevents the main-thread
+        // connection from writing new WAL entries between checkpoint and copy.
+        if (QFile::exists(destPath))
+            QFile::remove(destPath);
+
+        copySuccess = QFile::copy(dbPath, destPath);
+        if (!copySuccess) {
+            qWarning() << "ShotHistoryStorage::createBackupStatic: Failed to copy" << dbPath << "to" << destPath;
+        }
+
         db.close();
     }
     QSqlDatabase::removeDatabase(connName);
 
-    // Copy the database file
-    if (QFile::exists(destPath))
-        QFile::remove(destPath);
-
-    bool success = QFile::copy(dbPath, destPath);
-    if (!success) {
-        qWarning() << "ShotHistoryStorage::createBackupStatic: Failed to copy" << dbPath << "to" << destPath;
-        return QString();
-    }
+    if (!copySuccess) return QString();
 
     qDebug() << "ShotHistoryStorage::createBackupStatic: Created backup at" << destPath;
     return destPath;
@@ -2487,7 +2490,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcShots.value("timestamp"));
                 insert.addBindValue(srcShots.value("profile_name"));
                 insert.addBindValue(srcShots.value("profile_json"));
-                insert.addBindValue(srcShots.value("beverage_type"));
+                // Old-schema DBs may lack beverage_type column — default to 'espresso'
+                QVariant bt = srcShots.value("beverage_type");
+                insert.addBindValue((bt.isValid() && !bt.isNull()) ? bt : QVariant(QString("espresso")));
                 insert.addBindValue(srcShots.value("duration_seconds"));
                 insert.addBindValue(srcShots.value("final_weight"));
                 insert.addBindValue(srcShots.value("dose_weight"));
@@ -2576,25 +2581,31 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // Wrapped in a transaction to avoid per-UPDATE write lock contention with
             // the main thread's connection (this runs on a background thread).
             {
-                destDb.transaction();
-                QSqlQuery query(destDb);
-                query.prepare("SELECT id, profile_json FROM shots WHERE beverage_type = 'espresso' AND profile_json IS NOT NULL AND profile_json != ''");
-                query.exec();
-                while (query.next()) {
-                    qint64 id = query.value(0).toLongLong();
-                    QString profileJson = query.value(1).toString();
-                    QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8());
-                    if (doc.isNull()) continue;
-                    QString type = doc.object().value("beverage_type").toString();
-                    if (!type.isEmpty() && type != "espresso") {
-                        QSqlQuery update(destDb);
-                        update.prepare("UPDATE shots SET beverage_type = ? WHERE id = ?");
-                        update.addBindValue(type);
-                        update.addBindValue(id);
-                        update.exec();
+                if (!destDb.transaction()) {
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill transaction failed:" << destDb.lastError().text();
+                } else {
+                    QSqlQuery query(destDb);
+                    query.prepare("SELECT id, profile_json FROM shots WHERE (beverage_type = 'espresso' OR beverage_type IS NULL) AND profile_json IS NOT NULL AND profile_json != ''");
+                    query.exec();
+                    while (query.next()) {
+                        qint64 id = query.value(0).toLongLong();
+                        QString profileJson = query.value(1).toString();
+                        QJsonDocument doc = QJsonDocument::fromJson(profileJson.toUtf8());
+                        if (doc.isNull()) continue;
+                        QString type = doc.object().value("beverage_type").toString();
+                        if (!type.isEmpty() && type != "espresso") {
+                            QSqlQuery update(destDb);
+                            update.prepare("UPDATE shots SET beverage_type = ? WHERE id = ?");
+                            update.addBindValue(type);
+                            update.addBindValue(id);
+                            update.exec();
+                        }
+                    }
+                    if (!destDb.commit()) {
+                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << destDb.lastError().text();
+                        destDb.rollback();
                     }
                 }
-                destDb.commit();
             }
 
             qDebug() << "ShotHistoryStorage::importDatabaseStatic: Import complete -" << imported << "imported," << skipped << "skipped," << failed << "failed";
