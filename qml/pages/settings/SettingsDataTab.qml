@@ -1385,7 +1385,7 @@ KeyboardAwareContainer {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.data.mergemodedesc",
-                                "Adds shots from backup to your current history. Existing shots, settings, and profiles are preserved.")
+                                "Adds new shots to your history and restores settings. Existing profiles are kept, new ones are added.")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -1434,7 +1434,7 @@ KeyboardAwareContainer {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.data.replacemodedesc",
-                                "Replaces ALL current shots, settings, and profiles with backup. Cannot be undone!")
+                                "Deletes ALL current shots and replaces with backup. Settings and profiles are overwritten. Cannot be undone!")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
