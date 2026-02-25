@@ -1951,10 +1951,21 @@ ApplicationWindow {
 
     // Check if database is empty but backups exist (e.g. after reinstall)
     function checkFirstRunRestore() {
-        if (MainController.backupManager && MainController.backupManager.shouldOfferFirstRunRestore()) {
-            emptyDatabaseDialog.open();
+        if (MainController.backupManager) {
+            MainController.backupManager.checkFirstRunRestore();
         } else {
             startBluetoothScan();
+        }
+    }
+
+    Connections {
+        target: MainController.backupManager
+        function onFirstRunRestoreResult(shouldOffer) {
+            if (shouldOffer) {
+                emptyDatabaseDialog.open();
+            } else {
+                startBluetoothScan();
+            }
         }
     }
 

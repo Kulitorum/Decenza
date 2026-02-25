@@ -342,10 +342,11 @@ bool DatabaseBackupManager::createBackup(bool force)
     QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();
     QString downloadedProfilesPath = m_profileStorage ? m_profileStorage->downloadedProfilesPath() : QString();
     QString personalMediaDir = m_screensaverManager ? m_screensaverManager->personalMediaDirectory() : QString();
+    QString dbPath = m_storage->databasePath();
 
     // Run heavy I/O on background thread
     QThread* thread = QThread::create(
-        [this, dateStr, zipPath, backupDir, settingsJson,
+        [this, dateStr, zipPath, backupDir, settingsJson, dbPath,
          userProfilesPath, downloadedProfilesPath, personalMediaDir]() {
 
         // Create staging directory
@@ -353,12 +354,9 @@ bool DatabaseBackupManager::createBackup(bool force)
         QDir(stagingDir).removeRecursively();
         QDir().mkpath(stagingDir);
 
-        // Create the backup .db file (must run on main thread — uses m_db)
+        // Create the backup .db file (uses separate connection, safe on background thread)
         QString dbDestPath = stagingDir + "/shots_backup_" + dateStr + ".db";
-        QString dbResult;
-        QMetaObject::invokeMethod(m_storage, [this, &dbResult, dbDestPath]() {
-            dbResult = m_storage->createBackup(dbDestPath);
-        }, Qt::BlockingQueuedConnection);
+        QString dbResult = ShotHistoryStorage::createBackupStatic(dbPath, dbDestPath);
 
         if (dbResult.isEmpty()) {
             QDir(stagingDir).removeRecursively();
@@ -442,6 +440,8 @@ bool DatabaseBackupManager::createBackup(bool force)
                         if (f.open(QIODevice::ReadOnly)) {
                             writer.addFile(entryPath, f.readAll());
                             f.close();
+                        } else {
+                            qWarning() << "DatabaseBackupManager: Failed to add to ZIP:" << fi.absoluteFilePath() << f.errorString();
                         }
                     }
                 }
@@ -497,32 +497,41 @@ bool DatabaseBackupManager::createBackup(bool force)
     return true;
 }
 
-bool DatabaseBackupManager::shouldOfferFirstRunRestore() const
+void DatabaseBackupManager::checkFirstRunRestore()
 {
     if (!m_storage) {
-        return false;
-    }
-
-    // Check if database is empty (first run or reinstall)
-    // We'll consider it first run if there are 0 shots in history
-    QVariantMap emptyFilter;
-    int shotCount = m_storage->getFilteredShotCount(emptyFilter);
-    bool isEmpty = (shotCount == 0);
-
-    if (!isEmpty) {
-        return false;  // Not first run
+        emit firstRunRestoreResult(false);
+        return;
     }
 
 #ifdef Q_OS_ANDROID
-    // On Android, check storage permission first
+    // On Android, check storage permission first (no DB involved)
     if (!hasStoragePermission()) {
-        return false;  // Can't check for backups without permission
+        emit firstRunRestoreResult(false);
+        return;
     }
 #endif
 
-    // Check if backups exist
-    QStringList backups = getAvailableBackups();
-    return !backups.isEmpty();
+    // Run DB query on background thread to avoid blocking the main thread
+    QString dbPath = m_storage->databasePath();
+    QThread* thread = QThread::create([this, dbPath]() {
+        int shotCount = ShotHistoryStorage::getShotCountStatic(dbPath);
+        bool isEmpty = (shotCount == 0);
+
+        QMetaObject::invokeMethod(this, [this, isEmpty]() {
+            if (!isEmpty) {
+                emit firstRunRestoreResult(false);
+                return;
+            }
+
+            // Check if backups exist (filesystem only, safe on main thread)
+            QStringList backups = getAvailableBackups();
+            emit firstRunRestoreResult(!backups.isEmpty());
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 bool DatabaseBackupManager::hasStoragePermission() const
@@ -625,17 +634,20 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
     QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();
     QString downloadedProfilesPath = m_profileStorage ? m_profileStorage->downloadedProfilesPath() : QString();
     QString personalMediaDir = m_screensaverManager ? m_screensaverManager->personalMediaDirectory() : QString();
+    QString dbPath = m_storage->databasePath();
 
     // Run heavy I/O on background thread
     QThread* thread = QThread::create(
         [this, filename, zipPath, merge, restoreShots, restoreSettings, restoreProfiles, restoreMedia,
-         userProfilesPath, downloadedProfilesPath, personalMediaDir]() {
+         userProfilesPath, downloadedProfilesPath, personalMediaDir, dbPath]() {
 
         // Create temp directory for extraction
         QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_restore_temp";
         QDir(tempDir).removeRecursively();
         QDir().mkpath(tempDir);
 
+        QStringList errors;
+        bool shotsImported = false;
         bool isRawDb = filename.endsWith(".db");
 
         if (isRawDb) {
@@ -681,65 +693,51 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
 
             if (!tempDbPath.isEmpty()) {
                 // Validate SQLite database
+                bool dbValid = true;
                 QFileInfo extractedFileInfo(tempDbPath);
                 if (!extractedFileInfo.exists() || extractedFileInfo.size() < 100) {
-                    QDir(tempDir).removeRecursively();
                     QString error = !extractedFileInfo.exists()
                         ? "Extracted file not found"
                         : "Extracted file is too small to be a valid database";
-                    QMetaObject::invokeMethod(this, [this, error]() {
-                        m_restoreInProgress = false;
-                        emit restoreFailed(error);
-                    }, Qt::QueuedConnection);
-                    return;
+                    qWarning() << "DatabaseBackupManager:" << error;
+                    errors << error;
+                    dbValid = false;
                 }
 
-                // Verify SQLite magic header
-                {
+                if (dbValid) {
+                    // Verify SQLite magic header
                     QFile dbFile(tempDbPath);
-                    if (!dbFile.open(QIODevice::ReadOnly)) {
-                        QDir(tempDir).removeRecursively();
-                        QMetaObject::invokeMethod(this, [this]() {
-                            m_restoreInProgress = false;
-                            emit restoreFailed("Cannot open extracted file for validation");
-                        }, Qt::QueuedConnection);
-                        return;
-                    }
-
-                    QByteArray header = dbFile.read(16);
-                    dbFile.close();
-
-                    if (header.size() != 16 || !header.startsWith("SQLite format 3")) {
-                        qWarning() << "DatabaseBackupManager: Invalid SQLite header:" << header.toHex();
-                        QDir(tempDir).removeRecursively();
-                        QMetaObject::invokeMethod(this, [this]() {
-                            m_restoreInProgress = false;
-                            emit restoreFailed("Extracted file is not a valid SQLite database");
-                        }, Qt::QueuedConnection);
-                        return;
+                    if (dbFile.open(QIODevice::ReadOnly)) {
+                        QByteArray header = dbFile.read(16);
+                        dbFile.close();
+                        if (header.size() != 16 || !header.startsWith("SQLite format 3")) {
+                            qWarning() << "DatabaseBackupManager: Invalid SQLite header:" << header.toHex();
+                            errors << "Extracted file is not a valid SQLite database";
+                            dbValid = false;
+                        }
+                    } else {
+                        qWarning() << "DatabaseBackupManager: Cannot open extracted file for validation";
+                        errors << "Cannot open extracted file for validation";
+                        dbValid = false;
                     }
                 }
 
-                qDebug() << "DatabaseBackupManager: Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
+                if (dbValid) {
+                    qDebug() << "DatabaseBackupManager: Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
 
-                // Import the database (must run on main thread — uses m_db)
-                qDebug() << "DatabaseBackupManager: Importing database from" << tempDbPath
-                         << (merge ? "(merge mode)" : "(replace mode)");
-                bool importSuccess = false;
-                QMetaObject::invokeMethod(m_storage, [this, &importSuccess, tempDbPath, merge]() {
-                    importSuccess = m_storage->importDatabase(tempDbPath, merge);
-                }, Qt::BlockingQueuedConnection);
+                    // Import the database (uses separate connections, safe on background thread)
+                    qDebug() << "DatabaseBackupManager: Importing database from" << tempDbPath
+                             << (merge ? "(merge mode)" : "(replace mode)");
+                    bool importSuccess = ShotHistoryStorage::importDatabaseStatic(dbPath, tempDbPath, merge);
 
-                if (!importSuccess) {
-                    QDir(tempDir).removeRecursively();
-                    QMetaObject::invokeMethod(this, [this]() {
-                        m_restoreInProgress = false;
-                        emit restoreFailed("Failed to import backup database");
-                    }, Qt::QueuedConnection);
-                    return;
+                    if (!importSuccess) {
+                        qWarning() << "DatabaseBackupManager: Shots import failed, continuing with other data types";
+                        errors << "Failed to import shot history";
+                    } else {
+                        shotsImported = true;
+                        qDebug() << "DatabaseBackupManager: Database restore completed successfully";
+                    }
                 }
-
-                qDebug() << "DatabaseBackupManager: Database restore completed successfully";
             }
         }
 
@@ -819,7 +817,12 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         QDir(tempDir).removeRecursively();
 
         // Deliver result to main thread — settings/AI restore touches QSettings
-        QMetaObject::invokeMethod(this, [this, filename, settingsJson]() {
+        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, errors, merge]() {
+            // Refresh storage state if shots were imported (via separate connection)
+            if (shotsImported && m_storage) {
+                m_storage->refreshTotalShots();
+            }
+
             // Restore settings (must be on main thread — QSettings/platform APIs)
             if (!settingsJson.isEmpty() && m_settings) {
                 QJsonObject json = settingsJson;
@@ -833,6 +836,22 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 QJsonArray conversations = settingsJson["ai_conversations"].toArray();
                 if (!conversations.isEmpty()) {
                     QSettings qsettings;
+
+                    // In replace mode, clear existing conversations first
+                    if (!merge) {
+                        QJsonDocument existingDoc = QJsonDocument::fromJson(
+                            qsettings.value("ai/conversations/index").toByteArray());
+                        QJsonArray existingIndex = existingDoc.isArray() ? existingDoc.array() : QJsonArray();
+                        for (const QJsonValue& v : existingIndex) {
+                            QString existingKey = v.toObject()["key"].toString();
+                            if (!existingKey.isEmpty()) {
+                                qsettings.remove("ai/conversations/" + existingKey);
+                            }
+                        }
+                        qsettings.remove("ai/conversations/index");
+                        qDebug() << "DatabaseBackupManager: Cleared" << existingIndex.size() << "existing AI conversations (replace mode)";
+                    }
+
                     QJsonDocument existingDoc = QJsonDocument::fromJson(
                         qsettings.value("ai/conversations/index").toByteArray());
                     QJsonArray existingIndex = existingDoc.isArray() ? existingDoc.array() : QJsonArray();
@@ -876,7 +895,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             }
 
             m_restoreInProgress = false;
-            emit restoreCompleted(filename);
+            if (!errors.isEmpty()) {
+                emit restoreFailed(errors.join("; "));
+            } else {
+                emit restoreCompleted(filename);
+            }
         }, Qt::QueuedConnection);
     });
 

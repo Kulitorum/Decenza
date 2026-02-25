@@ -239,6 +239,19 @@ public:
     // Checkpoint WAL to main database file
     void checkpoint();
 
+    // Thread-safe backup: opens a temporary connection, checkpoints, copies the file.
+    // Safe to call from any thread (does not use m_db).
+    static QString createBackupStatic(const QString& dbPath, const QString& destPath);
+
+    // Thread-safe import: opens separate connections for source and destination.
+    // Safe to call from any thread (does not use m_db).
+    // Caller must invoke updateTotalShots()/invalidateDistinctCache() on the main thread afterward.
+    static bool importDatabaseStatic(const QString& destDbPath, const QString& srcFilePath, bool merge);
+
+    // Thread-safe shot count: opens a temporary connection.
+    // Safe to call from any thread (does not use m_db).
+    static int getShotCountStatic(const QString& dbPath);
+
 signals:
     void readyChanged();
     void totalShotsChanged();

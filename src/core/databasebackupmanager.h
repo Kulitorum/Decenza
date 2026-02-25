@@ -59,8 +59,9 @@ public:
                                     bool restoreShots = true, bool restoreSettings = true,
                                     bool restoreProfiles = true, bool restoreMedia = true);
 
-    /// Check if we should offer first-run restore (empty database + backups exist)
-    Q_INVOKABLE bool shouldOfferFirstRunRestore() const;
+    /// Check if we should offer first-run restore (empty database + backups exist).
+    /// Runs the DB query on a background thread; emits firstRunRestoreResult() when done.
+    Q_INVOKABLE void checkFirstRunRestore();
 
     /// Check if storage permissions are granted (Android only)
     Q_INVOKABLE bool hasStoragePermission() const;
@@ -80,6 +81,9 @@ signals:
 
     /// Emitted when restore fails
     void restoreFailed(const QString& error);
+
+    /// Emitted with the result of checkFirstRunRestore()
+    void firstRunRestoreResult(bool shouldOffer);
 
     /// Emitted when storage permission is needed (Android only)
     void storagePermissionNeeded();

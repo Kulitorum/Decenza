@@ -1270,24 +1270,14 @@ KeyboardAwareContainer {
             restoreMedia = true;
         }
 
-        // Short delay so the scene graph renders the progress state before blocking
-        Timer {
-            id: restoreDelayTimer
-            interval: 100
-            onTriggered: {
-                MainController.backupManager.restoreBackup(
-                    restoreConfirmDialog.selectedBackup,
-                    restoreConfirmDialog.mergeMode,
-                    restoreConfirmDialog.restoreShots,
-                    restoreConfirmDialog.restoreSettings,
-                    restoreConfirmDialog.restoreProfiles,
-                    restoreConfirmDialog.restoreMedia
-                );
-            }
-        }
-
         // Prevent closing while restore is running
         closePolicy: dataTab.restoreInProgress ? Popup.NoAutoClose : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
+
+        onClosed: {
+            if (!dataTab.restoreInProgress) {
+                resetDefaults();
+            }
+        }
 
         contentItem: ColumnLayout {
             spacing: 0
@@ -1430,11 +1420,11 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Merge/Replace switch — only visible when Shots is checked
+                // Merge/Replace switch — visible when Shots or Profiles is checked (both respect merge flag)
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(6)
-                    visible: restoreConfirmDialog.restoreShots
+                    visible: restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreProfiles
 
                     Rectangle {
                         Layout.fillWidth: true
@@ -1465,9 +1455,9 @@ KeyboardAwareContainer {
                                 Layout.fillWidth: true
                                 text: restoreConfirmDialog.mergeMode
                                     ? TranslationManager.translate("settings.data.mergemodedesc",
-                                        "Adds new shots to your history. Existing shots are kept.")
+                                        "Adds new entries. Existing shots and profiles are kept.")
                                     : TranslationManager.translate("settings.data.replacemodedesc",
-                                        "Deletes ALL current shots and replaces with backup. Cannot be undone!")
+                                        "Deletes ALL current shots and profiles, replaces with backup. Cannot be undone!")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
                                 wrapMode: Text.WordWrap
@@ -1511,7 +1501,14 @@ KeyboardAwareContainer {
                         onClicked: {
                             if (MainController.backupManager) {
                                 dataTab.restoreInProgress = true;
-                                restoreDelayTimer.start();
+                                MainController.backupManager.restoreBackup(
+                                    restoreConfirmDialog.selectedBackup,
+                                    restoreConfirmDialog.mergeMode,
+                                    restoreConfirmDialog.restoreShots,
+                                    restoreConfirmDialog.restoreSettings,
+                                    restoreConfirmDialog.restoreProfiles,
+                                    restoreConfirmDialog.restoreMedia
+                                );
                             }
                         }
                     }
