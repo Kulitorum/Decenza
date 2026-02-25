@@ -15,7 +15,7 @@ BleRefresher::BleRefresher(DE1Device* de1, BLEManager* bleManager,
     , m_settings(settings)
 {
     m_periodicTimer.setSingleShot(true);
-    connect(&m_periodicTimer, &QTimer::timeout, this, &BleRefresher::scheduleRefresh);
+    connect(&m_periodicTimer, &QTimer::timeout, this, [this]() { scheduleRefresh(); });
 
     connect(m_settings, &Settings::bleHealthRefreshEnabledChanged, this, [this]() {
         if (!m_settings->bleHealthRefreshEnabled()) {
@@ -25,6 +25,16 @@ BleRefresher::BleRefresher(DE1Device* de1, BLEManager* bleManager,
         } else if (m_periodicIntervalMs > 0 && !m_periodicTimer.isActive()) {
             m_periodicTimer.start(m_periodicIntervalMs);
             qDebug() << "[BleRefresher] BLE health refresh enabled";
+        }
+    });
+
+    // Track DE1 connection uptime for wake trigger gating
+    m_de1UptimeConn = connect(m_de1, &DE1Device::connectedChanged, this, [this]() {
+        if (m_de1->isConnected()) {
+            m_de1ConnectedSince.start();
+            m_de1ConnectedSinceValid = true;
+        } else {
+            m_de1ConnectedSinceValid = false;
         }
     });
 
@@ -39,7 +49,7 @@ BleRefresher::BleRefresher(DE1Device* de1, BLEManager* bleManager,
             m_sleeping = false;
             if (m_settings->bleHealthRefreshEnabled()) {
                 qDebug() << "[BleRefresher] Wake from sleep detected, scheduling BLE refresh";
-                scheduleRefresh();
+                scheduleRefresh(/*isWakeTrigger=*/true);
             } else {
                 qDebug() << "[BleRefresher] Wake from sleep detected, BLE health refresh disabled by setting";
             }
@@ -59,7 +69,7 @@ void BleRefresher::startPeriodicRefresh(int intervalHours) {
     qDebug() << "[BleRefresher] Periodic refresh started, interval:" << intervalHours << "hours";
 }
 
-void BleRefresher::scheduleRefresh() {
+void BleRefresher::scheduleRefresh(bool isWakeTrigger) {
     if (!m_settings->bleHealthRefreshEnabled()) {
         qDebug() << "[BleRefresher] BLE health refresh disabled by setting";
         return;
@@ -75,6 +85,26 @@ void BleRefresher::scheduleRefresh() {
         qDebug() << "[BleRefresher] Refresh already in progress, skipping";
         rearmPeriodicCheck();
         return;
+    }
+
+    // Wake triggers only make sense after long uptimes where BLE stack degrades.
+    // Short connections (< 2 hours) don't need refreshing — skip to avoid disrupting
+    // users who just connected after waking the tablet.
+    if (isWakeTrigger) {
+        if (!m_de1ConnectedSinceValid) {
+            qDebug() << "[BleRefresher] Wake trigger skipped: DE1 not connected";
+            rearmPeriodicCheck();
+            return;
+        }
+        qint64 uptimeMs = m_de1ConnectedSince.elapsed();
+        if (uptimeMs < WAKE_MIN_UPTIME_MS) {
+            qDebug() << "[BleRefresher] Wake trigger skipped: connection uptime"
+                     << uptimeMs / 1000 << "s < minimum" << WAKE_MIN_UPTIME_MS / 1000 << "s";
+            rearmPeriodicCheck();
+            return;
+        }
+        qDebug() << "[BleRefresher] Wake trigger accepted: connection uptime"
+                 << uptimeMs / 1000 << "s";
     }
 
     // Periodic refresh should never run while machine is sleeping. Reconnecting BLE
@@ -131,6 +161,7 @@ void BleRefresher::executeRefresh() {
     emit refreshingChanged();
     m_de1WasConnected = m_de1->isConnected();
     m_scaleWasConnected = m_bleManager->scaleDevice() && m_bleManager->scaleDevice()->isConnected();
+    m_scanRetryCount = 0;
 
     qDebug() << "[BleRefresher] Cycling BLE connections to reset Android BLE stack"
              << "(DE1:" << (m_de1WasConnected ? "connected" : "disconnected")
@@ -151,6 +182,7 @@ void BleRefresher::executeRefresh() {
     // Listen for DE1 connection state changes to sequence the reconnection.
     // Use QueuedConnection because DE1Device::disconnect() emits connectedChanged synchronously
     // — we need to let disconnect() fully return before starting the scan.
+    // This listener stays active through scan retries so reconnection during any scan is caught.
     int step = 0;  // 0 = waiting for disconnect, 1 = waiting for reconnect
     m_de1ConnConn = connect(m_de1, &DE1Device::connectedChanged, this, [this, step]() mutable {
         if (step == 0 && !m_de1->isConnected()) {
@@ -159,6 +191,7 @@ void BleRefresher::executeRefresh() {
             m_bleManager->startScan();
         } else if (step == 1 && m_de1->isConnected()) {
             QObject::disconnect(m_de1ConnConn);
+            QObject::disconnect(m_scanConn);
             qDebug() << "[BleRefresher] DE1 reconnected";
 
             if (m_scaleWasConnected) {
@@ -170,12 +203,21 @@ void BleRefresher::executeRefresh() {
         }
     }, Qt::QueuedConnection);
 
-    // Detect scan completion without reconnection — event-based replacement
-    // for a timeout timer. BLEManager's scan has a built-in 15s timeout.
+    // Detect scan completion without reconnection — retry up to MAX_SCAN_RETRIES times
+    // before giving up. Each scan is ~15s, giving slow BLE chipsets up to ~45s total.
     QObject::disconnect(m_scanConn);
     m_scanConn = connect(m_bleManager, &BLEManager::scanningChanged, this, [this]() {
         if (!m_bleManager->isScanning() && m_refreshInProgress && !m_de1->isConnected()) {
-            qWarning() << "[BleRefresher] Scan finished without DE1 reconnecting, clearing overlay";
+            if (m_scanRetryCount < MAX_SCAN_RETRIES) {
+                m_scanRetryCount++;
+                qWarning() << "[BleRefresher] Scan finished without DE1 reconnecting, retrying"
+                           << "(" << m_scanRetryCount << "/" << MAX_SCAN_RETRIES << ")";
+                m_bleManager->startScan();
+                return;  // Keep m_de1ConnConn and m_scanConn active for the retry
+            }
+
+            qWarning() << "[BleRefresher] All" << (MAX_SCAN_RETRIES + 1)
+                       << "scans exhausted without DE1 reconnecting";
             QObject::disconnect(m_scanConn);
             QObject::disconnect(m_de1ConnConn);
 
@@ -183,6 +225,7 @@ void BleRefresher::executeRefresh() {
                 m_bleManager->tryDirectConnectToScale();
             }
 
+            // Start one final background scan for main.cpp's auto-connect lambda
             m_bleManager->startScan();
             onRefreshComplete();
         }
