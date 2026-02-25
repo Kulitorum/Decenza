@@ -393,7 +393,8 @@ int main(int argc, char *argv[])
     bleRefresher.startPeriodicRefresh(5);
 
     // Database backup manager for scheduled daily backups
-    DatabaseBackupManager backupManager(&settings, mainController.shotHistory());
+    DatabaseBackupManager backupManager(&settings, mainController.shotHistory(),
+                                       &profileStorage, &screensaverManager);
     mainController.setBackupManager(&backupManager);
     QObject::connect(&backupManager, &DatabaseBackupManager::backupCreated,
                      [](const QString& path) {

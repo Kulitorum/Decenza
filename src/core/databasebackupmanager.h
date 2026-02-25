@@ -6,6 +6,8 @@
 
 class Settings;
 class ShotHistoryStorage;
+class ProfileStorage;
+class ScreensaverVideoManager;
 
 /**
  * @brief Manages automatic daily backups of the shot history database.
@@ -22,7 +24,10 @@ class DatabaseBackupManager : public QObject {
     Q_PROPERTY(QStringList availableBackups READ availableBackups NOTIFY availableBackupsChanged)
 
 public:
-    explicit DatabaseBackupManager(Settings* settings, ShotHistoryStorage* storage, QObject* parent = nullptr);
+    explicit DatabaseBackupManager(Settings* settings, ShotHistoryStorage* storage,
+                                   ProfileStorage* profileStorage = nullptr,
+                                   ScreensaverVideoManager* screensaverManager = nullptr,
+                                   QObject* parent = nullptr);
 
     /// Start the backup scheduler (call after app initialization)
     void start();
@@ -86,8 +91,13 @@ private:
     void cleanOldBackups(const QString& backupDir);
     bool extractZip(const QString& zipPath, const QString& destDir) const;
 
+    // Utility to copy a directory recursively
+    static bool copyDirectory(const QString& srcDir, const QString& destDir, bool overwrite = false);
+
     Settings* m_settings;
     ShotHistoryStorage* m_storage;
+    ProfileStorage* m_profileStorage;
+    ScreensaverVideoManager* m_screensaverManager;
     QTimer* m_checkTimer;
     QDate m_lastBackupDate;  // Track when we last backed up
     bool m_backupInProgress = false;  // Prevent concurrent backups

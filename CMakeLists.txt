@@ -38,6 +38,7 @@ option(ENABLE_QUICK3D "Enable Qt Quick3D for 3D screensavers" ON)
 # Qt 6 modules - core required components
 find_package(Qt6 REQUIRED COMPONENTS
     Core
+    CorePrivate
     Gui
     Widgets
     Qml
@@ -368,6 +369,7 @@ qt_add_executable(Decenza_DE1
 # Link libraries
 target_link_libraries(Decenza_DE1 PRIVATE
     Qt6::Core
+    Qt6::CorePrivate
     Qt6::Gui
     Qt6::Widgets
     Qt6::Qml

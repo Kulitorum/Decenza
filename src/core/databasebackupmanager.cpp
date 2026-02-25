@@ -1,25 +1,39 @@
 #include "databasebackupmanager.h"
 #include "settings.h"
+#include "settingsserializer.h"
+#include "profilestorage.h"
 #include "../history/shothistorystorage.h"
+#include "../screensaver/screensavervideomanager.h"
 #include <QCoreApplication>
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
-#if !defined(Q_OS_IOS)
-#include <QProcess>
-#endif
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QSet>
+#include <QSettings>
 #include <QDebug>
+#include <QThread>
+#include <functional>
+#include <private/qzipwriter_p.h>
+#include <private/qzipreader_p.h>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
 
-DatabaseBackupManager::DatabaseBackupManager(Settings* settings, ShotHistoryStorage* storage, QObject* parent)
+DatabaseBackupManager::DatabaseBackupManager(Settings* settings, ShotHistoryStorage* storage,
+                                             ProfileStorage* profileStorage,
+                                             ScreensaverVideoManager* screensaverManager,
+                                             QObject* parent)
     : QObject(parent)
     , m_settings(settings)
     , m_storage(storage)
+    , m_profileStorage(profileStorage)
+    , m_screensaverManager(screensaverManager)
     , m_checkTimer(new QTimer(this))
 {
     connect(m_checkTimer, &QTimer::timeout, this, &DatabaseBackupManager::onTimerFired);
@@ -188,44 +202,19 @@ void DatabaseBackupManager::onTimerFired()
 
 bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& destDir) const
 {
-#ifdef Q_OS_ANDROID
-    jboolean result = QJniObject::callStaticMethod<jboolean>(
-        "io/github/kulitorum/decenza_de1/StorageHelper",
-        "unzipToDirectory",
-        "(Ljava/lang/String;Ljava/lang/String;)Z",
-        QJniObject::fromString(zipPath).object<jstring>(),
-        QJniObject::fromString(destDir).object<jstring>());
-    return result;
-#elif defined(Q_OS_IOS)
-    // iOS doesn't support QProcess - zip extraction not available
-    Q_UNUSED(zipPath);
-    Q_UNUSED(destDir);
-    qWarning() << "DatabaseBackupManager: ZIP extraction not supported on iOS";
-    return false;
-#else
-    QProcess unzipProcess;
-    unzipProcess.setWorkingDirectory(destDir);
-
-#ifdef Q_OS_WIN
-    QStringList args;
-    args << "-NoProfile" << "-NonInteractive" << "-Command";
-    QString escapedZipPath = QString(zipPath).replace("'", "''");
-    QString escapedDestDir = QString(destDir).replace("'", "''");
-    args << QString("Expand-Archive -LiteralPath '%1' -DestinationPath '%2' -Force")
-            .arg(escapedZipPath)
-            .arg(escapedDestDir);
-    unzipProcess.start("powershell", args);
-#else
-    QStringList args;
-    args << "-o" << zipPath << "-d" << destDir;
-    unzipProcess.start("unzip", args);
-#endif
-
-    if (unzipProcess.waitForFinished(30000)) {
-        return unzipProcess.exitCode() == 0;
+    QZipReader reader(zipPath);
+    if (!reader.isReadable()) {
+        qWarning() << "DatabaseBackupManager: Cannot read ZIP file:" << zipPath;
+        return false;
     }
-    return false;
-#endif
+
+    bool success = reader.extractAll(destDir);
+    reader.close();
+
+    if (!success) {
+        qWarning() << "DatabaseBackupManager: Failed to extract ZIP:" << zipPath;
+    }
+    return success;
 }
 
 bool DatabaseBackupManager::createBackup(bool force)
@@ -246,7 +235,7 @@ bool DatabaseBackupManager::createBackup(bool force)
     m_backupInProgress = true;
 
 #ifdef Q_OS_ANDROID
-    // Check storage permissions on Android
+    // Check storage permissions on Android (must be on main thread)
     if (!hasStoragePermission()) {
         QString error = "Storage permission not granted. Please enable storage access in Settings.";
         qWarning() << "DatabaseBackupManager:" << error;
@@ -268,11 +257,7 @@ bool DatabaseBackupManager::createBackup(bool force)
 
     // Generate backup filename with date
     QString dateStr = QDate::currentDate().toString("yyyyMMdd");
-#ifdef Q_OS_IOS
-    QString zipPath = backupDir + "/shots_backup_" + dateStr + ".db";
-#else
     QString zipPath = backupDir + "/shots_backup_" + dateStr + ".zip";
-#endif
 
     // Check if backup already exists for today
     QFileInfo existingZip(zipPath);
@@ -308,132 +293,205 @@ bool DatabaseBackupManager::createBackup(bool force)
         qDebug() << "DatabaseBackupManager: Removed existing backup to create fresh one:" << zipPath;
     }
 
-    // Create staging directory in temp for assembling all backup data
-    QString stagingDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_backup_staging";
-    QDir(stagingDir).removeRecursively();
-    QDir().mkpath(stagingDir);
+    // Snapshot settings and AI conversations on main thread (reads QSettings which
+    // may use platform APIs that aren't thread-safe)
+    QJsonObject settingsJson;
+    if (m_settings) {
+        settingsJson = SettingsSerializer::exportToJson(m_settings, /*includeSensitive=*/false);
 
-    // Create the backup .db file into staging directory
-    QString dbDestPath = stagingDir + "/shots_backup_" + dateStr + ".db";
-    QString result = m_storage->createBackup(dbDestPath);
+        // Add AI conversations
+        QSettings qsettings;
+        QByteArray indexData = qsettings.value("ai/conversations/index").toByteArray();
+        if (!indexData.isEmpty()) {
+            QJsonDocument indexDoc = QJsonDocument::fromJson(indexData);
+            if (indexDoc.isArray()) {
+                QJsonArray conversations;
+                QJsonArray indexArr = indexDoc.array();
+                for (const QJsonValue& v : indexArr) {
+                    QJsonObject entry = v.toObject();
+                    QString key = entry["key"].toString();
+                    if (key.isEmpty()) continue;
 
-    if (result.isEmpty()) {
-        QString error = "Failed to create backup";
-        qWarning() << "DatabaseBackupManager:" << error;
-        QDir(stagingDir).removeRecursively();
-        m_backupInProgress = false;
-        emit backupFailed(error);
-        return false;
-    }
+                    QString prefix = "ai/conversations/" + key + "/";
+                    QJsonObject conv;
+                    conv["key"] = key;
+                    conv["beanBrand"] = entry["beanBrand"].toString();
+                    conv["beanType"] = entry["beanType"].toString();
+                    conv["profileName"] = entry["profileName"].toString();
+                    conv["timestamp"] = qsettings.value(prefix + "timestamp").toString();
+                    conv["systemPrompt"] = qsettings.value(prefix + "systemPrompt").toString();
+                    conv["contextLabel"] = qsettings.value(prefix + "contextLabel").toString();
+                    conv["indexTimestamp"] = entry["timestamp"].toVariant().toLongLong();
 
-    m_lastBackupDate = QDate::currentDate();
+                    QByteArray messagesJson = qsettings.value(prefix + "messages").toByteArray();
+                    if (!messagesJson.isEmpty()) {
+                        QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
+                        conv["messages"] = msgDoc.isArray() ? msgDoc.array() : QJsonArray();
+                    } else {
+                        conv["messages"] = QJsonArray();
+                    }
 
-    // Verify DB file exists
-    QFileInfo fileInfo(result);
-    if (fileInfo.exists()) {
-        qDebug() << "DatabaseBackupManager: DB file created:" << result;
-        qDebug() << "DatabaseBackupManager: File size:" << fileInfo.size() << "bytes";
-    } else {
-        qWarning() << "DatabaseBackupManager: DB file not found at:" << result;
-        QDir(stagingDir).removeRecursively();
-        m_backupInProgress = false;
-        emit backupFailed("Failed to create backup file");
-        return false;
-    }
-
-    // Create ZIP from the staging directory contents
-    QString finalPath = zipPath;
-    bool zipSuccess = false;
-
-#ifdef Q_OS_ANDROID
-    // Android: Use Java to zip the directory
-    QJniObject javaZipPath = QJniObject::callStaticObjectMethod(
-        "io/github/kulitorum/decenza_de1/StorageHelper",
-        "zipDirectory",
-        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
-        QJniObject::fromString(stagingDir).object<jstring>(),
-        QJniObject::fromString(zipPath).object<jstring>());
-
-    if (javaZipPath.isValid() && !javaZipPath.toString().isEmpty()) {
-        zipSuccess = true;
-        qDebug() << "DatabaseBackupManager: ZIP created via Java:" << zipPath;
-    }
-#elif defined(Q_OS_IOS)
-    // iOS: No QProcess available, save .db file directly (no zip compression)
-    {
-        QString dbFileName = QDir(stagingDir).entryList({"*.db"}, QDir::Files).value(0);
-        if (!dbFileName.isEmpty()) {
-            QString dbPath = backupDir + "/" + QFileInfo(dbFileName).fileName();
-            if (QFile::copy(stagingDir + "/" + dbFileName, dbPath)) {
-                zipSuccess = true;
-                finalPath = dbPath;
-                qDebug() << "DatabaseBackupManager: Saved backup as .db (no zip on iOS):" << dbPath;
+                    conversations.append(conv);
+                }
+                settingsJson["ai_conversations"] = conversations;
             }
         }
     }
-#else
-    // Desktop: Use system zip command
-    QProcess zipProcess;
-    zipProcess.setWorkingDirectory(stagingDir);
 
-#ifdef Q_OS_WIN
-    // Windows: Use PowerShell Compress-Archive
-    QStringList args;
-    args << "-NoProfile" << "-NonInteractive" << "-Command";
-    QString escapedStagingDir = QString(stagingDir).replace("'", "''");
-    QString escapedZipPath = QString(zipPath).replace("'", "''");
-    args << QString("Compress-Archive -Path '%1/*' -DestinationPath '%2' -Force -CompressionLevel Optimal")
-            .arg(escapedStagingDir)
-            .arg(escapedZipPath);
-    zipProcess.start("powershell", args);
-#else
-    // macOS/Linux: Use zip command from within staging dir
-    QStringList args;
-    args << "-r" << zipPath << ".";
-    zipProcess.start("zip", args);
-#endif
+    // Collect paths on main thread (some accessors may use JNI/platform APIs)
+    QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();
+    QString downloadedProfilesPath = m_profileStorage ? m_profileStorage->downloadedProfilesPath() : QString();
+    QString personalMediaDir = m_screensaverManager ? m_screensaverManager->personalMediaDirectory() : QString();
 
-    if (zipProcess.waitForFinished(30000)) { // 30 second timeout for larger backups
-        if (zipProcess.exitCode() == 0) {
-            zipSuccess = true;
-            qDebug() << "DatabaseBackupManager: ZIP created via system command:" << zipPath;
-        } else {
-            qWarning() << "DatabaseBackupManager: zip command failed:" << zipProcess.readAllStandardError();
+    // Run heavy I/O on background thread
+    QThread* thread = QThread::create(
+        [this, dateStr, zipPath, backupDir, settingsJson,
+         userProfilesPath, downloadedProfilesPath, personalMediaDir]() {
+
+        // Create staging directory
+        QString stagingDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_backup_staging";
+        QDir(stagingDir).removeRecursively();
+        QDir().mkpath(stagingDir);
+
+        // Create the backup .db file
+        QString dbDestPath = stagingDir + "/shots_backup_" + dateStr + ".db";
+        QString dbResult = m_storage->createBackup(dbDestPath);
+
+        if (dbResult.isEmpty()) {
+            QDir(stagingDir).removeRecursively();
+            QMetaObject::invokeMethod(this, [this]() {
+                m_backupInProgress = false;
+                emit backupFailed("Failed to create backup");
+            }, Qt::QueuedConnection);
+            return;
         }
-    } else {
-        qWarning() << "DatabaseBackupManager: zip command timeout";
-    }
-#endif
 
-    // Clean up staging directory
-    QDir(stagingDir).removeRecursively();
+        QFileInfo dbInfo(dbResult);
+        if (!dbInfo.exists()) {
+            QDir(stagingDir).removeRecursively();
+            QMetaObject::invokeMethod(this, [this]() {
+                m_backupInProgress = false;
+                emit backupFailed("Failed to create backup file");
+            }, Qt::QueuedConnection);
+            return;
+        }
+        qDebug() << "DatabaseBackupManager: DB file created:" << dbResult
+                 << "size:" << dbInfo.size() << "bytes";
 
-    if (zipSuccess) {
-        // Verify ZIP file
-        QFileInfo zipInfo(zipPath);
-        qDebug() << "DatabaseBackupManager: ZIP size:" << zipInfo.size() << "bytes";
+        // Write settings.json (from pre-captured snapshot)
+        if (!settingsJson.isEmpty()) {
+            QString settingsPath = stagingDir + "/settings.json";
+            QFile file(settingsPath);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(QJsonDocument(settingsJson).toJson(QJsonDocument::Indented));
+                file.close();
+                qDebug() << "DatabaseBackupManager: Settings exported to" << settingsPath;
+            } else {
+                qWarning() << "DatabaseBackupManager: Failed to write settings.json:" << file.errorString();
+            }
+        }
+
+        // Copy profiles
+        if (!userProfilesPath.isEmpty() && QDir(userProfilesPath).exists()) {
+            if (copyDirectory(userProfilesPath, stagingDir + "/profiles/user")) {
+                qDebug() << "DatabaseBackupManager: User profiles backed up";
+            }
+        }
+        if (!downloadedProfilesPath.isEmpty() && QDir(downloadedProfilesPath).exists()) {
+            if (copyDirectory(downloadedProfilesPath, stagingDir + "/profiles/downloaded")) {
+                qDebug() << "DatabaseBackupManager: Downloaded profiles backed up";
+            }
+        }
+
+        // Copy personal media
+        if (!personalMediaDir.isEmpty() && QDir(personalMediaDir).exists()) {
+            QDir mediaDir(personalMediaDir);
+            QFileInfoList files = mediaDir.entryInfoList(QDir::Files);
+            bool hasMedia = false;
+            for (const QFileInfo& fi : files) {
+                if (fi.fileName() != "index.json") { hasMedia = true; break; }
+            }
+            if (hasMedia) {
+                if (copyDirectory(personalMediaDir, stagingDir + "/media")) {
+                    qDebug() << "DatabaseBackupManager: Personal media backed up";
+                }
+            }
+        }
+
+        // Create ZIP
+        QString finalPath = zipPath;
+        bool zipSuccess = false;
+
+        {
+            QZipWriter writer(zipPath);
+            writer.setCompressionPolicy(QZipWriter::AutoCompress);
+
+            std::function<void(const QString&, const QString&)> addDirToZip =
+                [&writer, &addDirToZip](const QString& dirPath, const QString& zipPrefix) {
+                QDir dir(dirPath);
+                QFileInfoList entries = dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+                for (const QFileInfo& fi : entries) {
+                    QString entryPath = zipPrefix.isEmpty() ? fi.fileName() : zipPrefix + "/" + fi.fileName();
+                    if (fi.isDir()) {
+                        writer.addDirectory(entryPath);
+                        addDirToZip(fi.absoluteFilePath(), entryPath);
+                    } else {
+                        QFile f(fi.absoluteFilePath());
+                        if (f.open(QIODevice::ReadOnly)) {
+                            writer.addFile(entryPath, f.readAll());
+                            f.close();
+                        }
+                    }
+                }
+            };
+
+            addDirToZip(stagingDir, QString());
+            writer.close();
+
+            if (writer.status() == QZipWriter::NoError) {
+                zipSuccess = true;
+                qDebug() << "DatabaseBackupManager: ZIP created:" << zipPath;
+            } else {
+                qWarning() << "DatabaseBackupManager: QZipWriter failed with status:" << writer.status();
+            }
+        }
+
+        QDir(stagingDir).removeRecursively();
+
+        if (!zipSuccess) {
+            qWarning() << "DatabaseBackupManager: Failed to create ZIP";
+            finalPath = dbResult;
+        } else {
+            QFileInfo zi(zipPath);
+            qDebug() << "DatabaseBackupManager: ZIP size:" << zi.size() << "bytes";
+        }
+
+        // Deliver result back to main thread
+        QMetaObject::invokeMethod(this, [this, finalPath, backupDir, zipSuccess]() {
+            m_lastBackupDate = QDate::currentDate();
 
 #ifdef Q_OS_ANDROID
-        // Scan the ZIP file
-        QJniObject::callStaticMethod<void>(
-            "io/github/kulitorum/decenza_de1/StorageHelper",
-            "scanFile",
-            "(Ljava/lang/String;)V",
-            QJniObject::fromString(zipPath).object<jstring>());
-        qDebug() << "DatabaseBackupManager: Triggered media scan for ZIP";
+            if (zipSuccess) {
+                QJniObject::callStaticMethod<void>(
+                    "io/github/kulitorum/decenza_de1/StorageHelper",
+                    "scanFile",
+                    "(Ljava/lang/String;)V",
+                    QJniObject::fromString(finalPath).object<jstring>());
+                qDebug() << "DatabaseBackupManager: Triggered media scan for ZIP";
+            }
+#else
+            Q_UNUSED(zipSuccess);
 #endif
-    } else {
-        qWarning() << "DatabaseBackupManager: Failed to create ZIP";
-        finalPath = result;
-    }
 
-    m_backupInProgress = false;
-    emit backupCreated(finalPath);
-    refreshBackupList();
+            m_backupInProgress = false;
+            emit backupCreated(finalPath);
+            refreshBackupList();
+            cleanOldBackups(backupDir);
+        }, Qt::QueuedConnection);
+    });
 
-    // Clean up old backups after successful backup
-    cleanOldBackups(backupDir);
-
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
     return true;
 }
 
@@ -559,109 +617,279 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge)
         return false;
     }
 
-    // Get the .db file from the backup
-    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_restore_temp";
-    QDir(tempDir).removeRecursively();
-    QDir().mkpath(tempDir);
+    // Collect restore target paths on main thread (some accessors may use JNI/platform APIs)
+    QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();
+    QString downloadedProfilesPath = m_profileStorage ? m_profileStorage->downloadedProfilesPath() : QString();
+    QString personalMediaDir = m_screensaverManager ? m_screensaverManager->personalMediaDirectory() : QString();
 
-    QString tempDbPath;
+    // Run heavy I/O on background thread
+    QThread* thread = QThread::create(
+        [this, filename, zipPath, merge,
+         userProfilesPath, downloadedProfilesPath, personalMediaDir]() {
 
-    if (filename.endsWith(".db")) {
-        // Raw .db backup (iOS) - use directly
-        tempDbPath = zipPath;
-        qDebug() << "DatabaseBackupManager: Using raw .db backup:" << tempDbPath;
-    } else {
-        // ZIP backup - extract first
-        qDebug() << "DatabaseBackupManager: Extracting" << zipPath << "to" << tempDir;
+        // Create temp directory for extraction
+        QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/decenza_restore_temp";
+        QDir(tempDir).removeRecursively();
+        QDir().mkpath(tempDir);
 
-        if (!extractZip(zipPath, tempDir)) {
-            QString error = "Failed to extract backup file";
-            qWarning() << "DatabaseBackupManager:" << error;
-            QDir(tempDir).removeRecursively();
-            m_restoreInProgress = false;
-            emit restoreFailed(error);
-            return false;
-        }
+        QString tempDbPath;
 
-        // Find the .db file in the extracted contents
-        QDir tempDirObj(tempDir);
-        QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
-        if (!dbFiles.isEmpty()) {
-            tempDbPath = tempDir + "/" + dbFiles.first();
-            qDebug() << "DatabaseBackupManager: Found DB file:" << tempDbPath;
+        if (filename.endsWith(".db")) {
+            // Raw .db backup (old iOS format) - use directly
+            tempDbPath = zipPath;
+            qDebug() << "DatabaseBackupManager: Using raw .db backup:" << tempDbPath;
         } else {
-            QString error = "No database file found in backup";
-            qWarning() << "DatabaseBackupManager:" << error;
+            // ZIP backup - extract first
+            qDebug() << "DatabaseBackupManager: Extracting" << zipPath << "to" << tempDir;
+
+            if (!extractZip(zipPath, tempDir)) {
+                QDir(tempDir).removeRecursively();
+                QMetaObject::invokeMethod(this, [this]() {
+                    m_restoreInProgress = false;
+                    emit restoreFailed("Failed to extract backup file");
+                }, Qt::QueuedConnection);
+                return;
+            }
+
+            // Find the .db file in the extracted contents
+            QDir tempDirObj(tempDir);
+            QStringList dbFiles = tempDirObj.entryList({"*.db"}, QDir::Files, QDir::Time);
+            if (!dbFiles.isEmpty()) {
+                tempDbPath = tempDir + "/" + dbFiles.first();
+                qDebug() << "DatabaseBackupManager: Found DB file:" << tempDbPath;
+            } else {
+                QDir(tempDir).removeRecursively();
+                QMetaObject::invokeMethod(this, [this]() {
+                    m_restoreInProgress = false;
+                    emit restoreFailed("No database file found in backup");
+                }, Qt::QueuedConnection);
+                return;
+            }
+        }
+
+        // Validate SQLite database
+        QFileInfo extractedFileInfo(tempDbPath);
+        if (!extractedFileInfo.exists() || extractedFileInfo.size() < 100) {
             QDir(tempDir).removeRecursively();
+            QString error = !extractedFileInfo.exists()
+                ? "Extracted file not found"
+                : "Extracted file is too small to be a valid database";
+            QMetaObject::invokeMethod(this, [this, error]() {
+                m_restoreInProgress = false;
+                emit restoreFailed(error);
+            }, Qt::QueuedConnection);
+            return;
+        }
+
+        // Verify SQLite magic header
+        {
+            QFile dbFile(tempDbPath);
+            if (!dbFile.open(QIODevice::ReadOnly)) {
+                QDir(tempDir).removeRecursively();
+                QMetaObject::invokeMethod(this, [this]() {
+                    m_restoreInProgress = false;
+                    emit restoreFailed("Cannot open extracted file for validation");
+                }, Qt::QueuedConnection);
+                return;
+            }
+
+            QByteArray header = dbFile.read(16);
+            dbFile.close();
+
+            if (header.size() != 16 || !header.startsWith("SQLite format 3")) {
+                qWarning() << "DatabaseBackupManager: Invalid SQLite header:" << header.toHex();
+                QDir(tempDir).removeRecursively();
+                QMetaObject::invokeMethod(this, [this]() {
+                    m_restoreInProgress = false;
+                    emit restoreFailed("Extracted file is not a valid SQLite database");
+                }, Qt::QueuedConnection);
+                return;
+            }
+        }
+
+        qDebug() << "DatabaseBackupManager: Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
+
+        // Import the database
+        qDebug() << "DatabaseBackupManager: Importing database from" << tempDbPath
+                 << (merge ? "(merge mode)" : "(replace mode)");
+        bool importSuccess = m_storage->importDatabase(tempDbPath, merge);
+
+        if (!importSuccess) {
+            QDir(tempDir).removeRecursively();
+            QMetaObject::invokeMethod(this, [this]() {
+                m_restoreInProgress = false;
+                emit restoreFailed("Failed to import backup database");
+            }, Qt::QueuedConnection);
+            return;
+        }
+
+        qDebug() << "DatabaseBackupManager: Database restore completed successfully";
+
+        // Restore additional data if present (backwards-compatible)
+        QString restoreDir = filename.endsWith(".db") ? QFileInfo(zipPath).absolutePath() : tempDir;
+
+        // Restore profiles (pure file I/O, safe on background thread)
+        // Restore user profiles
+        QString srcUser = restoreDir + "/profiles/user";
+        if (QDir(srcUser).exists() && !userProfilesPath.isEmpty()) {
+            QDir().mkpath(userProfilesPath);
+            QDir srcDir(srcUser);
+            QFileInfoList files = srcDir.entryInfoList(QDir::Files);
+            int restored = 0;
+            for (const QFileInfo& fi : files) {
+                QString destPath = userProfilesPath + "/" + fi.fileName();
+                if (merge && QFile::exists(destPath)) continue;
+                if (QFile::exists(destPath)) QFile::remove(destPath);
+                if (QFile::copy(fi.absoluteFilePath(), destPath)) restored++;
+            }
+            qDebug() << "DatabaseBackupManager: Restored" << restored << "user profiles";
+        }
+
+        // Restore downloaded profiles
+        QString srcDownloaded = restoreDir + "/profiles/downloaded";
+        if (QDir(srcDownloaded).exists() && !downloadedProfilesPath.isEmpty()) {
+            QDir().mkpath(downloadedProfilesPath);
+            QDir srcDir(srcDownloaded);
+            QFileInfoList files = srcDir.entryInfoList(QDir::Files);
+            int restored = 0;
+            for (const QFileInfo& fi : files) {
+                QString destPath = downloadedProfilesPath + "/" + fi.fileName();
+                if (merge && QFile::exists(destPath)) continue;
+                if (QFile::exists(destPath)) QFile::remove(destPath);
+                if (QFile::copy(fi.absoluteFilePath(), destPath)) restored++;
+            }
+            qDebug() << "DatabaseBackupManager: Restored" << restored << "downloaded profiles";
+        }
+
+        // Restore personal media
+        QString srcMedia = restoreDir + "/media";
+        if (QDir(srcMedia).exists() && !personalMediaDir.isEmpty()) {
+            QDir().mkpath(personalMediaDir);
+            QDir srcDir(srcMedia);
+            QFileInfoList files = srcDir.entryInfoList(QDir::Files);
+            int restored = 0;
+            for (const QFileInfo& fi : files) {
+                QString destPath = personalMediaDir + "/" + fi.fileName();
+                if (QFile::exists(destPath)) continue;
+                if (QFile::copy(fi.absoluteFilePath(), destPath)) restored++;
+            }
+            if (restored > 0) {
+                qDebug() << "DatabaseBackupManager: Restored" << restored << "personal media files";
+            }
+        }
+
+        // Read settings.json for settings + AI conversations restore (deliver to main thread)
+        QJsonObject settingsJson;
+        QString settingsPath = restoreDir + "/settings.json";
+        if (QFile::exists(settingsPath)) {
+            QFile file(settingsPath);
+            if (file.open(QIODevice::ReadOnly)) {
+                QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+                file.close();
+                if (doc.isObject()) {
+                    settingsJson = doc.object();
+                }
+            }
+        }
+
+        QDir(tempDir).removeRecursively();
+
+        // Deliver result to main thread — settings/AI restore touches QSettings
+        QMetaObject::invokeMethod(this, [this, filename, settingsJson]() {
+            // Restore settings (must be on main thread — QSettings/platform APIs)
+            if (!settingsJson.isEmpty() && m_settings) {
+                QJsonObject json = settingsJson;
+                QStringList excludeKeys = SettingsSerializer::sensitiveKeys();
+                SettingsSerializer::importFromJson(m_settings, json, excludeKeys);
+                qDebug() << "DatabaseBackupManager: Settings restored from backup";
+            }
+
+            // Restore AI conversations (writes to QSettings)
+            if (settingsJson.contains("ai_conversations")) {
+                QJsonArray conversations = settingsJson["ai_conversations"].toArray();
+                if (!conversations.isEmpty()) {
+                    QSettings qsettings;
+                    QJsonDocument existingDoc = QJsonDocument::fromJson(
+                        qsettings.value("ai/conversations/index").toByteArray());
+                    QJsonArray existingIndex = existingDoc.isArray() ? existingDoc.array() : QJsonArray();
+                    QSet<QString> existingKeys;
+                    for (const QJsonValue& v : existingIndex) {
+                        existingKeys.insert(v.toObject()["key"].toString());
+                    }
+
+                    int imported = 0;
+                    for (const QJsonValue& val : conversations) {
+                        QJsonObject conv = val.toObject();
+                        QString key = conv["key"].toString();
+                        if (key.isEmpty() || existingKeys.contains(key)) continue;
+
+                        QString prefix = "ai/conversations/" + key + "/";
+                        qsettings.setValue(prefix + "systemPrompt", conv["systemPrompt"].toString());
+                        qsettings.setValue(prefix + "contextLabel", conv["contextLabel"].toString());
+                        qsettings.setValue(prefix + "timestamp", conv["timestamp"].toString());
+                        QJsonArray messages = conv["messages"].toArray();
+                        qsettings.setValue(prefix + "messages",
+                            QJsonDocument(messages).toJson(QJsonDocument::Compact));
+
+                        QJsonObject indexEntry;
+                        indexEntry["key"] = key;
+                        indexEntry["beanBrand"] = conv["beanBrand"].toString();
+                        indexEntry["beanType"] = conv["beanType"].toString();
+                        indexEntry["profileName"] = conv["profileName"].toString();
+                        indexEntry["timestamp"] = conv["indexTimestamp"].toVariant().toLongLong();
+                        existingIndex.append(indexEntry);
+                        existingKeys.insert(key);
+                        imported++;
+                    }
+
+                    if (imported > 0) {
+                        qsettings.setValue("ai/conversations/index",
+                            QJsonDocument(existingIndex).toJson(QJsonDocument::Compact));
+                        qsettings.sync();
+                        qDebug() << "DatabaseBackupManager: Imported" << imported << "AI conversations";
+                    }
+                }
+            }
+
             m_restoreInProgress = false;
-            emit restoreFailed(error);
-            return false;
+            emit restoreCompleted(filename);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+    return true;
+}
+
+// ============================================================================
+// Utility
+// ============================================================================
+
+bool DatabaseBackupManager::copyDirectory(const QString& srcDir, const QString& destDir, bool overwrite)
+{
+    QDir src(srcDir);
+    if (!src.exists()) return false;
+
+    QDir().mkpath(destDir);
+
+    bool success = true;
+    QFileInfoList entries = src.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo& fi : entries) {
+        QString destPath = destDir + "/" + fi.fileName();
+        if (fi.isDir()) {
+            if (!copyDirectory(fi.absoluteFilePath(), destPath, overwrite)) {
+                success = false;
+            }
+        } else {
+            if (QFile::exists(destPath)) {
+                if (!overwrite) continue;
+                QFile::remove(destPath);
+            }
+            if (!QFile::copy(fi.absoluteFilePath(), destPath)) {
+                qWarning() << "DatabaseBackupManager: Failed to copy" << fi.absoluteFilePath() << "to" << destPath;
+                success = false;
+            }
         }
     }
-
-    // Validate extracted file exists and is a valid SQLite database
-    QFileInfo extractedFileInfo(tempDbPath);
-    if (!extractedFileInfo.exists()) {
-        QString error = "Extracted file not found: " + tempDbPath;
-        qWarning() << "DatabaseBackupManager:" << error;
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
-
-    if (extractedFileInfo.size() < 100) {
-        QString error = "Extracted file is too small to be a valid database: " + QString::number(extractedFileInfo.size()) + " bytes";
-        qWarning() << "DatabaseBackupManager:" << error;
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
-
-    // Verify SQLite magic header (first 16 bytes should be "SQLite format 3\0")
-    QFile dbFile(tempDbPath);
-    if (!dbFile.open(QIODevice::ReadOnly)) {
-        QString error = "Cannot open extracted file for validation: " + dbFile.errorString();
-        qWarning() << "DatabaseBackupManager:" << error;
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
-
-    QByteArray header = dbFile.read(16);
-    dbFile.close();
-
-    if (header.size() != 16 || !header.startsWith("SQLite format 3")) {
-        QString error = "Extracted file is not a valid SQLite database (invalid magic header)";
-        qWarning() << "DatabaseBackupManager:" << error;
-        qWarning() << "DatabaseBackupManager: Header bytes:" << header.toHex();
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
-
-    qDebug() << "DatabaseBackupManager: Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
-
-    // Import the extracted database
-    qDebug() << "DatabaseBackupManager: Importing database from" << tempDbPath
-             << (merge ? "(merge mode)" : "(replace mode)");
-    bool importSuccess = m_storage->importDatabase(tempDbPath, merge);
-
-    if (importSuccess) {
-        qDebug() << "DatabaseBackupManager: Restore completed successfully";
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreCompleted(filename);
-        return true;
-    } else {
-        QString error = "Failed to import backup database";
-        qWarning() << "DatabaseBackupManager:" << error;
-        QDir(tempDir).removeRecursively();
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
+    return success;
 }
