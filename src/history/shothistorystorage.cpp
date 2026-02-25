@@ -1000,8 +1000,9 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
         emit loadingFilteredChanged();
     }
 
+    auto destroyed = m_destroyed;
     QThread* thread = QThread::create(
-        [this, dbPath, sql, countSql, bindValues, countBindValues, serial, isAppend]() {
+        [this, dbPath, sql, countSql, bindValues, countBindValues, serial, isAppend, destroyed]() {
             const QString connName = QString("shs_filter_%1")
                 .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
@@ -1064,7 +1065,8 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 
             QMetaObject::invokeMethod(
                 this,
-                [this, results = std::move(results), serial, isAppend, totalCount]() mutable {
+                [this, results = std::move(results), serial, isAppend, totalCount, destroyed]() mutable {
+                    if (*destroyed) return;
                     if (serial != m_filterSerial) return;
                     m_loadingFiltered = false;
                     emit loadingFilteredChanged();
@@ -1102,7 +1104,8 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
 
     const QString dbPath = m_dbPath;
 
-    QThread* thread = QThread::create([this, dbPath, shotId]() {
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
         const QString connName = QString("shs_shot_%1")
             .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
@@ -1118,7 +1121,8 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
         QSqlDatabase::removeDatabase(connName);
 
         // Convert to QVariantMap on main thread (touches QML-visible data)
-        QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record)]() {
+        QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), destroyed]() {
+            if (*destroyed) return;
             emit shotReady(shotId, convertShotRecord(record));
         }, Qt::QueuedConnection);
     });
@@ -1405,7 +1409,8 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
         placeholders << "?";
     QString sql = "DELETE FROM shots WHERE id IN (" + placeholders.join(",") + ")";
 
-    QThread* thread = QThread::create([this, dbPath, sql, shotIds]() {
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, sql, shotIds, destroyed]() {
         const QString connName = QString("shs_delete_%1")
             .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
@@ -1434,7 +1439,8 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
         }
         QSqlDatabase::removeDatabase(connName);
 
-        QMetaObject::invokeMethod(this, [this, shotIds, success]() {
+        QMetaObject::invokeMethod(this, [this, shotIds, success, destroyed]() {
+            if (*destroyed) return;
             if (success) {
                 updateTotalShots();
                 invalidateDistinctCache();
