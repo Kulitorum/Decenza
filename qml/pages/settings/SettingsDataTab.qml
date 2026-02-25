@@ -1370,7 +1370,7 @@ KeyboardAwareContainer {
                     Accessible.name: TranslationManager.translate("settings.data.backupfile", "Backup file: ") + text
                 }
 
-                // Data type checkboxes
+                // Data type toggles
                 Text {
                     text: TranslationManager.translate("settings.data.selectdata", "Select data to restore:")
                     color: Theme.textColor
@@ -1379,48 +1379,54 @@ KeyboardAwareContainer {
                     font.bold: true
                 }
 
-                ColumnLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
+                    columns: 2
+                    columnSpacing: Theme.scaled(8)
+                    rowSpacing: Theme.scaled(8)
 
-                    CheckBox {
-                        id: shotsCheckBox
-                        checked: restoreConfirmDialog.restoreShots
+                    AccessibleButton {
+                        Layout.fillWidth: true
                         text: TranslationManager.translate("settings.data.shots", "Shots")
-                        onToggled: restoreConfirmDialog.restoreShots = checked
-                        Accessible.name: TranslationManager.translate("settings.data.shots", "Shots")
-                        Accessible.checked: checked
-                        Accessible.focusable: true
+                        primary: restoreConfirmDialog.restoreShots
+                        accessibleName: TranslationManager.translate("settings.data.shots", "Shots") + ", " +
+                            (restoreConfirmDialog.restoreShots
+                                ? TranslationManager.translate("accessibility.selected", "selected")
+                                : TranslationManager.translate("accessibility.notselected", "not selected"))
+                        onClicked: restoreConfirmDialog.restoreShots = !restoreConfirmDialog.restoreShots
                     }
 
-                    CheckBox {
-                        id: settingsCheckBox
-                        checked: restoreConfirmDialog.restoreSettings
-                        text: TranslationManager.translate("settings.data.settingsai", "Settings & AI Conversations")
-                        onToggled: restoreConfirmDialog.restoreSettings = checked
-                        Accessible.name: TranslationManager.translate("settings.data.settingsai", "Settings & AI Conversations")
-                        Accessible.checked: checked
-                        Accessible.focusable: true
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("settings.data.settingsai", "Settings")
+                        primary: restoreConfirmDialog.restoreSettings
+                        accessibleName: TranslationManager.translate("settings.data.settingsai", "Settings & AI Conversations") + ", " +
+                            (restoreConfirmDialog.restoreSettings
+                                ? TranslationManager.translate("accessibility.selected", "selected")
+                                : TranslationManager.translate("accessibility.notselected", "not selected"))
+                        onClicked: restoreConfirmDialog.restoreSettings = !restoreConfirmDialog.restoreSettings
                     }
 
-                    CheckBox {
-                        id: profilesCheckBox
-                        checked: restoreConfirmDialog.restoreProfiles
+                    AccessibleButton {
+                        Layout.fillWidth: true
                         text: TranslationManager.translate("settings.data.profiles", "Profiles")
-                        onToggled: restoreConfirmDialog.restoreProfiles = checked
-                        Accessible.name: TranslationManager.translate("settings.data.profiles", "Profiles")
-                        Accessible.checked: checked
-                        Accessible.focusable: true
+                        primary: restoreConfirmDialog.restoreProfiles
+                        accessibleName: TranslationManager.translate("settings.data.profiles", "Profiles") + ", " +
+                            (restoreConfirmDialog.restoreProfiles
+                                ? TranslationManager.translate("accessibility.selected", "selected")
+                                : TranslationManager.translate("accessibility.notselected", "not selected"))
+                        onClicked: restoreConfirmDialog.restoreProfiles = !restoreConfirmDialog.restoreProfiles
                     }
 
-                    CheckBox {
-                        id: mediaCheckBox
-                        checked: restoreConfirmDialog.restoreMedia
+                    AccessibleButton {
+                        Layout.fillWidth: true
                         text: TranslationManager.translate("settings.data.media", "Media")
-                        onToggled: restoreConfirmDialog.restoreMedia = checked
-                        Accessible.name: TranslationManager.translate("settings.data.media", "Media")
-                        Accessible.checked: checked
-                        Accessible.focusable: true
+                        primary: restoreConfirmDialog.restoreMedia
+                        accessibleName: TranslationManager.translate("settings.data.media", "Media") + ", " +
+                            (restoreConfirmDialog.restoreMedia
+                                ? TranslationManager.translate("accessibility.selected", "selected")
+                                : TranslationManager.translate("accessibility.notselected", "not selected"))
+                        onClicked: restoreConfirmDialog.restoreMedia = !restoreConfirmDialog.restoreMedia
                     }
                 }
 
