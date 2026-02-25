@@ -39,6 +39,18 @@ DatabaseBackupManager::DatabaseBackupManager(Settings* settings, ShotHistoryStor
     connect(m_checkTimer, &QTimer::timeout, this, &DatabaseBackupManager::onTimerFired);
 }
 
+DatabaseBackupManager::~DatabaseBackupManager()
+{
+    m_checkTimer->stop();
+    // Wait for any background threads to finish before destruction,
+    // since they capture 'this' in their lambdas
+    for (QThread* thread : m_activeThreads) {
+        if (thread && thread->isRunning()) {
+            thread->wait(5000); // 5 second timeout
+        }
+    }
+}
+
 void DatabaseBackupManager::start()
 {
     if (!m_settings || !m_storage) {
@@ -237,7 +249,20 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
                 reader.close();
                 return false;
             }
-            outFile.write(reader.fileData(entry.filePath));
+            // QZipReader has no streaming API, so fileData() loads the entire
+            // uncompressed file into memory. Scope the QByteArray so it's freed
+            // immediately after writing rather than accumulating across entries.
+            {
+                QByteArray data = reader.fileData(entry.filePath);
+                if (data.isEmpty() && entry.size > 0) {
+                    qWarning() << "DatabaseBackupManager: Failed to read ZIP entry:" << entry.filePath
+                               << "(expected" << entry.size << "bytes)";
+                    outFile.close();
+                    reader.close();
+                    return false;
+                }
+                outFile.write(data);
+            }
             outFile.close();
         }
     }
@@ -523,7 +548,11 @@ bool DatabaseBackupManager::createBackup(bool force)
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    m_activeThreads.append(thread);
+    connect(thread, &QThread::finished, this, [this, thread]() {
+        m_activeThreads.removeOne(thread);
+        thread->deleteLater();
+    });
     thread->start();
     return true;
 }
@@ -561,7 +590,11 @@ void DatabaseBackupManager::checkFirstRunRestore()
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    m_activeThreads.append(thread);
+    connect(thread, &QThread::finished, this, [this, thread]() {
+        m_activeThreads.removeOne(thread);
+        thread->deleteLater();
+    });
     thread->start();
 }
 
@@ -763,8 +796,18 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     bool importSuccess = ShotHistoryStorage::importDatabaseStatic(dbPath, tempDbPath, merge);
 
                     if (!importSuccess) {
-                        qWarning() << "DatabaseBackupManager: Shots import failed, continuing with other data types";
+                        qWarning() << "DatabaseBackupManager: Shots import failed";
                         errors << "Failed to import shot history";
+                        // In replace mode, abort — we haven't deleted profiles/settings yet,
+                        // so returning now prevents data loss from a partial restore
+                        if (!merge) {
+                            QDir(tempDir).removeRecursively();
+                            QMetaObject::invokeMethod(this, [this, errors]() {
+                                m_restoreInProgress = false;
+                                emit restoreFailed(errors.join("; "));
+                            }, Qt::QueuedConnection);
+                            return;
+                        }
                     } else {
                         shotsImported = true;
                         qDebug() << "DatabaseBackupManager: Database restore completed successfully";
@@ -833,6 +876,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         }
 
         // Restore personal media
+        bool mediaWasRestored = false;
         if (restoreMedia) {
             QString srcMedia = restoreDir + "/media";
             if (QDir(srcMedia).exists() && !personalMediaDir.isEmpty()) {
@@ -847,6 +891,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     if (QFile::copy(fi.absoluteFilePath(), destPath)) restored++;
                 }
                 if (restored > 0) {
+                    mediaWasRestored = true;
                     qDebug() << "DatabaseBackupManager: Restored" << restored << "personal media files";
                 }
             }
@@ -871,7 +916,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         QDir(tempDir).removeRecursively();
 
         // Deliver result to main thread — settings/AI restore touches QSettings
-        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, errors, merge]() {
+        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge]() {
             // Refresh storage state if shots were imported (via separate connection)
             if (shotsImported && m_storage) {
                 m_storage->refreshTotalShots();
@@ -880,6 +925,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             // Refresh profile list if profiles were restored
             if (profilesRestored) {
                 emit this->profilesRestored();
+            }
+
+            // Refresh media catalog if media files were restored
+            if (mediaWasRestored) {
+                emit this->mediaRestored();
             }
 
             // Restore settings (must be on main thread — QSettings/platform APIs)
@@ -962,7 +1012,11 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    m_activeThreads.append(thread);
+    connect(thread, &QThread::finished, this, [this, thread]() {
+        m_activeThreads.removeOne(thread);
+        thread->deleteLater();
+    });
     thread->start();
     return true;
 }

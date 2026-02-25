@@ -1535,6 +1535,12 @@ void ScreensaverVideoManager::migrateCacheToExternal()
 // Personal Media Management
 // ============================================================================
 
+void ScreensaverVideoManager::reloadPersonalMedia()
+{
+    loadPersonalCatalog();
+    emit personalMediaChanged();
+}
+
 void ScreensaverVideoManager::loadPersonalCatalog()
 {
     QString catalogPath = m_cacheDir + "/personal/catalog.json";

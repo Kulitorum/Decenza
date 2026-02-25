@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QTimer>
 #include <QDateTime>
+#include <QThread>
+#include <QVector>
 
 class Settings;
 class ShotHistoryStorage;
@@ -28,6 +30,7 @@ public:
                                    ProfileStorage* profileStorage = nullptr,
                                    ScreensaverVideoManager* screensaverManager = nullptr,
                                    QObject* parent = nullptr);
+    ~DatabaseBackupManager();
 
     /// Start the backup scheduler (call after app initialization)
     void start();
@@ -88,6 +91,9 @@ signals:
     /// Emitted when profiles were restored and the profile list needs refreshing
     void profilesRestored();
 
+    /// Emitted when media files were restored and the catalog needs reloading
+    void mediaRestored();
+
     /// Emitted when storage permission is needed (Android only)
     void storagePermissionNeeded();
 
@@ -116,4 +122,5 @@ private:
     bool m_backupInProgress = false;  // Prevent concurrent backups
     bool m_restoreInProgress = false;  // Prevent concurrent restores
     QStringList m_cachedBackups;       // Cached result of getAvailableBackups()
+    QVector<QThread*> m_activeThreads; // Track background threads for cleanup
 };

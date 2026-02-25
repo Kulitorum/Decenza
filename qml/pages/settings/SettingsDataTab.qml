@@ -1409,11 +1409,11 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Merge/Replace switch — visible when Shots or Profiles is checked (both respect merge flag)
+                // Merge/Replace switch — visible when any data type that respects merge is checked
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(6)
-                    visible: restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreProfiles
+                    visible: restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreProfiles || restoreConfirmDialog.restoreMedia
 
                     Rectangle {
                         Layout.fillWidth: true

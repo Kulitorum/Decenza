@@ -229,7 +229,8 @@ public slots:
     void startBackgroundDownload();
     void stopBackgroundDownload();
 
-    // Personal media management (called from web upload)
+    // Personal media management (called from web upload and backup restore)
+    void reloadPersonalMedia();
     bool addPersonalMedia(const QString& filePath, const QString& originalName = QString(), const QDateTime& mediaDate = QDateTime());
     bool hasPersonalMediaWithName(const QString& originalName) const;
     QVariantList getPersonalMediaList() const;

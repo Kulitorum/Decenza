@@ -406,6 +406,8 @@ int main(int argc, char *argv[])
     });
     QObject::connect(&backupManager, &DatabaseBackupManager::profilesRestored,
                      &mainController, &MainController::refreshProfiles);
+    QObject::connect(&backupManager, &DatabaseBackupManager::mediaRestored,
+                     &screensaverManager, &ScreensaverVideoManager::reloadPersonalMedia);
     backupManager.start();
 
     checkpoint("Managers wired");
