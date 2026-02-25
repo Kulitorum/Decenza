@@ -10,6 +10,14 @@ ChartView {
     plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
     legend.visible: false
 
+    // Persisted visibility toggles (tappable legend)
+    property bool showPressure: Settings.value("graph/showPressure", true)
+    property bool showFlow: Settings.value("graph/showFlow", true)
+    property bool showTemperature: Settings.value("graph/showTemperature", true)
+    property bool showWeight: Settings.value("graph/showWeight", true)
+    property bool showWeightFlow: Settings.value("graph/showWeightFlow", true)
+    property bool showResistance: Settings.value("graph/showResistance", false)
+
     margins.top: 0
     margins.bottom: 0
     margins.left: 0
@@ -134,18 +142,18 @@ ChartView {
     // === GOAL LINES (dashed) - Multiple segments for clean breaks ===
 
     // Pressure goal segments (up to 5 segments for mode switches)
-    LineSeries { id: pressureGoal1; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: pressureGoal2; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: pressureGoal3; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: pressureGoal4; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: pressureGoal5; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: pressureGoal1; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal2; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal3; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal4; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal5; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
 
     // Flow goal segments (up to 5 segments for mode switches)
-    LineSeries { id: flowGoal1; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: flowGoal2; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: flowGoal3; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: flowGoal4; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
-    LineSeries { id: flowGoal5; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis }
+    LineSeries { id: flowGoal1; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal2; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal3; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal4; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal5; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
 
     LineSeries {
         id: temperatureGoalSeries
@@ -155,6 +163,7 @@ ChartView {
         style: Qt.DashLine
         axisX: timeAxis
         axisYRight: tempAxis
+        visible: chart.showTemperature
     }
 
     // Empty anchor series to keep the weight axis registered with ChartView
@@ -176,6 +185,7 @@ ChartView {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
+        visible: chart.showPressure
     }
 
     FastLineRenderer {
@@ -186,6 +196,7 @@ ChartView {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
+        visible: chart.showFlow
     }
 
     FastLineRenderer {
@@ -196,6 +207,7 @@ ChartView {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: tempAxis.min; maxY: tempAxis.max
+        visible: chart.showTemperature
     }
 
     FastLineRenderer {
@@ -206,6 +218,7 @@ ChartView {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
+        visible: chart.showWeightFlow
     }
 
     FastLineRenderer {
@@ -216,7 +229,7 @@ ChartView {
         lineWidth: Theme.scaled(2)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: pressureAxis.min; maxY: pressureAxis.max
-        visible: Settings.value("graph/showResistance", false)
+        visible: chart.showResistance
     }
 
     FastLineRenderer {
@@ -227,6 +240,7 @@ ChartView {
         lineWidth: Theme.scaled(3)
         minX: timeAxis.min; maxX: timeAxis.max
         minY: weightAxis.min; maxY: weightAxis.max
+        visible: chart.showWeight
     }
 
     // Frame marker labels
@@ -336,68 +350,6 @@ ChartView {
             color: isFlowMode ? Theme.flowColor : Theme.pressureColor
             opacity: 0.8
             visible: markerTime <= timeAxis.max && modelData.label !== "Start"
-        }
-    }
-
-    // Custom legend - vertical, top-left, overlaying graph
-    Rectangle {
-        id: legendBackground
-        x: chart.plotArea.x + Theme.spacingSmall
-        y: chart.plotArea.y + Theme.spacingSmall
-        width: legendColumn.width + Theme.spacingSmall * 2
-        height: legendColumn.height + Theme.spacingSmall * 2
-        color: Qt.rgba(Theme.surfaceColor.r, Theme.surfaceColor.g, Theme.surfaceColor.b, 0.85)
-        radius: Theme.scaled(4)
-
-        Column {
-            id: legendColumn
-            anchors.centerIn: parent
-            spacing: Theme.scaled(2)
-
-            Row {
-                spacing: Theme.spacingSmall
-                Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.pressureColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Pressure"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
-            }
-            Row {
-                spacing: Theme.spacingSmall
-                Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.flowColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Flow"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
-            }
-            Row {
-                spacing: Theme.spacingSmall
-                Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.temperatureColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Temp"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
-            }
-            Row {
-                spacing: Theme.spacingSmall
-                Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.weightColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Weight"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
-            }
-            Row {
-                spacing: Theme.spacingSmall
-                Rectangle { width: Theme.scaled(16); height: Theme.scaled(2); radius: Theme.scaled(1); color: Theme.weightFlowColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Weight flow"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
-            }
-            Row {
-                visible: resistanceRenderer.visible
-                spacing: Theme.spacingSmall
-                Rectangle { width: Theme.scaled(16); height: Theme.scaled(2); radius: Theme.scaled(1); color: Theme.resistanceColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "Resistance"; color: Theme.textSecondaryColor; font: Theme.captionFont; Accessible.ignored: true }
-            }
-
-            // Solid/dashed indicator
-            Row {
-                spacing: Theme.scaled(4)
-                Rectangle { width: Theme.scaled(8); height: Theme.scaled(2); color: Theme.textSecondaryColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "actual"; color: Qt.rgba(255, 255, 255, 0.5); font: Theme.captionFont; Accessible.ignored: true }
-            }
-            Row {
-                spacing: Theme.scaled(4)
-                Rectangle { width: Theme.scaled(3); height: Theme.scaled(2); color: Theme.textSecondaryColor; anchors.verticalCenter: parent.verticalCenter }
-                Rectangle { width: Theme.scaled(3); height: Theme.scaled(2); color: Theme.textSecondaryColor; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "target"; color: Qt.rgba(255, 255, 255, 0.5); font: Theme.captionFont; Accessible.ignored: true }
-            }
         }
     }
 

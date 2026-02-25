@@ -321,6 +321,14 @@ Page {
         }
     }
 
+    // Tappable legend to toggle graph lines
+    GraphLegend {
+        graph: shotGraph
+        width: parent.width
+        anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top
+        anchors.bottomMargin: Theme.spacingSmall
+    }
+
     // Bottom info bar with live values
     Rectangle {
         id: infoBar
