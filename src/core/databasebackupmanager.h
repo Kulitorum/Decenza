@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QThread>
 #include <QVector>
+#include <memory>
 
 class Settings;
 class ShotHistoryStorage;
@@ -123,4 +124,9 @@ private:
     bool m_restoreInProgress = false;  // Prevent concurrent restores
     QStringList m_cachedBackups;       // Cached result of getAvailableBackups()
     QVector<QThread*> m_activeThreads; // Track background threads for cleanup
+
+    // Shared flag: set to true in destructor so background-thread lambdas
+    // that captured `this` can detect the object is gone before invoking
+    // methods on it via QueuedConnection.
+    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
 };
