@@ -354,7 +354,11 @@ bool ShotHistoryStorage::runMigrations()
     if (currentVersion < 7) {
         qDebug() << "ShotHistoryStorage: Running migration to version 7 (smooth weight flow rate)";
 
-        m_db.transaction();
+        if (!m_db.transaction()) {
+            qWarning() << "ShotHistoryStorage: Migration 7 failed to begin transaction:"
+                       << m_db.lastError().text();
+            return false;
+        }
 
         QSqlQuery readQuery(m_db);
         readQuery.prepare("SELECT id, sample_data FROM shots WHERE sample_data IS NOT NULL");
@@ -446,13 +450,14 @@ bool ShotHistoryStorage::runMigrations()
             m_schemaVersion = currentVersion;
             return false;
         }
-        currentVersion = 7;
         if (!m_db.commit()) {
             qWarning() << "ShotHistoryStorage: Migration 7 commit failed:"
                        << m_db.lastError().text();
+            m_db.rollback();
             m_schemaVersion = currentVersion;
             return false;
         }
+        currentVersion = 7;
     }
 
     m_schemaVersion = currentVersion;
