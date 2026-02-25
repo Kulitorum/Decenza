@@ -42,11 +42,12 @@ DatabaseBackupManager::DatabaseBackupManager(Settings* settings, ShotHistoryStor
 DatabaseBackupManager::~DatabaseBackupManager()
 {
     m_checkTimer->stop();
-    // Wait for any background threads to finish before destruction,
-    // since they capture 'this' in their lambdas
+    *m_destroyed = true;
+    // Wait indefinitely for background threads — they captured `this` in
+    // their lambdas, so we must not destruct until they finish.
     for (QThread* thread : m_activeThreads) {
         if (thread && thread->isRunning()) {
-            thread->wait(5000); // 5 second timeout
+            thread->wait();
         }
     }
 }
@@ -226,13 +227,13 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
     // which strips the execute bit from directories, making them
     // untraversable and causing subsequent file writes to fail.
     QDir baseDir(destDir);
-    const QString canonicalBase = baseDir.canonicalPath() + "/";
+    const QString basePrefix = baseDir.absolutePath() + "/";
     const auto entries = reader.fileInfoList();
     for (const QZipReader::FileInfo& entry : entries) {
         QString filePath = QDir::cleanPath(baseDir.absoluteFilePath(entry.filePath));
 
         // Guard against ZIP Slip path traversal
-        if (!filePath.startsWith(canonicalBase) && filePath != baseDir.canonicalPath()) {
+        if (!filePath.startsWith(basePrefix) && filePath != baseDir.absolutePath()) {
             qWarning() << "DatabaseBackupManager: Skipping ZIP entry with path traversal:" << entry.filePath;
             continue;
         }
@@ -421,7 +422,8 @@ bool DatabaseBackupManager::createBackup(bool force)
     // Run heavy I/O on background thread
     QThread* thread = QThread::create(
         [this, dateStr, zipPath, backupDir, settingsJson, dbPath,
-         userProfilesPath, downloadedProfilesPath, personalMediaDir, tempLocation]() {
+         userProfilesPath, downloadedProfilesPath, personalMediaDir, tempLocation,
+         destroyed = m_destroyed]() {
 
         // Create staging directory
         QString stagingDir = tempLocation + "/decenza_backup_staging";
@@ -434,7 +436,8 @@ bool DatabaseBackupManager::createBackup(bool force)
 
         if (dbResult.isEmpty()) {
             QDir(stagingDir).removeRecursively();
-            QMetaObject::invokeMethod(this, [this]() {
+            QMetaObject::invokeMethod(this, [this, destroyed]() {
+                if (*destroyed) return;
                 m_backupInProgress = false;
                 emit backupFailed("Failed to create backup");
             }, Qt::QueuedConnection);
@@ -444,7 +447,8 @@ bool DatabaseBackupManager::createBackup(bool force)
         QFileInfo dbInfo(dbResult);
         if (!dbInfo.exists()) {
             QDir(stagingDir).removeRecursively();
-            QMetaObject::invokeMethod(this, [this]() {
+            QMetaObject::invokeMethod(this, [this, destroyed]() {
+                if (*destroyed) return;
                 m_backupInProgress = false;
                 emit backupFailed("Failed to create backup file");
             }, Qt::QueuedConnection);
@@ -522,21 +526,25 @@ bool DatabaseBackupManager::createBackup(bool force)
             };
 
             addDirToZip(stagingDir, QString());
-            writer.close();
 
             if (writer.status() == QZipWriter::NoError) {
                 zipSuccess = true;
-                qDebug() << "DatabaseBackupManager: ZIP created:" << zipPath;
             } else {
                 qWarning() << "DatabaseBackupManager: QZipWriter failed with status:" << writer.status();
+            }
+            writer.close();
+            if (zipSuccess) {
+                qDebug() << "DatabaseBackupManager: ZIP created:" << zipPath;
             }
         }
 
         QDir(stagingDir).removeRecursively();
 
         if (!zipSuccess) {
+            QFile::remove(zipPath);
             qWarning() << "DatabaseBackupManager: Failed to create ZIP";
-            QMetaObject::invokeMethod(this, [this]() {
+            QMetaObject::invokeMethod(this, [this, destroyed]() {
+                if (*destroyed) return;
                 m_backupInProgress = false;
                 emit backupFailed("Failed to create backup archive");
             }, Qt::QueuedConnection);
@@ -547,7 +555,8 @@ bool DatabaseBackupManager::createBackup(bool force)
         }
 
         // Deliver result back to main thread
-        QMetaObject::invokeMethod(this, [this, zipPath, backupDir]() {
+        QMetaObject::invokeMethod(this, [this, zipPath, backupDir, destroyed]() {
+            if (*destroyed) return;
             m_lastBackupDate = QDate::currentDate();
 
 #ifdef Q_OS_ANDROID
@@ -599,10 +608,11 @@ void DatabaseBackupManager::checkFirstRunRestore()
 
     // Run DB query on background thread to avoid blocking the main thread
     QString dbPath = m_storage->databasePath();
-    QThread* thread = QThread::create([this, dbPath]() {
+    QThread* thread = QThread::create([this, dbPath, destroyed = m_destroyed]() {
         int shotCount = ShotHistoryStorage::getShotCountStatic(dbPath);
 
-        QMetaObject::invokeMethod(this, [this, shotCount]() {
+        QMetaObject::invokeMethod(this, [this, shotCount, destroyed]() {
+            if (*destroyed) return;
             // If DB couldn't be opened (shotCount == -1), don't offer restore —
             // the database may actually have data but be temporarily locked
             if (shotCount != 0) {
@@ -734,7 +744,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
     // Run heavy I/O on background thread
     QThread* thread = QThread::create(
         [this, filename, zipPath, merge, restoreShots, restoreSettings, restoreProfiles, restoreMedia,
-         userProfilesPath, downloadedProfilesPath, personalMediaDir, dbPath, tempLocation]() {
+         userProfilesPath, downloadedProfilesPath, personalMediaDir, dbPath, tempLocation,
+         destroyed = m_destroyed]() {
 
         // Create temp directory for extraction
         QString tempDir = tempLocation + "/decenza_restore_temp";
@@ -749,7 +760,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             // Raw .db backup (old format) — only shots can be restored
             if (!restoreShots) {
                 QDir(tempDir).removeRecursively();
-                QMetaObject::invokeMethod(this, [this, filename]() {
+                QMetaObject::invokeMethod(this, [this, filename, destroyed]() {
+                    if (*destroyed) return;
                     m_restoreInProgress = false;
                     emit restoreCompleted(filename);
                 }, Qt::QueuedConnection);
@@ -761,7 +773,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
 
             if (!extractZip(zipPath, tempDir)) {
                 QDir(tempDir).removeRecursively();
-                QMetaObject::invokeMethod(this, [this]() {
+                QMetaObject::invokeMethod(this, [this, destroyed]() {
+                    if (*destroyed) return;
                     m_restoreInProgress = false;
                     emit restoreFailed("Failed to extract backup file");
                 }, Qt::QueuedConnection);
@@ -832,7 +845,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                         // so returning now prevents data loss from a partial restore
                         if (!merge) {
                             QDir(tempDir).removeRecursively();
-                            QMetaObject::invokeMethod(this, [this, errors]() {
+                            QMetaObject::invokeMethod(this, [this, errors, destroyed]() {
+                                if (*destroyed) return;
                                 m_restoreInProgress = false;
                                 emit restoreFailed(errors.join("; "));
                             }, Qt::QueuedConnection);
@@ -908,6 +922,17 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         // Restore personal media
         bool mediaWasRestored = false;
         if (restoreMedia) {
+            // In replace mode, clear existing media files first
+            if (!merge && !personalMediaDir.isEmpty()) {
+                QDir mediaDir(personalMediaDir);
+                if (mediaDir.exists()) {
+                    const QFileInfoList existingFiles = mediaDir.entryInfoList(QDir::Files);
+                    for (const QFileInfo& fi : existingFiles)
+                        QFile::remove(fi.absoluteFilePath());
+                    mediaWasRestored = true;
+                }
+            }
+
             QString srcMedia = restoreDir + "/media";
             if (QDir(srcMedia).exists() && !personalMediaDir.isEmpty()) {
                 QDir().mkpath(personalMediaDir);
@@ -957,7 +982,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         QDir(tempDir).removeRecursively();
 
         // Deliver result to main thread — settings/AI restore touches QSettings
-        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge]() {
+        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge, destroyed]() {
+            if (*destroyed) return;
             // Refresh storage state if shots were imported (via separate connection)
             if (shotsImported && m_storage) {
                 m_storage->refreshTotalShots();

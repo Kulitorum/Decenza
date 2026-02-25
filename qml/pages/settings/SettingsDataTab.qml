@@ -11,6 +11,25 @@ KeyboardAwareContainer {
     // Track backup operation state
     property bool backupInProgress: false
     property bool restoreInProgress: false
+    property bool searchPerformed: false
+
+    // Cache hasStoragePermission() — method calls can't be used in bindings
+    property bool hasStoragePerm: Qt.platform.os !== "android" ||
+        (MainController.backupManager ? MainController.backupManager.hasStoragePermission() : false)
+    function recheckStoragePermission() {
+        hasStoragePerm = Qt.platform.os !== "android" ||
+            (MainController.backupManager ? MainController.backupManager.hasStoragePermission() : false)
+    }
+    onVisibleChanged: {
+        if (visible) recheckStoragePermission()
+    }
+
+    Connections {
+        target: MainController.dataMigration
+        function onDiscoveryComplete() {
+            dataTab.searchPerformed = true
+        }
+    }
 
     // Hidden helper for clipboard copy
     TextEdit {
@@ -338,7 +357,7 @@ KeyboardAwareContainer {
                     Layout.preferredHeight: Theme.scaled(50)
                     visible: Qt.platform.os === "android" &&
                              MainController.backupManager &&
-                             !MainController.backupManager.hasStoragePermission()
+                             !dataTab.hasStoragePerm
                     color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.1)
                     radius: Theme.scaled(4)
 
@@ -372,13 +391,14 @@ KeyboardAwareContainer {
                     Layout.alignment: Qt.AlignLeft
                     visible: Qt.platform.os === "android" &&
                              MainController.backupManager &&
-                             !MainController.backupManager.hasStoragePermission()
+                             !dataTab.hasStoragePerm
                     text: TranslationManager.translate("settings.data.grantpermission", "Grant Storage Permission")
                     accessibleName: TranslationManager.translate("settings.data.grantpermissionAccessible",
                         "Open settings to grant storage permission")
                     onClicked: {
                         if (MainController.backupManager) {
                             MainController.backupManager.requestStoragePermission();
+                            dataTab.recheckStoragePermission();
                         }
                     }
                 }
@@ -390,9 +410,7 @@ KeyboardAwareContainer {
 
                     AccessibleButton {
                         id: backupNowButton
-                        enabled: (Qt.platform.os !== "android" ||
-                                 (MainController.backupManager && MainController.backupManager.hasStoragePermission())) &&
-                                 !dataTab.backupInProgress
+                        enabled: dataTab.hasStoragePerm && !dataTab.backupInProgress
                         text: dataTab.backupInProgress ?
                               TranslationManager.translate("settings.data.backingup", "Creating Backup...") :
                               TranslationManager.translate("settings.data.backupnow", "Backup Now")
@@ -455,7 +473,8 @@ KeyboardAwareContainer {
                     text: TranslationManager.translate("settings.data.restorebutton", "Restore Backup")
                     enabled: MainController.backupManager &&
                              restoreBackupCombo.displayNames.length > 0 &&
-                             restoreBackupCombo.currentIndex >= 0
+                             restoreBackupCombo.currentIndex >= 0 &&
+                             !dataTab.restoreInProgress && !dataTab.backupInProgress
                     accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
                         "Restore shots, settings, profiles, and media from selected backup")
                     onClicked: {
@@ -645,7 +664,7 @@ KeyboardAwareContainer {
                     Text {
                         visible: !MainController.dataMigration.isSearching &&
                                  MainController.dataMigration.discoveredDevices.length === 0 &&
-                                 MainController.dataMigration.currentOperation === TranslationManager.translate("settings.data.nodevices", "No devices found")
+                                 dataTab.searchPerformed
                         text: TranslationManager.translate("settings.data.nodeviceshint", "Make sure the other device has Remote Access enabled in Shot History settings.")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
@@ -658,8 +677,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
                         visible: !MainController.dataMigration.isSearching &&
-                                 MainController.dataMigration.currentOperation !== "" &&
-                                 MainController.dataMigration.currentOperation !== TranslationManager.translate("settings.data.searchdevices", "Search for Devices")
+                                 dataTab.searchPerformed
 
                         Item { height: Theme.scaled(5) }
 
@@ -688,10 +706,8 @@ KeyboardAwareContainer {
                                 placeholderText: "192.168.1.100:8888"
 
                                 // Auto-focus when visible
-                                Component.onCompleted: {
-                                    if (visible) {
-                                        forceActiveFocus()
-                                    }
+                                onVisibleChanged: {
+                                    if (visible) forceActiveFocus()
                                 }
                             }
 
