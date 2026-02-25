@@ -2328,6 +2328,7 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
         db.setDatabaseName(dbPath);
         if (!db.open()) {
             qWarning() << "ShotHistoryStorage::createBackupStatic: Failed to open DB:" << db.lastError().text();
+            db = QSqlDatabase();  // Release connection before removeDatabase
             QSqlDatabase::removeDatabase(connName);
             return QString();
         }
@@ -2382,6 +2383,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         srcDb.setDatabaseName(srcFilePath);
         if (!srcDb.open()) {
             qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to open source:" << srcDb.lastError().text();
+            srcDb = QSqlDatabase();  // Release connection before removeDatabase
             QSqlDatabase::removeDatabase(srcConnName);
             return false;
         }
@@ -2392,6 +2394,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         if (!destDb.open()) {
             qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to open dest:" << destDb.lastError().text();
             srcDb.close();
+            srcDb = QSqlDatabase();
+            destDb = QSqlDatabase();  // Release connections before removeDatabase
             QSqlDatabase::removeDatabase(srcConnName);
             QSqlDatabase::removeDatabase(destConnName);
             return false;
@@ -2452,7 +2456,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             }
 
             // Import shots
-            int imported = 0, skipped = 0;
+            int imported = 0, skipped = 0, failed = 0;
             QSqlQuery srcShots(srcDb);
             if (!srcShots.exec("SELECT * FROM shots")) {
                 qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to query source:" << srcShots.lastError().text();
@@ -2508,6 +2512,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
+                    failed++;
+                    if (!merge) {
+                        // In replace mode, existing data was deleted — abort to rollback
+                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Aborting replace-mode import due to INSERT failure";
+                        destDb.rollback();
+                        goto cleanup;
+                    }
                     continue;
                 }
 
@@ -2561,10 +2572,14 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 goto cleanup;
             }
 
-            // Backfill beverage_type from profile_json for imported shots from old DBs
+            // Backfill beverage_type from profile_json for imported shots from old DBs.
+            // Wrapped in a transaction to avoid per-UPDATE write lock contention with
+            // the main thread's connection (this runs on a background thread).
             {
+                destDb.transaction();
                 QSqlQuery query(destDb);
-                query.exec("SELECT id, profile_json FROM shots WHERE beverage_type = 'espresso' AND profile_json IS NOT NULL AND profile_json != ''");
+                query.prepare("SELECT id, profile_json FROM shots WHERE beverage_type = 'espresso' AND profile_json IS NOT NULL AND profile_json != ''");
+                query.exec();
                 while (query.next()) {
                     qint64 id = query.value(0).toLongLong();
                     QString profileJson = query.value(1).toString();
@@ -2579,9 +2594,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         update.exec();
                     }
                 }
+                destDb.commit();
             }
 
-            qDebug() << "ShotHistoryStorage::importDatabaseStatic: Import complete -" << imported << "imported," << skipped << "skipped";
+            qDebug() << "ShotHistoryStorage::importDatabaseStatic: Import complete -" << imported << "imported," << skipped << "skipped," << failed << "failed";
             result = true;
         }
 

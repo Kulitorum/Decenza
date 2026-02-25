@@ -1413,7 +1413,7 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(6)
-                    visible: restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreProfiles || restoreConfirmDialog.restoreMedia
+                    visible: restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreSettings || restoreConfirmDialog.restoreProfiles || restoreConfirmDialog.restoreMedia
 
                     Rectangle {
                         Layout.fillWidth: true

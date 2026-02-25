@@ -226,9 +226,16 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
     // which strips the execute bit from directories, making them
     // untraversable and causing subsequent file writes to fail.
     QDir baseDir(destDir);
+    const QString canonicalBase = baseDir.canonicalPath() + "/";
     const auto entries = reader.fileInfoList();
     for (const QZipReader::FileInfo& entry : entries) {
-        QString filePath = baseDir.absoluteFilePath(entry.filePath);
+        QString filePath = QDir::cleanPath(baseDir.absoluteFilePath(entry.filePath));
+
+        // Guard against ZIP Slip path traversal
+        if (!filePath.startsWith(canonicalBase) && filePath != baseDir.canonicalPath()) {
+            qWarning() << "DatabaseBackupManager: Skipping ZIP entry with path traversal:" << entry.filePath;
+            continue;
+        }
 
         if (entry.isDir) {
             if (!baseDir.mkpath(entry.filePath)) {
@@ -274,9 +281,13 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
 
 bool DatabaseBackupManager::createBackup(bool force)
 {
-    // Prevent concurrent backups
+    // Prevent concurrent backups or backup during restore
     if (m_backupInProgress) {
         qWarning() << "DatabaseBackupManager: Backup already in progress";
+        return false;
+    }
+    if (m_restoreInProgress) {
+        qWarning() << "DatabaseBackupManager: Cannot backup while restore is in progress";
         return false;
     }
 
@@ -660,9 +671,13 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                                           bool restoreShots, bool restoreSettings,
                                           bool restoreProfiles, bool restoreMedia)
 {
-    // Prevent concurrent restores
+    // Prevent concurrent restores or restore during backup
     if (m_restoreInProgress) {
         qWarning() << "DatabaseBackupManager: Restore already in progress";
+        return false;
+    }
+    if (m_backupInProgress) {
+        qWarning() << "DatabaseBackupManager: Cannot restore while backup is in progress";
         return false;
     }
 
