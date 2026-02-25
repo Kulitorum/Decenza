@@ -2332,6 +2332,9 @@ QString ShotHistoryStorage::createBackupStatic(const QString& dbPath, const QStr
             return QString();
         }
 
+        // Set busy timeout so checkpoint retries on contention with main-thread connection
+        QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+
         // Checkpoint WAL to ensure all data is in main database file
         QSqlQuery query(db);
         if (query.exec("PRAGMA wal_checkpoint(FULL)")) {
@@ -2394,6 +2397,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             return false;
         }
 
+        // Set busy timeout so INSERTs retry on contention with main-thread connection
+        QSqlQuery(destDb).exec("PRAGMA busy_timeout = 5000");
+
         // Verify source has shots table
         int sourceCount = 0;
         {
@@ -2407,7 +2413,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         }
 
         if (sourceCount == 0) {
-            qWarning() << "ShotHistoryStorage::importDatabaseStatic: Source has no shots";
+            qDebug() << "ShotHistoryStorage::importDatabaseStatic: Source has no shots (empty backup)";
+            result = true;
             goto cleanup;
         }
 
@@ -2876,5 +2883,20 @@ void ShotHistoryStorage::backfillBeverageType()
 
 void ShotHistoryStorage::refreshTotalShots()
 {
-    updateTotalShots();
+    // Invalidate caches immediately (no DB I/O)
+    invalidateDistinctCache();
+
+    // Run COUNT query on background thread to avoid blocking the main thread
+    QString dbPath = m_dbPath;
+    QThread* thread = QThread::create([this, dbPath]() {
+        int count = getShotCountStatic(dbPath);
+        QMetaObject::invokeMethod(this, [this, count]() {
+            if (count != m_totalShots) {
+                m_totalShots = count;
+                emit totalShotsChanged();
+            }
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }

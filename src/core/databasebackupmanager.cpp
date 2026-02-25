@@ -438,7 +438,7 @@ bool DatabaseBackupManager::createBackup(bool force)
                     } else {
                         QFile f(fi.absoluteFilePath());
                         if (f.open(QIODevice::ReadOnly)) {
-                            writer.addFile(entryPath, f.readAll());
+                            writer.addFile(entryPath, &f);
                             f.close();
                         } else {
                             qWarning() << "DatabaseBackupManager: Failed to add to ZIP:" << fi.absoluteFilePath() << f.errorString();
@@ -789,7 +789,8 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                 int restored = 0;
                 for (const QFileInfo& fi : files) {
                     QString destPath = personalMediaDir + "/" + fi.fileName();
-                    if (QFile::exists(destPath)) continue;
+                    if (merge && QFile::exists(destPath)) continue;
+                    if (QFile::exists(destPath)) QFile::remove(destPath);
                     if (QFile::copy(fi.absoluteFilePath(), destPath)) restored++;
                 }
                 if (restored > 0) {
