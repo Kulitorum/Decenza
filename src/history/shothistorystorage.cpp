@@ -358,7 +358,13 @@ bool ShotHistoryStorage::runMigrations()
 
         QSqlQuery readQuery(m_db);
         readQuery.prepare("SELECT id, sample_data FROM shots WHERE sample_data IS NOT NULL");
-        readQuery.exec();
+        if (!readQuery.exec()) {
+            qWarning() << "ShotHistoryStorage: Migration 7 failed to read shots:"
+                       << readQuery.lastError().text();
+            m_db.rollback();
+            m_schemaVersion = currentVersion;
+            return false;
+        }
 
         QSqlQuery updateQuery(m_db);
         updateQuery.prepare("UPDATE shots SET sample_data = ? WHERE id = ?");
@@ -370,9 +376,22 @@ bool ShotHistoryStorage::runMigrations()
             QByteArray blob = readQuery.value(1).toByteArray();
 
             QByteArray json = qUncompress(blob);
-            if (json.isEmpty()) continue;
+            if (json.isEmpty()) {
+                if (!blob.isEmpty())
+                    qWarning() << "ShotHistoryStorage: Migration 7 - shot" << id
+                               << "has non-empty blob (" << blob.size()
+                               << "bytes) that failed to decompress";
+                continue;
+            }
 
-            QJsonDocument doc = QJsonDocument::fromJson(json);
+            QJsonParseError parseError;
+            QJsonDocument doc = QJsonDocument::fromJson(json, &parseError);
+            if (parseError.error != QJsonParseError::NoError) {
+                qWarning() << "ShotHistoryStorage: Migration 7 - shot" << id
+                           << "has invalid JSON at offset" << parseError.offset
+                           << ":" << parseError.errorString();
+                continue;
+            }
             QJsonObject root = doc.object();
 
             if (!root.contains("weightFlowRate")) continue;
@@ -415,11 +434,24 @@ bool ShotHistoryStorage::runMigrations()
         if (migrationFailed) {
             qWarning() << "ShotHistoryStorage: Migration 7 rolling back after" << smoothedCount << "shots";
             m_db.rollback();
-        } else {
-            qDebug() << "ShotHistoryStorage: Smoothed weight flow rate for" << smoothedCount << "shots";
-            query.exec("UPDATE schema_version SET version = 7");
-            currentVersion = 7;
-            m_db.commit();
+            m_schemaVersion = currentVersion;
+            return false;
+        }
+
+        qDebug() << "ShotHistoryStorage: Smoothed weight flow rate for" << smoothedCount << "shots";
+        if (!query.exec("UPDATE schema_version SET version = 7")) {
+            qWarning() << "ShotHistoryStorage: Migration 7 failed to bump schema version:"
+                       << query.lastError().text();
+            m_db.rollback();
+            m_schemaVersion = currentVersion;
+            return false;
+        }
+        currentVersion = 7;
+        if (!m_db.commit()) {
+            qWarning() << "ShotHistoryStorage: Migration 7 commit failed:"
+                       << m_db.lastError().text();
+            m_schemaVersion = currentVersion;
+            return false;
         }
     }
 
