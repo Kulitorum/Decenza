@@ -79,6 +79,8 @@ void ShotTimingController::startShot()
     // Reset weight state
     m_weight = 0;
     m_flowRate = 0;
+    m_smoothedFlowRate = 0.0;
+    m_flowRateInitialized = false;
     m_flowRateShort = 0;
     m_stopAtWeightTriggered = false;
     m_frameWeightSkipSent = -1;
@@ -294,8 +296,18 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
     }
 
     m_weight = weight;
-    m_flowRate = flowRate;
     m_flowRateShort = flowRateShort;
+
+    // Apply EMA smoothing to flow rate for display/recording (alpha=0.3, ~0.6s at 5Hz)
+    // Combined with 1s LSLR window gives ~1.6s effective smoothing
+    constexpr double alpha = 0.3;
+    if (!m_flowRateInitialized) {
+        m_smoothedFlowRate = flowRate;  // Bootstrap first sample
+        m_flowRateInitialized = true;
+    } else {
+        m_smoothedFlowRate = alpha * flowRate + (1.0 - alpha) * m_smoothedFlowRate;
+    }
+    m_flowRate = m_smoothedFlowRate;
 
     emit weightChanged();
 

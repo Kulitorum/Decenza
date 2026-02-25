@@ -381,8 +381,8 @@ void ShotDataModel::smoothWeightFlowRate(int window) {
     if (n < 3) return;
 
     // Centered moving average: each point averages with `window` neighbors on each side.
-    // With window=3 and ~5Hz data, this spans ~1.4s on top of the 1s LSLR recording window,
-    // matching de1app's effective smoothing. X values (timestamps) are preserved.
+    // With window=5 and ~5Hz data, this spans ~2.2s on top of the 1s LSLR recording window
+    // and the real-time EMA smoothing. X values (timestamps) are preserved.
     QVector<QPointF> smoothed;
     smoothed.reserve(n);
     for (int i = 0; i < n; i++) {

@@ -123,6 +123,8 @@ private:
     // Weight state
     double m_weight = 0;
     double m_flowRate = 0;
+    double m_smoothedFlowRate = 0.0;  // EMA-smoothed flow rate for display/recording
+    bool m_flowRateInitialized = false; // First sample bootstraps EMA
     double m_flowRateShort = 0;  // 500ms LSLR for SOW decisions (less stale than 1s)
     double m_targetWeight = 0;
     bool m_stopAtWeightTriggered = false;
