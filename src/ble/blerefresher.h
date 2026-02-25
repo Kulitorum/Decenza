@@ -35,7 +35,7 @@ signals:
     void refreshingChanged();
 
 private:
-    void scheduleRefresh();
+    void scheduleRefresh(bool isWakeTrigger = false);
     void executeRefresh();
     void onRefreshComplete();
 
@@ -51,14 +51,20 @@ private:
     bool m_de1WasConnected = false;
     bool m_scaleWasConnected = false;
     QElapsedTimer m_lastRefresh;
+    QElapsedTimer m_de1ConnectedSince;  // Tracks current connection uptime
+    bool m_de1ConnectedSinceValid = false;  // Whether m_de1ConnectedSince is running
     int m_periodicIntervalMs = 5 * 3600 * 1000;  // 5 hours default
+    int m_scanRetryCount = 0;
 
     // Temporary connections for event-driven sequencing
     QMetaObject::Connection m_phaseConn;
     QMetaObject::Connection m_de1ConnConn;
     QMetaObject::Connection m_scanConn;
+    QMetaObject::Connection m_de1UptimeConn;
 
     static constexpr int MIN_REFRESH_INTERVAL_MS = 60 * 60 * 1000;  // 60 minute debounce
+    static constexpr int WAKE_MIN_UPTIME_MS = 2 * 3600 * 1000;  // 2 hours
+    static constexpr int MAX_SCAN_RETRIES = 2;  // 3 total scans (initial + 2 retries)
 };
 
 #endif // BLEREFRESHER_H
