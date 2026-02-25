@@ -2535,7 +2535,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     insertSample.addBindValue(newId);
                     insertSample.addBindValue(srcSamples.value(0));
                     insertSample.addBindValue(srcSamples.value(1));
-                    insertSample.exec();
+                    if (!insertSample.exec()) {
+                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import sample for shot"
+                                   << uuid << ":" << insertSample.lastError().text();
+                    }
                 }
 
                 // Import phases (try with transition_reason, fall back for older DBs)
@@ -2547,7 +2550,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     srcPhases.prepare("SELECT time_offset, label, frame_number, is_flow_mode FROM shot_phases WHERE shot_id = ?");
                     srcPhases.addBindValue(oldId);
                     hasReason = false;
-                    srcPhases.exec();
+                    if (!srcPhases.exec()) {
+                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to query phases for shot"
+                                   << uuid << ":" << srcPhases.lastError().text();
+                    }
                 } else {
                     hasReason = true;
                 }
@@ -2560,7 +2566,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     insertPhase.addBindValue(srcPhases.value(2));
                     insertPhase.addBindValue(srcPhases.value(3));
                     insertPhase.addBindValue(hasReason ? srcPhases.value(4).toString() : QString());
-                    insertPhase.exec();
+                    if (!insertPhase.exec()) {
+                        qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import phase for shot"
+                                   << uuid << ":" << insertPhase.lastError().text();
+                    }
                 }
 
                 imported++;
@@ -2615,7 +2624,7 @@ int ShotHistoryStorage::getShotCountStatic(const QString& dbPath)
     const QString connName = QString("count_%1")
         .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
-    int count = 0;
+    int count = -1;  // -1 = error (distinguishes from 0 = empty)
     {
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
         db.setDatabaseName(dbPath);
@@ -2624,6 +2633,8 @@ int ShotHistoryStorage::getShotCountStatic(const QString& dbPath)
             if (query.exec("SELECT COUNT(*) FROM shots") && query.next())
                 count = query.value(0).toInt();
             db.close();
+        } else {
+            qWarning() << "ShotHistoryStorage::getShotCountStatic: Failed to open DB:" << db.lastError().text();
         }
     }
     QSqlDatabase::removeDatabase(connName);

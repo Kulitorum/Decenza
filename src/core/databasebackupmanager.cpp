@@ -268,7 +268,14 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
                     reader.close();
                     return false;
                 }
-                outFile.write(data);
+                qint64 written = outFile.write(data);
+                if (written != data.size()) {
+                    qWarning() << "DatabaseBackupManager: Incomplete write for" << filePath
+                               << "- wrote" << written << "of" << data.size() << "bytes:" << outFile.errorString();
+                    outFile.close();
+                    reader.close();
+                    return false;
+                }
             }
             outFile.close();
         }
@@ -562,6 +569,13 @@ bool DatabaseBackupManager::createBackup(bool force)
     m_activeThreads.append(thread);
     connect(thread, &QThread::finished, this, [this, thread]() {
         m_activeThreads.removeOne(thread);
+        // Safety net: if the thread ended without resetting the flag
+        // (e.g., crash or unhandled exception), reset it here
+        if (m_backupInProgress) {
+            qWarning() << "DatabaseBackupManager: Backup thread ended without result signal - resetting state";
+            m_backupInProgress = false;
+            emit backupFailed("Backup failed unexpectedly");
+        }
         thread->deleteLater();
     });
     thread->start();
@@ -587,10 +601,11 @@ void DatabaseBackupManager::checkFirstRunRestore()
     QString dbPath = m_storage->databasePath();
     QThread* thread = QThread::create([this, dbPath]() {
         int shotCount = ShotHistoryStorage::getShotCountStatic(dbPath);
-        bool isEmpty = (shotCount == 0);
 
-        QMetaObject::invokeMethod(this, [this, isEmpty]() {
-            if (!isEmpty) {
+        QMetaObject::invokeMethod(this, [this, shotCount]() {
+            // If DB couldn't be opened (shotCount == -1), don't offer restore —
+            // the database may actually have data but be temporarily locked
+            if (shotCount != 0) {
                 emit firstRunRestoreResult(false);
                 return;
             }
@@ -918,10 +933,21 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             QString settingsPath = restoreDir + "/settings.json";
             if (QFile::exists(settingsPath)) {
                 QFile file(settingsPath);
-                if (file.open(QIODevice::ReadOnly)) {
-                    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+                if (!file.open(QIODevice::ReadOnly)) {
+                    qWarning() << "DatabaseBackupManager: Failed to open settings.json:" << file.errorString();
+                    errors << "Failed to read settings from backup";
+                } else {
+                    QByteArray data = file.readAll();
                     file.close();
-                    if (doc.isObject()) {
+                    QJsonParseError parseError;
+                    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+                    if (doc.isNull()) {
+                        qWarning() << "DatabaseBackupManager: Failed to parse settings.json:" << parseError.errorString();
+                        errors << "Settings file in backup is corrupted";
+                    } else if (!doc.isObject()) {
+                        qWarning() << "DatabaseBackupManager: settings.json is not a JSON object";
+                        errors << "Settings file in backup has invalid format";
+                    } else {
                         settingsJson = doc.object();
                     }
                 }
@@ -951,7 +977,9 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             if (!settingsJson.isEmpty() && m_settings) {
                 QJsonObject json = settingsJson;
                 QStringList excludeKeys = SettingsSerializer::sensitiveKeys();
-                SettingsSerializer::importFromJson(m_settings, json, excludeKeys);
+                if (!SettingsSerializer::importFromJson(m_settings, json, excludeKeys)) {
+                    qWarning() << "DatabaseBackupManager: Settings import returned failure";
+                }
                 qDebug() << "DatabaseBackupManager: Settings restored from backup";
             }
 
@@ -1030,6 +1058,13 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
     m_activeThreads.append(thread);
     connect(thread, &QThread::finished, this, [this, thread]() {
         m_activeThreads.removeOne(thread);
+        // Safety net: if the thread ended without resetting the flag
+        // (e.g., crash or unhandled exception), reset it here
+        if (m_restoreInProgress) {
+            qWarning() << "DatabaseBackupManager: Restore thread ended without result signal - resetting state";
+            m_restoreInProgress = false;
+            emit restoreFailed("Restore failed unexpectedly");
+        }
         thread->deleteLater();
     });
     thread->start();
