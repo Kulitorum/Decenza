@@ -79,7 +79,7 @@ public slots:
     void addWeightSample(double time, double weight);  // Overload without flowRate (from ShotTimingController)
     void markExtractionStart(double time);
     void markStopAt(double time);  // Mark when SAW or user stopped the shot
-    void smoothWeightFlowRate(int window = 3);  // Apply centered moving average to weight flow rate
+    void smoothWeightFlowRate(int window = 5);  // Apply centered moving average to weight flow rate
     void addPhaseMarker(double time, const QString& label, int frameNumber = -1, bool isFlowMode = false, const QString& transitionReason = QString());
 
 signals:
