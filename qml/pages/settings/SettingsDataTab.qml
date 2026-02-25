@@ -263,7 +263,7 @@ KeyboardAwareContainer {
 
                 Tr {
                     key: "settings.data.dailybackup"
-                    fallback: "Daily Shots Database Backup"
+                    fallback: "Daily Backup"
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(13)
                     font.bold: true
@@ -271,7 +271,7 @@ KeyboardAwareContainer {
 
                 Tr {
                     key: "settings.data.dailybackupdesc"
-                    fallback: "Auto-backup shot history daily. Saved to Documents folder, kept for 5 days."
+                    fallback: "Auto-backup shots, settings, profiles, and media daily. Saved to Documents folder, kept for 5 days."
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(10)
                     wrapMode: Text.WordWrap
@@ -397,7 +397,7 @@ KeyboardAwareContainer {
                               TranslationManager.translate("settings.data.backingup", "Creating Backup...") :
                               TranslationManager.translate("settings.data.backupnow", "Backup Now")
                         accessibleName: TranslationManager.translate("settings.data.backupnowAccessible",
-                            "Create a manual backup of shot history database")
+                            "Create a manual backup of shots, settings, profiles, and media")
                         onClicked: {
                             if (MainController.backupManager) {
                                 dataTab.backupInProgress = true;
@@ -452,12 +452,12 @@ KeyboardAwareContainer {
 
                 AccessibleButton {
                     Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.data.restorebutton", "Restore Shots")
+                    text: TranslationManager.translate("settings.data.restorebutton", "Restore Backup")
                     enabled: MainController.backupManager &&
                              restoreBackupCombo.displayNames.length > 0 &&
                              restoreBackupCombo.currentIndex >= 0
                     accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
-                        "Restore shot history from selected backup")
+                        "Restore shots, settings, profiles, and media from selected backup")
                     onClicked: {
                         if (MainController.backupManager && restoreBackupCombo.currentIndex >= 0) {
                             restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupFilenames[restoreBackupCombo.currentIndex];
@@ -1320,7 +1320,7 @@ KeyboardAwareContainer {
 
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: TranslationManager.translate("settings.data.restoring", "Restoring shots...")
+                        text: TranslationManager.translate("settings.data.restoring", "Restoring backup...")
                         color: Theme.textColor
                         font: Theme.titleFont
                         horizontalAlignment: Text.AlignHCenter
@@ -1375,7 +1375,7 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(4)
 
                         Text {
-                            text: TranslationManager.translate("settings.data.mergemode", "Merge with existing shots")
+                            text: TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(13)
@@ -1385,7 +1385,7 @@ KeyboardAwareContainer {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.data.mergemodedesc",
-                                "Adds shots from backup to your current history. Existing shots are preserved.")
+                                "Adds shots from backup to your current history. Existing shots, settings, and profiles are preserved.")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -1398,7 +1398,7 @@ KeyboardAwareContainer {
                     }
 
                     Accessible.role: Accessible.RadioButton
-                    Accessible.name: TranslationManager.translate("settings.data.mergemode", "Merge with existing shots")
+                    Accessible.name: TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
                     Accessible.focusable: true
                     Accessible.onPressAction: restoreConfirmDialog.mergeMode = true
                 }
@@ -1424,7 +1424,7 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(4)
 
                         Text {
-                            text: TranslationManager.translate("settings.data.replacemode", "Replace all shots")
+                            text: TranslationManager.translate("settings.data.replacemode", "Replace all data")
                             color: !restoreConfirmDialog.mergeMode ? Theme.warningColor : Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(13)
@@ -1434,7 +1434,7 @@ KeyboardAwareContainer {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.data.replacemodedesc",
-                                "Deletes ALL current shots and replaces with backup. Cannot be undone!")
+                                "Replaces ALL current shots, settings, and profiles with backup. Cannot be undone!")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -1447,7 +1447,7 @@ KeyboardAwareContainer {
                     }
 
                     Accessible.role: Accessible.RadioButton
-                    Accessible.name: TranslationManager.translate("settings.data.replacemode", "Replace all shots")
+                    Accessible.name: TranslationManager.translate("settings.data.replacemode", "Replace all data")
                     Accessible.focusable: true
                     Accessible.onPressAction: restoreConfirmDialog.mergeMode = false
                 }
@@ -1496,7 +1496,7 @@ KeyboardAwareContainer {
             restoreConfirmDialog.close();
             console.log("Restore completed:", filename);
             backupStatusText.text = TranslationManager.translate("settings.data.restoresuccess",
-                "✓ Shots restored successfully");
+                "✓ Backup restored successfully");
             backupStatusText.color = Theme.successColor;
             backupStatusBackground.visible = true;
             backupStatusTimer.restart();
@@ -1505,7 +1505,7 @@ KeyboardAwareContainer {
             if (MainController.accessibilityManager) {
                 MainController.accessibilityManager.announce(
                     TranslationManager.translate("settings.data.restorecompletedAccessible",
-                        "Shots restored successfully.")
+                        "Backup restored successfully.")
                 );
             }
         }
