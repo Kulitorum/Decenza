@@ -404,6 +404,8 @@ int main(int argc, char *argv[])
                      [](const QString& error) {
         qWarning() << "DatabaseBackupManager: Backup failed:" << error;
     });
+    QObject::connect(&backupManager, &DatabaseBackupManager::profilesRestored,
+                     &mainController, &MainController::refreshProfiles);
     backupManager.start();
 
     checkpoint("Managers wired");

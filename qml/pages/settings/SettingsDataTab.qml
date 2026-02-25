@@ -401,7 +401,7 @@ KeyboardAwareContainer {
                         onClicked: {
                             if (MainController.backupManager) {
                                 dataTab.backupInProgress = true;
-                                backupDeferTimer.start();
+                                MainController.backupManager.createBackup(true);
                             }
                         }
                     }
@@ -1217,17 +1217,6 @@ KeyboardAwareContainer {
             id: backupStatusText
             anchors.centerIn: parent
             font.pixelSize: Theme.scaled(12)
-        }
-    }
-
-    // Let the renderer flush "Creating Backup..." before the synchronous backup blocks the thread
-    Timer {
-        id: backupDeferTimer
-        interval: 100
-        onTriggered: {
-            if (MainController.backupManager) {
-                MainController.backupManager.createBackup(true);
-            }
         }
     }
 

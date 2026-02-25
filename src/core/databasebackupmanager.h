@@ -50,7 +50,7 @@ public:
 
     /// Restore a backup by filename (selectively restoring chosen data types)
     /// @param filename The backup filename (e.g., "shots_backup_20260210.zip")
-    /// @param merge If true, merge shots with existing data; if false, replace all shots
+    /// @param merge If true, merge all data with existing; if false, replace all existing data
     /// @param restoreShots If true, import the shot history database
     /// @param restoreSettings If true, import settings and AI conversations
     /// @param restoreProfiles If true, import user and downloaded profiles
@@ -84,6 +84,9 @@ signals:
 
     /// Emitted with the result of checkFirstRunRestore()
     void firstRunRestoreResult(bool shouldOffer);
+
+    /// Emitted when profiles were restored and the profile list needs refreshing
+    void profilesRestored();
 
     /// Emitted when storage permission is needed (Android only)
     void storagePermissionNeeded();
