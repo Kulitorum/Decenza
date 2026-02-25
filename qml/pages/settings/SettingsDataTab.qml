@@ -1256,7 +1256,19 @@ KeyboardAwareContainer {
 
         property string selectedBackup: ""
         property string displayName: ""
-        property bool mergeMode: true  // Default to merge
+        property bool mergeMode: true
+        property bool restoreShots: true
+        property bool restoreSettings: true
+        property bool restoreProfiles: true
+        property bool restoreMedia: true
+
+        function resetDefaults() {
+            mergeMode = true;
+            restoreShots = true;
+            restoreSettings = true;
+            restoreProfiles = true;
+            restoreMedia = true;
+        }
 
         // Short delay so the scene graph renders the progress state before blocking
         Timer {
@@ -1265,7 +1277,11 @@ KeyboardAwareContainer {
             onTriggered: {
                 MainController.backupManager.restoreBackup(
                     restoreConfirmDialog.selectedBackup,
-                    restoreConfirmDialog.mergeMode
+                    restoreConfirmDialog.mergeMode,
+                    restoreConfirmDialog.restoreShots,
+                    restoreConfirmDialog.restoreSettings,
+                    restoreConfirmDialog.restoreProfiles,
+                    restoreConfirmDialog.restoreMedia
                 );
             }
         }
@@ -1354,102 +1370,113 @@ KeyboardAwareContainer {
                     Accessible.name: TranslationManager.translate("settings.data.backupfile", "Backup file: ") + text
                 }
 
-                // Merge option
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: mergeContent.implicitHeight + Theme.scaled(20)
-                    radius: Theme.scaled(8)
-                    color: restoreConfirmDialog.mergeMode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                    border.color: restoreConfirmDialog.mergeMode ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
-
-                    Behavior on color { ColorAnimation { duration: 150 } }
-                    Behavior on border.color { ColorAnimation { duration: 150 } }
-
-                    ColumnLayout {
-                        id: mergeContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.margins: Theme.scaled(12)
-                        spacing: Theme.scaled(4)
-
-                        Text {
-                            text: TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: restoreConfirmDialog.mergeMode
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.data.mergemodedesc",
-                                "Adds new shots to your history and restores settings. Existing profiles are kept, new ones are added.")
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: restoreConfirmDialog.mergeMode = true
-                    }
-
-                    Accessible.role: Accessible.RadioButton
-                    Accessible.name: TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: restoreConfirmDialog.mergeMode = true
+                // Data type checkboxes
+                Text {
+                    text: TranslationManager.translate("settings.data.selectdata", "Select data to restore:")
+                    color: Theme.textColor
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.scaled(12)
+                    font.bold: true
                 }
 
-                // Replace option
-                Rectangle {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: replaceContent.implicitHeight + Theme.scaled(20)
-                    radius: Theme.scaled(8)
-                    color: !restoreConfirmDialog.mergeMode ? Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15) : "transparent"
-                    border.color: !restoreConfirmDialog.mergeMode ? Theme.warningColor : Theme.borderColor
-                    border.width: 1
+                    spacing: Theme.scaled(4)
 
-                    Behavior on color { ColorAnimation { duration: 150 } }
-                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                    CheckBox {
+                        id: shotsCheckBox
+                        checked: restoreConfirmDialog.restoreShots
+                        text: TranslationManager.translate("settings.data.shots", "Shots")
+                        onToggled: restoreConfirmDialog.restoreShots = checked
+                        Accessible.name: TranslationManager.translate("settings.data.shots", "Shots")
+                        Accessible.checked: checked
+                        Accessible.focusable: true
+                    }
 
-                    ColumnLayout {
-                        id: replaceContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.margins: Theme.scaled(12)
-                        spacing: Theme.scaled(4)
+                    CheckBox {
+                        id: settingsCheckBox
+                        checked: restoreConfirmDialog.restoreSettings
+                        text: TranslationManager.translate("settings.data.settingsai", "Settings & AI Conversations")
+                        onToggled: restoreConfirmDialog.restoreSettings = checked
+                        Accessible.name: TranslationManager.translate("settings.data.settingsai", "Settings & AI Conversations")
+                        Accessible.checked: checked
+                        Accessible.focusable: true
+                    }
 
-                        Text {
-                            text: TranslationManager.translate("settings.data.replacemode", "Replace all data")
-                            color: !restoreConfirmDialog.mergeMode ? Theme.warningColor : Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: !restoreConfirmDialog.mergeMode
-                        }
+                    CheckBox {
+                        id: profilesCheckBox
+                        checked: restoreConfirmDialog.restoreProfiles
+                        text: TranslationManager.translate("settings.data.profiles", "Profiles")
+                        onToggled: restoreConfirmDialog.restoreProfiles = checked
+                        Accessible.name: TranslationManager.translate("settings.data.profiles", "Profiles")
+                        Accessible.checked: checked
+                        Accessible.focusable: true
+                    }
 
-                        Text {
+                    CheckBox {
+                        id: mediaCheckBox
+                        checked: restoreConfirmDialog.restoreMedia
+                        text: TranslationManager.translate("settings.data.media", "Media")
+                        onToggled: restoreConfirmDialog.restoreMedia = checked
+                        Accessible.name: TranslationManager.translate("settings.data.media", "Media")
+                        Accessible.checked: checked
+                        Accessible.focusable: true
+                    }
+                }
+
+                // Merge/Replace switch — only visible when Shots is checked
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+                    visible: restoreConfirmDialog.restoreShots
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: Theme.borderColor
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.data.replacemodedesc",
-                                "Deletes ALL current shots and replaces with backup. Settings and profiles are overwritten. Cannot be undone!")
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
+                            spacing: Theme.scaled(2)
+
+                            Text {
+                                text: restoreConfirmDialog.mergeMode
+                                    ? TranslationManager.translate("settings.data.mergemode", "Merge with existing data")
+                                    : TranslationManager.translate("settings.data.replacemode", "Replace all data")
+                                color: restoreConfirmDialog.mergeMode ? Theme.textColor : Theme.warningColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(12)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: restoreConfirmDialog.mergeMode
+                                    ? TranslationManager.translate("settings.data.mergemodedesc",
+                                        "Adds new shots to your history. Existing shots are kept.")
+                                    : TranslationManager.translate("settings.data.replacemodedesc",
+                                        "Deletes ALL current shots and replaces with backup. Cannot be undone!")
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(10)
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        StyledSwitch {
+                            checked: !restoreConfirmDialog.mergeMode
+                            accessibleName: restoreConfirmDialog.mergeMode
+                                ? TranslationManager.translate("settings.data.switchreplace", "Switch to replace mode")
+                                : TranslationManager.translate("settings.data.switchmerge", "Switch to merge mode")
+                            onToggled: restoreConfirmDialog.mergeMode = !checked
                         }
                     }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: restoreConfirmDialog.mergeMode = false
-                    }
-
-                    Accessible.role: Accessible.RadioButton
-                    Accessible.name: TranslationManager.translate("settings.data.replacemode", "Replace all data")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: restoreConfirmDialog.mergeMode = false
                 }
 
                 RowLayout {
@@ -1463,8 +1490,8 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("common.cancel", "Cancel")
                         accessibleName: TranslationManager.translate("settings.data.cancelrestore", "Cancel restore operation")
                         onClicked: {
-                            restoreConfirmDialog.mergeMode = true
-                            restoreConfirmDialog.close()
+                            restoreConfirmDialog.resetDefaults();
+                            restoreConfirmDialog.close();
                         }
                     }
 
@@ -1472,6 +1499,8 @@ KeyboardAwareContainer {
                         id: confirmButton
                         text: TranslationManager.translate("common.restore", "Restore")
                         primary: true
+                        enabled: restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreSettings ||
+                                 restoreConfirmDialog.restoreProfiles || restoreConfirmDialog.restoreMedia
                         accessibleName: TranslationManager.translate("settings.data.confirmrestore", "Confirm restore backup")
                         onClicked: {
                             if (MainController.backupManager) {
@@ -1492,7 +1521,7 @@ KeyboardAwareContainer {
 
         function onRestoreCompleted(filename) {
             dataTab.restoreInProgress = false;
-            restoreConfirmDialog.mergeMode = true;
+            restoreConfirmDialog.resetDefaults();
             restoreConfirmDialog.close();
             console.log("Restore completed:", filename);
             backupStatusText.text = TranslationManager.translate("settings.data.restoresuccess",
@@ -1512,7 +1541,7 @@ KeyboardAwareContainer {
 
         function onRestoreFailed(error) {
             dataTab.restoreInProgress = false;
-            restoreConfirmDialog.mergeMode = true;
+            restoreConfirmDialog.resetDefaults();
             restoreConfirmDialog.close();
             console.error("Restore failed:", error);
             backupStatusText.text = "✗ " + error;

@@ -10,7 +10,7 @@ class ProfileStorage;
 class ScreensaverVideoManager;
 
 /**
- * @brief Manages automatic daily backups of the shot history database.
+ * @brief Manages automatic daily comprehensive backups (shots, settings, profiles, media).
  *
  * Uses hourly checks to detect when backup time has passed:
  * - Checks every hour (3600000ms)
@@ -48,10 +48,16 @@ public:
     /// Refresh the cached backup list (called on start and after backup creation)
     void refreshBackupList();
 
-    /// Restore a backup by filename
+    /// Restore a backup by filename (selectively restoring chosen data types)
     /// @param filename The backup filename (e.g., "shots_backup_20260210.zip")
-    /// @param merge If true, merge with existing shots; if false, replace all
-    Q_INVOKABLE bool restoreBackup(const QString& filename, bool merge = true);
+    /// @param merge If true, merge shots with existing data; if false, replace all shots
+    /// @param restoreShots If true, import the shot history database
+    /// @param restoreSettings If true, import settings and AI conversations
+    /// @param restoreProfiles If true, import user and downloaded profiles
+    /// @param restoreMedia If true, import screensaver media files
+    Q_INVOKABLE bool restoreBackup(const QString& filename, bool merge = true,
+                                    bool restoreShots = true, bool restoreSettings = true,
+                                    bool restoreProfiles = true, bool restoreMedia = true);
 
     /// Check if we should offer first-run restore (empty database + backups exist)
     Q_INVOKABLE bool shouldOfferFirstRunRestore() const;
