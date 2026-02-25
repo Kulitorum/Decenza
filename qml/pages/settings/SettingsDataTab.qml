@@ -419,7 +419,9 @@ KeyboardAwareContainer {
                         onClicked: {
                             if (MainController.backupManager) {
                                 dataTab.backupInProgress = true;
-                                MainController.backupManager.createBackup(true);
+                                if (!MainController.backupManager.createBackup(true)) {
+                                    dataTab.backupInProgress = false;
+                                }
                             }
                         }
                     }
@@ -1036,11 +1038,11 @@ KeyboardAwareContainer {
     }
 
     // Import complete popup
-    Popup {
+    Dialog {
         id: importCompletePopup
-        modal: true
-        dim: true
+        parent: Overlay.overlay
         anchors.centerIn: parent
+        modal: true
         width: Theme.scaled(300)
         padding: Theme.scaled(20)
 
@@ -1506,7 +1508,7 @@ KeyboardAwareContainer {
                         onClicked: {
                             if (MainController.backupManager) {
                                 dataTab.restoreInProgress = true;
-                                MainController.backupManager.restoreBackup(
+                                var started = MainController.backupManager.restoreBackup(
                                     restoreConfirmDialog.selectedBackup,
                                     restoreConfirmDialog.mergeMode,
                                     restoreConfirmDialog.restoreShots,
@@ -1514,6 +1516,9 @@ KeyboardAwareContainer {
                                     restoreConfirmDialog.restoreProfiles,
                                     restoreConfirmDialog.restoreMedia
                                 );
+                                if (!started) {
+                                    dataTab.restoreInProgress = false;
+                                }
                             }
                         }
                     }
