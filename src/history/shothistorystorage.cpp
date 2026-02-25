@@ -350,7 +350,7 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migration 7: Smooth weight flow rate data in all existing shots
     // The raw LSLR data has staircase artifacts from 0.1g scale quantization.
-    // Apply the same centered moving average (window=3, 7-point) used for new shots.
+    // Apply the same centered moving average (window=5, 11-point) used for new shots.
     if (currentVersion < 7) {
         qDebug() << "ShotHistoryStorage: Running migration to version 7 (smooth weight flow rate)";
 
@@ -364,6 +364,7 @@ bool ShotHistoryStorage::runMigrations()
         updateQuery.prepare("UPDATE shots SET sample_data = ? WHERE id = ?");
 
         int smoothedCount = 0;
+        bool migrationFailed = false;
         while (readQuery.next()) {
             qint64 id = readQuery.value(0).toLongLong();
             QByteArray blob = readQuery.value(1).toByteArray();
@@ -382,11 +383,12 @@ bool ShotHistoryStorage::runMigrations()
             int n = qMin(timeArr.size(), valueArr.size());
             if (n < 3) continue;
 
-            // Centered moving average with window=3 (7-point)
+            // Centered moving average with window=5 (11-point, ~2.2s at 5Hz)
+            constexpr int window = 5;
             QJsonArray smoothedArr;
             for (int i = 0; i < n; i++) {
-                int lo = qMax(0, i - 3);
-                int hi = qMin(n - 1, i + 3);
+                int lo = qMax(0, i - window);
+                int hi = qMin(n - 1, i + window);
                 double sum = 0;
                 for (int j = lo; j <= hi; j++) {
                     sum += valueArr[j].toDouble();
@@ -401,15 +403,24 @@ bool ShotHistoryStorage::runMigrations()
 
             updateQuery.bindValue(0, newBlob);
             updateQuery.bindValue(1, id);
-            updateQuery.exec();
+            if (!updateQuery.exec()) {
+                qWarning() << "ShotHistoryStorage: Migration 7 failed to update shot" << id
+                           << ":" << updateQuery.lastError().text();
+                migrationFailed = true;
+                break;
+            }
             smoothedCount++;
         }
 
-        qDebug() << "ShotHistoryStorage: Smoothed weight flow rate for" << smoothedCount << "shots";
-        query.exec("UPDATE schema_version SET version = 7");
-        currentVersion = 7;
-
-        m_db.commit();
+        if (migrationFailed) {
+            qWarning() << "ShotHistoryStorage: Migration 7 rolling back after" << smoothedCount << "shots";
+            m_db.rollback();
+        } else {
+            qDebug() << "ShotHistoryStorage: Smoothed weight flow rate for" << smoothedCount << "shots";
+            query.exec("UPDATE schema_version SET version = 7");
+            currentVersion = 7;
+            m_db.commit();
+        }
     }
 
     m_schemaVersion = currentVersion;
