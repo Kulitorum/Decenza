@@ -712,7 +712,7 @@ Page {
     }
 
     // Bottom bar — back button always visible (replaces old Cancel/Done buttons;
-    // unsaved changes are guarded by handleBack() dialog prompt)
+    // in non-edit mode, handleBack() prompts to keep or discard unsaved changes)
     BottomBar {
         barColor: "transparent"
 

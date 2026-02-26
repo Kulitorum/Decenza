@@ -21,7 +21,7 @@ Page {
         if (hasUnsavedChanges) {
             saveEditedShot()
         }
-        pageStack.pop()
+        root.goBack()
     }
 
     // Intercept Android system back button / Escape key
@@ -1085,20 +1085,6 @@ Page {
             }
 
             onActivated: function(index) { parent.valueChanged(currentText) }
-        }
-    }
-
-    // Unsaved changes dialog for edit mode
-    UnsavedChangesDialog {
-        id: unsavedChangesDialog
-        itemType: "shot"
-        showSaveAs: false
-        onDiscardClicked: {
-            pageStack.pop()
-        }
-        onSaveClicked: {
-            saveEditedShot()
-            pageStack.pop()
         }
     }
 
