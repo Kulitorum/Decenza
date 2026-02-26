@@ -1579,7 +1579,8 @@ ApplicationWindow {
             // Return to saved page if set, otherwise go to idlePage
             if (root.returnToPageName === "postShotReviewPage") {
                 var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-                pageStack.replace(postShotReviewPage, { editShotId: shotId })
+                pageStack.replace(idlePage)
+                pageStack.push(postShotReviewPage, { editShotId: shotId })
             } else {
                 if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
                     pageStack.replace(idlePage)
@@ -2138,7 +2139,8 @@ ApplicationWindow {
         if ((currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage") &&
             root.returnToPageName === "postShotReviewPage") {
             var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-            pageStack.replace(postShotReviewPage, { editShotId: shotId })
+            pageStack.replace(idlePage)
+            pageStack.push(postShotReviewPage, { editShotId: shotId })
             root.returnToPageName = ""
             root.returnToShotId = 0
             return
@@ -2265,8 +2267,9 @@ ApplicationWindow {
 
     function goToShotMetadata(shotId) {
         if (!startNavigation()) return
-        // Replace EspressoPage so back button returns to home, not the mid-shot graph
-        pageStack.replace(postShotReviewPage, { editShotId: shotId || 0 })
+        // Put idlePage on the stack so back button returns to idle, not the mid-shot graph
+        pageStack.replace(idlePage)
+        pageStack.push(postShotReviewPage, { editShotId: shotId || 0 })
     }
 
     // Helper to announce arbitrary text for accessibility (used for non-page announcements)

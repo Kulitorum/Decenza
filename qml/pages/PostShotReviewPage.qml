@@ -714,12 +714,7 @@ Page {
             if (hasUnsavedChanges) {
                 unsavedChangesDialog.open()
             } else {
-                // If editing from history, pop back to history; otherwise go to idle
-                if (isEditMode) {
-                    pageStack.pop()
-                } else {
-                    goToIdle()
-                }
+                pageStack.pop()
             }
         }
 
@@ -1089,19 +1084,11 @@ Page {
         itemType: "shot"
         showSaveAs: false
         onDiscardClicked: {
-            if (isEditMode) {
-                pageStack.pop()
-            } else {
-                goToIdle()
-            }
+            pageStack.pop()
         }
         onSaveClicked: {
             saveEditedShot()
-            if (isEditMode) {
-                pageStack.pop()
-            } else {
-                goToIdle()
-            }
+            pageStack.pop()
         }
     }
 
