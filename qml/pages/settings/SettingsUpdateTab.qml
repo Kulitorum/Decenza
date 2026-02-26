@@ -334,8 +334,12 @@ Item {
 
                     AccessibleButton {
                         primary: true
-                        text: TranslationManager.translate("settings.update.downloadinstall", "Download & Install")
-                        accessibleName: TranslationManager.translate("settings.update.downloadInstallAccessible", "Download and install the available update")
+                        text: MainController.updateChecker.downloadReady
+                              ? TranslationManager.translate("settings.update.install", "Install")
+                              : TranslationManager.translate("settings.update.downloadinstall", "Download & Install")
+                        accessibleName: MainController.updateChecker.downloadReady
+                              ? TranslationManager.translate("settings.update.installAccessible", "Install the downloaded update")
+                              : TranslationManager.translate("settings.update.downloadInstallAccessible", "Download and install the available update")
                         visible: MainController.updateChecker.updateAvailable && MainController.updateChecker.canDownloadUpdate
                         onClicked: MainController.updateChecker.downloadAndInstall()
                     }

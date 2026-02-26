@@ -5,6 +5,7 @@
 #include <QNetworkReply>
 #include <QTimer>
 #include <QFile>
+#include <QFileInfo>
 
 class Settings;
 
@@ -23,6 +24,7 @@ class UpdateChecker : public QObject {
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(bool canDownloadUpdate READ canDownloadUpdate CONSTANT)
     Q_PROPERTY(bool canCheckForUpdates READ canCheckForUpdates CONSTANT)
+    Q_PROPERTY(bool downloadReady READ isDownloadReady NOTIFY downloadReadyChanged)
     Q_PROPERTY(QString platformName READ platformName CONSTANT)
     Q_PROPERTY(QString releasePageUrl READ releasePageUrl NOTIFY latestVersionChanged)
     Q_PROPERTY(bool latestIsBeta READ latestIsBeta NOTIFY latestIsBetaChanged)
@@ -43,6 +45,7 @@ public:
     QString errorMessage() const { return m_errorMessage; }
     bool canDownloadUpdate() const;
     bool canCheckForUpdates() const;
+    bool isDownloadReady() const { return !m_downloadedApkPath.isEmpty() && QFileInfo::exists(m_downloadedApkPath); }
     QString platformName() const;
     QString releasePageUrl() const;
     bool latestIsBeta() const { return m_latestIsBeta; }
@@ -64,6 +67,7 @@ signals:
     void updatePromptRequested();  // Emitted when auto-check finds update
     void installationStarted();
     void latestIsBetaChanged();
+    void downloadReadyChanged();
 
 private slots:
     void onReleaseInfoReceived();
@@ -96,6 +100,8 @@ private:
     QString m_releaseTag;
     int m_latestBuildNumber = 0;
     bool m_latestIsBeta = false;
+    QString m_downloadedApkPath;
+    qint64 m_expectedDownloadSize = 0;
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;
