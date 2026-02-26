@@ -2265,8 +2265,8 @@ ApplicationWindow {
 
     function goToShotMetadata(shotId) {
         if (!startNavigation()) return
-        // Pass editShotId to edit the just-saved shot (always use edit mode now)
-        pageStack.push(postShotReviewPage, { editShotId: shotId || 0 })
+        // Replace EspressoPage so back button returns to home, not the mid-shot graph
+        pageStack.replace(postShotReviewPage, { editShotId: shotId || 0 })
     }
 
     // Helper to announce arbitrary text for accessibility (used for non-page announcements)
