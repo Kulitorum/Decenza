@@ -53,6 +53,40 @@ static void clearDE1AddressForShutdown() {
         "(Landroid/content/Context;)V",
         context.object());
 }
+
+static void startBleConnectionService() {
+    QJniObject context = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "getContext",
+        "()Landroid/content/Context;");
+
+    if (!context.isValid()) {
+        return;
+    }
+
+    QJniObject::callStaticMethod<void>(
+        "io/github/kulitorum/decenza_de1/BleConnectionService",
+        "start",
+        "(Landroid/content/Context;)V",
+        context.object());
+}
+
+static void stopBleConnectionService() {
+    QJniObject context = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative",
+        "getContext",
+        "()Landroid/content/Context;");
+
+    if (!context.isValid()) {
+        return;
+    }
+
+    QJniObject::callStaticMethod<void>(
+        "io/github/kulitorum/decenza_de1/BleConnectionService",
+        "stop",
+        "(Landroid/content/Context;)V",
+        context.object());
+}
 #endif
 
 DE1Device::DE1Device(QObject* parent)
@@ -290,6 +324,8 @@ void DE1Device::disconnect() {
 #ifdef Q_OS_ANDROID
     // Clear address from shutdown service
     clearDE1AddressForShutdown();
+    // Stop foreground service — no longer connected
+    stopBleConnectionService();
 #endif
 
     m_characteristics.clear();
@@ -307,6 +343,8 @@ void DE1Device::onControllerDisconnected() {
 #ifdef Q_OS_ANDROID
     // Clear address from shutdown service
     clearDE1AddressForShutdown();
+    // Stop foreground service — no longer connected
+    stopBleConnectionService();
 #endif
 
     // Clear pending BLE operations to prevent writes against a dead connection,
@@ -450,6 +488,8 @@ void DE1Device::onServiceStateChanged(QLowEnergyService::ServiceState state) {
         if (m_controller) {
             storeDE1AddressForShutdown(m_controller->remoteAddress().toString());
         }
+        // Start foreground service to prevent Samsung/OEM app killing
+        startBleConnectionService();
 #endif
 
         emit connectingChanged();
