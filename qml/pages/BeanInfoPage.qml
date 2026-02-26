@@ -164,6 +164,35 @@ Page {
         flickable.forceActiveFocus()
     }
 
+    function handleBack() {
+        shotMetadataPage.forceActiveFocus()
+        if (isEditMode) {
+            root.goBack()
+            return
+        }
+        if (Settings.dyeBeanBrand !== _snapBrand
+            || Settings.dyeBeanType !== _snapType
+            || Settings.dyeRoastDate !== _snapRoastDate
+            || Settings.dyeRoastLevel !== _snapRoastLevel
+            || Settings.dyeGrinderModel !== _snapGrinderModel
+            || Settings.dyeGrinderSetting !== _snapGrinderSetting
+            || Settings.dyeBarista !== _snapBarista
+            || Settings.selectedBeanPreset !== _snapSelectedPreset) {
+            unsavedChangesDialog.open()
+        } else {
+            root.goBack()
+        }
+    }
+
+    // Intercept Android system back button / Escape key
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
+    }
+
     // Scroll to focused field when it changes
     onFocusedFieldChanged: {
         if (focusedField) {
@@ -682,30 +711,12 @@ Page {
         }
     }
 
-    // Bottom bar
+    // Bottom bar — back button always visible (replaces old Cancel/Done buttons;
+    // unsaved changes are guarded by handleBack() dialog prompt)
     BottomBar {
         barColor: "transparent"
 
-        onBackClicked: {
-            shotMetadataPage.forceActiveFocus()
-            if (isEditMode) {
-                root.goBack()
-                return
-            }
-            // Non-edit mode: check for unsaved changes
-            if (Settings.dyeBeanBrand !== _snapBrand
-                || Settings.dyeBeanType !== _snapType
-                || Settings.dyeRoastDate !== _snapRoastDate
-                || Settings.dyeRoastLevel !== _snapRoastLevel
-                || Settings.dyeGrinderModel !== _snapGrinderModel
-                || Settings.dyeGrinderSetting !== _snapGrinderSetting
-                || Settings.dyeBarista !== _snapBarista
-                || Settings.selectedBeanPreset !== _snapSelectedPreset) {
-                unsavedChangesDialog.open()
-            } else {
-                root.goBack()
-            }
-        }
+        onBackClicked: handleBack()
 
         // Save button - visible in edit mode only
         Rectangle {
@@ -1158,7 +1169,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("beaninfo.unsaved.discard", "Discard")
-                    accessibleName: TranslationManager.translate("beaninfo.unsaved.discard", "Discard")
+                    accessibleName: TranslationManager.translate("beaninfo.unsaved.discard.accessible", "Discard changes and go back")
                     onClicked: {
                         unsavedChangesDialog.close()
                         // Restore snapshot values
@@ -1192,7 +1203,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("beaninfo.unsaved.keep", "Keep")
-                    accessibleName: TranslationManager.translate("beaninfo.unsaved.keep", "Keep")
+                    accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
                     onClicked: {
                         unsavedChangesDialog.close()
                         // Save current values to the selected preset (if any)
