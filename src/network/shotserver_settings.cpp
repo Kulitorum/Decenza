@@ -757,9 +757,11 @@ QString ShotServer::generateSettingsPage() const
             btn.disabled = false; btn.textContent = 'Save';
         }
 
+        let mqttIsConnected = false;
+
         async function connectMqtt() {
             const btn = document.getElementById('mqttConnectBtn');
-            const wasConnect = btn.textContent === 'Connect';
+            const wasConnect = !mqttIsConnected;
             btn.disabled = true;
             btn.textContent = wasConnect ? 'Connecting...' : 'Disconnecting...';
 
@@ -823,6 +825,7 @@ QString ShotServer::generateSettingsPage() const
         }
 
         function updateMqttStatusUI(connected, statusText) {
+            mqttIsConnected = connected;
             const dot = document.getElementById('mqttDot');
             const text = document.getElementById('mqttStatusText');
             const connectBtn = document.getElementById('mqttConnectBtn');
@@ -933,6 +936,11 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
 
 void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body)
 {
+    if (m_visualizerTestInFlight) {
+        sendJson(socket, R"({"success": false, "message": "A test is already in progress"})");
+        return;
+    }
+
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(body, &err);
     if (err.error != QJsonParseError::NoError) {
@@ -957,10 +965,13 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
     request.setRawHeader("Authorization", "Basic " + credentials.toUtf8().toBase64());
     request.setTransferTimeout(15000);
 
+    m_visualizerTestInFlight = true;
+
     QPointer<QTcpSocket> safeSocket(socket);
     QNetworkReply* reply = m_testNetworkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, safeSocket, reply]() {
         reply->deleteLater();
+        m_visualizerTestInFlight = false;
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 
@@ -1135,6 +1146,11 @@ void ShotServer::handleMqttPublishDiscovery(QTcpSocket* socket)
 {
     if (!m_mqttClient) {
         sendJson(socket, R"({"success": false, "message": "MQTT client not available"})");
+        return;
+    }
+
+    if (!m_mqttClient->isConnected()) {
+        sendJson(socket, R"({"success": false, "message": "Not connected to MQTT broker"})");
         return;
     }
 

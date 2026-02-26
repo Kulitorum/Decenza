@@ -211,6 +211,7 @@ private:
     AIManager* m_aiManager = nullptr;
     MqttClient* m_mqttClient = nullptr;
     QNetworkAccessManager* m_testNetworkManager = nullptr;
+    bool m_visualizerTestInFlight = false;
     bool m_aiTestInFlight = false;
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
