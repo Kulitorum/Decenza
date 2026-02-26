@@ -15,6 +15,7 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #include <QCoreApplication>
+#include <unistd.h>  // fsync
 #endif
 
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
@@ -165,6 +166,14 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     // notified once for each new version (but not repeatedly for the same one)
     if (m_releaseTag != tagName) {
         m_updatePromptShown = false;
+        // Invalidate cached APK from previous version. Don't delete the file —
+        // PackageInstaller may still be reading it via FileProvider. The cache
+        // directory is cleaned up by the OS.
+        if (!m_downloadedApkPath.isEmpty()) {
+            m_downloadedApkPath.clear();
+            m_expectedDownloadSize = 0;
+            emit downloadReadyChanged();
+        }
     }
     m_releaseTag = tagName;
     m_latestVersion = tagName.startsWith("v") ? tagName.mid(1) : tagName;
@@ -274,6 +283,20 @@ void UpdateChecker::downloadAndInstall()
 {
     if (m_downloading || m_downloadUrl.isEmpty()) return;
 
+    // If we already downloaded this version's APK and it's the right size, skip
+    // straight to install. This handles the case where Android's "Install Unknown
+    // Apps" permission flow consumed the first install intent.
+    if (!m_downloadedApkPath.isEmpty() && QFileInfo::exists(m_downloadedApkPath)
+        && m_expectedDownloadSize > 0
+        && QFileInfo(m_downloadedApkPath).size() == m_expectedDownloadSize) {
+        qDebug() << "UpdateChecker: APK already downloaded, installing directly:" << m_downloadedApkPath;
+        emit installationStarted();
+        installApk(m_downloadedApkPath);
+        return;
+    }
+    m_downloadedApkPath.clear();
+    m_expectedDownloadSize = 0;
+
     m_downloading = true;
     m_downloadProgress = 0;
     m_errorMessage.clear();
@@ -338,12 +361,27 @@ void UpdateChecker::onDownloadProgress(qint64 received, qint64 total)
 
 void UpdateChecker::onDownloadFinished()
 {
-    m_downloading = false;
-    emit downloadingChanged();
+    if (!m_currentReply || !m_downloadFile) {
+        m_downloading = false;
+        emit downloadingChanged();
+        return;
+    }
 
-    if (!m_currentReply || !m_downloadFile) return;
+    // Flush any remaining buffered data not delivered via readyRead
+    QByteArray remaining = m_currentReply->readAll();
+    if (!remaining.isEmpty()) {
+        m_downloadFile->write(remaining);
+    }
 
     QString filePath = m_downloadFile->fileName();
+
+    // Flush Qt buffer and force kernel page-cache to storage before installing.
+    // Without fsync, the install intent can launch before the OS has committed
+    // all pages to disk, causing the PackageInstaller to see a truncated APK.
+    m_downloadFile->flush();
+#ifdef Q_OS_ANDROID
+    ::fsync(m_downloadFile->handle());
+#endif
     m_downloadFile->close();
 
     if (m_currentReply->error() != QNetworkReply::NoError) {
@@ -354,6 +392,8 @@ void UpdateChecker::onDownloadFinished()
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();
         m_currentReply = nullptr;
+        m_downloading = false;
+        emit downloadingChanged();
         return;
     }
 
@@ -370,16 +410,30 @@ void UpdateChecker::onDownloadFinished()
         m_downloadFile = nullptr;
         m_currentReply->deleteLater();
         m_currentReply = nullptr;
+        m_downloading = false;
+        emit downloadingChanged();
         return;
     }
 
     qDebug() << "UpdateChecker: Download complete:" << filePath
              << "(" << actualSize << "bytes)";
 
+    // Remember the downloaded APK and its expected size so we can retry install
+    // without re-downloading (e.g. if Android's "Install Unknown Apps" permission
+    // flow interrupts the first install attempt)
+    m_downloadedApkPath = filePath;
+    m_expectedDownloadSize = actualSize;
+
     delete m_downloadFile;
     m_downloadFile = nullptr;
     m_currentReply->deleteLater();
     m_currentReply = nullptr;
+
+    // Emit downloadReady before downloadingChanged so that when the UI unhides
+    // the button row, the button text is already correct ("Install" not "Download & Install")
+    emit downloadReadyChanged();
+    m_downloading = false;
+    emit downloadingChanged();
 
     // Install the APK
     emit installationStarted();
@@ -394,6 +448,13 @@ void UpdateChecker::dismissUpdate()
     // via the QML pendingPopups queue, which bypasses this C++ flag entirely.
     m_updateAvailable = false;
     emit updateAvailableChanged();
+
+    if (!m_downloadedApkPath.isEmpty()) {
+        QFile::remove(m_downloadedApkPath);
+        m_downloadedApkPath.clear();
+        m_expectedDownloadSize = 0;
+        emit downloadReadyChanged();
+    }
 }
 
 void UpdateChecker::onPeriodicCheck()
