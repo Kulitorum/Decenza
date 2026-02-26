@@ -16,6 +16,7 @@
 #include <QJniObject>
 #include <QCoreApplication>
 #include <unistd.h>  // fsync
+#include <cerrno>    // errno, strerror
 #endif
 
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
@@ -296,6 +297,7 @@ void UpdateChecker::downloadAndInstall()
     }
     m_downloadedApkPath.clear();
     m_expectedDownloadSize = 0;
+    emit downloadReadyChanged();
 
     m_downloading = true;
     m_downloadProgress = 0;
@@ -345,7 +347,11 @@ void UpdateChecker::startDownload()
     connect(m_currentReply, &QNetworkReply::downloadProgress, this, &UpdateChecker::onDownloadProgress);
     connect(m_currentReply, &QNetworkReply::readyRead, this, [this]() {
         if (m_downloadFile && m_currentReply) {
-            m_downloadFile->write(m_currentReply->readAll());
+            QByteArray chunk = m_currentReply->readAll();
+            if (m_downloadFile->write(chunk) != chunk.size()) {
+                qWarning() << "UpdateChecker: Write failed during download:" << m_downloadFile->errorString();
+                m_currentReply->abort();
+            }
         }
     });
     connect(m_currentReply, &QNetworkReply::finished, this, &UpdateChecker::onDownloadFinished);
@@ -362,6 +368,10 @@ void UpdateChecker::onDownloadProgress(qint64 received, qint64 total)
 void UpdateChecker::onDownloadFinished()
 {
     if (!m_currentReply || !m_downloadFile) {
+        qWarning() << "UpdateChecker: onDownloadFinished called with null reply or file"
+                    << "reply=" << m_currentReply << "file=" << m_downloadFile;
+        m_errorMessage = "Download failed unexpectedly";
+        emit errorMessageChanged();
         m_downloading = false;
         emit downloadingChanged();
         return;
@@ -370,17 +380,28 @@ void UpdateChecker::onDownloadFinished()
     // Flush any remaining buffered data not delivered via readyRead
     QByteArray remaining = m_currentReply->readAll();
     if (!remaining.isEmpty()) {
-        m_downloadFile->write(remaining);
+        if (m_downloadFile->write(remaining) != remaining.size()) {
+            qWarning() << "UpdateChecker: Final write failed:" << m_downloadFile->errorString();
+        }
     }
 
     QString filePath = m_downloadFile->fileName();
 
-    // Flush Qt buffer and force kernel page-cache to storage before installing.
-    // Without fsync, the install intent can launch before the OS has committed
-    // all pages to disk, causing the PackageInstaller to see a truncated APK.
-    m_downloadFile->flush();
+    // Flush Qt's userspace buffer, then call fsync to commit the kernel
+    // page-cache to persistent storage before launching the install intent.
+    // Without this, PackageInstaller can open a truncated APK.
+    if (!m_downloadFile->flush()) {
+        qWarning() << "UpdateChecker: flush() failed:" << m_downloadFile->errorString();
+    }
 #ifdef Q_OS_ANDROID
-    ::fsync(m_downloadFile->handle());
+    int fd = m_downloadFile->handle();
+    if (fd != -1) {
+        if (::fsync(fd) != 0) {
+            qWarning() << "UpdateChecker: fsync() failed:" << strerror(errno);
+        }
+    } else {
+        qWarning() << "UpdateChecker: file handle invalid, skipping fsync";
+    }
 #endif
     m_downloadFile->close();
 
@@ -449,8 +470,13 @@ void UpdateChecker::dismissUpdate()
     m_updateAvailable = false;
     emit updateAvailableChanged();
 
+    // Delete the cached APK on dismiss. Unlike version-change invalidation
+    // (which leaves the file for PackageInstaller), dismiss is an explicit
+    // user action so the file is no longer needed.
     if (!m_downloadedApkPath.isEmpty()) {
-        QFile::remove(m_downloadedApkPath);
+        if (!QFile::remove(m_downloadedApkPath)) {
+            qWarning() << "UpdateChecker: Failed to remove cached APK:" << m_downloadedApkPath;
+        }
         m_downloadedApkPath.clear();
         m_expectedDownloadSize = 0;
         emit downloadReadyChanged();
