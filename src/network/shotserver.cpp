@@ -112,6 +112,13 @@ private:
     QHash<qintptr, PendingConn> m_pending;
     int m_port;
 
+    // Platform-appropriate socket type from qintptr
+#ifdef Q_OS_WIN
+    static SOCKET toNativeFd(qintptr fd) { return static_cast<SOCKET>(fd); }
+#else
+    static int toNativeFd(qintptr fd) { return static_cast<int>(fd); }
+#endif
+
     void handleFirstByte(qintptr fd) {
         auto it = m_pending.find(fd);
         if (it == m_pending.end()) return;
@@ -120,10 +127,9 @@ private:
         it.value().notifier->setEnabled(false);
 
         unsigned char peek = 0;
-        int n = ::recv(static_cast<int>(fd), reinterpret_cast<char*>(&peek), 1, MSG_PEEK);
+        int n = ::recv(toNativeFd(fd), reinterpret_cast<char*>(&peek), 1, MSG_PEEK);
 
         if (n <= 0) {
-            // Connection closed or error
             cleanupPending(fd);
             closeFd(fd);
             return;
@@ -143,7 +149,7 @@ private:
     void sendHttpRedirect(qintptr fd) {
         // Read whatever HTTP data is available (up to 4 KB is plenty for a request line + headers)
         char buf[4096];
-        int n = ::recv(static_cast<int>(fd), buf, sizeof(buf) - 1, 0);
+        int n = ::recv(toNativeFd(fd), buf, sizeof(buf) - 1, 0);
         if (n <= 0) {
             closeFd(fd);
             return;
@@ -178,6 +184,13 @@ private:
             }
         }
 
+        // Sanitize host and path to prevent header injection via CRLF
+        static QRegularExpression validHost(QStringLiteral("^[a-zA-Z0-9.\\-]+$"));
+        if (!validHost.match(host).hasMatch())
+            host = QStringLiteral("localhost");
+        path.remove(QChar('\r'));
+        path.remove(QChar('\n'));
+
         QString location = QString("https://%1:%2%3").arg(host).arg(m_port).arg(path);
         QByteArray response =
             "HTTP/1.1 301 Moved Permanently\r\n"
@@ -186,7 +199,7 @@ private:
             "Connection: close\r\n"
             "\r\n";
 
-        ::send(static_cast<int>(fd), response.constData(), response.size(), 0);
+        ::send(toNativeFd(fd), response.constData(), response.size(), 0);
         closeFd(fd);
     }
 
@@ -201,9 +214,9 @@ private:
 
     static void closeFd(qintptr fd) {
 #ifdef Q_OS_WIN
-        ::closesocket(static_cast<SOCKET>(fd));
+        ::closesocket(toNativeFd(fd));
 #else
-        ::close(static_cast<int>(fd));
+        ::close(toNativeFd(fd));
 #endif
     }
 };

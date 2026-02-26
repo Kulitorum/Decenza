@@ -283,6 +283,7 @@ void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
     QString userAgent = extractUserAgent(fullRequest);
     QString token = createSession(userAgent);
 
+    // SameSite=Lax (not Strict) so the cookie survives HTTP-to-HTTPS 301 redirects
     int maxAge = SESSION_LIFETIME_DAYS * 24 * 60 * 60;
     QString cookie = QString("decenza_session=%1; Max-Age=%2; Path=/; Secure; HttpOnly; SameSite=Lax")
                          .arg(token).arg(maxAge);

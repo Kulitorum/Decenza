@@ -12,6 +12,7 @@
 #include "mqttclient.h"
 #include "version.h"
 
+#include <QPointer>
 #include <QNetworkInterface>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -582,6 +583,8 @@ QString ShotServer::generateSettingsPage() const
                 startMqttPolling();
             } catch (e) {
                 showSectionStatus('visualizerStatus', 'Failed to load settings', true);
+                showSectionStatus('aiStatus', 'Failed to load settings', true);
+                showSectionStatus('mqttStatusText', 'Failed to load settings', true);
             }
         }
 
@@ -797,19 +800,26 @@ QString ShotServer::generateSettingsPage() const
             const btn = document.getElementById('mqttDiscoveryBtn');
             btn.disabled = true; btn.textContent = 'Publishing...';
             try {
-                await fetch('/api/settings/mqtt/publish-discovery', { method: 'POST' });
-                btn.textContent = 'Published!';
+                const resp = await fetch('/api/settings/mqtt/publish-discovery', { method: 'POST' });
+                const r = await resp.json();
+                btn.textContent = (resp.ok && r.success) ? 'Published!' : 'Failed';
                 setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000);
             } catch (e) { btn.textContent = 'Failed'; }
             btn.disabled = false;
         }
 
+        let mqttPollFailures = 0;
         async function pollMqttStatus() {
             try {
                 const resp = await fetch('/api/settings/mqtt/status');
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 const r = await resp.json();
+                mqttPollFailures = 0;
                 updateMqttStatusUI(r.connected, r.status);
-            } catch (e) { /* ignore poll errors */ }
+            } catch (e) {
+                if (++mqttPollFailures >= 3)
+                    updateMqttStatusUI(false, 'Status unavailable');
+            }
         }
 
         function updateMqttStatusUI(connected, statusText) {
@@ -946,27 +956,28 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
     QString credentials = username + ":" + password;
     request.setRawHeader("Authorization", "Basic " + credentials.toUtf8().toBase64());
 
+    QPointer<QTcpSocket> safeSocket(socket);
     QNetworkReply* reply = m_testNetworkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, socket, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, safeSocket, reply]() {
         reply->deleteLater();
-        if (socket->state() != QAbstractSocket::ConnectedState)
+        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 
         if (reply->error() == QNetworkReply::NoError) {
             QJsonObject result;
             result["success"] = true;
             result["message"] = "Connection successful";
-            sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+            sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
         } else if (reply->error() == QNetworkReply::AuthenticationRequiredError) {
             QJsonObject result;
             result["success"] = false;
             result["message"] = "Invalid username or password";
-            sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+            sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
         } else {
             QJsonObject result;
             result["success"] = false;
             result["message"] = "Connection failed: " + reply->errorString();
-            sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+            sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
         }
     });
 }
@@ -990,18 +1001,36 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
     // Save submitted settings so the AI provider reads from them
     applyAiSettings(m_settings, obj);
 
-    // One-shot connection to testResultChanged
+    // One-shot connection to testResultChanged with timeout
     auto conn = std::make_shared<QMetaObject::Connection>();
-    *conn = connect(m_aiManager, &AIManager::testResultChanged, this, [this, socket, conn]() {
+    auto timer = new QTimer(this);
+    timer->setSingleShot(true);
+    auto fired = std::make_shared<bool>(false);
+    QPointer<QTcpSocket> safeSocket(socket);
+
+    auto cleanup = [this, conn, timer, safeSocket, fired](bool success, const QString& message) {
+        if (*fired) return;
+        *fired = true;
         disconnect(*conn);
-        if (socket->state() != QAbstractSocket::ConnectedState)
+        timer->stop();
+        timer->deleteLater();
+        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 
         QJsonObject result;
-        result["success"] = m_aiManager->lastTestSuccess();
-        result["message"] = m_aiManager->lastTestResult();
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+        result["success"] = success;
+        result["message"] = message;
+        sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    };
+
+    *conn = connect(m_aiManager, &AIManager::testResultChanged, this, [this, cleanup]() {
+        cleanup(m_aiManager->lastTestSuccess(), m_aiManager->lastTestResult());
     });
+
+    connect(timer, &QTimer::timeout, this, [cleanup]() {
+        cleanup(false, "Connection test timed out");
+    });
+    timer->start(15000);
 
     m_aiManager->testConnection();
 }
@@ -1016,25 +1045,32 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
     // Save MQTT settings first
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(body, &err);
-    if (err.error == QJsonParseError::NoError)
-        applyMqttSettings(m_settings, doc.object());
+    if (err.error != QJsonParseError::NoError) {
+        sendJson(socket, R"({"success": false, "message": "Invalid request body"})");
+        return;
+    }
+    applyMqttSettings(m_settings, doc.object());
 
     // One-shot connection to statusChanged with timeout
     auto conn = std::make_shared<QMetaObject::Connection>();
     auto timer = new QTimer(this);
     timer->setSingleShot(true);
+    auto fired = std::make_shared<bool>(false);
+    QPointer<QTcpSocket> safeSocket(socket);
 
-    auto cleanup = [this, conn, timer, socket](bool success, const QString& message) {
+    auto cleanup = [this, conn, timer, safeSocket, fired](bool success, const QString& message) {
+        if (*fired) return;
+        *fired = true;
         disconnect(*conn);
         timer->stop();
         timer->deleteLater();
-        if (socket->state() != QAbstractSocket::ConnectedState)
+        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 
         QJsonObject result;
         result["success"] = success;
         result["message"] = message;
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+        sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     };
 
     *conn = connect(m_mqttClient, &MqttClient::statusChanged, this, [this, cleanup]() {
