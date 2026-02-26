@@ -5,6 +5,7 @@
 #include <QNetworkReply>
 #include <QTimer>
 #include <QFile>
+#include <QFileInfo>
 
 class Settings;
 
@@ -44,7 +45,7 @@ public:
     QString errorMessage() const { return m_errorMessage; }
     bool canDownloadUpdate() const;
     bool canCheckForUpdates() const;
-    bool isDownloadReady() const { return !m_downloadedApkPath.isEmpty(); }
+    bool isDownloadReady() const { return !m_downloadedApkPath.isEmpty() && QFileInfo::exists(m_downloadedApkPath); }
     QString platformName() const;
     QString releasePageUrl() const;
     bool latestIsBeta() const { return m_latestIsBeta; }

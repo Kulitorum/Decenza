@@ -14,6 +14,7 @@
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
+#include <QJniEnvironment>
 #include <QCoreApplication>
 #include <unistd.h>  // fsync
 #include <cerrno>    // errno, strerror
@@ -282,7 +283,13 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 
 void UpdateChecker::downloadAndInstall()
 {
-    if (m_downloading || m_downloadUrl.isEmpty()) return;
+    if (m_downloading) return;
+    if (m_downloadUrl.isEmpty()) {
+        m_errorMessage = "No download available for this platform";
+        qWarning() << "UpdateChecker:" << m_errorMessage;
+        emit errorMessageChanged();
+        return;
+    }
 
     // If we already downloaded this version's APK and it's the right size, skip
     // straight to install. This handles the case where Android's "Install Unknown
@@ -318,13 +325,22 @@ void UpdateChecker::startDownload()
 #else
     savePath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 #endif
-    QDir().mkpath(savePath);
+    if (!QDir().mkpath(savePath)) {
+        m_errorMessage = "Failed to create download directory: " + savePath;
+        qWarning() << "UpdateChecker:" << m_errorMessage;
+        m_downloading = false;
+        emit downloadingChanged();
+        emit errorMessageChanged();
+        return;
+    }
 
     QString filename = QString("Decenza_DE1_%1.apk").arg(m_latestVersion);
     QString fullPath = savePath + "/" + filename;
 
-    // Remove existing file
-    QFile::remove(fullPath);
+    // Remove existing file (may still be held by PackageInstaller)
+    if (QFile::exists(fullPath) && !QFile::remove(fullPath)) {
+        qWarning() << "UpdateChecker: Could not remove existing file:" << fullPath;
+    }
 
     m_downloadFile = new QFile(fullPath);
     if (!m_downloadFile->open(QIODevice::WriteOnly)) {
@@ -350,6 +366,9 @@ void UpdateChecker::startDownload()
             QByteArray chunk = m_currentReply->readAll();
             if (m_downloadFile->write(chunk) != chunk.size()) {
                 qWarning() << "UpdateChecker: Write failed during download:" << m_downloadFile->errorString();
+                // Set the real error before aborting — abort() triggers onDownloadFinished
+                // with OperationCanceledError, which would show a misleading message
+                m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
                 m_currentReply->abort();
             }
         }
@@ -382,6 +401,17 @@ void UpdateChecker::onDownloadFinished()
     if (!remaining.isEmpty()) {
         if (m_downloadFile->write(remaining) != remaining.size()) {
             qWarning() << "UpdateChecker: Final write failed:" << m_downloadFile->errorString();
+            m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
+            emit errorMessageChanged();
+            m_downloadFile->close();
+            QFile::remove(m_downloadFile->fileName());
+            delete m_downloadFile;
+            m_downloadFile = nullptr;
+            m_currentReply->deleteLater();
+            m_currentReply = nullptr;
+            m_downloading = false;
+            emit downloadingChanged();
+            return;
         }
     }
 
@@ -390,23 +420,31 @@ void UpdateChecker::onDownloadFinished()
     // Flush Qt's userspace buffer, then call fsync to commit the kernel
     // page-cache to persistent storage before launching the install intent.
     // Without this, PackageInstaller can open a truncated APK.
-    if (!m_downloadFile->flush()) {
+    bool flushOk = m_downloadFile->flush();
+    if (!flushOk) {
         qWarning() << "UpdateChecker: flush() failed:" << m_downloadFile->errorString();
     }
+    bool syncOk = true;
 #ifdef Q_OS_ANDROID
     int fd = m_downloadFile->handle();
     if (fd != -1) {
         if (::fsync(fd) != 0) {
             qWarning() << "UpdateChecker: fsync() failed:" << strerror(errno);
+            syncOk = false;
         }
     } else {
         qWarning() << "UpdateChecker: file handle invalid, skipping fsync";
+        syncOk = false;
     }
 #endif
     m_downloadFile->close();
 
     if (m_currentReply->error() != QNetworkReply::NoError) {
-        m_errorMessage = "Download failed: " + m_currentReply->errorString();
+        // Preserve specific error set by readyRead write failure (otherwise
+        // abort() produces a generic "Operation canceled" message)
+        if (m_errorMessage.isEmpty()) {
+            m_errorMessage = "Download failed: " + m_currentReply->errorString();
+        }
         emit errorMessageChanged();
         QFile::remove(filePath);
         delete m_downloadFile;
@@ -424,6 +462,24 @@ void UpdateChecker::onDownloadFinished()
     if (expectedSize > 0 && actualSize < expectedSize) {
         m_errorMessage = QString("Download incomplete: got %1 of %2 bytes")
                              .arg(actualSize).arg(expectedSize);
+        qWarning() << "UpdateChecker:" << m_errorMessage;
+        emit errorMessageChanged();
+        QFile::remove(filePath);
+        delete m_downloadFile;
+        m_downloadFile = nullptr;
+        m_currentReply->deleteLater();
+        m_currentReply = nullptr;
+        m_downloading = false;
+        emit downloadingChanged();
+        return;
+    }
+
+    // APKs are always at least 1 MB; a smaller file likely indicates an error
+    // page from a failed redirect or severe truncation
+    const qint64 MIN_APK_SIZE = 1024 * 1024;
+    if (actualSize < MIN_APK_SIZE) {
+        m_errorMessage = QString("Downloaded file too small (%1 bytes) — download may have failed")
+                             .arg(actualSize);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
         QFile::remove(filePath);
@@ -455,6 +511,15 @@ void UpdateChecker::onDownloadFinished()
     emit downloadReadyChanged();
     m_downloading = false;
     emit downloadingChanged();
+
+    // If flush or fsync failed, the file may not be fully committed to storage.
+    // Cache it so the user can retry via the Install button (data may settle
+    // after a brief delay), but don't auto-launch the intent now.
+    if (!flushOk || !syncOk) {
+        m_errorMessage = "Download completed but file sync failed. Please tap Install to retry.";
+        emit errorMessageChanged();
+        return;
+    }
 
     // Install the APK
     emit installationStarted();
@@ -517,6 +582,8 @@ void UpdateChecker::onPeriodicCheck()
                 m_updatePromptShown = true;
                 emit updatePromptRequested();
             }
+        } else {
+            qDebug() << "UpdateChecker: Periodic check failed:" << reply->errorString();
         }
         reply->deleteLater();
     });
@@ -562,9 +629,18 @@ void UpdateChecker::installApk(const QString& apkPath)
         QJniObject::fromString(authority).object<jstring>(),
         file.object());
 
+    // Clear any JNI exception from getUriForFile (e.g. IllegalArgumentException
+    // from FileProvider misconfiguration) before checking validity
+    {
+        QJniEnvironment env;
+        if (env.checkAndClearExceptions()) {
+            qWarning() << "UpdateChecker: FileProvider.getUriForFile threw a JNI exception";
+        }
+    }
+
     if (!uri.isValid()) {
         qWarning() << "Failed to create content URI for APK";
-        m_errorMessage = "Failed to create content URI";
+        m_errorMessage = "Failed to prepare APK for installation";
         emit errorMessageChanged();
         return;
     }
@@ -586,8 +662,20 @@ void UpdateChecker::installApk(const QString& apkPath)
     intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x00000001); // FLAG_GRANT_READ_URI_PERMISSION
     intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x10000000); // FLAG_ACTIVITY_NEW_TASK
 
-    // Start activity
+    // Start activity — can throw ActivityNotFoundException (no handler),
+    // SecurityException (missing REQUEST_INSTALL_PACKAGES), etc.
     activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
+
+    {
+        QJniEnvironment env;
+        if (env.checkAndClearExceptions()) {
+            qWarning() << "UpdateChecker: startActivity threw a JNI exception";
+            m_errorMessage = "Could not launch install dialog. Please enable "
+                             "'Install Unknown Apps' for Decenza in Android Settings, then try again.";
+            emit errorMessageChanged();
+            return;
+        }
+    }
 
     qDebug() << "UpdateChecker: APK install intent launched";
 #else
