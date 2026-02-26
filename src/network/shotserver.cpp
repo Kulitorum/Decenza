@@ -722,8 +722,8 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     QString method = requestLine[0];
     QString path = requestLine[1];
 
-    // Don't log debug polling requests (too noisy)
-    if (!path.startsWith("/api/debug")) {
+    // Don't log polling requests (too noisy)
+    if (!path.startsWith("/api/debug") && path != "/api/settings/mqtt/status" && path != "/api/telemetry") {
         qDebug() << "ShotServer:" << method << path;
     }
 
@@ -891,6 +891,36 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     }
     else if (path == "/settings") {
         sendHtml(socket, generateSettingsPage());
+    }
+    else if (path == "/api/settings/visualizer/test" && method == "POST") {
+        int bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart != -1) {
+            handleVisualizerTest(socket, request.mid(bodyStart + 4));
+        } else {
+            sendJson(socket, R"({"success": false, "message": "Invalid request"})");
+        }
+    }
+    else if (path == "/api/settings/ai/test" && method == "POST") {
+        int bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart != -1) {
+            handleAiTest(socket, request.mid(bodyStart + 4));
+        } else {
+            sendJson(socket, R"({"success": false, "message": "Invalid request"})");
+        }
+    }
+    else if (path == "/api/settings/mqtt/connect" && method == "POST") {
+        int bodyStart = request.indexOf("\r\n\r\n");
+        QByteArray body = (bodyStart != -1) ? request.mid(bodyStart + 4) : QByteArray();
+        handleMqttConnect(socket, body);
+    }
+    else if (path == "/api/settings/mqtt/disconnect" && method == "POST") {
+        handleMqttDisconnect(socket);
+    }
+    else if (path == "/api/settings/mqtt/status") {
+        handleMqttStatus(socket);
+    }
+    else if (path == "/api/settings/mqtt/publish-discovery" && method == "POST") {
+        handleMqttPublishDiscovery(socket);
     }
     else if (path == "/api/settings") {
         if (method == "POST") {

@@ -15,7 +15,7 @@ inline QString generateMenuHtml(bool includeUploadApk = false)
                         <a href="/" class="menu-item">&#127866; Shot History</a>
                         <a href="/debug" class="menu-item">&#128196; Live Debug Log</a>
                         <a href="/remote" class="menu-item">&#128421; Remote Control</a>
-                        <a href="/settings" class="menu-item">&#128273; API Keys &amp; Settings</a>)HTML";
+                        <a href="/settings" class="menu-item">&#128273; Service Connections</a>)HTML";
 
 #ifdef Q_OS_ANDROID
     if (includeUploadApk) {

@@ -15,6 +15,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QDateTime>
+#include <QNetworkAccessManager>
 
 class ShotHistoryStorage;
 class DE1Device;
@@ -23,6 +24,7 @@ class ScreensaverVideoManager;
 class Settings;
 class ProfileStorage;
 class AIManager;
+class MqttClient;
 class WidgetLibrary;
 class LibrarySharing;
 
@@ -76,6 +78,9 @@ public:
 
     // AI manager for layout AI assistant
     void setAIManager(AIManager* aiManager) { m_aiManager = aiManager; }
+
+    // MQTT client for connection test/control from web UI
+    void setMqttClient(MqttClient* client) { m_mqttClient = client; }
 
     // Widget library and community sharing for layout editor
     void setWidgetLibrary(WidgetLibrary* library) { m_widgetLibrary = library; }
@@ -156,6 +161,14 @@ private:
     void handleGetSettings(QTcpSocket* socket);
     void handleSaveSettings(QTcpSocket* socket, const QByteArray& body);
 
+    // Settings test/connect endpoints
+    void handleVisualizerTest(QTcpSocket* socket, const QByteArray& body);
+    void handleAiTest(QTcpSocket* socket, const QByteArray& body);
+    void handleMqttConnect(QTcpSocket* socket, const QByteArray& body);
+    void handleMqttDisconnect(QTcpSocket* socket);
+    void handleMqttStatus(QTcpSocket* socket);
+    void handleMqttPublishDiscovery(QTcpSocket* socket);
+
     // AI Conversations web UI
     QString generateAIConversationsPage() const;
     void handleAIConversationDownload(QTcpSocket* socket, const QString& key, const QString& format);
@@ -196,6 +209,8 @@ private:
     ProfileStorage* m_profileStorage = nullptr;
     MachineState* m_machineState = nullptr;
     AIManager* m_aiManager = nullptr;
+    MqttClient* m_mqttClient = nullptr;
+    QNetworkAccessManager* m_testNetworkManager = nullptr;
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
     QTcpSocket* m_pendingLibrarySocket = nullptr;  // Socket waiting for community response
