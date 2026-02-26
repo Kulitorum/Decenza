@@ -804,7 +804,7 @@ QString ShotServer::generateSettingsPage() const
                 const r = await resp.json();
                 btn.textContent = (resp.ok && r.success) ? 'Published!' : 'Failed';
                 setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000);
-            } catch (e) { btn.textContent = 'Failed'; }
+            } catch (e) { btn.textContent = 'Failed'; setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000); }
             btn.disabled = false;
         }
 
@@ -950,11 +950,12 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
     }
 
     if (!m_testNetworkManager)
-        m_testNetworkManager = new QNetworkAccessManager(const_cast<ShotServer*>(this));
+        m_testNetworkManager = new QNetworkAccessManager(this);
 
     QNetworkRequest request(QUrl("https://visualizer.coffee/api/shots?items=1"));
     QString credentials = username + ":" + password;
     request.setRawHeader("Authorization", "Basic " + credentials.toUtf8().toBase64());
+    request.setTransferTimeout(15000);
 
     QPointer<QTcpSocket> safeSocket(socket);
     QNetworkReply* reply = m_testNetworkManager->get(request);
@@ -989,6 +990,11 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
         return;
     }
 
+    if (m_aiTestInFlight) {
+        sendJson(socket, R"({"success": false, "message": "A test is already in progress"})");
+        return;
+    }
+
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(body, &err);
     if (err.error != QJsonParseError::NoError) {
@@ -1001,6 +1007,8 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
     // Save submitted settings so the AI provider reads from them
     applyAiSettings(m_settings, obj);
 
+    m_aiTestInFlight = true;
+
     // One-shot connection to testResultChanged with timeout
     auto conn = std::make_shared<QMetaObject::Connection>();
     auto timer = new QTimer(this);
@@ -1011,6 +1019,7 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
     auto cleanup = [this, conn, timer, safeSocket, fired](bool success, const QString& message) {
         if (*fired) return;
         *fired = true;
+        m_aiTestInFlight = false;
         disconnect(*conn);
         timer->stop();
         timer->deleteLater();
@@ -1042,6 +1051,11 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         return;
     }
 
+    if (m_mqttConnectInFlight) {
+        sendJson(socket, R"({"success": false, "message": "A connection attempt is already in progress"})");
+        return;
+    }
+
     // Save MQTT settings first
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(body, &err);
@@ -1050,6 +1064,8 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         return;
     }
     applyMqttSettings(m_settings, doc.object());
+
+    m_mqttConnectInFlight = true;
 
     // One-shot connection to statusChanged with timeout
     auto conn = std::make_shared<QMetaObject::Connection>();
@@ -1061,6 +1077,7 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
     auto cleanup = [this, conn, timer, safeSocket, fired](bool success, const QString& message) {
         if (*fired) return;
         *fired = true;
+        m_mqttConnectInFlight = false;
         disconnect(*conn);
         timer->stop();
         timer->deleteLater();
@@ -1076,10 +1093,8 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
     *conn = connect(m_mqttClient, &MqttClient::statusChanged, this, [this, cleanup]() {
         QString status = m_mqttClient->status();
         bool connected = m_mqttClient->isConnected();
-        // Wait for a terminal state
-        if (connected || status.contains("error", Qt::CaseInsensitive) ||
-            status.contains("failed", Qt::CaseInsensitive) ||
-            status.contains("refused", Qt::CaseInsensitive)) {
+        // Terminal state = anything except "Connecting" (covers error, denied, refused, etc.)
+        if (connected || !status.contains("onnecting", Qt::CaseInsensitive)) {
             cleanup(connected, status);
         }
     });

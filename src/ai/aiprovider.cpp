@@ -218,8 +218,13 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
     if (reply->error() != QNetworkReply::NoError) {
         QJsonDocument doc = QJsonDocument::fromJson(responseBody);
         if (doc.isObject() && doc.object().contains("error")) {
-            QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-            emit testResult(false, "API error: " + errorMsg);
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+            } else {
+                emit testResult(false, "Connection failed: " + reply->errorString());
+            }
         } else {
             emit testResult(false, "Connection failed: " + reply->errorString());
         }
@@ -228,9 +233,12 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
 
     QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-        emit testResult(false, "API error: " + errorMsg);
-        return;
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (!errorMsg.isEmpty()) {
+            emit testResult(false, "API error: " + errorMsg);
+            return;
+        }
     }
 
     emit testResult(true, "Connected to OpenAI successfully");
@@ -408,11 +416,15 @@ void AnthropicProvider::onTestReply(QNetworkReply* reply)
     }
 
     if (reply->error() != QNetworkReply::NoError) {
-        // Check if there's a useful error in the response body
         QJsonDocument doc = QJsonDocument::fromJson(responseBody);
         if (doc.isObject() && doc.object().contains("error")) {
-            QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-            emit testResult(false, "API error: " + errorMsg);
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+            } else {
+                emit testResult(false, "Connection failed: " + reply->errorString());
+            }
         } else {
             emit testResult(false, "Connection failed: " + reply->errorString());
         }
@@ -421,9 +433,12 @@ void AnthropicProvider::onTestReply(QNetworkReply* reply)
 
     QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-        emit testResult(false, "API error: " + errorMsg);
-        return;
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (!errorMsg.isEmpty()) {
+            emit testResult(false, "API error: " + errorMsg);
+            return;
+        }
     }
 
     emit testResult(true, "Connected to Anthropic successfully");
@@ -632,8 +647,13 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
     if (reply->error() != QNetworkReply::NoError) {
         QJsonDocument doc = QJsonDocument::fromJson(responseBody);
         if (doc.isObject() && doc.object().contains("error")) {
-            QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-            emit testResult(false, "API error: " + errorMsg);
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+            } else {
+                emit testResult(false, "Connection failed: " + reply->errorString());
+            }
         } else {
             emit testResult(false, "Connection failed: " + reply->errorString());
         }
@@ -642,9 +662,12 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
 
     QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-        emit testResult(false, "API error: " + errorMsg);
-        return;
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (!errorMsg.isEmpty()) {
+            emit testResult(false, "API error: " + errorMsg);
+            return;
+        }
     }
 
     emit testResult(true, "Connected to Gemini successfully");
@@ -810,8 +833,13 @@ void OpenRouterProvider::onTestReply(QNetworkReply* reply)
     if (reply->error() != QNetworkReply::NoError) {
         QJsonDocument doc = QJsonDocument::fromJson(responseBody);
         if (doc.isObject() && doc.object().contains("error")) {
-            QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-            emit testResult(false, "API error: " + errorMsg);
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+            } else {
+                emit testResult(false, "Connection failed: " + reply->errorString());
+            }
         } else {
             emit testResult(false, "Connection failed: " + reply->errorString());
         }
@@ -820,9 +848,12 @@ void OpenRouterProvider::onTestReply(QNetworkReply* reply)
 
     QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
-        emit testResult(false, "API error: " + errorMsg);
-        return;
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (!errorMsg.isEmpty()) {
+            emit testResult(false, "API error: " + errorMsg);
+            return;
+        }
     }
 
     emit testResult(true, "Connected to OpenRouter successfully");

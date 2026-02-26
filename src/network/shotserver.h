@@ -211,6 +211,8 @@ private:
     AIManager* m_aiManager = nullptr;
     MqttClient* m_mqttClient = nullptr;
     QNetworkAccessManager* m_testNetworkManager = nullptr;
+    bool m_aiTestInFlight = false;
+    bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
     QTcpSocket* m_pendingLibrarySocket = nullptr;  // Socket waiting for community response
