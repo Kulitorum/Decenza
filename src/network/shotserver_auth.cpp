@@ -284,7 +284,7 @@ void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
     QString token = createSession(userAgent);
 
     int maxAge = SESSION_LIFETIME_DAYS * 24 * 60 * 60;
-    QString cookie = QString("decenza_session=%1; Max-Age=%2; Path=/; Secure; HttpOnly; SameSite=Strict")
+    QString cookie = QString("decenza_session=%1; Max-Age=%2; Path=/; Secure; HttpOnly; SameSite=Lax")
                          .arg(token).arg(maxAge);
 
     QByteArray responseBody = R"({"success":true})";
