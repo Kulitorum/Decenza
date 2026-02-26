@@ -723,8 +723,8 @@ ApplicationWindow {
     // dialog) intercept Key_Back first and set event.accepted = true.
     Keys.onReleased: function(event) {
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
-            event.accepted = true
             if (pageStack.depth > 1) {
+                event.accepted = true
                 goBack()
             }
         }

@@ -18,7 +18,7 @@ Page {
     property bool keyboardVisible: Qt.inputMethod.visible
     property Item focusedField: null
 
-    // Snapshot of DYE values at page open (for Cancel/undo in non-edit mode)
+    // Snapshot of DYE values at page open (for Discard in unsaved-changes dialog)
     property string _snapBrand
     property string _snapType
     property string _snapRoastDate
@@ -38,7 +38,7 @@ Page {
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
 
-        // Snapshot current DYE values BEFORE auto-match so Cancel restores the true pre-page state
+        // Snapshot current DYE values BEFORE auto-match so Discard restores the true pre-page state
         if (!isEditMode) {
             _snapBrand = Settings.dyeBeanBrand
             _snapType = Settings.dyeBeanType

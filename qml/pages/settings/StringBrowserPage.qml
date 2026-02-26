@@ -21,6 +21,26 @@ Page {
         root.currentPageTitle = isEnglish ? "String Customizer" : "Translation Browser"
     }
 
+    function handleBack() {
+        if (isEditing) {
+            isEditing = false
+            editingIndex = -1
+            stringListView.forceActiveFocus()
+            Qt.inputMethod.hide()
+        } else {
+            pageStack.pop()
+        }
+    }
+
+    // Intercept Android system back button / Escape key
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
+    }
+
     // Grouped string list model
     ListModel {
         id: stringModel
@@ -1110,15 +1130,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: isEnglish ? "String Customizer" : "Translation Browser"
-        onBackClicked: {
-            if (isEditing) {
-                isEditing = false
-                editingIndex = -1
-                stringListView.forceActiveFocus()
-                Qt.inputMethod.hide()
-            } else {
-                pageStack.pop()
-            }
-        }
+        onBackClicked: handleBack()
     }
 }

@@ -20,6 +20,24 @@ Page {
     property bool recipeModified: MainController.profileModified
     property string originalProfileName: MainController.baseProfileName
 
+    function handleBack() {
+        flushPendingEdits()
+        if (recipeModified) {
+            exitDialog.open()
+        } else {
+            root.goBack()
+        }
+    }
+
+    // Intercept Android system back button / Escape key
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
+    }
+
     // Helper: get value with fallback, safe for 0 values (avoids JS falsy coercion)
     function val(v, fallback) {
         return (v !== undefined && v !== null) ? v : fallback
@@ -548,14 +566,7 @@ Page {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
         title: MainController.currentProfileName || TranslationManager.translate("recipeEditor.recipe", "Recipe")
-        onBackClicked: {
-            flushPendingEdits()
-            if (recipeModified) {
-                exitDialog.open()
-            } else {
-                root.goBack()
-            }
-        }
+        onBackClicked: handleBack()
 
         // Modified indicator
         Text {
