@@ -283,7 +283,7 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 
 void UpdateChecker::downloadAndInstall()
 {
-    if (m_downloading) return;
+    if (m_downloading || m_checking) return;
     if (m_downloadUrl.isEmpty()) {
         m_errorMessage = "No download available for this platform";
         qWarning() << "UpdateChecker:" << m_errorMessage;
@@ -298,6 +298,8 @@ void UpdateChecker::downloadAndInstall()
         && m_expectedDownloadSize > 0
         && QFileInfo(m_downloadedApkPath).size() == m_expectedDownloadSize) {
         qDebug() << "UpdateChecker: APK already downloaded, installing directly:" << m_downloadedApkPath;
+        m_errorMessage.clear();
+        emit errorMessageChanged();
         emit installationStarted();
         installApk(m_downloadedApkPath);
         return;
@@ -609,6 +611,13 @@ void UpdateChecker::installApk(const QString& apkPath)
     QJniObject context = activity.callObjectMethod(
         "getApplicationContext",
         "()Landroid/content/Context;");
+
+    if (!context.isValid()) {
+        qWarning() << "UpdateChecker: Failed to get application context";
+        m_errorMessage = "Failed to prepare APK for installation (no app context)";
+        emit errorMessageChanged();
+        return;
+    }
 
     // Create file URI using FileProvider for Android 7+
     QJniObject javaPath = QJniObject::fromString(apkPath);
