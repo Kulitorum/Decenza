@@ -692,16 +692,25 @@ ApplicationWindow {
 
     // Navigation guard to prevent double-taps during page transitions
     property bool navigationInProgress: false
-    Timer {
-        id: navigationGuardTimer
-        interval: 300  // Block navigation for 300ms after a transition starts
-        onTriggered: root.navigationInProgress = false
+    Connections {
+        target: pageStack
+        function onBusyChanged() {
+            if (!pageStack.busy) {
+                navigationInProgress = false
+            }
+        }
     }
 
     function startNavigation() {
         if (navigationInProgress || pageStack.busy) return false
         navigationInProgress = true
-        navigationGuardTimer.restart()
+        // With empty transitions, busy may never become true,
+        // so clear the flag immediately after the current call completes
+        Qt.callLater(function() {
+            if (!pageStack.busy) {
+                navigationInProgress = false
+            }
+        })
         return true
     }
 
