@@ -1129,6 +1129,7 @@ Page {
         width: Theme.scaled(360)
         modal: true
         padding: 0
+        Accessible.name: TranslationManager.translate("beaninfo.unsaved.title", "Unsaved Changes")
 
         background: Rectangle {
             color: Theme.surfaceColor
