@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kulitorum.decenza_de1"
-    android:versionCode="3096"
+    android:versionCode="3097"
     android:versionName="1.5.5">
 
     <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -19,6 +19,9 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <!-- Battery optimization exemption - allows app to request being whitelisted from Doze mode -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Foreground service for BLE keep-alive (prevents Samsung/OEM app killing) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- APK installation permission for remote updates -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -64,6 +67,12 @@
         <service
             android:name="io.github.kulitorum.decenza_de1.DeviceShutdownService"
             android:stopWithTask="false"
+            android:exported="false" />
+
+        <!-- Foreground service for BLE keep-alive -->
+        <service
+            android:name="io.github.kulitorum.decenza_de1.BleConnectionService"
+            android:foregroundServiceType="connectedDevice"
             android:exported="false" />
 
         <!-- FileProvider for APK installation -->
