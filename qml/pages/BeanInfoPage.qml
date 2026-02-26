@@ -18,7 +18,7 @@ Page {
     property bool keyboardVisible: Qt.inputMethod.visible
     property Item focusedField: null
 
-    // Snapshot of DYE values at page open (for Cancel/undo in non-edit mode)
+    // Snapshot of DYE values at page open (for Discard in unsaved-changes dialog)
     property string _snapBrand
     property string _snapType
     property string _snapRoastDate
@@ -38,7 +38,7 @@ Page {
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
 
-        // Snapshot current DYE values BEFORE auto-match so Cancel restores the true pre-page state
+        // Snapshot current DYE values BEFORE auto-match so Discard restores the true pre-page state
         if (!isEditMode) {
             _snapBrand = Settings.dyeBeanBrand
             _snapType = Settings.dyeBeanType
@@ -162,6 +162,35 @@ Page {
         Qt.inputMethod.hide()
         flickable.contentY = 0
         flickable.forceActiveFocus()
+    }
+
+    function handleBack() {
+        shotMetadataPage.forceActiveFocus()
+        if (isEditMode) {
+            root.goBack()
+            return
+        }
+        if (Settings.dyeBeanBrand !== _snapBrand
+            || Settings.dyeBeanType !== _snapType
+            || Settings.dyeRoastDate !== _snapRoastDate
+            || Settings.dyeRoastLevel !== _snapRoastLevel
+            || Settings.dyeGrinderModel !== _snapGrinderModel
+            || Settings.dyeGrinderSetting !== _snapGrinderSetting
+            || Settings.dyeBarista !== _snapBarista
+            || Settings.selectedBeanPreset !== _snapSelectedPreset) {
+            unsavedChangesDialog.open()
+        } else {
+            root.goBack()
+        }
+    }
+
+    // Intercept Android system back button / Escape key
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
     }
 
     // Scroll to focused field when it changes
@@ -682,63 +711,12 @@ Page {
         }
     }
 
-    // Bottom bar
+    // Bottom bar — back button always visible (replaces old Cancel/Done buttons;
+    // in non-edit mode, handleBack() prompts to keep or discard unsaved changes)
     BottomBar {
         barColor: "transparent"
-        showBackButton: isEditMode  // Edit mode keeps back button; non-edit uses Done/Cancel
 
-        onBackClicked: {
-            // Edit mode only — back navigates without saving
-            root.goBack()
-        }
-
-        // Cancel button — visible in non-edit mode
-        AccessibleButton {
-            visible: !isEditMode
-            text: TranslationManager.translate("common.cancel", "Cancel")
-            accessibleName: TranslationManager.translate("beaninfo.button.cancel.accessible", "Cancel changes and go back")
-            onClicked: {
-                shotMetadataPage.forceActiveFocus()
-
-                // Restore snapshot values (discard all edits)
-                Settings.dyeBeanBrand = _snapBrand
-                Settings.dyeBeanType = _snapType
-                Settings.dyeRoastDate = _snapRoastDate
-                Settings.dyeRoastLevel = _snapRoastLevel
-                Settings.dyeGrinderModel = _snapGrinderModel
-                Settings.dyeGrinderSetting = _snapGrinderSetting
-                Settings.dyeBarista = _snapBarista
-                Settings.selectedBeanPreset = _snapSelectedPreset
-                root.goBack()
-            }
-        }
-
-        // Done button — visible in non-edit mode
-        AccessibleButton {
-            visible: !isEditMode
-            primary: true
-            text: TranslationManager.translate("common.done", "Done")
-            accessibleName: TranslationManager.translate("beaninfo.button.done.accessible", "Save changes and go back")
-            onClicked: {
-                shotMetadataPage.forceActiveFocus()
-
-                // Save current values to the selected preset (if any)
-                if (Settings.selectedBeanPreset >= 0) {
-                    var preset = Settings.getBeanPreset(Settings.selectedBeanPreset)
-                    if (preset && preset.name !== undefined) {
-                        Settings.updateBeanPreset(Settings.selectedBeanPreset,
-                            preset.name || "",
-                            Settings.dyeBeanBrand,
-                            Settings.dyeBeanType,
-                            Settings.dyeRoastDate,
-                            Settings.dyeRoastLevel,
-                            Settings.dyeGrinderModel,
-                            Settings.dyeGrinderSetting)
-                    }
-                }
-                root.goBack()
-            }
-        }
+        onBackClicked: handleBack()
 
         // Save button - visible in edit mode only
         Rectangle {
@@ -1138,6 +1116,123 @@ Page {
                                 preset.grinderSetting || "")
                         }
                         editPresetDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // Unsaved changes confirmation dialog
+    Dialog {
+        id: unsavedChangesDialog
+        anchors.centerIn: parent
+        width: Theme.scaled(360)
+        modal: true
+        padding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: "white"
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("beaninfo.unsaved.title", "Unsaved Changes")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                Layout.bottomMargin: 0
+            }
+
+            Text {
+                text: TranslationManager.translate("beaninfo.unsaved.message", "Do you want to keep your changes?")
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                spacing: Theme.scaled(10)
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("beaninfo.unsaved.discard", "Discard")
+                    accessibleName: TranslationManager.translate("beaninfo.unsaved.discard.accessible", "Discard changes and go back")
+                    onClicked: {
+                        unsavedChangesDialog.close()
+                        // Restore snapshot values
+                        Settings.dyeBeanBrand = _snapBrand
+                        Settings.dyeBeanType = _snapType
+                        Settings.dyeRoastDate = _snapRoastDate
+                        Settings.dyeRoastLevel = _snapRoastLevel
+                        Settings.dyeGrinderModel = _snapGrinderModel
+                        Settings.dyeGrinderSetting = _snapGrinderSetting
+                        Settings.dyeBarista = _snapBarista
+                        Settings.selectedBeanPreset = _snapSelectedPreset
+                        root.goBack()
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.primaryColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("beaninfo.unsaved.keep", "Keep")
+                    accessibleName: TranslationManager.translate("beaninfo.unsaved.keep.accessible", "Keep changes and go back")
+                    onClicked: {
+                        unsavedChangesDialog.close()
+                        // Save current values to the selected preset (if any)
+                        if (Settings.selectedBeanPreset >= 0) {
+                            var preset = Settings.getBeanPreset(Settings.selectedBeanPreset)
+                            if (preset && preset.name !== undefined) {
+                                Settings.updateBeanPreset(Settings.selectedBeanPreset,
+                                    preset.name || "",
+                                    Settings.dyeBeanBrand,
+                                    Settings.dyeBeanType,
+                                    Settings.dyeRoastDate,
+                                    Settings.dyeRoastLevel,
+                                    Settings.dyeGrinderModel,
+                                    Settings.dyeGrinderSetting)
+                            }
+                        }
+                        root.goBack()
+                    }
+                    background: Rectangle {
+                        radius: Theme.buttonRadius
+                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: "white"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
                     }
                 }
             }

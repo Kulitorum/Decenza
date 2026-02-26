@@ -17,6 +17,22 @@ Page {
     }
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
 
+    function handleBack() {
+        if (hasUnsavedChanges) {
+            saveEditedShot()
+        }
+        root.goBack()
+    }
+
+    // Intercept Android system back button / Escape key
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
+    }
+
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
@@ -710,13 +726,7 @@ Page {
 
     // Bottom bar (stays visible under keyboard)
     BottomBar {
-        onBackClicked: {
-            if (hasUnsavedChanges) {
-                unsavedChangesDialog.open()
-            } else {
-                pageStack.pop()
-            }
-        }
+        onBackClicked: handleBack()
 
         // Save button - only visible when there are unsaved changes
         Rectangle {
@@ -1075,20 +1085,6 @@ Page {
             }
 
             onActivated: function(index) { parent.valueChanged(currentText) }
-        }
-    }
-
-    // Unsaved changes dialog for edit mode
-    UnsavedChangesDialog {
-        id: unsavedChangesDialog
-        itemType: "shot"
-        showSaveAs: false
-        onDiscardClicked: {
-            pageStack.pop()
-        }
-        onSaveClicked: {
-            saveEditedShot()
-            pageStack.pop()
         }
     }
 

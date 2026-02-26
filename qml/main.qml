@@ -692,17 +692,42 @@ ApplicationWindow {
 
     // Navigation guard to prevent double-taps during page transitions
     property bool navigationInProgress: false
-    Timer {
-        id: navigationGuardTimer
-        interval: 300  // Block navigation for 300ms after a transition starts
-        onTriggered: root.navigationInProgress = false
+    // Clears the guard when animated transitions finish (currently all
+    // transitions are empty Transition{}, so this is a no-op today but
+    // will activate automatically if animations are added later).
+    Connections {
+        target: pageStack
+        function onBusyChanged() {
+            if (!pageStack.busy) {
+                navigationInProgress = false
+            }
+        }
     }
 
     function startNavigation() {
         if (navigationInProgress || pageStack.busy) return false
         navigationInProgress = true
-        navigationGuardTimer.restart()
+        // With empty transitions, busy never becomes true and the
+        // Connections handler above never fires. Use Qt.callLater to
+        // clear the flag after the caller's push/pop/replace completes.
+        Qt.callLater(function() {
+            if (!pageStack.busy) {
+                navigationInProgress = false
+            }
+        })
         return true
+    }
+
+    // Android system back button / Escape key → go back.
+    // Pages that need custom back handling (e.g. BeanInfoPage's unsaved-changes
+    // dialog) intercept Key_Back first and set event.accepted = true.
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            if (pageStack.depth > 1) {
+                event.accepted = true
+                goBack()
+            }
+        }
     }
 
     // Page stack for navigation

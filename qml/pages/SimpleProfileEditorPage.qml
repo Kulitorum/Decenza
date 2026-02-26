@@ -28,6 +28,24 @@ Page {
     property int selectedFrameIndex: -1
     property bool scrollingFromSelection: false
 
+    function handleBack() {
+        flushPendingEdits()
+        if (recipeModified) {
+            exitDialog.open()
+        } else {
+            root.goBack()
+        }
+    }
+
+    // Intercept Android system back button / Escape key
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
+    }
+
     // Translation helper to avoid repeating ternaries
     function tr(key, fallback) {
         var prefix = isFlow ? "flowEditor" : "pressureEditor"
@@ -605,14 +623,7 @@ Page {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
         title: MainController.currentProfileName || (isFlow ? tr("flow", "Flow") : tr("pressure", "Pressure"))
-        onBackClicked: {
-            flushPendingEdits()
-            if (recipeModified) {
-                exitDialog.open()
-            } else {
-                root.goBack()
-            }
-        }
+        onBackClicked: handleBack()
 
         Text {
             text: "\u2022 Modified"

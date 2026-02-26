@@ -15,6 +15,24 @@ Page {
     property string originalProfileName: ""
     property int stepVersion: 0  // Increment to force step editor refresh
 
+    function handleBack() {
+        flushPendingEdits()
+        if (profileModified) {
+            exitDialog.open()
+        } else {
+            root.goBack()
+        }
+    }
+
+    // Intercept Android system back button / Escape key
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
+    }
+
     // For accessibility: track previously announced frame to only speak differences
     property var lastAnnouncedFrame: null
 
@@ -702,14 +720,7 @@ Page {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
         title: profile ? profile.title : TranslationManager.translate("profileEditor.profile", "Profile")
-        onBackClicked: {
-            flushPendingEdits()
-            if (profileModified) {
-                exitDialog.open()
-            } else {
-                root.goBack()
-            }
-        }
+        onBackClicked: handleBack()
 
         // Modified indicator
         Tr {
