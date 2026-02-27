@@ -1,6 +1,7 @@
 #include "settingsserializer.h"
 #include "settings.h"
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QDebug>
 
 QStringList SettingsSerializer::sensitiveKeys()
@@ -326,6 +327,13 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     machineTuning["heaterWarmupTimeout"] = settings->heaterWarmupTimeout();
     machineTuning["hotWaterFlowRate"] = settings->hotWaterFlowRate();
     machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
+    machineTuning["autoFlowCalibration"] = settings->autoFlowCalibration();
+    // Per-profile flow calibration: export the raw JSON string
+    QJsonObject perProfileMap = QJsonDocument::fromJson(
+        settings->value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    if (!perProfileMap.isEmpty()) {
+        machineTuning["perProfileFlowCalibration"] = perProfileMap;
+    }
     root["machineTuning"] = machineTuning;
 
     // BLE health refresh
@@ -719,6 +727,13 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (mt.contains("heaterWarmupTimeout")) settings->setHeaterWarmupTimeout(mt["heaterWarmupTimeout"].toInt());
         if (mt.contains("hotWaterFlowRate")) settings->setHotWaterFlowRate(mt["hotWaterFlowRate"].toInt());
         if (mt.contains("flowCalibrationMultiplier")) settings->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
+        if (mt.contains("autoFlowCalibration")) settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
+        if (mt.contains("perProfileFlowCalibration")) {
+            QJsonObject perProfile = mt["perProfileFlowCalibration"].toObject();
+            for (auto it = perProfile.begin(); it != perProfile.end(); ++it) {
+                settings->setProfileFlowCalibration(it.key(), it.value().toDouble());
+            }
+        }
     }
 
     // BLE health refresh

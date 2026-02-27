@@ -776,7 +776,29 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.translate("settings.preferences.currentMultiplier", "Current:") + " " + Settings.flowCalibrationMultiplier.toFixed(2)
+                                text: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration (beta)")
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: Settings.autoFlowCalibration
+                                accessibleName: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration (beta)")
+                                onToggled: Settings.autoFlowCalibration = checked
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                // Reference perProfileFlowCalVersion to re-evaluate when per-profile map changes
+                                property int _calVersion: Settings.perProfileFlowCalVersion
+                                property double effectiveCal: Settings.effectiveFlowCalibration(MainController.baseProfileName)
+                                property bool isPerProfile: Settings.autoFlowCalibration && effectiveCal !== Settings.flowCalibrationMultiplier
+                                text: TranslationManager.translate("settings.preferences.currentMultiplier", "Current:") + " " + effectiveCal.toFixed(2) + (Settings.autoFlowCalibration ? (isPerProfile ? " (auto)" : " (global)") : "")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                             }
@@ -784,9 +806,18 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             AccessibleButton {
+                                property int _calVersion: Settings.perProfileFlowCalVersion
+                                visible: Settings.autoFlowCalibration && Settings.effectiveFlowCalibration(MainController.baseProfileName) !== Settings.flowCalibrationMultiplier
+                                accessibleName: TranslationManager.translate("settings.preferences.resetAutoCal", "Reset auto calibration for current profile")
+                                text: TranslationManager.translate("settings.preferences.reset", "Reset")
+                                onClicked: Settings.clearProfileFlowCalibration(MainController.baseProfileName)
+                            }
+
+                            AccessibleButton {
                                 accessibleName: TranslationManager.translate("settings.preferences.openFlowCalibration", "Open Flow Calibration")
                                 text: TranslationManager.translate("settings.preferences.calibrate", "Calibrate")
                                 primary: true
+                                enabled: !Settings.autoFlowCalibration
                                 onClicked: pageStack.push(Qt.resolvedUrl("../FlowCalibrationPage.qml"))
                             }
                         }

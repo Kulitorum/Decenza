@@ -2850,6 +2850,56 @@ void Settings::setFlowCalibrationMultiplier(double multiplier) {
     }
 }
 
+// Auto flow calibration
+
+bool Settings::autoFlowCalibration() const {
+    return m_settings.value("calibration/autoFlowCalibration", false).toBool();
+}
+
+void Settings::setAutoFlowCalibration(bool enabled) {
+    if (autoFlowCalibration() != enabled) {
+        m_settings.setValue("calibration/autoFlowCalibration", enabled);
+        emit autoFlowCalibrationChanged();
+    }
+}
+
+double Settings::profileFlowCalibration(const QString& profileFilename) const {
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    if (map.contains(profileFilename)) {
+        return map[profileFilename].toDouble();
+    }
+    return 0.0;
+}
+
+void Settings::setProfileFlowCalibration(const QString& profileFilename, double multiplier) {
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    map[profileFilename] = multiplier;
+    m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileFlowCalVersion++;
+    emit perProfileFlowCalibrationChanged();
+}
+
+void Settings::clearProfileFlowCalibration(const QString& profileFilename) {
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    map.remove(profileFilename);
+    m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileFlowCalVersion++;
+    emit perProfileFlowCalibrationChanged();
+}
+
+double Settings::effectiveFlowCalibration(const QString& profileFilename) const {
+    if (autoFlowCalibration()) {
+        double perProfile = profileFlowCalibration(profileFilename);
+        if (perProfile > 0.0) {
+            return perProfile;
+        }
+    }
+    return flowCalibrationMultiplier();
+}
+
 // SAW (Stop-at-Weight) learning
 
 // Returns average lag for display in QML settings (calculated from stored drip/flow)

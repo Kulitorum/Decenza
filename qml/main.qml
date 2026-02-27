@@ -2588,6 +2588,51 @@ ApplicationWindow {
         }
     }
 
+    // ============ AUTO FLOW CALIBRATION TOAST ============
+    property string flowCalToastText: ""
+
+    Rectangle {
+        id: flowCalToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: flowCalToastLabel.implicitWidth + Theme.scaled(32)
+        height: flowCalToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: flowCalToastLabel
+            anchors.centerIn: parent
+            text: flowCalToastText
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+        }
+    }
+
+    Timer {
+        id: flowCalToastTimer
+        interval: 4000
+        onTriggered: flowCalToast.opacity = 0
+    }
+
+    Connections {
+        target: MainController
+
+        function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
+            flowCalToastText = "Flow cal updated for " + profileTitle + ": " + oldValue.toFixed(2) + " → " + newValue.toFixed(2)
+            flowCalToast.opacity = 1
+            flowCalToastTimer.restart()
+        }
+    }
+
     // ============ ACCESSIBILITY: Machine State Announcements ============
     // Translatable accessibility announcements for machine state
     Tr { id: trAnnounceDisconnected; key: "main.accessibility.machineDisconnected"; fallback: "Machine disconnected"; visible: false }

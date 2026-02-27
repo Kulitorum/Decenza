@@ -268,6 +268,9 @@ signals:
     // Remote sleep: emitted when sleep is triggered via MQTT or REST API
     void remoteSleepRequested();
 
+    // Auto flow calibration: emitted when per-profile multiplier is updated
+    void flowCalibrationAutoUpdated(const QString& profileTitle, double oldValue, double newValue);
+
 private slots:
     void onShotSampleReceived(const ShotSample& sample);
 
@@ -283,6 +286,7 @@ private:
     void applyRefillKitOverride();
     void applyHeaterTweaks();
     void applyFlowCalibration();
+    void computeAutoFlowCalibration();
     double getGroupTemperature() const;
     void sendMachineSettings();
 
