@@ -2872,7 +2872,9 @@ double Settings::profileFlowCalibration(const QString& profileFilename) const {
 }
 
 void Settings::setProfileFlowCalibration(const QString& profileFilename, double multiplier) {
-    // Sanity bounds matching computeAutoFlowCalibration()
+    if (profileFilename.isEmpty()) return;
+    // Sanity bounds — same range [0.5, 1.8] as computeAutoFlowCalibration(),
+    // but we reject (don't clamp) to prevent stale/corrupt values from persisting
     if (multiplier < 0.5 || multiplier > 1.8) {
         qWarning() << "Settings: rejecting per-profile flow calibration"
                    << multiplier << "for" << profileFilename << "(outside [0.5, 1.8])";
@@ -2880,21 +2882,14 @@ void Settings::setProfileFlowCalibration(const QString& profileFilename, double 
     }
     QJsonObject map = allProfileFlowCalibrations();
     map[profileFilename] = multiplier;
-    m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
-    m_perProfileFlowCalCache = map;
-    m_perProfileFlowCalCacheValid = true;
-    m_perProfileFlowCalVersion++;
-    emit perProfileFlowCalibrationChanged();
+    savePerProfileFlowCalMap(map);
 }
 
 void Settings::clearProfileFlowCalibration(const QString& profileFilename) {
+    if (profileFilename.isEmpty()) return;
     QJsonObject map = allProfileFlowCalibrations();
     map.remove(profileFilename);
-    m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
-    m_perProfileFlowCalCache = map;
-    m_perProfileFlowCalCacheValid = true;
-    m_perProfileFlowCalVersion++;
-    emit perProfileFlowCalibrationChanged();
+    savePerProfileFlowCalMap(map);
 }
 
 double Settings::effectiveFlowCalibration(const QString& profileFilename) const {
@@ -2922,12 +2917,24 @@ QJsonObject Settings::allProfileFlowCalibrations() const {
         m_settings.value("calibration/perProfileFlow", "{}").toByteArray(),
         &parseError).object();
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "Settings: corrupt perProfileFlow JSON:" << parseError.errorString();
-        return QJsonObject();
+        qWarning() << "Settings: corrupt perProfileFlow JSON:" << parseError.errorString()
+                   << "- per-profile flow calibrations lost";
+        map = QJsonObject();
     }
+    // Cache the result (even if empty from corruption) to prevent repeated re-parsing.
+    // Write-through: setProfileFlowCalibration/clearProfileFlowCalibration update both
+    // QSettings and cache simultaneously, so no explicit invalidation is needed.
     m_perProfileFlowCalCache = map;
     m_perProfileFlowCalCacheValid = true;
     return m_perProfileFlowCalCache;
+}
+
+void Settings::savePerProfileFlowCalMap(const QJsonObject& map) {
+    m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileFlowCalCache = map;
+    m_perProfileFlowCalCacheValid = true;
+    m_perProfileFlowCalVersion++;
+    emit perProfileFlowCalibrationChanged();
 }
 
 // SAW (Stop-at-Weight) learning

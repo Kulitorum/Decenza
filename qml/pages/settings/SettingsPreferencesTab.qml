@@ -792,13 +792,24 @@ KeyboardAwareContainer {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            property int _calVersion: Settings.perProfileFlowCalVersion
+                            property double effectiveCal: {
+                                void(_calVersion);
+                                return Settings.effectiveFlowCalibration(MainController.baseProfileName);
+                            }
+                            property bool isPerProfile: {
+                                void(_calVersion);
+                                return Settings.hasProfileFlowCalibration(MainController.baseProfileName);
+                            }
 
                             Text {
-                                // Reference perProfileFlowCalVersion to re-evaluate when per-profile map changes
-                                property int _calVersion: Settings.perProfileFlowCalVersion
-                                property double effectiveCal: Settings.effectiveFlowCalibration(MainController.baseProfileName)
-                                property bool isPerProfile: Settings.hasProfileFlowCalibration(MainController.baseProfileName)
-                                text: TranslationManager.translate("settings.preferences.currentMultiplier", "Current:") + " " + effectiveCal.toFixed(2) + (Settings.autoFlowCalibration ? (isPerProfile ? " (auto)" : " (global)") : "")
+                                property string calSuffix: {
+                                    if (!Settings.autoFlowCalibration) return "";
+                                    if (parent.isPerProfile)
+                                        return " " + TranslationManager.translate("settings.preferences.calAuto", "(auto)");
+                                    return " " + TranslationManager.translate("settings.preferences.calGlobal", "(global)");
+                                }
+                                text: TranslationManager.translate("settings.preferences.currentMultiplier", "Current:") + " " + parent.effectiveCal.toFixed(2) + calSuffix
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                             }
@@ -806,8 +817,7 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             AccessibleButton {
-                                property int _calVersion: Settings.perProfileFlowCalVersion
-                                visible: Settings.hasProfileFlowCalibration(MainController.baseProfileName)
+                                visible: parent.isPerProfile
                                 accessibleName: TranslationManager.translate("settings.preferences.resetAutoCal", "Reset auto calibration for current profile")
                                 text: TranslationManager.translate("settings.preferences.reset", "Reset")
                                 onClicked: Settings.clearProfileFlowCalibration(MainController.baseProfileName)

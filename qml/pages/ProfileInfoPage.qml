@@ -195,11 +195,19 @@ Page {
                             color: Theme.textSecondaryColor
                         }
                         Text {
-                            // Reference perProfileFlowCalVersion to re-evaluate when per-profile map changes
                             property int _calVersion: Settings.perProfileFlowCalVersion
-                            property double effectiveCal: profileFilename ? Settings.effectiveFlowCalibration(profileFilename) : Settings.flowCalibrationMultiplier
-                            property bool isAuto: profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false
-                            text: effectiveCal.toFixed(2) + (isAuto ? " (auto)" : " (global)")
+                            property double effectiveCal: {
+                                void(_calVersion);
+                                return profileFilename ? Settings.effectiveFlowCalibration(profileFilename) : Settings.flowCalibrationMultiplier;
+                            }
+                            property bool isAuto: {
+                                void(_calVersion);
+                                return profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false;
+                            }
+                            property string calLabel: isAuto
+                                ? TranslationManager.translate("profileinfo.flowCalAuto", "(auto)")
+                                : TranslationManager.translate("profileinfo.flowCalGlobal", "(global)")
+                            text: effectiveCal.toFixed(2) + " " + calLabel
                             font: Theme.bodyFont
                             color: Theme.textColor
                         }

@@ -727,8 +727,21 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (mt.contains("autoFlowCalibration")) settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
         if (mt.contains("perProfileFlowCalibration")) {
             QJsonObject perProfile = mt["perProfileFlowCalibration"].toObject();
+            int imported = 0, rejected = 0;
             for (auto it = perProfile.begin(); it != perProfile.end(); ++it) {
-                settings->setProfileFlowCalibration(it.key(), it.value().toDouble());
+                double val = it.value().toDouble();
+                if (val >= 0.5 && val <= 1.8) {
+                    settings->setProfileFlowCalibration(it.key(), val);
+                    imported++;
+                } else {
+                    qWarning() << "Settings import: flow calibration out of bounds for"
+                               << it.key() << ":" << val;
+                    rejected++;
+                }
+            }
+            if (rejected > 0) {
+                qWarning() << "Settings import: per-profile flow calibration -"
+                           << imported << "imported," << rejected << "rejected (out of bounds)";
             }
         }
     }

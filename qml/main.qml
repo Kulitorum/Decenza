@@ -2586,6 +2586,16 @@ ApplicationWindow {
                 goToScreensaver()
             }
         }
+
+        function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
+            flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
+                "Flow cal updated for %1: %2 → %3").arg(profileTitle).arg(oldValue.toFixed(2)).arg(newValue.toFixed(2))
+            flowCalToast.opacity = 1
+            flowCalToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(flowCalToastText)
+            }
+        }
     }
 
     // ============ AUTO FLOW CALIBRATION TOAST ============
@@ -2621,20 +2631,6 @@ ApplicationWindow {
         id: flowCalToastTimer
         interval: 4000
         onTriggered: flowCalToast.opacity = 0
-    }
-
-    Connections {
-        target: MainController
-
-        function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
-            flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
-                "Flow cal updated for %1: %2 → %3").arg(profileTitle).arg(oldValue.toFixed(2)).arg(newValue.toFixed(2))
-            flowCalToast.opacity = 1
-            flowCalToastTimer.restart()
-            if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(flowCalToastText)
-            }
-        }
     }
 
     // ============ ACCESSIBILITY: Machine State Announcements ============

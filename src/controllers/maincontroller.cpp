@@ -20,6 +20,7 @@
 #include "../ble/blemanager.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/flowscale.h"
+#include <cmath>
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
@@ -2199,6 +2200,17 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
+    // Require a physical BLE scale (not FlowScale). FlowScale derives weight from
+    // the DE1's own flow sensor, so comparing machine flow against FlowScale weight
+    // would be circular and produce meaningless calibration values.
+    bool hasPhysicalScale = m_bleManager && m_bleManager->scaleDevice()
+                            && m_bleManager->scaleDevice()->isConnected()
+                            && m_bleManager->scaleDevice()->type() != "flow";
+    if (!hasPhysicalScale) {
+        qDebug() << "Auto flow cal: skipped (no physical BLE scale connected)";
+        return;
+    }
+
     const auto& weightFlowData = m_shotDataModel->weightFlowRateData();
     if (weightFlowData.isEmpty()) {
         qDebug() << "Auto flow cal: skipped (no scale weight data)";
@@ -2213,21 +2225,20 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
-    // Helper lambda: save current window as best if it's the longest so far
-    auto saveBestWindow = [&](double& bestStart, double& bestEnd, double& bestSumMF,
-                              double& bestSumWF, int& bestCount,
-                              double winStart, double winLastT, double winSumMF,
-                              double winSumWF, int winCount) {
-        if (winStart >= 0 && (winLastT - winStart) > (bestEnd - bestStart)) {
-            bestStart = winStart;
-            bestEnd = winLastT;
-            bestSumMF = winSumMF;
-            bestSumWF = winSumWF;
-            bestCount = winCount;
-        }
-    };
+    // Algorithm thresholds
+    constexpr double kMaxPressureChangeRate = 0.5;   // bar/sec - max dP/dt for "stable" pressure
+    constexpr double kMinPressure = 1.5;             // bar - rejects empty-portafilter shots
+    constexpr double kMinWeightFlow = 0.5;           // g/s - excludes dripping/dead time
+    constexpr double kMinMachineFlow = 0.1;          // ml/s - excludes stalled flow
+    constexpr double kMaxScaleDataGap = 1.0;         // seconds - max distance to nearest weight flow point
+    constexpr double kMinWindowDuration = 5.0;       // seconds
+    constexpr int    kMinWindowSamples = 5;
+    constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
+    constexpr double kCalibrationMin = 0.5;          // sanity lower bound
+    constexpr double kCalibrationMax = 1.8;          // sanity upper bound
+    constexpr double kChangeThreshold = 0.02;        // 2% relative change required to update
 
-    // Find the best steady-pour window: stable pressure above minimum + meaningful weight flow
+    // Find the best steady-pour window: stable pressure above minimum + meaningful weight flow.
     // We track the best (longest) qualifying window found across the entire shot.
     double bestStart = -1, bestEnd = -1;
     double bestSumMF = 0, bestSumWF = 0;
@@ -2238,8 +2249,24 @@ void MainController::computeAutoFlowCalibration() {
     int winCount = 0;
     double winLastT = -1;
 
-    // Cursor for weight flow nearest-point search (both arrays are time-sorted)
+    // Finish the current window: save as best if longest, then reset for next window
+    auto finishWindow = [&]() {
+        if (winStart >= 0 && (winLastT - winStart) > (bestEnd - bestStart)) {
+            bestStart = winStart;
+            bestEnd = winLastT;
+            bestSumMF = winSumMF;
+            bestSumWF = winSumWF;
+            bestCount = winCount;
+        }
+        winStart = -1;
+        winCount = 0;
+        winSumMF = 0;
+        winSumWF = 0;
+    };
+
+    // Cursors for nearest-point/interpolation search (both arrays are time-sorted)
     int wfCursor = 0;
+    int mfCursor = 1;
 
     for (int i = 1; i < pressureData.size(); ++i) {
         double dt = pressureData[i].x() - pressureData[i - 1].x();
@@ -2248,28 +2275,21 @@ void MainController::computeAutoFlowCalibration() {
         double pressure = pressureData[i].y();
         double t = pressureData[i].x();
 
-        // Require stable pressure (<= 0.5 bar/sec change) AND minimum 1.5 bar.
+        // Require stable pressure AND minimum pressure.
         // The minimum pressure rejects empty-portafilter / no-coffee shots where
         // water flows freely through the basket with near-zero back-pressure.
-        bool qualifies = (dpdt <= 0.5 && pressure >= 1.5);
-
-        if (!qualifies) {
-            saveBestWindow(bestStart, bestEnd, bestSumMF, bestSumWF, bestCount,
-                           winStart, winLastT, winSumMF, winSumWF, winCount);
-            winStart = -1;
-            winCount = 0;
-            winSumMF = 0;
-            winSumWF = 0;
+        if (dpdt > kMaxPressureChangeRate || pressure < kMinPressure) {
+            finishWindow();
             continue;
         }
 
         // Find weight flow at this time (nearest point, using cursor since t increases monotonically)
         double wf = 0;
-        double bestDist = 1e9;
+        double nearestDist = 1e9;
         for (int k = wfCursor; k < weightFlowData.size(); ++k) {
             double dist = qAbs(weightFlowData[k].x() - t);
-            if (dist < bestDist) {
-                bestDist = dist;
+            if (dist < nearestDist) {
+                nearestDist = dist;
                 wf = weightFlowData[k].y();
                 wfCursor = k;
             } else {
@@ -2277,20 +2297,14 @@ void MainController::computeAutoFlowCalibration() {
             }
         }
 
-        // Reject if nearest weight flow point is more than 1 second away (scale data gap)
-        if (bestDist > 1.0 || wf < 0.5) {
-            saveBestWindow(bestStart, bestEnd, bestSumMF, bestSumWF, bestCount,
-                           winStart, winLastT, winSumMF, winSumWF, winCount);
-            winStart = -1;
-            winCount = 0;
-            winSumMF = 0;
-            winSumWF = 0;
+        if (nearestDist > kMaxScaleDataGap || wf < kMinWeightFlow) {
+            finishWindow();
             continue;
         }
 
-        // Find machine flow at this time (linear interpolation)
+        // Find machine flow at this time (linear interpolation, using cursor)
         double mf = 0;
-        for (int j = 1; j < flowData.size(); ++j) {
+        for (int j = mfCursor; j < flowData.size(); ++j) {
             if (flowData[j].x() >= t) {
                 double t0 = flowData[j - 1].x();
                 double t1 = flowData[j].x();
@@ -2301,17 +2315,13 @@ void MainController::computeAutoFlowCalibration() {
                 } else {
                     mf = flowData[j].y();
                 }
+                mfCursor = j;
                 break;
             }
         }
 
-        if (mf < 0.1) {
-            saveBestWindow(bestStart, bestEnd, bestSumMF, bestSumWF, bestCount,
-                           winStart, winLastT, winSumMF, winSumWF, winCount);
-            winStart = -1;
-            winCount = 0;
-            winSumMF = 0;
-            winSumWF = 0;
+        if (mf < kMinMachineFlow) {
+            finishWindow();
             continue;
         }
 
@@ -2326,11 +2336,10 @@ void MainController::computeAutoFlowCalibration() {
     }
 
     // Check the final window
-    saveBestWindow(bestStart, bestEnd, bestSumMF, bestSumWF, bestCount,
-                   winStart, winLastT, winSumMF, winSumWF, winCount);
+    finishWindow();
 
     double windowDuration = bestEnd - bestStart;
-    if (windowDuration < 5.0 || bestCount < 5) {
+    if (windowDuration < kMinWindowDuration || bestCount < kMinWindowSamples) {
         qDebug() << "Auto flow cal: no qualifying steady window found"
                  << "(duration:" << windowDuration << "samples:" << bestCount << ")";
         return;
@@ -2339,22 +2348,32 @@ void MainController::computeAutoFlowCalibration() {
     double meanMachineFlow = bestSumMF / bestCount;
     double meanWeightFlow = bestSumWF / bestCount;
 
-    if (meanWeightFlow < 0.1) {
+    // Defensive: should be impossible given per-sample kMinWeightFlow threshold
+    if (meanWeightFlow < kMinMachineFlow) {
         qWarning() << "Auto flow cal: meanWeightFlow unexpectedly low ("
                    << meanWeightFlow << ") after qualifying window";
         return;
     }
 
-    // Compute calibration with density correction (water at ~93°C ≈ 0.963 g/ml)
-    double computed = (meanMachineFlow / meanWeightFlow) * 0.963;
+    // Density correction: machine measures volume (ml/s), scale measures mass (g/s).
+    // At ~93°C, water density is ~0.963 g/ml, so 1 ml/s reads as ~0.963 g/s on the scale.
+    // Multiplying the raw ratio by 0.963 compensates for this.
+    double computed = (meanMachineFlow / meanWeightFlow) * kWaterDensity93C;
 
-    // Sanity bounds
-    computed = qBound(0.5, computed, 1.8);
+    if (!std::isfinite(computed)) {
+        qWarning() << "Auto flow cal: computed non-finite value" << computed
+                   << "(meanMachineFlow:" << meanMachineFlow
+                   << "meanWeightFlow:" << meanWeightFlow << ")";
+        return;
+    }
+
+    computed = qBound(kCalibrationMin, computed, kCalibrationMax);
 
     double currentEffective = m_settings->effectiveFlowCalibration(m_baseProfileName);
 
-    // Only update if relative change > 2% (safe: currentEffective >= 0.5 due to clamping)
-    if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < 0.02) {
+    // Only update if relative change > 2% (per-profile values are clamped to [0.5, 1.8];
+    // global fallback can be as low as 0.35)
+    if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
         qDebug() << "Auto flow cal: computed" << computed << "≈ current" << currentEffective << "(< 2% change, skipping)";
         return;
     }
