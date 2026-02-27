@@ -723,9 +723,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (mt.contains("heaterTestFlow")) settings->setHeaterTestFlow(mt["heaterTestFlow"].toInt());
         if (mt.contains("heaterWarmupTimeout")) settings->setHeaterWarmupTimeout(mt["heaterWarmupTimeout"].toInt());
         if (mt.contains("hotWaterFlowRate")) settings->setHotWaterFlowRate(mt["hotWaterFlowRate"].toInt());
-        if (mt.contains("flowCalibrationMultiplier")) settings->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
-        if (mt.contains("autoFlowCalibration")) settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
-        if (mt.contains("perProfileFlowCalibration")) {
+        // Flow calibration is machine-specific — skip during cross-device migration
+        // but restore from same-machine backups (caller passes excludeKeys to control this)
+        if (mt.contains("flowCalibrationMultiplier") && !excludeKeys.contains("flowCalibration")) {
+            settings->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
+        }
+        if (mt.contains("autoFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
+            settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
+        }
+        if (mt.contains("perProfileFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
             QJsonObject perProfile = mt["perProfileFlowCalibration"].toObject();
             int imported = 0, rejected = 0;
             for (auto it = perProfile.begin(); it != perProfile.end(); ++it) {

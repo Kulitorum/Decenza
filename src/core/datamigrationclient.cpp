@@ -528,7 +528,8 @@ void DataMigrationClient::onSettingsReply()
 
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (doc.isObject() && m_settings) {
-            SettingsSerializer::importFromJson(m_settings, doc.object());
+            // Exclude machine-specific flow calibration — each DE1's flow sensor differs
+            SettingsSerializer::importFromJson(m_settings, doc.object(), {"flowCalibration"});
             m_settingsImported = 1;
             qDebug() << "DataMigrationClient: Settings imported successfully";
         }
