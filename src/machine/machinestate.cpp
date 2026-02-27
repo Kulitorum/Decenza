@@ -422,16 +422,18 @@ void MachineState::onScaleWeightChanged(double weight) {
     // Reset tracking when not idle (so we detect removal after next shot)
     m_lastIdleWeight = 0.0;
 
-    // Throttled weight logging during active phases (~every 2s)
-    qint64 now2 = QDateTime::currentMSecsSinceEpoch();
-    if (now2 - m_lastWeightLogMs >= 2000) {
-        qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
-                 << "phase=" << static_cast<int>(m_phase)
-                 << "tare=" << m_tareCompleted;
-        m_lastWeightLogMs = now2;
-    }
-
     DE1::State state = m_device->state();
+
+    // Throttled weight logging during SAW-relevant phases (~every 2s)
+    if (state == DE1::State::Espresso || state == DE1::State::HotWater) {
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastWeightLogMs >= 2000) {
+            qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
+                     << "phase=" << phaseString()
+                     << "tare=" << m_tareCompleted;
+            m_lastWeightLogMs = now;
+        }
+    }
     // Hot water: MachineState handles stop-at-weight (ShotTimingController not active)
     // Espresso: ShotTimingController handles stop-at-weight (with proper 1.5s lag compensation)
     if (state == DE1::State::HotWater) {

@@ -3291,7 +3291,10 @@ QString ShotServer::generateDebugPage() const
 
         function downloadLog() {
             fetch("/api/debug/file")
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error " + r.status);
+                    return r.json();
+                })
                 .then(function(data) {
                     var blob = new Blob([data.log || ""], {type: "text/plain"});
                     var a = document.createElement("a");
@@ -3299,7 +3302,8 @@ QString ShotServer::generateDebugPage() const
                     a.download = "debug.log";
                     a.click();
                     URL.revokeObjectURL(a.href);
-                });
+                })
+                .catch(function(e) { alert("Download failed: " + e.message); });
         }
 
         function loadPersistedLog() {
