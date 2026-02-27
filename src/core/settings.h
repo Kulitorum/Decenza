@@ -673,6 +673,8 @@ public:
     void setProfileFlowCalibration(const QString& profileFilename, double multiplier);
     Q_INVOKABLE void clearProfileFlowCalibration(const QString& profileFilename);
     Q_INVOKABLE double effectiveFlowCalibration(const QString& profileFilename) const;
+    Q_INVOKABLE bool hasProfileFlowCalibration(const QString& profileFilename) const;
+    QJsonObject allProfileFlowCalibrations() const;
     int perProfileFlowCalVersion() const { return m_perProfileFlowCalVersion; }
 
     // SAW (Stop-at-Weight) learning
@@ -873,6 +875,8 @@ private:
     void ensureDyeCacheLoaded() const;
 
     int m_perProfileFlowCalVersion = 0;  // Bumped on per-profile calibration changes to trigger QML rebind
+    mutable QJsonObject m_perProfileFlowCalCache;  // Cached per-profile flow calibration map
+    mutable bool m_perProfileFlowCalCacheValid = false;
     bool m_steamDisabled = false;  // Session-only, not persisted (for descaling)
     double m_temperatureOverride = 0;  // Session-only, for next shot
     bool m_hasTemperatureOverride = false;  // Session-only

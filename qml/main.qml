@@ -2627,9 +2627,13 @@ ApplicationWindow {
         target: MainController
 
         function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
-            flowCalToastText = "Flow cal updated for " + profileTitle + ": " + oldValue.toFixed(2) + " → " + newValue.toFixed(2)
+            flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
+                "Flow cal updated for %1: %2 → %3").arg(profileTitle).arg(oldValue.toFixed(2)).arg(newValue.toFixed(2))
             flowCalToast.opacity = 1
             flowCalToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(flowCalToastText)
+            }
         }
     }
 

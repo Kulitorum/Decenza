@@ -2864,8 +2864,7 @@ void Settings::setAutoFlowCalibration(bool enabled) {
 }
 
 double Settings::profileFlowCalibration(const QString& profileFilename) const {
-    QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    QJsonObject map = allProfileFlowCalibrations();
     if (map.contains(profileFilename)) {
         return map[profileFilename].toDouble();
     }
@@ -2873,19 +2872,27 @@ double Settings::profileFlowCalibration(const QString& profileFilename) const {
 }
 
 void Settings::setProfileFlowCalibration(const QString& profileFilename, double multiplier) {
-    QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    // Sanity bounds matching computeAutoFlowCalibration()
+    if (multiplier < 0.5 || multiplier > 1.8) {
+        qWarning() << "Settings: rejecting per-profile flow calibration"
+                   << multiplier << "for" << profileFilename << "(outside [0.5, 1.8])";
+        return;
+    }
+    QJsonObject map = allProfileFlowCalibrations();
     map[profileFilename] = multiplier;
     m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileFlowCalCache = map;
+    m_perProfileFlowCalCacheValid = true;
     m_perProfileFlowCalVersion++;
     emit perProfileFlowCalibrationChanged();
 }
 
 void Settings::clearProfileFlowCalibration(const QString& profileFilename) {
-    QJsonObject map = QJsonDocument::fromJson(
-        m_settings.value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    QJsonObject map = allProfileFlowCalibrations();
     map.remove(profileFilename);
     m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileFlowCalCache = map;
+    m_perProfileFlowCalCacheValid = true;
     m_perProfileFlowCalVersion++;
     emit perProfileFlowCalibrationChanged();
 }
@@ -2898,6 +2905,29 @@ double Settings::effectiveFlowCalibration(const QString& profileFilename) const 
         }
     }
     return flowCalibrationMultiplier();
+}
+
+bool Settings::hasProfileFlowCalibration(const QString& profileFilename) const {
+    if (!autoFlowCalibration()) return false;
+    QJsonObject map = allProfileFlowCalibrations();
+    return map.contains(profileFilename);
+}
+
+QJsonObject Settings::allProfileFlowCalibrations() const {
+    if (m_perProfileFlowCalCacheValid)
+        return m_perProfileFlowCalCache;
+
+    QJsonParseError parseError;
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/perProfileFlow", "{}").toByteArray(),
+        &parseError).object();
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "Settings: corrupt perProfileFlow JSON:" << parseError.errorString();
+        return QJsonObject();
+    }
+    m_perProfileFlowCalCache = map;
+    m_perProfileFlowCalCacheValid = true;
+    return m_perProfileFlowCalCache;
 }
 
 // SAW (Stop-at-Weight) learning

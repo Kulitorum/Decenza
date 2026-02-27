@@ -797,7 +797,7 @@ KeyboardAwareContainer {
                                 // Reference perProfileFlowCalVersion to re-evaluate when per-profile map changes
                                 property int _calVersion: Settings.perProfileFlowCalVersion
                                 property double effectiveCal: Settings.effectiveFlowCalibration(MainController.baseProfileName)
-                                property bool isPerProfile: Settings.autoFlowCalibration && effectiveCal !== Settings.flowCalibrationMultiplier
+                                property bool isPerProfile: Settings.hasProfileFlowCalibration(MainController.baseProfileName)
                                 text: TranslationManager.translate("settings.preferences.currentMultiplier", "Current:") + " " + effectiveCal.toFixed(2) + (Settings.autoFlowCalibration ? (isPerProfile ? " (auto)" : " (global)") : "")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
@@ -807,7 +807,7 @@ KeyboardAwareContainer {
 
                             AccessibleButton {
                                 property int _calVersion: Settings.perProfileFlowCalVersion
-                                visible: Settings.autoFlowCalibration && Settings.effectiveFlowCalibration(MainController.baseProfileName) !== Settings.flowCalibrationMultiplier
+                                visible: Settings.hasProfileFlowCalibration(MainController.baseProfileName)
                                 accessibleName: TranslationManager.translate("settings.preferences.resetAutoCal", "Reset auto calibration for current profile")
                                 text: TranslationManager.translate("settings.preferences.reset", "Reset")
                                 onClicked: Settings.clearProfileFlowCalibration(MainController.baseProfileName)

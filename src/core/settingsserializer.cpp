@@ -1,7 +1,6 @@
 #include "settingsserializer.h"
 #include "settings.h"
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QDebug>
 
 QStringList SettingsSerializer::sensitiveKeys()
@@ -328,9 +327,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     machineTuning["hotWaterFlowRate"] = settings->hotWaterFlowRate();
     machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
     machineTuning["autoFlowCalibration"] = settings->autoFlowCalibration();
-    // Per-profile flow calibration: export the raw JSON string
-    QJsonObject perProfileMap = QJsonDocument::fromJson(
-        settings->value("calibration/perProfileFlow", "{}").toByteArray()).object();
+    QJsonObject perProfileMap = settings->allProfileFlowCalibrations();
     if (!perProfileMap.isEmpty()) {
         machineTuning["perProfileFlowCalibration"] = perProfileMap;
     }

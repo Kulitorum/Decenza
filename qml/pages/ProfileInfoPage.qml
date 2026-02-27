@@ -198,7 +198,7 @@ Page {
                             // Reference perProfileFlowCalVersion to re-evaluate when per-profile map changes
                             property int _calVersion: Settings.perProfileFlowCalVersion
                             property double effectiveCal: profileFilename ? Settings.effectiveFlowCalibration(profileFilename) : Settings.flowCalibrationMultiplier
-                            property bool isAuto: Settings.autoFlowCalibration && effectiveCal !== Settings.flowCalibrationMultiplier
+                            property bool isAuto: profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false
                             text: effectiveCal.toFixed(2) + (isAuto ? " (auto)" : " (global)")
                             font: Theme.bodyFont
                             color: Theme.textColor

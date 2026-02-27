@@ -12,7 +12,8 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
 
 1. **Shot completes** with a Bluetooth scale connected
 2. **Steady-state detection**: The algorithm scans the shot data for a window where:
-   - Pressure is stable (change < 0.5 bar/sec)
+   - Pressure is stable (change <= 0.5 bar/sec)
+   - Pressure is above 1.5 bar (rejects empty-portafilter shots)
    - Weight flow is meaningful (> 0.5 g/s)
    - Window lasts at least 5 seconds
 3. **Compute ratio**: `mean(machine_flow) / mean(weight_flow)` over the steady window
@@ -25,7 +26,7 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
 ### Steady-State Window Detection
 
 The algorithm iterates through the shot's pressure data looking for the longest contiguous segment where:
-- Pressure is stable (change < 0.5 bar/sec)
+- Pressure is stable (change <= 0.5 bar/sec)
 - Pressure is above 1.5 bar (rejects no-coffee/empty-portafilter shots where water flows freely with near-zero back-pressure)
 - Weight flow > 0.5 g/s (excludes dripping/dead time)
 - Machine flow > 0.1 ml/s
