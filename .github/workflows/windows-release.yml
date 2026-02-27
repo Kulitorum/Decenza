@@ -27,6 +27,17 @@ jobs:
         with:
           fetch-depth: 0  # Full history for version tags
 
+      - name: Bump version code
+        id: bump
+        shell: bash
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          sed -i "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$NEXT\"/" android/AndroidManifest.xml
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
       - name: Get version info
         id: version
         shell: bash
@@ -113,12 +124,13 @@ jobs:
         shell: powershell
         run: |
           $VERSION = "${{ steps.version.outputs.version }}"
+          $BUILD_NUM = (Get-Content "versioncode.txt").Trim()
           $WORKSPACE = $env:GITHUB_WORKSPACE
           $QT_DIR = $env:QT_ROOT_DIR
 
           # Create version.iss
           @"
-          #define BuildNumber "0"
+          #define BuildNumber "$BUILD_NUM"
           #define VersionNumber "$VERSION"
           #define TargetName "Decenza_DE1"
           #define TargetArch "x64"

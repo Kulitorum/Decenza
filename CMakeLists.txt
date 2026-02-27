@@ -8,11 +8,9 @@ set(VERSION_CODE_FILE "${CMAKE_SOURCE_DIR}/versioncode.txt")
 set(VERSION_HEADER "${CMAKE_BINARY_DIR}/version.h")
 set(VERSION_CODE_CPP "${CMAKE_BINARY_DIR}/version_code.cpp")
 
-# Read version code at configure time
+# Read version code at configure time (CI bumps versioncode.txt before configure)
 file(READ "${VERSION_CODE_FILE}" CURRENT_VERSION_CODE)
 string(STRIP "${CURRENT_VERSION_CODE}" CURRENT_VERSION_CODE)
-# Build will increment, so compute next version code for Android
-math(EXPR NEXT_VERSION_CODE "${CURRENT_VERSION_CODE} + 1")
 
 # Configure version.h from template (stable values: VERSION_STRING, VERSION_MAJOR, etc.)
 configure_file(
@@ -21,7 +19,7 @@ configure_file(
     @ONLY
 )
 
-# Generate initial version_code.cpp (updated every build by IncrementVersionCode.cmake)
+# Generate initial version_code.cpp (updated every build by ApplyVersionCode.cmake)
 configure_file(
     "${CMAKE_SOURCE_DIR}/src/version_code.cpp.in"
     "${VERSION_CODE_CPP}"
@@ -600,12 +598,12 @@ if(Qt6ShaderTools_FOUND)
     )
 endif()
 
-# Increment version code on every build.
+# Apply version code on every build (reads versioncode.txt as-is, no increment).
 # BYPRODUCTS tells Ninja that this target produces version_code.cpp, so dependents
 # (the compilation of version_code.cpp into an object file) are scheduled after this
 # target and properly detect the file change. This fixes the stale build number issue
 # where Ninja's pre-computed dirty state missed header-only changes.
-add_custom_target(increment_version_code ALL
+add_custom_target(apply_version_code ALL
     COMMAND ${CMAKE_COMMAND}
         -DVERSION_CODE_FILE=${VERSION_CODE_FILE}
         -DMANIFEST_FILE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml
@@ -619,11 +617,11 @@ add_custom_target(increment_version_code ALL
         -DPROJECT_VERSION_PATCH=${PROJECT_VERSION_PATCH}
         -DISS_TEMPLATE=${CMAKE_SOURCE_DIR}/installer/version.iss.in
         -DISS_OUTPUT=${CMAKE_SOURCE_DIR}/installer/version.iss
-        -P ${CMAKE_SOURCE_DIR}/cmake/IncrementVersionCode.cmake
+        -P ${CMAKE_SOURCE_DIR}/cmake/ApplyVersionCode.cmake
     BYPRODUCTS ${VERSION_CODE_CPP}
-    COMMENT "Incrementing version code..."
+    COMMENT "Applying version code..."
 )
-add_dependencies(Decenza_DE1 increment_version_code)
+add_dependencies(Decenza_DE1 apply_version_code)
 
 # Add generated version_code.cpp to the build (recompiled every build, triggers relink)
 target_sources(Decenza_DE1 PRIVATE ${VERSION_CODE_CPP})
@@ -646,10 +644,10 @@ set_property(TARGET Decenza_DE1 APPEND PROPERTY SOURCES ${QML_FILES})
 if(ANDROID)
     set_target_properties(Decenza_DE1 PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
-        # Note: versionCode and versionName are managed by IncrementVersionCode.cmake
-        # at build time (updates both AndroidManifest.xml and version.h in sync).
+        # Note: versionCode and versionName are managed by ApplyVersionCode.cmake
+        # at build time (updates both AndroidManifest.xml and version_code.cpp in sync).
         # Do NOT set QT_ANDROID_VERSION_CODE here — it freezes at configure time
-        # and diverges from version.h on rebuilds without reconfigure.
+        # and diverges from version_code.cpp on rebuilds without reconfigure.
     )
     # Add OpenSSL libraries for HTTPS support
     add_android_openssl_libraries(Decenza_DE1)
@@ -661,11 +659,11 @@ if(IOS)
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${CMAKE_PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${NEXT_VERSION_CODE}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${CURRENT_VERSION_CODE}"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "io.github.kulitorum.decenza"
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${CMAKE_PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${NEXT_VERSION_CODE}"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${CURRENT_VERSION_CODE}"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Debug] "dwarf-with-dsym"

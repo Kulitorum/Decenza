@@ -1,4 +1,4 @@
-#define BuildNumber "@NEXT_VERSION_CODE@"
+#define BuildNumber "@CURRENT_VERSION_CODE@"
 #define VersionNumber "@PROJECT_VERSION@"
 #define TargetName "Decenza_DE1"
 #define TargetArch "x64"

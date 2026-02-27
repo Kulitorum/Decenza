@@ -1,4 +1,4 @@
 // Auto-generated from version_code.cpp.in - do not edit directly
-// Regenerated every build by cmake/IncrementVersionCode.cmake
+// Regenerated every build by cmake/ApplyVersionCode.cmake
 
-int versionCode() { return @NEXT_VERSION_CODE@; }
+int versionCode() { return @CURRENT_VERSION_CODE@; }

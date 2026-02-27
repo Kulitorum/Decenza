@@ -28,6 +28,16 @@ jobs:
         with:
           fetch-depth: 0  # Full history for version tags
 
+      - name: Bump version code
+        id: bump
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          sed -i "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$NEXT\"/" android/AndroidManifest.xml
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
       - name: Get version info
         id: version
         run: |
@@ -203,6 +213,60 @@ jobs:
           # Upload APK
           if [ -n "$APK" ] && [ -f "$APK" ]; then
             gh release upload "$TAG" "$APK" --clobber
+          fi
+
+      - name: Inject build number into release notes
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          BUILD_CODE="${{ steps.bump.outputs.build_code }}"
+
+          # Get current release notes
+          CURRENT_NOTES=$(gh release view "$TAG" --json body --jq '.body' 2>/dev/null || echo "")
+
+          # Only inject if Build: line is not already present
+          if ! echo "$CURRENT_NOTES" | grep -qE "^Build:? [0-9]+"; then
+            if [ -z "$CURRENT_NOTES" ]; then
+              NEW_NOTES="Build: $BUILD_CODE"
+            else
+              # Insert Build: line after first heading or at the top
+              NEW_NOTES=$(echo "$CURRENT_NOTES" | sed "0,/^## /{s/^## \(.*\)/## \1\n\nBuild: $BUILD_CODE/}")
+              # If no heading was found (sed didn't change anything), prepend
+              if [ "$NEW_NOTES" = "$CURRENT_NOTES" ]; then
+                NEW_NOTES="Build: $BUILD_CODE
+
+          $CURRENT_NOTES"
+              fi
+            fi
+            gh release edit "$TAG" --notes "$NEW_NOTES"
+            echo "Injected Build: $BUILD_CODE into release notes"
+          else
+            echo "Build number already present in release notes"
+          fi
+
+      - name: Commit version code back to main
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          BUILD_CODE="${{ steps.bump.outputs.build_code }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout origin/main
+          # Copy bumped files from the build checkout
+          git checkout "$GITHUB_SHA" -- versioncode.txt android/AndroidManifest.xml 2>/dev/null || true
+          # Overwrite with the bumped values (in case checkout didn't get them)
+          echo "$BUILD_CODE" > versioncode.txt
+          sed -i "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$BUILD_CODE\"/" android/AndroidManifest.xml
+          git add versioncode.txt android/AndroidManifest.xml
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No version code changes to commit"
+          else
+            git commit -m "ci: bump version code to $BUILD_CODE [skip ci]"
+            git push origin HEAD:main
+            echo "Committed version code $BUILD_CODE back to main"
           fi
 
       - name: Cleanup keystore
