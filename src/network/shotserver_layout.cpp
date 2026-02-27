@@ -173,6 +173,20 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             return;
         }
 
+        // Reject if LibrarySharing is already busy (e.g. from QML)
+        if (m_librarySharing->isBrowsing()) {
+            sendJson(socket, R"({"error":"Community service is busy, please try again"})");
+            return;
+        }
+
+        // Call browseCommunity BEFORE setting up signal connections to avoid the
+        // cache pre-emission race: browseCommunity() may synchronously emit
+        // communityEntriesChanged from cache (for unfiltered page-1 requests),
+        // which would trigger cleanup and disconnect connections before the
+        // network response arrives. The network response arrives asynchronously
+        // and will be caught by the connections set up below.
+        m_librarySharing->browseCommunity(type, variable, action, search, sort, page);
+
         int reqId = m_nextLibraryRequestId++;
         QPointer<QTcpSocket> safeSocket(socket);
         auto fired = std::make_shared<bool>(false);
@@ -235,14 +249,6 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         m_pendingLibraryRequests.insert(reqId, req);
         timer->start(60000);
 
-        m_librarySharing->browseCommunity(type, variable, action, search, sort, page);
-
-        // If LibrarySharing rejected the call (already browsing internally), clean up immediately
-        if (!m_librarySharing->isBrowsing()) {
-            QJsonObject resp;
-            resp["error"] = "Community service is busy, please try again";
-            cleanup(resp);
-        }
         return;
     }
 
@@ -462,6 +468,12 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             return;
         }
 
+        // Reject if LibrarySharing is already busy (e.g. from QML)
+        if (m_librarySharing->isDownloading()) {
+            sendJson(socket, R"({"error":"A download is already in progress, please try again"})");
+            return;
+        }
+
         int reqId = m_nextLibraryRequestId++;
         QPointer<QTcpSocket> safeSocket(socket);
         auto fired = std::make_shared<bool>(false);
@@ -523,13 +535,6 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         timer->start(60000);
 
         m_librarySharing->downloadEntry(serverId);
-
-        // If LibrarySharing rejected the call (already downloading internally), clean up immediately
-        if (!m_librarySharing->isDownloading()) {
-            QJsonObject resp;
-            resp["error"] = "A download is already in progress, please try again";
-            cleanup(resp);
-        }
     }
     else if (method == "POST" && path == "/api/community/upload") {
         if (!m_librarySharing) {
@@ -3881,8 +3886,11 @@ QString ShotServer::generateLayoutPage() const
 
         showLibSpinner('Browsing community...');
 
-        fetch(url, {signal: ctrl.signal}).then(function(r){return r.json()}).then(function(data) {
+        fetch(url, {signal: ctrl.signal}).then(function(r) {
             clearTimeout(tid);
+            if (!r.ok) throw new Error('Server error (' + r.status + ')');
+            return r.json();
+        }).then(function(data) {
             hideLibSpinner();
             if (data.error) {
                 document.getElementById('libCommunityEntries').innerHTML = '<div class="lib-empty">' + escapeHtml(data.error) + '</div>';
@@ -3897,7 +3905,7 @@ QString ShotServer::generateLayoutPage() const
             var el = document.getElementById('libCommunityEntries');
             var msgDiv = document.createElement('div');
             msgDiv.className = 'lib-empty';
-            msgDiv.textContent = e.name === 'AbortError' ? 'Request timed out.' : 'Failed to load community entries.';
+            msgDiv.textContent = e.name === 'AbortError' ? 'Request timed out.' : (e.message || 'Failed to load community entries.');
             el.innerHTML = '';
             el.appendChild(msgDiv);
         });
@@ -3909,8 +3917,11 @@ QString ShotServer::generateLayoutPage() const
         var ctrl = new AbortController();
         var tid = setTimeout(function() { ctrl.abort(); }, 45000);
 
-        fetch(url, {signal: ctrl.signal}).then(function(r){return r.json()}).then(function(data) {
+        fetch(url, {signal: ctrl.signal}).then(function(r) {
             clearTimeout(tid);
+            if (!r.ok) throw new Error('Server error (' + r.status + ')');
+            return r.json();
+        }).then(function(data) {
             if (data.error) {
                 showLibToast(data.error);
                 return;
@@ -3923,7 +3934,7 @@ QString ShotServer::generateLayoutPage() const
             }
         }).catch(function(e) {
             clearTimeout(tid);
-            showLibToast(e.name === 'AbortError' ? 'Request timed out' : 'Failed to load more entries');
+            showLibToast(e.name === 'AbortError' ? 'Request timed out' : (e.message || 'Failed to load more entries'));
         });
     }
 

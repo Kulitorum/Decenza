@@ -1,6 +1,7 @@
 #include "decentscale.h"
 #include "../protocol/de1characteristics.h"
 #include <algorithm>
+#include <QDateTime>
 #include <QTimer>
 
 // Helper macro that logs to both qDebug and emits signal for UI/file logging
@@ -63,6 +64,8 @@ void DecentScale::onTransportConnected() {
 
 void DecentScale::onTransportDisconnected() {
     stopHeartbeat();
+    m_lastNotificationEnableMs = 0;
+    m_lastScalePacketMs = 0;
     setConnected(false);
 }
 
@@ -95,6 +98,7 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
 
     DECENT_LOG("Characteristics discovered");
     m_characteristicsReady = true;
+    m_lastScalePacketMs = QDateTime::currentMSecsSinceEpoch();
     setConnected(true);
 
     // Start periodic heartbeat to keep connection alive
@@ -123,15 +127,13 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
     // Enable BLE notifications at 300ms
     QTimer::singleShot(300, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
-        DECENT_LOG("Enabling notifications (300ms)");
-        m_transport->enableNotifications(Scale::Decent::SERVICE, Scale::Decent::READ);
+        enableWeightNotifications("300ms", true);
     });
 
     // Enable BLE notifications again at 400ms (de1app does this twice for reliability)
     QTimer::singleShot(400, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
-        DECENT_LOG("Enabling notifications again (400ms)");
-        m_transport->enableNotifications(Scale::Decent::SERVICE, Scale::Decent::READ);
+        enableWeightNotifications("400ms retry", true);
     });
 
     // LCD enable again at 500ms (in case first was dropped)
@@ -151,6 +153,7 @@ void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servi
 
 void DecentScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid,
                                           const QByteArray& value) {
+    m_lastScalePacketMs = QDateTime::currentMSecsSinceEpoch();
     if (characteristicUuid == Scale::Decent::READ) {
         parseWeightData(value);
     }
@@ -176,8 +179,26 @@ void DecentScale::parseWeightData(const QByteArray& data) {
 }
 
 void DecentScale::sendKeepAlive() {
-    if (m_transport && m_characteristicsReady)
-        m_transport->enableNotifications(Scale::Decent::SERVICE, Scale::Decent::READ);
+    enableWeightNotifications("periodic keepalive");
+}
+
+void DecentScale::enableWeightNotifications(const QString& reason, bool force) {
+    if (!m_transport || !m_characteristicsReady) return;
+
+    constexpr qint64 kMinRefreshMs = 5 * 60 * 1000;  // throttle routine re-enables to every 5 minutes
+    constexpr qint64 kStaleDataMs = 45 * 1000;       // refresh sooner if packets appear stale
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    const bool dataStale = (m_lastScalePacketMs > 0) && ((now - m_lastScalePacketMs) >= kStaleDataMs);
+    const bool recentRefresh = (m_lastNotificationEnableMs > 0) && ((now - m_lastNotificationEnableMs) < kMinRefreshMs);
+
+    if (!force && recentRefresh && !dataStale) {
+        return;
+    }
+
+    DECENT_LOG(QString("Enabling notifications (%1)").arg(reason));
+    m_transport->enableNotifications(Scale::Decent::SERVICE, Scale::Decent::READ);
+    m_lastNotificationEnableMs = now;
 }
 
 void DecentScale::sendCommand(const QByteArray& command) {
