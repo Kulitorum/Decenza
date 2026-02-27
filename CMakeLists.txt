@@ -3,7 +3,7 @@ project(Decenza_DE1 VERSION 1.5.6 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Version code - always increments for Android (separate from display version)
+# Version code - incremented by CI on tag push (separate from display version)
 set(VERSION_CODE_FILE "${CMAKE_SOURCE_DIR}/versioncode.txt")
 set(VERSION_HEADER "${CMAKE_BINARY_DIR}/version.h")
 set(VERSION_CODE_CPP "${CMAKE_BINARY_DIR}/version_code.cpp")

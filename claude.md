@@ -776,7 +776,7 @@ Each operation page (Steam, HotWater, Flush) has:
 ## Git Workflow
 
 - **Version codes are managed by CI** — local builds use `versioncode.txt` as-is (no auto-increment). All 6 CI workflows bump the code identically on tag push. The Android workflow commits the bumped value back to `main`.
-- You do **not** need to manually commit version code files (`versioncode.txt`, `android/AndroidManifest.xml`) — CI handles this automatically.
+- You do **not** need to manually commit version code files (`versioncode.txt`, `android/AndroidManifest.xml`, `installer/version.iss`) — CI handles this automatically.
 
 ## Accessibility (TalkBack/VoiceOver)
 

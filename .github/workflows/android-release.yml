@@ -264,15 +264,20 @@ jobs:
           else
             git commit -m "ci: bump version code to $BUILD_CODE [skip ci]"
             # Retry push with rebase in case main advanced during the build
+            PUSH_OK=false
             for attempt in 1 2 3; do
               if git push origin HEAD:main; then
                 echo "Committed version code $BUILD_CODE back to main"
+                PUSH_OK=true
                 break
               else
                 echo "Push failed (attempt $attempt/3), rebasing..."
                 git pull --rebase origin main
               fi
-            done || echo "Warning: could not push version code back to main after 3 attempts"
+            done
+            if [ "$PUSH_OK" != "true" ]; then
+              echo "::warning::Could not push version code $BUILD_CODE back to main after 3 attempts"
+            fi
           fi
 
       - name: Cleanup keystore
