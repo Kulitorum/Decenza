@@ -25,6 +25,16 @@ jobs:
         with:
           fetch-depth: 0  # Full history for version tags
 
+      - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: bump
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
