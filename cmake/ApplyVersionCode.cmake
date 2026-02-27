@@ -15,7 +15,7 @@ endif()
 if(DEFINED MANIFEST_FILE AND EXISTS "${MANIFEST_FILE}")
     file(READ "${MANIFEST_FILE}" MANIFEST_CONTENT)
 
-    # Update versionCode (always incrementing integer)
+    # Update versionCode (build number from versioncode.txt)
     string(REGEX REPLACE "android:versionCode=\"[0-9]+\""
            "android:versionCode=\"${VERSION_CODE}\""
            MANIFEST_CONTENT "${MANIFEST_CONTENT}")

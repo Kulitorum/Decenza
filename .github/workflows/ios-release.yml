@@ -26,12 +26,12 @@ jobs:
           fetch-depth: 0  # Full history for version tags
 
       - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         id: bump
         run: |
           CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
           NEXT=$((CURRENT + 1))
           echo "$NEXT" > versioncode.txt
-          sed -i '' "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$NEXT\"/" android/AndroidManifest.xml
           echo "build_code=$NEXT" >> $GITHUB_OUTPUT
           echo "Version code bumped: $CURRENT -> $NEXT"
 

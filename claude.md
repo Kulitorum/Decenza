@@ -736,7 +736,7 @@ EOF
 - APK files are for direct distribution (sideloading)
 - AAB files are only for Google Play Store uploads
 - Users cannot install AAB files directly
-- **CI builds**: When creating a release with a `v*` tag, all 5 platform workflows trigger automatically and upload their artifacts to the release. You only need to manually attach the APK if building locally.
+- **CI builds**: When creating a release with a `v*` tag, all 6 platform workflows trigger automatically and upload their artifacts to the release. You only need to manually attach the APK if building locally.
 
 ## QML Navigation System
 
