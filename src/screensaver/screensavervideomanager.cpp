@@ -74,6 +74,8 @@ ScreensaverVideoManager::ScreensaverVideoManager(Settings* settings, ProfileStor
     m_shotMapTexture = m_settings->value("screensaver/shotMapTexture", "dark").toString();
     m_shotMapShowClock = m_settings->value("screensaver/shotMapShowClock", true).toBool();
     m_shotMapShowProfiles = m_settings->value("screensaver/shotMapShowProfiles", true).toBool();
+    m_dimPercent = qBound(0, m_settings->value("screensaver/dimPercent", 0).toInt(), 100);
+    m_dimDelayMinutes = qBound(0, m_settings->value("screensaver/dimDelayMinutes", 15).toInt(), 45);
 
     // Load rate limit state
     QString rateLimitStr = m_settings->value("screensaver/rateLimitedUntil", "").toString();
@@ -422,6 +424,26 @@ void ScreensaverVideoManager::setShotMapShowProfiles(bool show)
         m_shotMapShowProfiles = show;
         m_settings->setValue("screensaver/shotMapShowProfiles", show);
         emit shotMapShowProfilesChanged();
+    }
+}
+
+void ScreensaverVideoManager::setDimPercent(int percent)
+{
+    percent = qBound(0, percent, 100);
+    if (m_dimPercent != percent) {
+        m_dimPercent = percent;
+        m_settings->setValue("screensaver/dimPercent", percent);
+        emit dimPercentChanged();
+    }
+}
+
+void ScreensaverVideoManager::setDimDelayMinutes(int minutes)
+{
+    minutes = qBound(0, minutes, 45);
+    if (m_dimDelayMinutes != minutes) {
+        m_dimDelayMinutes = minutes;
+        m_settings->setValue("screensaver/dimDelayMinutes", minutes);
+        emit dimDelayMinutesChanged();
     }
 }
 

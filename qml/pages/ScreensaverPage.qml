@@ -4,10 +4,13 @@ import QtMultimedia
 import DecenzaDE1
 import "../components"
 
-// Screensaver mode enum
-// "videos" - Video/image slideshow from catalog
-// "pipes" - Classic 3D pipes animation
+// Screensaver modes:
+// "disabled"  - Turn screen off (let system timeout handle it)
+// "videos"    - Video/image slideshow from catalog
+// "pipes"     - Classic 3D pipes animation
 // "flipclock" - Classic flip clock display
+// "attractor" - Strange attractor visualization
+// "shotmap"   - Shot location map
 
 Page {
     id: screensaverPage
@@ -42,9 +45,25 @@ Page {
         if (isVideosMode) {
             playNextMedia()
         }
+        // Start screen dimming if configured
+        if (!isDisabledMode && ScreensaverManager.dimPercent > 0) {
+            startDimming()
+        }
     }
 
-    // Listen for new media becoming available (downloaded)
+    function applyDim() {
+        dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+    }
+
+    function startDimming() {
+        if (ScreensaverManager.dimDelayMinutes === 0) {
+            applyDim()
+        } else {
+            dimTimer.restart()
+        }
+    }
+
+    // Listen for new media becoming available (downloaded) and screen dimming changes
     Connections {
         target: ScreensaverManager
         function onVideoReady(path) {
@@ -59,6 +78,23 @@ Page {
             if (!mediaPlaying && ScreensaverManager.itemCount > 0) {
                 console.log("[Screensaver] Catalog updated, trying playback")
                 playNextMedia()
+            }
+        }
+        function onDimPercentChanged() {
+            if (ScreensaverManager.dimPercent === 0) {
+                dimTimer.stop()
+                dimOverlay.opacity = 0
+            } else if (dimOverlay.opacity > 0) {
+                applyDim()
+            } else {
+                startDimming()
+            }
+        }
+        function onDimDelayMinutesChanged() {
+            // Only restart if dim hasn't triggered yet
+            if (dimOverlay.opacity === 0 && ScreensaverManager.dimPercent > 0 && !isDisabledMode) {
+                dimTimer.stop()
+                startDimming()
             }
         }
     }
@@ -403,6 +439,31 @@ Page {
         }
     }
 
+    // Screen dimming overlay - fades in after configured delay
+    Timer {
+        id: dimTimer
+        interval: Math.max(1, ScreensaverManager.dimDelayMinutes) * 60 * 1000
+        repeat: false
+        running: false
+        onTriggered: applyDim()
+    }
+
+    // z:2.5 positions this above clock/credits (z:2) but below the touch MouseArea (z:3)
+    Rectangle {
+        id: dimOverlay
+        anchors.fill: parent
+        z: 2.5
+        color: "black"
+        opacity: 0
+        visible: !isDisabledMode
+
+        Behavior on opacity {
+            id: dimBehavior
+            enabled: true
+            NumberAnimation { duration: 2000; easing.type: Easing.InOutQuad }
+        }
+    }
+
     // Touch hint (fades out) - hidden in disabled mode for pure black screen
     Tr {
         id: touchHint
@@ -460,6 +521,10 @@ Page {
     StackView.onRemoved: {
         mediaPlayer.stop()
         imageDisplayTimer.stop()
+        dimTimer.stop()
+        dimBehavior.enabled = false
+        dimOverlay.opacity = 0
+        dimBehavior.enabled = true
         // Re-enable keep-screen-on when leaving screensaver
         // (especially needed if we were in "disabled" mode which turned it off)
         ScreensaverManager.setKeepScreenOn(true)
