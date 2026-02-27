@@ -185,8 +185,13 @@ void DecentScale::sendKeepAlive() {
 void DecentScale::enableWeightNotifications(const QString& reason, bool force) {
     if (!m_transport || !m_characteristicsReady) return;
 
-    constexpr qint64 kMinRefreshMs = 5 * 60 * 1000;  // throttle routine re-enables to every 5 minutes
-    constexpr qint64 kStaleDataMs = 45 * 1000;       // refresh sooner if packets appear stale
+    // Base class calls sendKeepAlive() every 30s. We throttle actual BLE
+    // notification re-enables to every 5 minutes since they're disruptive
+    // (causes a brief gap in data). If no scale packets arrive within 45s
+    // (missing ~1.5 keepalive cycles), re-enable immediately as notifications
+    // may have been silently dropped by the BLE stack.
+    constexpr qint64 kMinRefreshMs = 5 * 60 * 1000;
+    constexpr qint64 kStaleDataMs = 45 * 1000;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
 
     const bool dataStale = (m_lastScalePacketMs > 0) && ((now - m_lastScalePacketMs) >= kStaleDataMs);

@@ -219,13 +219,14 @@ private:
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
     int m_nextLibraryRequestId = 0;
-    enum LibraryRequestType { LibBrowse, LibDownload, LibUpload, LibDelete };
+    static constexpr int kLibraryTimeoutMs = 60000;
+    enum class LibraryRequestType { Browse, Download, Upload, Delete };
     struct PendingLibraryRequest {
         LibraryRequestType type;
         QPointer<QTcpSocket> socket;
         QList<QMetaObject::Connection> connections;
         QTimer* timeoutTimer = nullptr;
-        std::shared_ptr<bool> fired;  // Prevents queued callbacks from executing after cleanup
+        std::shared_ptr<bool> fired = std::make_shared<bool>(false);
     };
     QHash<int, PendingLibraryRequest> m_pendingLibraryRequests;
     bool hasInFlightLibraryRequest(LibraryRequestType type) const {
@@ -233,6 +234,8 @@ private:
             if (it.value().type == type) return true;
         return false;
     }
+    void completeLibraryRequest(int reqId, const QJsonObject& resp);
+    void cancelAllLibraryRequests();
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
     int m_activeMediaUploads = 0;

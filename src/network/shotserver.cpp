@@ -427,6 +427,8 @@ bool ShotServer::start()
 
 void ShotServer::stop()
 {
+    cancelAllLibraryRequests();
+
     if (m_discoverySocket) {
         m_discoverySocket->close();
         delete m_discoverySocket;
@@ -664,6 +666,7 @@ void ShotServer::onDisconnected()
         QList<int> toRemove;
         for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
             if (it.value().socket == socket || it.value().socket.isNull()) {
+                qDebug() << "ShotServer: Cleaning up pending library request" << it.key() << "- socket disconnected";
                 // Mark fired to prevent any queued signal callbacks from executing
                 if (it.value().fired) *it.value().fired = true;
                 for (auto& conn : it.value().connections) disconnect(conn);
@@ -680,6 +683,42 @@ void ShotServer::onDisconnected()
 
         socket->deleteLater();
     }
+}
+
+void ShotServer::cancelAllLibraryRequests()
+{
+    for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
+        if (it.value().fired) *it.value().fired = true;
+        for (auto& conn : it.value().connections) disconnect(conn);
+        if (it.value().timeoutTimer) {
+            it.value().timeoutTimer->stop();
+            it.value().timeoutTimer->deleteLater();
+        }
+    }
+    m_pendingLibraryRequests.clear();
+}
+
+void ShotServer::completeLibraryRequest(int reqId, const QJsonObject& resp)
+{
+    if (!m_pendingLibraryRequests.contains(reqId)) return;
+    auto& req = m_pendingLibraryRequests[reqId];
+    if (*req.fired) {
+        qDebug() << "ShotServer: Library request" << reqId << "already handled, ignoring duplicate callback";
+        return;
+    }
+    *req.fired = true;
+    if (req.timeoutTimer) {
+        req.timeoutTimer->stop();
+        req.timeoutTimer->deleteLater();
+    }
+    for (auto& conn : req.connections) disconnect(conn);
+
+    if (req.socket && req.socket->state() == QAbstractSocket::ConnectedState) {
+        sendJson(req.socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+    } else {
+        qDebug() << "ShotServer: Dropping response for library request" << reqId << "- socket disconnected";
+    }
+    m_pendingLibraryRequests.remove(reqId);
 }
 
 void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
