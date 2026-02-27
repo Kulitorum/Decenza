@@ -180,13 +180,12 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         }
 
         int reqId = m_nextLibraryRequestId++;
-        QPointer<QTcpSocket> safeSocket(socket);
         auto* timer = new QTimer(this);
         timer->setSingleShot(true);
 
         PendingLibraryRequest req;
         req.type = LibraryRequestType::Browse;
-        req.socket = safeSocket;
+        req.socket = QPointer<QTcpSocket>(socket);
         req.timeoutTimer = timer;
 
         req.connections.append(connect(m_librarySharing, &LibrarySharing::communityEntriesChanged, this, [this, reqId]() {
@@ -203,37 +202,25 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         req.connections.append(connect(m_librarySharing, &LibrarySharing::lastErrorChanged, this, [this, reqId]() {
             QString error = m_librarySharing->lastError();
             if (error.isEmpty()) return;
-            QJsonObject resp;
-            resp["error"] = error;
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
             qWarning() << "ShotServer: Library browse request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            QJsonObject resp;
-            resp["error"] = "Request timed out";
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 
         m_pendingLibraryRequests.insert(reqId, req);
         timer->start(kLibraryTimeoutMs);
 
-        // Connect signals and register request BEFORE calling browseCommunity(),
-        // which may synchronously emit communityEntriesChanged from cache
-        // (for unfiltered page-1 requests). The fired guard ensures at most
-        // one response is sent — if the cache emits first, the user gets
-        // a fast cached response and the later network response is dropped.
+        // Register signals BEFORE calling browseCommunity(), which may synchronously
+        // emit from cache. The fired guard ensures at most one response is sent.
         m_librarySharing->browseCommunity(type, variable, action, search, sort, page);
 
-        // Verify the call was accepted (guard against TOCTOU with QML).
-        // Note: isBrowsing() may be false if the cache synchronously emitted
-        // communityEntriesChanged, which already completed the request via
-        // completeLibraryRequest. The fired guard in completeLibraryRequest
-        // prevents a duplicate response in that case.
+        // Guard against TOCTOU: isBrowsing() may be false if the cache already
+        // completed the request synchronously, so also check the request still exists.
         if (!m_librarySharing->isBrowsing() && m_pendingLibraryRequests.contains(reqId)) {
-            qWarning() << "ShotServer: browseCommunity() was rejected (became busy between check and call)";
-            QJsonObject errResp;
-            errResp["error"] = "Browse request was rejected, please try again";
-            completeLibraryRequest(reqId, errResp);
+            qWarning() << "ShotServer: browseCommunity() was rejected (busy between check and call)";
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Browse request was rejected, please try again"}});
         }
 
         return;
@@ -467,13 +454,12 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         }
 
         int reqId = m_nextLibraryRequestId++;
-        QPointer<QTcpSocket> safeSocket(socket);
         auto* timer = new QTimer(this);
         timer->setSingleShot(true);
 
         PendingLibraryRequest req;
         req.type = LibraryRequestType::Download;
-        req.socket = safeSocket;
+        req.socket = QPointer<QTcpSocket>(socket);
         req.timeoutTimer = timer;
 
         req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadComplete, this, [this, reqId](const QString& localEntryId) {
@@ -490,15 +476,11 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             completeLibraryRequest(reqId, resp);
         }));
         req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadFailed, this, [this, reqId](const QString& error) {
-            QJsonObject resp;
-            resp["error"] = error;
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
             qWarning() << "ShotServer: Library download request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            QJsonObject resp;
-            resp["error"] = "Request timed out";
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 
         m_pendingLibraryRequests.insert(reqId, req);
@@ -506,12 +488,10 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
 
         m_librarySharing->downloadEntry(serverId);
 
-        // Verify the call was accepted (guard against TOCTOU with QML)
+        // Guard against TOCTOU: downloadEntry() may silently reject if busy
         if (!m_librarySharing->isDownloading()) {
-            qWarning() << "ShotServer: downloadEntry() was rejected (became busy between check and call)";
-            QJsonObject errResp;
-            errResp["error"] = "Download service busy, please try again";
-            completeLibraryRequest(reqId, errResp);
+            qWarning() << "ShotServer: downloadEntry() was rejected (busy between check and call)";
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Download service busy, please try again"}});
         }
     }
     else if (method == "POST" && path == "/api/community/upload") {
@@ -528,18 +508,16 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendJson(socket, R"({"error":"An upload is already in progress"})");
             return;
         }
-        // No isUploading() check needed — LibrarySharing supports concurrent uploads
-        // via m_activeUploads counter, but we still serialize web requests to prevent
-        // cross-source signal confusion
+        // We serialize web uploads to prevent cross-source signal confusion,
+        // even though LibrarySharing supports concurrent uploads internally
 
         int reqId = m_nextLibraryRequestId++;
-        QPointer<QTcpSocket> safeSocket(socket);
         auto* timer = new QTimer(this);
         timer->setSingleShot(true);
 
         PendingLibraryRequest req;
         req.type = LibraryRequestType::Upload;
-        req.socket = safeSocket;
+        req.socket = QPointer<QTcpSocket>(socket);
         req.timeoutTimer = timer;
 
         req.connections.append(connect(m_librarySharing, &LibrarySharing::uploadSuccess, this, [this, reqId](const QString& serverId) {
@@ -558,9 +536,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
             qWarning() << "ShotServer: Library upload request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            QJsonObject resp;
-            resp["error"] = "Request timed out";
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 
         m_pendingLibraryRequests.insert(reqId, req);
@@ -592,33 +568,24 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendJson(socket, R"({"error":"A delete is already in progress"})");
             return;
         }
-        // No LibrarySharing busy check needed — deleteFromServer() has no busy guard
-
         int reqId = m_nextLibraryRequestId++;
-        QPointer<QTcpSocket> safeSocket(socket);
         auto* timer = new QTimer(this);
         timer->setSingleShot(true);
 
         PendingLibraryRequest req;
         req.type = LibraryRequestType::Delete;
-        req.socket = safeSocket;
+        req.socket = QPointer<QTcpSocket>(socket);
         req.timeoutTimer = timer;
 
         req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteSuccess, this, [this, reqId]() {
-            QJsonObject resp;
-            resp["success"] = true;
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"success", true}});
         }));
         req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteFailed, this, [this, reqId](const QString& error) {
-            QJsonObject resp;
-            resp["error"] = error;
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
             qWarning() << "ShotServer: Library delete request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            QJsonObject resp;
-            resp["error"] = "Request timed out";
-            completeLibraryRequest(reqId, resp);
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
         }));
 
         m_pendingLibraryRequests.insert(reqId, req);

@@ -234,6 +234,7 @@ private:
             if (it.value().type == type) return true;
         return false;
     }
+    void invalidateLibraryRequest(PendingLibraryRequest& req);
     void completeLibraryRequest(int reqId, const QJsonObject& resp);
     void cancelAllLibraryRequests();
     QTimer* m_cleanupTimer = nullptr;

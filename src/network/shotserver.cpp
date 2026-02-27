@@ -288,46 +288,29 @@ void ShotServer::setSettings(Settings* settings)
     }
 }
 
-void ShotServer::onLayoutChanged()
+static void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event)
 {
-    // Notify all SSE clients that the layout has changed
-    QByteArray event = "event: layout-changed\ndata: {}\n\n";
     QList<QTcpSocket*> dead;
-    for (QTcpSocket* client : m_sseLayoutClients) {
-        if (client->state() != QAbstractSocket::ConnectedState) {
-            dead.append(client);
-            continue;
-        }
-        if (client->write(event) == -1) {
+    for (QTcpSocket* client : clients) {
+        if (client->state() != QAbstractSocket::ConnectedState || client->write(event) == -1) {
             dead.append(client);
             continue;
         }
         client->flush();
     }
     for (QTcpSocket* s : dead) {
-        m_sseLayoutClients.remove(s);
+        clients.remove(s);
     }
+}
+
+void ShotServer::onLayoutChanged()
+{
+    broadcastSseEvent(m_sseLayoutClients, "event: layout-changed\ndata: {}\n\n");
 }
 
 void ShotServer::onThemeChanged()
 {
-    // Notify all SSE clients that the theme has changed
-    QByteArray event = "event: theme-changed\ndata: {}\n\n";
-    QList<QTcpSocket*> dead;
-    for (QTcpSocket* client : m_sseThemeClients) {
-        if (client->state() != QAbstractSocket::ConnectedState) {
-            dead.append(client);
-            continue;
-        }
-        if (client->write(event) == -1) {
-            dead.append(client);
-            continue;
-        }
-        client->flush();
-    }
-    for (QTcpSocket* s : dead) {
-        m_sseThemeClients.remove(s);
-    }
+    broadcastSseEvent(m_sseThemeClients, "event: theme-changed\ndata: {}\n\n");
 }
 
 QString ShotServer::url() const
@@ -679,13 +662,7 @@ void ShotServer::onDisconnected()
         for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
             if (it.value().socket == socket || it.value().socket.isNull()) {
                 qDebug() << "ShotServer: Cleaning up pending library request" << it.key() << "- socket disconnected";
-                // Mark fired to prevent any queued signal callbacks from executing
-                if (it.value().fired) *it.value().fired = true;
-                for (auto& conn : it.value().connections) disconnect(conn);
-                if (it.value().timeoutTimer) {
-                    it.value().timeoutTimer->stop();
-                    it.value().timeoutTimer->deleteLater();
-                }
+                invalidateLibraryRequest(it.value());
                 toRemove.append(it.key());
             }
         }
@@ -697,15 +674,20 @@ void ShotServer::onDisconnected()
     }
 }
 
+void ShotServer::invalidateLibraryRequest(PendingLibraryRequest& req)
+{
+    if (req.fired) *req.fired = true;
+    for (auto& conn : req.connections) disconnect(conn);
+    if (req.timeoutTimer) {
+        req.timeoutTimer->stop();
+        req.timeoutTimer->deleteLater();
+    }
+}
+
 void ShotServer::cancelAllLibraryRequests()
 {
     for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
-        if (it.value().fired) *it.value().fired = true;
-        for (auto& conn : it.value().connections) disconnect(conn);
-        if (it.value().timeoutTimer) {
-            it.value().timeoutTimer->stop();
-            it.value().timeoutTimer->deleteLater();
-        }
+        invalidateLibraryRequest(it.value());
     }
     m_pendingLibraryRequests.clear();
 }
@@ -718,12 +700,7 @@ void ShotServer::completeLibraryRequest(int reqId, const QJsonObject& resp)
         qDebug() << "ShotServer: Library request" << reqId << "already handled, ignoring duplicate callback";
         return;
     }
-    *req.fired = true;
-    if (req.timeoutTimer) {
-        req.timeoutTimer->stop();
-        req.timeoutTimer->deleteLater();
-    }
-    for (auto& conn : req.connections) disconnect(conn);
+    invalidateLibraryRequest(req);
 
     if (req.socket && req.socket->state() == QAbstractSocket::ConnectedState) {
         sendJson(req.socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
