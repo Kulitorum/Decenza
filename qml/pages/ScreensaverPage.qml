@@ -42,6 +42,14 @@ Page {
         if (isVideosMode) {
             playNextMedia()
         }
+        // Start screen dimming if configured
+        if (!isDisabledMode && ScreensaverManager.dimPercent > 0) {
+            if (ScreensaverManager.dimDelayMinutes === 0) {
+                dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+            } else {
+                dimTimer.start()
+            }
+        }
     }
 
     // Listen for new media becoming available (downloaded)
@@ -403,6 +411,44 @@ Page {
         }
     }
 
+    // Screen dimming overlay - fades in after configured delay
+    // Overlay is at z:2.5 (above clock/credits at z:2, below touch MouseArea at z:3)
+    Timer {
+        id: dimTimer
+        interval: Math.max(1, ScreensaverManager.dimDelayMinutes) * 60 * 1000
+        repeat: false
+        running: false
+        onTriggered: {
+            dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+        }
+    }
+
+    Connections {
+        target: ScreensaverManager
+        function onDimPercentChanged() {
+            if (ScreensaverManager.dimPercent === 0) {
+                dimTimer.stop()
+                dimOverlay.opacity = 0
+            } else if (dimOverlay.opacity > 0) {
+                // Already dimmed — update to new level
+                dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+            }
+        }
+    }
+
+    Rectangle {
+        id: dimOverlay
+        anchors.fill: parent
+        z: 2.5
+        color: "black"
+        opacity: 0
+        visible: !isDisabledMode && ScreensaverManager.dimPercent > 0
+
+        Behavior on opacity {
+            NumberAnimation { duration: 2000; easing.type: Easing.InOutQuad }
+        }
+    }
+
     // Touch hint (fades out) - hidden in disabled mode for pure black screen
     Tr {
         id: touchHint
@@ -460,6 +506,8 @@ Page {
     StackView.onRemoved: {
         mediaPlayer.stop()
         imageDisplayTimer.stop()
+        dimTimer.stop()
+        dimOverlay.opacity = 0
         // Re-enable keep-screen-on when leaving screensaver
         // (especially needed if we were in "disabled" mode which turned it off)
         ScreensaverManager.setKeepScreenOn(true)

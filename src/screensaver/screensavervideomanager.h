@@ -104,6 +104,10 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(double pipesSpeed READ pipesSpeed WRITE setPipesSpeed NOTIFY pipesSpeedChanged)
     Q_PROPERTY(double pipesCameraSpeed READ pipesCameraSpeed WRITE setPipesCameraSpeed NOTIFY pipesCameraSpeedChanged)
 
+    // Screen dimming (after delay)
+    Q_PROPERTY(int dimPercent READ dimPercent WRITE setDimPercent NOTIFY dimPercentChanged)
+    Q_PROPERTY(int dimDelayMinutes READ dimDelayMinutes WRITE setDimDelayMinutes NOTIFY dimDelayMinutesChanged)
+
     // Flip clock settings
     Q_PROPERTY(bool flipClockUse24Hour READ flipClockUse24Hour WRITE setFlipClockUse24Hour NOTIFY flipClockUse24HourChanged)
     Q_PROPERTY(bool flipClockUse3D READ flipClockUse3D WRITE setFlipClockUse3D NOTIFY flipClockUse3DChanged)
@@ -164,6 +168,8 @@ public:
     // Screensaver type
     QString screensaverType() const { return m_screensaverType; }
     QStringList availableScreensaverTypes() const { return {"disabled", "videos", "pipes", "flipclock", "attractor", "shotmap"}; }
+    int dimPercent() const { return m_dimPercent; }
+    int dimDelayMinutes() const { return m_dimDelayMinutes; }
     double pipesSpeed() const { return m_pipesSpeed; }
     double pipesCameraSpeed() const { return m_pipesCameraSpeed; }
     bool flipClockUse24Hour() const { return m_flipClockUse24Hour; }
@@ -188,6 +194,8 @@ public:
     void setSelectedCategoryId(const QString& categoryId);
     void setImageDisplayDuration(int seconds);
     void setShowDateOnPersonal(bool show);
+    void setDimPercent(int percent);
+    void setDimDelayMinutes(int minutes);
     void setScreensaverType(const QString& type);
     void setPipesSpeed(double speed);
     void setPipesCameraSpeed(double speed);
@@ -261,6 +269,8 @@ signals:
     void imageDisplayDurationChanged();
     void personalMediaChanged();
     void showDateOnPersonalChanged();
+    void dimPercentChanged();
+    void dimDelayMinutesChanged();
     void screensaverTypeChanged();
     void pipesSpeedChanged();
     void pipesCameraSpeedChanged();
@@ -370,6 +380,10 @@ private:
     // Personal media state
     QList<VideoItem> m_personalCatalog;
     bool m_showDateOnPersonal = false;
+
+    // Screen dimming
+    int m_dimPercent = 0;        // 0 = disabled, 100 = fully black
+    int m_dimDelayMinutes = 15;  // 0 = immediate
 
     // Screensaver type
     QString m_screensaverType = "videos";

@@ -876,6 +876,61 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
+                // Screen dimming settings (all modes except disabled)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(30)
+                    visible: ScreensaverManager.screensaverType !== "disabled"
+
+                    RowLayout {
+                        spacing: Theme.scaled(10)
+
+                        Tr {
+                            key: "settings.screensaver.dimAfter"
+                            fallback: "Dim after"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        ValueInput {
+                            value: ScreensaverManager.dimDelayMinutes
+                            suffix: " min"
+                            from: 0
+                            to: 45
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : ""
+                            accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
+                            onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
+                        }
+                    }
+
+                    RowLayout {
+                        spacing: Theme.scaled(10)
+
+                        Tr {
+                            key: "settings.screensaver.dimAmount"
+                            fallback: "Dim amount"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        ValueInput {
+                            value: ScreensaverManager.dimPercent
+                            suffix: "%"
+                            from: 0
+                            to: 100
+                            stepSize: 5
+                            decimals: 0
+                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : ""
+                            accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
+                            onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
                 Item { Layout.fillHeight: true }
 
                 // Action buttons (videos mode only)
