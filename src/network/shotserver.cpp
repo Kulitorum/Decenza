@@ -96,7 +96,7 @@ protected:
         });
 
         connect(timer, &QTimer::timeout, this, [this, fd]() {
-            // Timeout – no data arrived; clean up
+            qDebug() << "HttpRedirectSslServer: Timeout waiting for first byte, fd:" << fd;
             cleanupPending(fd);
             closeFd(fd);
         });
@@ -130,6 +130,8 @@ private:
         int n = ::recv(toNativeFd(fd), reinterpret_cast<char*>(&peek), 1, MSG_PEEK);
 
         if (n <= 0) {
+            if (n < 0)
+                qDebug() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd;
             cleanupPending(fd);
             closeFd(fd);
             return;
@@ -206,7 +208,8 @@ private:
             "Connection: close\r\n"
             "\r\n";
 
-        ::send(toNativeFd(fd), response.constData(), response.size(), 0);
+        if (::send(toNativeFd(fd), response.constData(), response.size(), 0) < 0)
+            qDebug() << "HttpRedirectSslServer: Failed to send redirect response, fd:" << fd;
         closeFd(fd);
     }
 

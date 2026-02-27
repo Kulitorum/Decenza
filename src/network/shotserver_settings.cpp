@@ -1117,8 +1117,8 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
     *conn = connect(m_mqttClient, &MqttClient::statusChanged, this, [this, cleanup]() {
         QString status = m_mqttClient->status();
         bool connected = m_mqttClient->isConnected();
-        // Terminal state = anything except "Connecting" (covers error, denied, refused, etc.)
-        if (connected || !status.contains("onnecting", Qt::CaseInsensitive)) {
+        // Terminal state = connected, or not actively connecting/reconnecting
+        if (connected || !status.startsWith("Connecting", Qt::CaseInsensitive)) {
             cleanup(connected, status);
         }
     });
