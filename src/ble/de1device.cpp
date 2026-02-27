@@ -984,7 +984,7 @@ void DE1Device::stopOperation() {
 }
 
 void DE1Device::stopOperationUrgent() {
-    // Bypass the 50ms command queue for lowest-latency stop (used by SOW).
+    // Bypass the 50ms command queue for faster stop (used by SOW).
     // Clears any pending commands and writes directly to the characteristic.
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     if (m_simulationMode && m_simulator) {

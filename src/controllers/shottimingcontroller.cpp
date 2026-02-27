@@ -371,14 +371,14 @@ void ShotTimingController::updateDisplayTimer()
 
 void ShotTimingController::onSawTriggered(double weightAtStop, double flowRateAtStop, double targetWeight)
 {
-    // Called by WeightProcessor (via QueuedConnection) when SAW triggers on worker thread.
+    // Called on main thread (via QueuedConnection) when WeightProcessor detects SAW.
     // Captures state for SAW learning — settling will run after the shot ends.
     m_stopAtWeightTriggered = true;
     m_sawTriggeredThisShot = true;
     m_flowRateAtStop = flowRateAtStop;
     m_weightAtStop = weightAtStop;
     m_targetWeightAtStop = targetWeight;
-    qDebug() << "[SAW] Worker thread triggered stop: weight=" << weightAtStop
+    qDebug() << "[SAW] Stop triggered: weight=" << weightAtStop
              << "flow=" << flowRateAtStop << "target=" << targetWeight;
 }
 
