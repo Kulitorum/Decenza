@@ -99,7 +99,7 @@ QString ShotServer::generateSettingsPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Service Connections - Decenza DE1</title>
+    <title>AI and Web Service Connections - Decenza DE1</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -351,7 +351,7 @@ QString ShotServer::generateSettingsPage() const
     <header class="header">
         <div class="header-content">
             <a href="/" class="back-btn">&larr;</a>
-            <h1>Service Connections</h1>
+            <h1>AI and Web Service Connections</h1>
         </div>
     </header>
 
