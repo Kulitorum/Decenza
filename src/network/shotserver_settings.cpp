@@ -43,6 +43,8 @@
 #include <QJniObject>
 #endif
 
+// Apply AI-related fields from a JSON object to Settings. Only keys present
+// in obj are updated; missing keys leave the current setting unchanged.
 static void applyAiSettings(Settings* s, const QJsonObject& obj)
 {
     if (obj.contains("aiProvider"))
@@ -63,6 +65,8 @@ static void applyAiSettings(Settings* s, const QJsonObject& obj)
         s->setOllamaModel(obj["ollamaModel"].toString());
 }
 
+// Apply MQTT-related fields from a JSON object to Settings. Only keys present
+// in obj are updated; missing keys leave the current setting unchanged.
 static void applyMqttSettings(Settings* s, const QJsonObject& obj)
 {
     if (obj.contains("mqttEnabled"))
@@ -788,8 +792,9 @@ QString ShotServer::generateSettingsPage() const
                     body: JSON.stringify(body)
                 });
                 const r = await resp.json();
-                if (!r.success && wasConnect) {
-                    updateMqttStatusUI(false, r.message || 'Connection failed');
+                if (!r.success) {
+                    updateMqttStatusUI(wasConnect ? false : true,
+                        r.message || (wasConnect ? 'Connection failed' : 'Disconnect failed'));
                 }
             } catch (e) {
                 updateMqttStatusUI(false, 'Network error');
@@ -971,7 +976,8 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
     QNetworkReply* reply = m_testNetworkManager->get(request);
     auto fired = std::make_shared<bool>(false);
 
-    // Backup timeout in case QNetworkReply::finished never fires
+    // Safety-net timeout (20s) in case Qt's transfer timeout (15s) fails to
+    // trigger QNetworkReply::finished -- ensures the socket always gets a response.
     auto* timer = new QTimer(this);
     timer->setSingleShot(true);
 
@@ -981,6 +987,10 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
         m_visualizerTestInFlight = false;
         timer->stop();
         timer->deleteLater();
+        if (!success)
+            qWarning() << "ShotServer: Visualizer test failed:" << message;
+        else
+            qDebug() << "ShotServer: Visualizer test succeeded";
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
         QJsonObject result;
@@ -1028,7 +1038,10 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
 
     QJsonObject obj = doc.object();
 
-    // Save submitted settings so the AI provider reads from them
+    // Apply submitted settings before testing -- AIManager::testConnection()
+    // creates a provider from current Settings values, so these must be
+    // written first for the test to use the web form's credentials.
+    // Note: this means "Test" also persists settings as a side effect.
     applyAiSettings(m_settings, obj);
 
     m_aiTestInFlight = true;
@@ -1047,6 +1060,10 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
         disconnect(*conn);
         timer->stop();
         timer->deleteLater();
+        if (!success)
+            qWarning() << "ShotServer: AI test failed:" << message;
+        else
+            qDebug() << "ShotServer: AI test succeeded";
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 
@@ -1080,7 +1097,9 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         return;
     }
 
-    // Save MQTT settings first
+    // Apply submitted settings before connecting -- connectToBroker() reads
+    // connection parameters from Settings, so they must reflect the web form values.
+    // Note: this means "Connect" also persists settings as a side effect.
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(body, &err);
     if (err.error != QJsonParseError::NoError) {
@@ -1105,6 +1124,10 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         disconnect(*conn);
         timer->stop();
         timer->deleteLater();
+        if (!success)
+            qWarning() << "ShotServer: MQTT connect failed:" << message;
+        else
+            qDebug() << "ShotServer: MQTT connect succeeded";
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
 
@@ -1117,8 +1140,11 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
     *conn = connect(m_mqttClient, &MqttClient::statusChanged, this, [this, cleanup]() {
         QString status = m_mqttClient->status();
         bool connected = m_mqttClient->isConnected();
-        // Terminal state = connected, or not actively connecting/reconnecting
-        if (connected || !status.startsWith("Connecting", Qt::CaseInsensitive)) {
+        // Terminal state = connected, or not actively connecting/reconnecting.
+        // MqttClient status strings: "Connecting...", "Disconnected - reconnecting (N/M)..."
+        if (connected
+            || (!status.startsWith("Connecting", Qt::CaseInsensitive)
+                && !status.contains("reconnecting", Qt::CaseInsensitive))) {
             cleanup(connected, status);
         }
     });
@@ -1139,7 +1165,9 @@ void ShotServer::handleMqttDisconnect(QTcpSocket* socket)
     }
 
     m_mqttClient->disconnectFromBroker();
-    sendJson(socket, R"({"success": true, "message": "Disconnected"})");
+    // Disconnect is async -- report that it was requested, not that it completed.
+    // The MQTT status polling (every 2s) will show the actual state.
+    sendJson(socket, R"({"success": true, "message": "Disconnect requested"})");
 }
 
 void ShotServer::handleMqttStatus(QTcpSocket* socket)
@@ -1168,6 +1196,8 @@ void ShotServer::handleMqttPublishDiscovery(QTcpSocket* socket)
     }
 
     m_mqttClient->publishDiscovery();
+    // publishDiscovery() is fire-and-forget -- Paho async publish failures
+    // are not propagated back. The isConnected() check above is our best guard.
     sendJson(socket, R"({"success": true})");
 }
 

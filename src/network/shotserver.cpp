@@ -43,6 +43,7 @@
 #else
 #include <sys/socket.h>
 #include <unistd.h>
+#include <cerrno>
 #endif
 
 #ifndef Q_OS_IOS
@@ -61,6 +62,12 @@
 // ---------------------------------------------------------------------------
 // HttpRedirectSslServer – QSslServer subclass that detects plain HTTP
 // connections and replies with a 301 redirect to https://.
+//
+// When a new connection arrives, we peek at the first byte using raw recv():
+//   0x16 = TLS ClientHello -> hand off to QSslServer for normal TLS flow
+//   anything else          -> parse HTTP request, send 301, close
+//
+// Host and path are sanitized against CRLF header injection.
 // ---------------------------------------------------------------------------
 class HttpRedirectSslServer : public QSslServer {
 public:
@@ -130,8 +137,15 @@ private:
         int n = ::recv(toNativeFd(fd), reinterpret_cast<char*>(&peek), 1, MSG_PEEK);
 
         if (n <= 0) {
-            if (n < 0)
-                qDebug() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd;
+            if (n < 0) {
+#ifdef Q_OS_WIN
+                qWarning() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd
+                           << "WSA error:" << WSAGetLastError();
+#else
+                qWarning() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd
+                           << "errno:" << errno << strerror(errno);
+#endif
+            }
             cleanupPending(fd);
             closeFd(fd);
             return;
@@ -208,8 +222,11 @@ private:
             "Connection: close\r\n"
             "\r\n";
 
-        if (::send(toNativeFd(fd), response.constData(), response.size(), 0) < 0)
-            qDebug() << "HttpRedirectSslServer: Failed to send redirect response, fd:" << fd;
+        auto sent = ::send(toNativeFd(fd), response.constData(), response.size(), 0);
+        if (sent < 0)
+            qWarning() << "HttpRedirectSslServer: send() failed, fd:" << fd;
+        else if (sent < response.size())
+            qWarning() << "HttpRedirectSslServer: partial send" << sent << "/" << response.size() << "fd:" << fd;
         closeFd(fd);
     }
 
