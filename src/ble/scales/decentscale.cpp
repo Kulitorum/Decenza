@@ -63,6 +63,7 @@ void DecentScale::onTransportConnected() {
 }
 
 void DecentScale::onTransportDisconnected() {
+    qWarning() << "[DecentScale] Transport disconnected";
     stopHeartbeat();
     m_lastNotificationEnableMs = 0;
     m_lastScalePacketMs = 0;
@@ -70,7 +71,7 @@ void DecentScale::onTransportDisconnected() {
 }
 
 void DecentScale::onTransportError(const QString& message) {
-    Q_UNUSED(message)
+    qWarning() << "[DecentScale] Transport error:" << message;
     emit errorOccurred("Scale connection error");
     setConnected(false);
 }
@@ -196,6 +197,11 @@ void DecentScale::enableWeightNotifications(const QString& reason, bool force) {
 
     const bool dataStale = (m_lastScalePacketMs > 0) && ((now - m_lastScalePacketMs) >= kStaleDataMs);
     const bool recentRefresh = (m_lastNotificationEnableMs > 0) && ((now - m_lastNotificationEnableMs) < kMinRefreshMs);
+
+    if (dataStale) {
+        qWarning() << "[DecentScale] Weight data STALE for"
+                   << (now - m_lastScalePacketMs) << "ms - re-enabling notifications";
+    }
 
     if (!force && recentRefresh && !dataStale) {
         return;

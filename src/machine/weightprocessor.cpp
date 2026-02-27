@@ -24,7 +24,16 @@ void WeightProcessor::processWeight(double weight)
     emit flowRatesReady(weight, flowRate, flowRateShort);
 
     // SOW and per-frame checks only during active extraction
-    if (!m_active || !m_tareComplete) return;
+    if (!m_active) return;
+    if (!m_tareComplete) {
+        // Throttle warning to every 5s to avoid log spam at 5Hz
+        static qint64 s_lastTareWarnMs = 0;
+        if (now - s_lastTareWarnMs >= 5000) {
+            qWarning() << "[SAW-Worker] Active but tare not complete - skipping SAW, weight=" << weight;
+            s_lastTareWarnMs = now;
+        }
+        return;
+    }
 
     // Sanity check: unreasonable weight early in extraction (likely untared cup)
     if (m_extractionStartTime > 0) {
@@ -33,6 +42,15 @@ void WeightProcessor::processWeight(double weight)
     }
 
     // Stop-at-weight check (requires valid flow rate for drip prediction)
+    if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort < 0.5) {
+        // Throttle this log to every 5s
+        static qint64 s_lastLowFlowLogMs = 0;
+        if (now - s_lastLowFlowLogMs >= 5000) {
+            qDebug() << "[SAW-Worker] Flow too low for SAW check: flowShort=" << flowRateShort
+                     << "weight=" << weight << "target=" << m_targetWeight;
+            s_lastLowFlowLogMs = now;
+        }
+    }
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
         double cappedFlow = qMin(flowRateShort, 12.0);
         double expectedDrip = getExpectedDrip(cappedFlow);

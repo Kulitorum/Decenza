@@ -3217,6 +3217,7 @@ QString ShotServer::generateDebugPage() const
     <main class="container">
         <div style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
             <a href="/database.db" class="btn" style="text-decoration:none;">&#128190; Download Database</a>
+            <button class="btn" onclick="downloadLog()">&#128196; Download Log</button>
             <a href="/upload" class="btn" style="text-decoration:none;">&#128230; Upload APK</a>
         </div>
         <div class="log-container" id="logContainer"></div>
@@ -3286,6 +3287,23 @@ QString ShotServer::generateDebugPage() const
                         lastIndex = 0;
                     });
             }
+        }
+
+        function downloadLog() {
+            fetch("/api/debug/file")
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error " + r.status);
+                    return r.json();
+                })
+                .then(function(data) {
+                    var blob = new Blob([data.log || ""], {type: "text/plain"});
+                    var a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = "debug.log";
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                })
+                .catch(function(e) { alert("Download failed: " + e.message); });
         }
 
         function loadPersistedLog() {

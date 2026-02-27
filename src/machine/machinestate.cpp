@@ -423,6 +423,17 @@ void MachineState::onScaleWeightChanged(double weight) {
     m_lastIdleWeight = 0.0;
 
     DE1::State state = m_device->state();
+
+    // Throttled weight logging during SAW-relevant phases (~every 2s)
+    if (state == DE1::State::Espresso || state == DE1::State::HotWater) {
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastWeightLogMs >= 2000) {
+            qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
+                     << "phase=" << phaseString()
+                     << "tare=" << m_tareCompleted;
+            m_lastWeightLogMs = now;
+        }
+    }
     // Hot water: MachineState handles stop-at-weight (ShotTimingController not active)
     // Espresso: ShotTimingController handles stop-at-weight (with proper 1.5s lag compensation)
     if (state == DE1::State::HotWater) {
@@ -432,7 +443,16 @@ void MachineState::onScaleWeightChanged(double weight) {
 
 void MachineState::checkStopAtWeightHotWater(double weight) {
     if (m_stopAtWeightTriggered) return;
-    if (!m_tareCompleted) return;
+    if (!m_tareCompleted) {
+        // Throttle this warning to every 5s to avoid log spam at 5Hz
+        static qint64 s_lastTareWarnMs = 0;
+        qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (nowMs - s_lastTareWarnMs >= 5000) {
+            qWarning() << "[SAW-HotWater] Tare not completed - skipping SAW check, weight=" << weight;
+            s_lastTareWarnMs = nowMs;
+        }
+        return;
+    }
 
     // Volume mode: machine handles auto-stop via flowmeter, don't interfere
     if (m_settings && m_settings->waterVolumeMode() == "volume") return;
@@ -445,6 +465,8 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
 
     if (weight >= stopThreshold) {
         m_stopAtWeightTriggered = true;
+        qDebug() << "[SAW-HotWater] STOP triggered: weight=" << weight
+                 << "threshold=" << stopThreshold << "target=" << target;
         emit targetWeightReached();
 
         if (m_device) {
