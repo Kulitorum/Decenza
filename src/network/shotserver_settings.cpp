@@ -9,9 +9,14 @@
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
 #include "../ai/aimanager.h"
+#include "mqttclient.h"
 #include "version.h"
 
+#include <QPointer>
 #include <QNetworkInterface>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
 #include <QUdpSocket>
 #include <QSet>
 #include <QFile>
@@ -38,6 +43,54 @@
 #include <QJniObject>
 #endif
 
+// Apply AI-related fields from a JSON object to Settings. Only keys present
+// in obj are updated; missing keys leave the current setting unchanged.
+static void applyAiSettings(Settings* s, const QJsonObject& obj)
+{
+    if (obj.contains("aiProvider"))
+        s->setAiProvider(obj["aiProvider"].toString());
+    if (obj.contains("openaiApiKey"))
+        s->setOpenaiApiKey(obj["openaiApiKey"].toString());
+    if (obj.contains("anthropicApiKey"))
+        s->setAnthropicApiKey(obj["anthropicApiKey"].toString());
+    if (obj.contains("geminiApiKey"))
+        s->setGeminiApiKey(obj["geminiApiKey"].toString());
+    if (obj.contains("openrouterApiKey"))
+        s->setOpenrouterApiKey(obj["openrouterApiKey"].toString());
+    if (obj.contains("openrouterModel"))
+        s->setOpenrouterModel(obj["openrouterModel"].toString());
+    if (obj.contains("ollamaEndpoint"))
+        s->setOllamaEndpoint(obj["ollamaEndpoint"].toString());
+    if (obj.contains("ollamaModel"))
+        s->setOllamaModel(obj["ollamaModel"].toString());
+}
+
+// Apply MQTT-related fields from a JSON object to Settings. Only keys present
+// in obj are updated; missing keys leave the current setting unchanged.
+static void applyMqttSettings(Settings* s, const QJsonObject& obj)
+{
+    if (obj.contains("mqttEnabled"))
+        s->setMqttEnabled(obj["mqttEnabled"].toBool());
+    if (obj.contains("mqttBrokerHost"))
+        s->setMqttBrokerHost(obj["mqttBrokerHost"].toString());
+    if (obj.contains("mqttBrokerPort"))
+        s->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
+    if (obj.contains("mqttUsername"))
+        s->setMqttUsername(obj["mqttUsername"].toString());
+    if (obj.contains("mqttPassword"))
+        s->setMqttPassword(obj["mqttPassword"].toString());
+    if (obj.contains("mqttBaseTopic"))
+        s->setMqttBaseTopic(obj["mqttBaseTopic"].toString());
+    if (obj.contains("mqttPublishInterval"))
+        s->setMqttPublishInterval(obj["mqttPublishInterval"].toInt());
+    if (obj.contains("mqttClientId"))
+        s->setMqttClientId(obj["mqttClientId"].toString());
+    if (obj.contains("mqttRetainMessages"))
+        s->setMqttRetainMessages(obj["mqttRetainMessages"].toBool());
+    if (obj.contains("mqttHomeAssistantDiscovery"))
+        s->setMqttHomeAssistantDiscovery(obj["mqttHomeAssistantDiscovery"].toBool());
+}
+
 QString ShotServer::generateSettingsPage() const
 {
     return QString(R"HTML(
@@ -46,7 +99,7 @@ QString ShotServer::generateSettingsPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>API Keys & Settings - Decenza DE1</title>
+    <title>AI and Web Service Connections - Decenza DE1</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -142,6 +195,7 @@ QString ShotServer::generateSettingsPage() const
 )HTML" R"HTML(
         @media (max-width: 600px) {
             .form-row { grid-template-columns: 1fr; }
+            .section-actions { flex-wrap: wrap; }
         }
         .form-checkbox {
             display: flex;
@@ -155,13 +209,14 @@ QString ShotServer::generateSettingsPage() const
             accent-color: var(--accent);
         }
         .btn {
-            padding: 0.75rem 1.5rem;
+            padding: 0.625rem 1.25rem;
             border: none;
             border-radius: 6px;
-            font-size: 0.9375rem;
+            font-size: 0.875rem;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.15s;
+            white-space: nowrap;
         }
         .btn-primary {
             background: var(--accent);
@@ -172,20 +227,37 @@ QString ShotServer::generateSettingsPage() const
             opacity: 0.5;
             cursor: not-allowed;
         }
-        .save-bar {
-            position: sticky;
-            bottom: 0;
-            background: var(--surface);
-            border-top: 1px solid var(--border);
-            padding: 1rem 1.5rem;
+        .btn-secondary {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover { border-color: var(--text-secondary); }
+        .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-danger {
+            background: transparent;
+            color: var(--error);
+            border: 1px solid var(--error);
+        }
+        .btn-danger:hover { background: rgba(231, 50, 73, 0.1); }
+        .section-actions {
             display: flex;
-            justify-content: flex-end;
-            gap: 1rem;
             align-items: center;
+            gap: 0.75rem;
+            margin-top: 1.25rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .section-actions .status-msg {
+            flex: 1;
+            min-width: 0;
         }
         .status-msg {
-            font-size: 0.875rem;
-            padding: 0.5rem 0.75rem;
+            font-size: 0.8125rem;
+            padding: 0.375rem 0.625rem;
             border-radius: 4px;
         }
         .status-success {
@@ -195,6 +267,24 @@ QString ShotServer::generateSettingsPage() const
         .status-error {
             background: rgba(231, 50, 73, 0.15);
             color: var(--error);
+        }
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.375rem;
+            vertical-align: middle;
+        }
+        .status-dot.connected { background: var(--success); }
+        .status-dot.disconnected { background: var(--text-secondary); }
+        .mqtt-status {
+            display: flex;
+            align-items: center;
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            flex: 1;
+            min-width: 0;
         }
         .help-text {
             font-size: 0.75rem;
@@ -217,13 +307,51 @@ QString ShotServer::generateSettingsPage() const
             padding: 0.25rem;
         }
         .password-toggle:hover { color: var(--text); }
+        .provider-row {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .provider-btn {
+            flex: 1;
+            min-width: 5.5rem;
+            padding: 0.5rem 0.375rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.15s;
+            line-height: 1.3;
+        }
+        .provider-btn:hover { border-color: var(--text-secondary); }
+        .provider-btn .provider-name {
+            font-size: 0.8125rem;
+            font-weight: 500;
+        }
+        .provider-btn .provider-model {
+            font-size: 0.6875rem;
+            opacity: 0.7;
+        }
+        .provider-btn.selected {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--bg);
+        }
+        .provider-btn.selected .provider-model { opacity: 0.8; }
+        .provider-btn.configured {
+            background: rgba(24, 195, 126, 0.15);
+            border-color: rgba(24, 195, 126, 0.5);
+            color: var(--text);
+        }
     </style>
 </head>)HTML" R"HTML(
 <body>
     <header class="header">
         <div class="header-content">
             <a href="/" class="back-btn">&larr;</a>
-            <h1>API Keys & Settings</h1>
+            <h1>AI and Web Service Connections</h1>
         </div>
     </header>
 
@@ -246,6 +374,11 @@ QString ShotServer::generateSettingsPage() const
                         <button type="button" class="password-toggle" onclick="togglePassword('visualizerPassword')">&#128065;</button>
                     </div>
                 </div>
+                <div class="section-actions">
+                    <span id="visualizerStatus" class="status-msg"></span>
+                    <button class="btn btn-secondary" id="visualizerTestBtn" onclick="testVisualizer()">Test Connection</button>
+                    <button class="btn btn-primary" id="visualizerSaveBtn" onclick="saveVisualizer()">Save</button>
+                </div>
             </div>
         </div>
 
@@ -258,14 +391,28 @@ QString ShotServer::generateSettingsPage() const
             <div class="section-body">
                 <div class="form-group">
                     <label class="form-label">Provider</label>
-                    <select class="form-input" id="aiProvider" onchange="updateAiFields()">
-                        <option value="">Disabled</option>
-                        <option value="openai">OpenAI (GPT-4)</option>
-                        <option value="anthropic">Anthropic (Claude)</option>
-                        <option value="gemini">Google (Gemini)</option>
-                        <option value="openrouter">OpenRouter (Multi)</option>
-                        <option value="ollama">Ollama (Local)</option>
-                    </select>
+                    <div class="provider-row" id="providerRow">
+                        <button type="button" class="provider-btn" data-provider="openai" onclick="selectProvider('openai')">
+                            <div class="provider-name">OpenAI</div>
+                            <div class="provider-model">GPT-4.1</div>
+                        </button>
+                        <button type="button" class="provider-btn" data-provider="anthropic" onclick="selectProvider('anthropic')">
+                            <div class="provider-name">Anthropic</div>
+                            <div class="provider-model">Claude</div>
+                        </button>
+                        <button type="button" class="provider-btn" data-provider="gemini" onclick="selectProvider('gemini')">
+                            <div class="provider-name">Gemini</div>
+                            <div class="provider-model">Gemini</div>
+                        </button>
+                        <button type="button" class="provider-btn" data-provider="openrouter" onclick="selectProvider('openrouter')">
+                            <div class="provider-name">OpenRouter</div>
+                            <div class="provider-model" id="openrouterBtnModel">Multi</div>
+                        </button>
+                        <button type="button" class="provider-btn" data-provider="ollama" onclick="selectProvider('ollama')">
+                            <div class="provider-name">Ollama</div>
+                            <div class="provider-model" id="ollamaBtnModel">Local</div>
+                        </button>
+                    </div>
                 </div>
                 <div class="form-group" id="openaiGroup" style="display:none;">
                     <label class="form-label">OpenAI API Key</label>
@@ -318,9 +465,14 @@ QString ShotServer::generateSettingsPage() const
                         </div>
                     </div>
                 </div>
+                <div class="section-actions">
+                    <span id="aiStatus" class="status-msg"></span>
+                    <button class="btn btn-secondary" id="aiTestBtn" onclick="testAi()" disabled>Test Connection</button>
+                    <button class="btn btn-primary" id="aiSaveBtn" onclick="saveAi()">Save</button>
+                </div>
             </div>
         </div>
-
+)HTML" R"HTML(
         <!-- MQTT Section -->
         <div class="section">
             <div class="section-header">
@@ -385,28 +537,31 @@ QString ShotServer::generateSettingsPage() const
                         </label>
                     </div>
                 </div>
+                <div class="section-actions">
+                    <div class="mqtt-status">
+                        <span class="status-dot disconnected" id="mqttDot"></span>
+                        <span id="mqttStatusText">Disconnected</span>
+                    </div>
+                    <button class="btn btn-secondary" id="mqttDiscoveryBtn" onclick="publishDiscovery()" style="display:none;">Publish Discovery</button>
+                    <button class="btn btn-secondary" id="mqttConnectBtn" onclick="connectMqtt()">Connect</button>
+                    <button class="btn btn-primary" id="mqttSaveBtn" onclick="saveMqtt()">Save</button>
+                </div>
             </div>
         </div>
     </div>
-
-    <div class="save-bar">
-        <span id="statusMsg"></span>
-        <button class="btn btn-primary" id="saveBtn" onclick="saveSettings()">Save Settings</button>
-    </div>
 )HTML" R"HTML(
     <script>
-        // Load current settings on page load
+        let mqttPollTimer = null;
+        let selectedProvider = '';
+
         async function loadSettings() {
             try {
                 const resp = await fetch('/api/settings');
                 const data = await resp.json();
 
-                // Visualizer
                 document.getElementById('visualizerUsername').value = data.visualizerUsername || '';
                 document.getElementById('visualizerPassword').value = data.visualizerPassword || '';
 
-                // AI
-                document.getElementById('aiProvider').value = data.aiProvider || '';
                 document.getElementById('openaiApiKey').value = data.openaiApiKey || '';
                 document.getElementById('anthropicApiKey').value = data.anthropicApiKey || '';
                 document.getElementById('geminiApiKey').value = data.geminiApiKey || '';
@@ -414,9 +569,8 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('openrouterModel').value = data.openrouterModel || '';
                 document.getElementById('ollamaEndpoint').value = data.ollamaEndpoint || '';
                 document.getElementById('ollamaModel').value = data.ollamaModel || '';
-                updateAiFields();
+                selectProvider(data.aiProvider || '');
 
-                // MQTT
                 document.getElementById('mqttEnabled').checked = data.mqttEnabled || false;
                 document.getElementById('mqttBrokerHost').value = data.mqttBrokerHost || '';
                 document.getElementById('mqttBrokerPort').value = data.mqttBrokerPort || 1883;
@@ -428,18 +582,53 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('mqttRetainMessages').checked = data.mqttRetainMessages || false;
                 document.getElementById('mqttHomeAssistantDiscovery').checked = data.mqttHomeAssistantDiscovery || false;
                 updateMqttFields();
+
+                pollMqttStatus();
+                startMqttPolling();
             } catch (e) {
-                showStatus('Failed to load settings', true);
+                showSectionStatus('visualizerStatus', 'Failed to load settings', true);
+                showSectionStatus('aiStatus', 'Failed to load settings', true);
+                showSectionStatus('mqttStatusText', 'Failed to load settings', true);
             }
         }
 
-        function updateAiFields() {
-            const provider = document.getElementById('aiProvider').value;
-            document.getElementById('openaiGroup').style.display = provider === 'openai' ? 'block' : 'none';
-            document.getElementById('anthropicGroup').style.display = provider === 'anthropic' ? 'block' : 'none';
-            document.getElementById('geminiGroup').style.display = provider === 'gemini' ? 'block' : 'none';
-            document.getElementById('openrouterGroup').style.display = provider === 'openrouter' ? 'block' : 'none';
-            document.getElementById('ollamaGroup').style.display = provider === 'ollama' ? 'block' : 'none';
+        function selectProvider(id) {
+            selectedProvider = id;
+            document.getElementById('openaiGroup').style.display = id === 'openai' ? 'block' : 'none';
+            document.getElementById('anthropicGroup').style.display = id === 'anthropic' ? 'block' : 'none';
+            document.getElementById('geminiGroup').style.display = id === 'gemini' ? 'block' : 'none';
+            document.getElementById('openrouterGroup').style.display = id === 'openrouter' ? 'block' : 'none';
+            document.getElementById('ollamaGroup').style.display = id === 'ollama' ? 'block' : 'none';
+            document.getElementById('aiTestBtn').disabled = !id;
+            updateProviderButtons();
+        }
+
+        function isProviderConfigured(id) {
+            switch (id) {
+                case 'openai': return !!document.getElementById('openaiApiKey').value;
+                case 'anthropic': return !!document.getElementById('anthropicApiKey').value;
+                case 'gemini': return !!document.getElementById('geminiApiKey').value;
+                case 'openrouter': return !!document.getElementById('openrouterApiKey').value && !!document.getElementById('openrouterModel').value;
+                case 'ollama': return !!document.getElementById('ollamaEndpoint').value && !!document.getElementById('ollamaModel').value;
+                default: return false;
+            }
+        }
+
+        function updateProviderButtons() {
+            document.querySelectorAll('.provider-btn').forEach(btn => {
+                const id = btn.dataset.provider;
+                btn.classList.remove('selected', 'configured');
+                if (id === selectedProvider) {
+                    btn.classList.add('selected');
+                } else if (id && isProviderConfigured(id)) {
+                    btn.classList.add('configured');
+                }
+            });
+            // Update dynamic model labels
+            const orModel = document.getElementById('openrouterModel').value;
+            document.getElementById('openrouterBtnModel').textContent = orModel || 'Multi';
+            const olModel = document.getElementById('ollamaModel').value;
+            document.getElementById('ollamaBtnModel').textContent = olModel || 'Local';
         }
 
         function updateMqttFields() {
@@ -452,65 +641,227 @@ QString ShotServer::generateSettingsPage() const
             input.type = input.type === 'password' ? 'text' : 'password';
         }
 
-        async function saveSettings() {
-            const btn = document.getElementById('saveBtn');
-            btn.disabled = true;
-            btn.textContent = 'Saving...';
-
-            const data = {
-                // Visualizer
-                visualizerUsername: document.getElementById('visualizerUsername').value,
-                visualizerPassword: document.getElementById('visualizerPassword').value,
-
-                // AI
-                aiProvider: document.getElementById('aiProvider').value,
-                openaiApiKey: document.getElementById('openaiApiKey').value,
-                anthropicApiKey: document.getElementById('anthropicApiKey').value,
-                geminiApiKey: document.getElementById('geminiApiKey').value,
-                openrouterApiKey: document.getElementById('openrouterApiKey').value,
-                openrouterModel: document.getElementById('openrouterModel').value,
-                ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
-                ollamaModel: document.getElementById('ollamaModel').value,
-
-                // MQTT
-                mqttEnabled: document.getElementById('mqttEnabled').checked,
-                mqttBrokerHost: document.getElementById('mqttBrokerHost').value,
-                mqttBrokerPort: parseInt(document.getElementById('mqttBrokerPort').value) || 1883,
-                mqttUsername: document.getElementById('mqttUsername').value,
-                mqttPassword: document.getElementById('mqttPassword').value,
-                mqttBaseTopic: document.getElementById('mqttBaseTopic').value,
-                mqttPublishInterval: parseInt(document.getElementById('mqttPublishInterval').value) || 5,
-                mqttClientId: document.getElementById('mqttClientId').value,
-                mqttRetainMessages: document.getElementById('mqttRetainMessages').checked,
-                mqttHomeAssistantDiscovery: document.getElementById('mqttHomeAssistantDiscovery').checked
-            };
-
+        function showSectionStatus(id, msg, isError) {
+            const el = document.getElementById(id);
+            el.textContent = msg;
+            el.className = 'status-msg ' + (isError ? 'status-error' : 'status-success');
+            setTimeout(() => { el.textContent = ''; el.className = 'status-msg'; }, 4000);
+        }
+)HTML" R"HTML(
+        // --- Visualizer ---
+        async function saveVisualizer() {
+            const btn = document.getElementById('visualizerSaveBtn');
+            btn.disabled = true; btn.textContent = 'Saving...';
             try {
                 const resp = await fetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
+                    body: JSON.stringify({
+                        visualizerUsername: document.getElementById('visualizerUsername').value,
+                        visualizerPassword: document.getElementById('visualizerPassword').value
+                    })
                 });
-                const result = await resp.json();
-                if (result.success) {
-                    showStatus('Settings saved successfully!', false);
-                } else {
-                    showStatus(result.error || 'Failed to save', true);
+                const r = await resp.json();
+                showSectionStatus('visualizerStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
+            } catch (e) { showSectionStatus('visualizerStatus', 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Save';
+        }
+
+        async function testVisualizer() {
+            const btn = document.getElementById('visualizerTestBtn');
+            btn.disabled = true; btn.textContent = 'Testing...';
+            try {
+                const resp = await fetch('/api/settings/visualizer/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('visualizerUsername').value,
+                        password: document.getElementById('visualizerPassword').value
+                    })
+                });
+                const r = await resp.json();
+                showSectionStatus('visualizerStatus', r.message, !r.success);
+            } catch (e) { showSectionStatus('visualizerStatus', 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Test Connection';
+        }
+
+        // --- AI ---
+        async function saveAi() {
+            const btn = document.getElementById('aiSaveBtn');
+            btn.disabled = true; btn.textContent = 'Saving...';
+            try {
+                const resp = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        aiProvider: selectedProvider,
+                        openaiApiKey: document.getElementById('openaiApiKey').value,
+                        anthropicApiKey: document.getElementById('anthropicApiKey').value,
+                        geminiApiKey: document.getElementById('geminiApiKey').value,
+                        openrouterApiKey: document.getElementById('openrouterApiKey').value,
+                        openrouterModel: document.getElementById('openrouterModel').value,
+                        ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
+                        ollamaModel: document.getElementById('ollamaModel').value
+                    })
+                });
+                const r = await resp.json();
+                showSectionStatus('aiStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
+            } catch (e) { showSectionStatus('aiStatus', 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Save';
+        }
+
+        async function testAi() {
+            const btn = document.getElementById('aiTestBtn');
+            btn.disabled = true; btn.textContent = 'Testing...';
+            try {
+                const resp = await fetch('/api/settings/ai/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        aiProvider: selectedProvider,
+                        openaiApiKey: document.getElementById('openaiApiKey').value,
+                        anthropicApiKey: document.getElementById('anthropicApiKey').value,
+                        geminiApiKey: document.getElementById('geminiApiKey').value,
+                        openrouterApiKey: document.getElementById('openrouterApiKey').value,
+                        openrouterModel: document.getElementById('openrouterModel').value,
+                        ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
+                        ollamaModel: document.getElementById('ollamaModel').value
+                    })
+                });
+                const r = await resp.json();
+                showSectionStatus('aiStatus', r.message, !r.success);
+            } catch (e) { showSectionStatus('aiStatus', 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Test Connection';
+        }
+)HTML" R"HTML(
+        // --- MQTT ---
+        async function saveMqtt() {
+            const btn = document.getElementById('mqttSaveBtn');
+            btn.disabled = true; btn.textContent = 'Saving...';
+            try {
+                const resp = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        mqttEnabled: document.getElementById('mqttEnabled').checked,
+                        mqttBrokerHost: document.getElementById('mqttBrokerHost').value,
+                        mqttBrokerPort: parseInt(document.getElementById('mqttBrokerPort').value) || 1883,
+                        mqttUsername: document.getElementById('mqttUsername').value,
+                        mqttPassword: document.getElementById('mqttPassword').value,
+                        mqttBaseTopic: document.getElementById('mqttBaseTopic').value,
+                        mqttPublishInterval: parseInt(document.getElementById('mqttPublishInterval').value) || 5,
+                        mqttClientId: document.getElementById('mqttClientId').value,
+                        mqttRetainMessages: document.getElementById('mqttRetainMessages').checked,
+                        mqttHomeAssistantDiscovery: document.getElementById('mqttHomeAssistantDiscovery').checked
+                    })
+                });
+                const r = await resp.json();
+                showSectionStatus('mqttStatusText', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
+            } catch (e) { showSectionStatus('mqttStatusText', 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Save';
+        }
+
+        let mqttIsConnected = false;
+
+        async function connectMqtt() {
+            const btn = document.getElementById('mqttConnectBtn');
+            const wasConnect = !mqttIsConnected;
+            btn.disabled = true;
+            btn.textContent = wasConnect ? 'Connecting...' : 'Disconnecting...';
+
+            const endpoint = wasConnect ? '/api/settings/mqtt/connect' : '/api/settings/mqtt/disconnect';
+            try {
+                let body = {};
+                if (wasConnect) {
+                    body = {
+                        mqttEnabled: document.getElementById('mqttEnabled').checked,
+                        mqttBrokerHost: document.getElementById('mqttBrokerHost').value,
+                        mqttBrokerPort: parseInt(document.getElementById('mqttBrokerPort').value) || 1883,
+                        mqttUsername: document.getElementById('mqttUsername').value,
+                        mqttPassword: document.getElementById('mqttPassword').value,
+                        mqttBaseTopic: document.getElementById('mqttBaseTopic').value,
+                        mqttPublishInterval: parseInt(document.getElementById('mqttPublishInterval').value) || 5,
+                        mqttClientId: document.getElementById('mqttClientId').value,
+                        mqttRetainMessages: document.getElementById('mqttRetainMessages').checked,
+                        mqttHomeAssistantDiscovery: document.getElementById('mqttHomeAssistantDiscovery').checked
+                    };
+                }
+                const resp = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const r = await resp.json();
+                if (!r.success) {
+                    updateMqttStatusUI(wasConnect ? false : true,
+                        r.message || (wasConnect ? 'Connection failed' : 'Disconnect failed'));
                 }
             } catch (e) {
-                showStatus('Network error', true);
+                updateMqttStatusUI(false, 'Network error');
             }
-
             btn.disabled = false;
-            btn.textContent = 'Save Settings';
+            pollMqttStatus();
         }
 
-        function showStatus(msg, isError) {
-            const el = document.getElementById('statusMsg');
-            el.textContent = msg;
-            el.className = 'status-msg ' + (isError ? 'status-error' : 'status-success');
-            setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
+        async function publishDiscovery() {
+            const btn = document.getElementById('mqttDiscoveryBtn');
+            btn.disabled = true; btn.textContent = 'Publishing...';
+            try {
+                const resp = await fetch('/api/settings/mqtt/publish-discovery', { method: 'POST' });
+                const r = await resp.json();
+                btn.textContent = (resp.ok && r.success) ? 'Published!' : 'Failed';
+                setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000);
+            } catch (e) { btn.textContent = 'Failed'; setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000); }
+            btn.disabled = false;
         }
+
+        let mqttPollFailures = 0;
+        async function pollMqttStatus() {
+            try {
+                const resp = await fetch('/api/settings/mqtt/status');
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const r = await resp.json();
+                mqttPollFailures = 0;
+                updateMqttStatusUI(r.connected, r.status);
+            } catch (e) {
+                if (++mqttPollFailures >= 3)
+                    updateMqttStatusUI(false, 'Status unavailable');
+            }
+        }
+
+        function updateMqttStatusUI(connected, statusText) {
+            mqttIsConnected = connected;
+            const dot = document.getElementById('mqttDot');
+            const text = document.getElementById('mqttStatusText');
+            const connectBtn = document.getElementById('mqttConnectBtn');
+            const discoveryBtn = document.getElementById('mqttDiscoveryBtn');
+            const haChecked = document.getElementById('mqttHomeAssistantDiscovery').checked;
+
+            dot.className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+            text.textContent = statusText || (connected ? 'Connected' : 'Disconnected');
+            text.className = '';
+            connectBtn.textContent = connected ? 'Disconnect' : 'Connect';
+            discoveryBtn.style.display = (connected && haChecked) ? 'inline-block' : 'none';
+        }
+
+        function startMqttPolling() {
+            if (mqttPollTimer) clearInterval(mqttPollTimer);
+            mqttPollTimer = setInterval(pollMqttStatus, 2000);
+        }
+
+        // Update provider button styles live as user types API keys
+        document.querySelectorAll('#openaiApiKey,#anthropicApiKey,#geminiApiKey,#openrouterApiKey,#openrouterModel,#ollamaEndpoint,#ollamaModel')
+            .forEach(el => el.addEventListener('input', updateProviderButtons));
+
+        // Stop polling when page is not visible
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                if (mqttPollTimer) { clearInterval(mqttPollTimer); mqttPollTimer = null; }
+            } else {
+                pollMqttStatus();
+                startMqttPolling();
+            }
+        });
 
         loadSettings();
     </script>
@@ -580,45 +931,273 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
         m_settings->setVisualizerPassword(obj["visualizerPassword"].toString());
 
     // AI
-    if (obj.contains("aiProvider"))
-        m_settings->setAiProvider(obj["aiProvider"].toString());
-    if (obj.contains("openaiApiKey"))
-        m_settings->setOpenaiApiKey(obj["openaiApiKey"].toString());
-    if (obj.contains("anthropicApiKey"))
-        m_settings->setAnthropicApiKey(obj["anthropicApiKey"].toString());
-    if (obj.contains("geminiApiKey"))
-        m_settings->setGeminiApiKey(obj["geminiApiKey"].toString());
-    if (obj.contains("openrouterApiKey"))
-        m_settings->setOpenrouterApiKey(obj["openrouterApiKey"].toString());
-    if (obj.contains("openrouterModel"))
-        m_settings->setOpenrouterModel(obj["openrouterModel"].toString());
-    if (obj.contains("ollamaEndpoint"))
-        m_settings->setOllamaEndpoint(obj["ollamaEndpoint"].toString());
-    if (obj.contains("ollamaModel"))
-        m_settings->setOllamaModel(obj["ollamaModel"].toString());
+    applyAiSettings(m_settings, obj);
 
     // MQTT
-    if (obj.contains("mqttEnabled"))
-        m_settings->setMqttEnabled(obj["mqttEnabled"].toBool());
-    if (obj.contains("mqttBrokerHost"))
-        m_settings->setMqttBrokerHost(obj["mqttBrokerHost"].toString());
-    if (obj.contains("mqttBrokerPort"))
-        m_settings->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
-    if (obj.contains("mqttUsername"))
-        m_settings->setMqttUsername(obj["mqttUsername"].toString());
-    if (obj.contains("mqttPassword"))
-        m_settings->setMqttPassword(obj["mqttPassword"].toString());
-    if (obj.contains("mqttBaseTopic"))
-        m_settings->setMqttBaseTopic(obj["mqttBaseTopic"].toString());
-    if (obj.contains("mqttPublishInterval"))
-        m_settings->setMqttPublishInterval(obj["mqttPublishInterval"].toInt());
-    if (obj.contains("mqttClientId"))
-        m_settings->setMqttClientId(obj["mqttClientId"].toString());
-    if (obj.contains("mqttRetainMessages"))
-        m_settings->setMqttRetainMessages(obj["mqttRetainMessages"].toBool());
-    if (obj.contains("mqttHomeAssistantDiscovery"))
-        m_settings->setMqttHomeAssistantDiscovery(obj["mqttHomeAssistantDiscovery"].toBool());
+    applyMqttSettings(m_settings, obj);
 
+    sendJson(socket, R"({"success": true})");
+}
+
+void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body)
+{
+    if (m_visualizerTestInFlight) {
+        sendJson(socket, R"({"success": false, "message": "A test is already in progress"})");
+        return;
+    }
+
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(body, &err);
+    if (err.error != QJsonParseError::NoError) {
+        sendJson(socket, R"({"success": false, "message": "Invalid JSON"})");
+        return;
+    }
+
+    QJsonObject obj = doc.object();
+    QString username = obj["username"].toString();
+    QString password = obj["password"].toString();
+
+    if (username.isEmpty() || password.isEmpty()) {
+        sendJson(socket, R"({"success": false, "message": "Username and password are required"})");
+        return;
+    }
+
+    if (!m_testNetworkManager)
+        m_testNetworkManager = new QNetworkAccessManager(this);
+
+    QNetworkRequest request(QUrl("https://visualizer.coffee/api/shots?items=1"));
+    QString credentials = username + ":" + password;
+    request.setRawHeader("Authorization", "Basic " + credentials.toUtf8().toBase64());
+    request.setTransferTimeout(15000);
+
+    m_visualizerTestInFlight = true;
+
+    QPointer<QTcpSocket> safeSocket(socket);
+    QNetworkReply* reply = m_testNetworkManager->get(request);
+    auto fired = std::make_shared<bool>(false);
+
+    // Safety-net timeout (20s) in case Qt's transfer timeout (15s) fails to
+    // trigger QNetworkReply::finished -- ensures the socket always gets a response.
+    auto* timer = new QTimer(this);
+    timer->setSingleShot(true);
+
+    auto cleanup = [this, safeSocket, fired, timer](bool success, const QString& message) {
+        if (*fired) return;
+        *fired = true;
+        m_visualizerTestInFlight = false;
+        timer->stop();
+        timer->deleteLater();
+        if (!success)
+            qWarning() << "ShotServer: Visualizer test failed:" << message;
+        else
+            qDebug() << "ShotServer: Visualizer test succeeded";
+        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
+            return;
+        QJsonObject result;
+        result["success"] = success;
+        result["message"] = message;
+        sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    };
+
+    connect(reply, &QNetworkReply::finished, this, [reply, cleanup]() {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            cleanup(true, "Connection successful");
+        } else if (reply->error() == QNetworkReply::AuthenticationRequiredError) {
+            cleanup(false, "Invalid username or password");
+        } else {
+            cleanup(false, "Connection failed: " + reply->errorString());
+        }
+    });
+
+    connect(timer, &QTimer::timeout, this, [reply, cleanup]() {
+        reply->abort();
+        cleanup(false, "Connection test timed out");
+    });
+    timer->start(20000);
+}
+
+void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
+{
+    if (!m_aiManager || !m_settings) {
+        sendJson(socket, R"({"success": false, "message": "AI manager not available"})");
+        return;
+    }
+
+    if (m_aiTestInFlight) {
+        sendJson(socket, R"({"success": false, "message": "A test is already in progress"})");
+        return;
+    }
+
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(body, &err);
+    if (err.error != QJsonParseError::NoError) {
+        sendJson(socket, R"({"success": false, "message": "Invalid JSON"})");
+        return;
+    }
+
+    QJsonObject obj = doc.object();
+
+    // Apply submitted settings before testing -- AIManager::testConnection()
+    // creates a provider from current Settings values, so these must be
+    // written first for the test to use the web form's credentials.
+    // Note: this means "Test" also persists settings as a side effect.
+    applyAiSettings(m_settings, obj);
+
+    m_aiTestInFlight = true;
+
+    // One-shot connection to testResultChanged with timeout
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    auto timer = new QTimer(this);
+    timer->setSingleShot(true);
+    auto fired = std::make_shared<bool>(false);
+    QPointer<QTcpSocket> safeSocket(socket);
+
+    auto cleanup = [this, conn, timer, safeSocket, fired](bool success, const QString& message) {
+        if (*fired) return;
+        *fired = true;
+        m_aiTestInFlight = false;
+        disconnect(*conn);
+        timer->stop();
+        timer->deleteLater();
+        if (!success)
+            qWarning() << "ShotServer: AI test failed:" << message;
+        else
+            qDebug() << "ShotServer: AI test succeeded";
+        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
+            return;
+
+        QJsonObject result;
+        result["success"] = success;
+        result["message"] = message;
+        sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    };
+
+    *conn = connect(m_aiManager, &AIManager::testResultChanged, this, [this, cleanup]() {
+        cleanup(m_aiManager->lastTestSuccess(), m_aiManager->lastTestResult());
+    });
+
+    connect(timer, &QTimer::timeout, this, [cleanup]() {
+        cleanup(false, "Connection test timed out");
+    });
+    timer->start(15000);
+
+    m_aiManager->testConnection();
+}
+
+void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
+{
+    if (!m_mqttClient || !m_settings) {
+        sendJson(socket, R"({"success": false, "message": "MQTT client not available"})");
+        return;
+    }
+
+    if (m_mqttConnectInFlight) {
+        sendJson(socket, R"({"success": false, "message": "A connection attempt is already in progress"})");
+        return;
+    }
+
+    // Apply submitted settings before connecting -- connectToBroker() reads
+    // connection parameters from Settings, so they must reflect the web form values.
+    // Note: this means "Connect" also persists settings as a side effect.
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(body, &err);
+    if (err.error != QJsonParseError::NoError) {
+        sendJson(socket, R"({"success": false, "message": "Invalid request body"})");
+        return;
+    }
+    applyMqttSettings(m_settings, doc.object());
+
+    m_mqttConnectInFlight = true;
+
+    // One-shot connection to statusChanged with timeout
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    auto timer = new QTimer(this);
+    timer->setSingleShot(true);
+    auto fired = std::make_shared<bool>(false);
+    QPointer<QTcpSocket> safeSocket(socket);
+
+    auto cleanup = [this, conn, timer, safeSocket, fired](bool success, const QString& message) {
+        if (*fired) return;
+        *fired = true;
+        m_mqttConnectInFlight = false;
+        disconnect(*conn);
+        timer->stop();
+        timer->deleteLater();
+        if (!success)
+            qWarning() << "ShotServer: MQTT connect failed:" << message;
+        else
+            qDebug() << "ShotServer: MQTT connect succeeded";
+        if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
+            return;
+
+        QJsonObject result;
+        result["success"] = success;
+        result["message"] = message;
+        sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    };
+
+    *conn = connect(m_mqttClient, &MqttClient::statusChanged, this, [this, cleanup]() {
+        QString status = m_mqttClient->status();
+        bool connected = m_mqttClient->isConnected();
+        // Terminal state = connected, or not actively connecting/reconnecting.
+        // MqttClient status strings: "Connecting...", "Disconnected - reconnecting (N/M)..."
+        if (connected
+            || (!status.startsWith("Connecting", Qt::CaseInsensitive)
+                && !status.contains("reconnecting", Qt::CaseInsensitive))) {
+            cleanup(connected, status);
+        }
+    });
+
+    connect(timer, &QTimer::timeout, this, [cleanup]() {
+        cleanup(false, "Connection timed out");
+    });
+    timer->start(5000);
+
+    m_mqttClient->connectToBroker();
+}
+
+void ShotServer::handleMqttDisconnect(QTcpSocket* socket)
+{
+    if (!m_mqttClient) {
+        sendJson(socket, R"({"success": false, "message": "MQTT client not available"})");
+        return;
+    }
+
+    m_mqttClient->disconnectFromBroker();
+    // Disconnect is async -- report that it was requested, not that it completed.
+    // The MQTT status polling (every 2s) will show the actual state.
+    sendJson(socket, R"({"success": true, "message": "Disconnect requested"})");
+}
+
+void ShotServer::handleMqttStatus(QTcpSocket* socket)
+{
+    if (!m_mqttClient) {
+        sendJson(socket, R"({"connected": false, "status": "MQTT not available"})");
+        return;
+    }
+
+    QJsonObject result;
+    result["connected"] = m_mqttClient->isConnected();
+    result["status"] = m_mqttClient->status();
+    sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+}
+
+void ShotServer::handleMqttPublishDiscovery(QTcpSocket* socket)
+{
+    if (!m_mqttClient) {
+        sendJson(socket, R"({"success": false, "message": "MQTT client not available"})");
+        return;
+    }
+
+    if (!m_mqttClient->isConnected()) {
+        sendJson(socket, R"({"success": false, "message": "Not connected to MQTT broker"})");
+        return;
+    }
+
+    m_mqttClient->publishDiscovery();
+    // publishDiscovery() is fire-and-forget -- Paho async publish failures
+    // are not propagated back. The isConnected() check above is our best guard.
     sendJson(socket, R"({"success": true})");
 }
 

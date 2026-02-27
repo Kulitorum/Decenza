@@ -36,6 +36,15 @@
 #include <QRegularExpression>
 #include <QRandomGenerator>
 #include <QSslServer>
+#include <QSocketNotifier>
+
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#include <unistd.h>
+#include <cerrno>
+#endif
 
 #ifndef Q_OS_IOS
 #include <openssl/evp.h>
@@ -49,6 +58,197 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
+
+// ---------------------------------------------------------------------------
+// HttpRedirectSslServer – QSslServer subclass that detects plain HTTP
+// connections and replies with a 301 redirect to https://.
+//
+// When a new connection arrives, we peek at the first byte using raw recv():
+//   0x16 = TLS ClientHello -> hand off to QSslServer for normal TLS flow
+//   anything else          -> parse HTTP request, send 301, close
+//
+// Host and path are sanitized against CRLF header injection.
+// ---------------------------------------------------------------------------
+class HttpRedirectSslServer : public QSslServer {
+public:
+    explicit HttpRedirectSslServer(int port, QObject* parent = nullptr)
+        : QSslServer(parent), m_port(port) {}
+
+    ~HttpRedirectSslServer() override {
+        // Close any file descriptors still waiting for data
+        for (auto it = m_pending.begin(); it != m_pending.end(); ++it) {
+            delete it.value().notifier;
+            delete it.value().timer;
+            closeFd(it.key());
+        }
+        m_pending.clear();
+    }
+
+protected:
+    void incomingConnection(qintptr fd) override {
+        // We can't peek yet – data may not have arrived. Use QSocketNotifier
+        // to wait asynchronously for the first byte.
+        auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
+        auto* timer = new QTimer(this);
+        timer->setSingleShot(true);
+        timer->setInterval(5000);
+
+        PendingConn pc;
+        pc.notifier = notifier;
+        pc.timer = timer;
+        m_pending.insert(fd, pc);
+
+        connect(notifier, &QSocketNotifier::activated, this, [this, fd]() {
+            handleFirstByte(fd);
+        });
+
+        connect(timer, &QTimer::timeout, this, [this, fd]() {
+            qDebug() << "HttpRedirectSslServer: Timeout waiting for first byte, fd:" << fd;
+            cleanupPending(fd);
+            closeFd(fd);
+        });
+
+        timer->start();
+    }
+
+private:
+    struct PendingConn {
+        QSocketNotifier* notifier = nullptr;
+        QTimer* timer = nullptr;
+    };
+    QHash<qintptr, PendingConn> m_pending;
+    int m_port;
+
+    // Platform-appropriate socket type from qintptr
+#ifdef Q_OS_WIN
+    static SOCKET toNativeFd(qintptr fd) { return static_cast<SOCKET>(fd); }
+#else
+    static int toNativeFd(qintptr fd) { return static_cast<int>(fd); }
+#endif
+
+    void handleFirstByte(qintptr fd) {
+        auto it = m_pending.find(fd);
+        if (it == m_pending.end()) return;
+
+        // Disable notifier immediately to avoid re-entry
+        it.value().notifier->setEnabled(false);
+
+        unsigned char peek = 0;
+        int n = ::recv(toNativeFd(fd), reinterpret_cast<char*>(&peek), 1, MSG_PEEK);
+
+        if (n <= 0) {
+            if (n < 0) {
+#ifdef Q_OS_WIN
+                qWarning() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd
+                           << "WSA error:" << WSAGetLastError();
+#else
+                qWarning() << "HttpRedirectSslServer: recv(MSG_PEEK) failed, fd:" << fd
+                           << "errno:" << errno << strerror(errno);
+#endif
+            }
+            cleanupPending(fd);
+            closeFd(fd);
+            return;
+        }
+
+        cleanupPending(fd);
+
+        if (peek == 0x16) {
+            // TLS ClientHello – hand off to QSslServer for normal processing
+            QSslServer::incomingConnection(fd);
+        } else {
+            // Plain HTTP – read request, send redirect, close
+            sendHttpRedirect(fd);
+        }
+    }
+
+    void sendHttpRedirect(qintptr fd) {
+        // Read whatever HTTP data is available (up to 4 KB is plenty for a request line + headers)
+        char buf[4096];
+        int n = ::recv(toNativeFd(fd), buf, sizeof(buf) - 1, 0);
+        if (n <= 0) {
+            closeFd(fd);
+            return;
+        }
+        buf[n] = '\0';
+
+        // Parse path from "GET /path HTTP/1.x"
+        QString path = "/";
+        QByteArray request(buf, n);
+        int firstSpace = request.indexOf(' ');
+        if (firstSpace > 0) {
+            int secondSpace = request.indexOf(' ', firstSpace + 1);
+            if (secondSpace > firstSpace + 1) {
+                path = QString::fromLatin1(request.mid(firstSpace + 1, secondSpace - firstSpace - 1));
+            }
+        }
+
+        // Parse Host header
+        QString host = "localhost";
+        int hostIdx = request.indexOf("Host:");
+        if (hostIdx < 0) hostIdx = request.indexOf("host:");
+        if (hostIdx >= 0) {
+            int start = hostIdx + 5;
+            while (start < request.size() && request.at(start) == ' ') ++start;
+            int end = request.indexOf('\r', start);
+            if (end < 0) end = request.indexOf('\n', start);
+            if (end > start) {
+                host = QString::fromLatin1(request.mid(start, end - start));
+                // Strip port from host if present (we'll add our own)
+                if (host.startsWith('[')) {
+                    // IPv6 literal: [::1]:port – strip after closing bracket
+                    int closeBracket = host.indexOf(']');
+                    if (closeBracket > 0)
+                        host = host.left(closeBracket + 1);
+                } else {
+                    int colonIdx = host.lastIndexOf(':');
+                    if (colonIdx > 0) host = host.left(colonIdx);
+                }
+            }
+        }
+
+        // Sanitize host and path to prevent header injection via CRLF
+        static QRegularExpression validHost(QStringLiteral("^[a-zA-Z0-9.\\-]+$|^\\[[0-9a-fA-F:]+\\]$"));
+        if (!validHost.match(host).hasMatch())
+            host = QStringLiteral("localhost");
+        path.remove(QChar('\r'));
+        path.remove(QChar('\n'));
+
+        QString location = QString("https://%1:%2%3").arg(host).arg(m_port).arg(path);
+        QByteArray response =
+            "HTTP/1.1 301 Moved Permanently\r\n"
+            "Location: " + location.toLatin1() + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n";
+
+        auto sent = ::send(toNativeFd(fd), response.constData(), response.size(), 0);
+        if (sent < 0)
+            qWarning() << "HttpRedirectSslServer: send() failed, fd:" << fd;
+        else if (sent < response.size())
+            qWarning() << "HttpRedirectSslServer: partial send" << sent << "/" << response.size() << "fd:" << fd;
+        closeFd(fd);
+    }
+
+    void cleanupPending(qintptr fd) {
+        auto it = m_pending.find(fd);
+        if (it != m_pending.end()) {
+            delete it.value().notifier;
+            delete it.value().timer;
+            m_pending.erase(it);
+        }
+    }
+
+    static void closeFd(qintptr fd) {
+#ifdef Q_OS_WIN
+        ::closesocket(toNativeFd(fd));
+#else
+        ::close(toNativeFd(fd));
+#endif
+    }
+};
+
+// ---------------------------------------------------------------------------
 
 ShotServer::ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* parent)
     : QObject(parent)
@@ -156,7 +356,7 @@ bool ShotServer::start()
             qWarning() << "ShotServer: TLS setup failed, cannot start secure server";
             return false;
         } else {
-            auto* sslServer = new QSslServer(this);
+            auto* sslServer = new HttpRedirectSslServer(m_port, this);
             QSslConfiguration sslConfig;
             sslConfig.setLocalCertificate(m_sslCert);
             sslConfig.setPrivateKey(m_sslKey);
@@ -562,8 +762,8 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     QString method = requestLine[0];
     QString path = requestLine[1];
 
-    // Don't log debug polling requests (too noisy)
-    if (!path.startsWith("/api/debug")) {
+    // Don't log polling requests (too noisy)
+    if (!path.startsWith("/api/debug") && path != "/api/settings/mqtt/status" && path != "/api/telemetry") {
         qDebug() << "ShotServer:" << method << path;
     }
 
@@ -731,6 +931,36 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     }
     else if (path == "/settings") {
         sendHtml(socket, generateSettingsPage());
+    }
+    else if (path == "/api/settings/visualizer/test" && method == "POST") {
+        int bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart != -1) {
+            handleVisualizerTest(socket, request.mid(bodyStart + 4));
+        } else {
+            sendJson(socket, R"({"success": false, "message": "Invalid request"})");
+        }
+    }
+    else if (path == "/api/settings/ai/test" && method == "POST") {
+        int bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart != -1) {
+            handleAiTest(socket, request.mid(bodyStart + 4));
+        } else {
+            sendJson(socket, R"({"success": false, "message": "Invalid request"})");
+        }
+    }
+    else if (path == "/api/settings/mqtt/connect" && method == "POST") {
+        int bodyStart = request.indexOf("\r\n\r\n");
+        QByteArray body = (bodyStart != -1) ? request.mid(bodyStart + 4) : QByteArray();
+        handleMqttConnect(socket, body);
+    }
+    else if (path == "/api/settings/mqtt/disconnect" && method == "POST") {
+        handleMqttDisconnect(socket);
+    }
+    else if (path == "/api/settings/mqtt/status") {
+        handleMqttStatus(socket);
+    }
+    else if (path == "/api/settings/mqtt/publish-discovery" && method == "POST") {
+        handleMqttPublishDiscovery(socket);
     }
     else if (path == "/api/settings") {
         if (method == "POST") {

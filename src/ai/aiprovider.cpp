@@ -103,7 +103,6 @@ void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -196,11 +195,13 @@ void OpenAIProvider::testConnection()
     req.setUrl(url);
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     req.setTransferTimeout(TEST_TIMEOUT_MS);
+    // Disable HTTP/2 -- Qt's HTTP/2 layer intercepts 401 as an auth challenge
+    // instead of passing the response body through, breaking custom auth schemes
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     QNetworkReply* reply = m_networkManager->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -208,14 +209,46 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
 {
     reply->deleteLater();
 
+    QByteArray responseBody = reply->readAll();
+    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+    // Handle errors in priority order: explicit 401 with response body context,
+    // then network errors with JSON error parsing, then success-with-error-body,
+    // then fall back to Qt's generic error string.
+    if (httpStatus == 401) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "Authentication failed: " + errorMsg);
+                return;
+            }
+        }
+        emit testResult(false, "Invalid API key");
+        return;
+    }
+
     if (reply->error() != QNetworkReply::NoError) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+                return;
+            }
+        }
         emit testResult(false, "Connection failed: " + reply->errorString());
         return;
     }
 
-    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (errorMsg.isEmpty())
+            errorMsg = "Unknown API error";
         emit testResult(false, "API error: " + errorMsg);
         return;
     }
@@ -249,7 +282,6 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -370,12 +402,14 @@ void AnthropicProvider::testConnection()
     req.setRawHeader("x-api-key", m_apiKey.toUtf8());
     req.setRawHeader("anthropic-version", "2023-06-01");
     req.setTransferTimeout(TEST_TIMEOUT_MS);
+    // Disable HTTP/2 — Qt's HTTP/2 layer intercepts 401 as an auth challenge
+    // instead of passing the response body through, breaking custom auth schemes
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -383,14 +417,46 @@ void AnthropicProvider::onTestReply(QNetworkReply* reply)
 {
     reply->deleteLater();
 
+    QByteArray responseBody = reply->readAll();
+    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+    // Handle errors in priority order: explicit 401 with response body context,
+    // then network errors with JSON error parsing, then success-with-error-body,
+    // then fall back to Qt's generic error string.
+    if (httpStatus == 401) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "Authentication failed: " + errorMsg);
+                return;
+            }
+        }
+        emit testResult(false, "Invalid API key");
+        return;
+    }
+
     if (reply->error() != QNetworkReply::NoError) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+                return;
+            }
+        }
         emit testResult(false, "Connection failed: " + reply->errorString());
         return;
     }
 
-    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (errorMsg.isEmpty())
+            errorMsg = "Unknown API error";
         emit testResult(false, "API error: " + errorMsg);
         return;
     }
@@ -430,7 +496,6 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -578,12 +643,14 @@ void GeminiProvider::testConnection()
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
     req.setTransferTimeout(TEST_TIMEOUT_MS);
+    // Disable HTTP/2 -- Qt's HTTP/2 layer intercepts 401 as an auth challenge
+    // instead of passing the response body through, breaking custom auth schemes
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -591,14 +658,43 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
 {
     reply->deleteLater();
 
+    QByteArray responseBody = reply->readAll();
+    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+    if (httpStatus == 401 || httpStatus == 403) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "Authentication failed: " + errorMsg);
+                return;
+            }
+        }
+        emit testResult(false, "Invalid API key");
+        return;
+    }
+
     if (reply->error() != QNetworkReply::NoError) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+                return;
+            }
+        }
         emit testResult(false, "Connection failed: " + reply->errorString());
         return;
     }
 
-    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (errorMsg.isEmpty())
+            errorMsg = "Unknown API error";
         emit testResult(false, "API error: " + errorMsg);
         return;
     }
@@ -636,7 +732,6 @@ void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -743,12 +838,14 @@ void OpenRouterProvider::testConnection()
     req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
     req.setRawHeader("X-Title", "Decenza DE1");
     req.setTransferTimeout(TEST_TIMEOUT_MS);
+    // Disable HTTP/2 -- Qt's HTTP/2 layer intercepts 401 as an auth challenge
+    // instead of passing the response body through, breaking custom auth schemes
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onTestReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -756,14 +853,43 @@ void OpenRouterProvider::onTestReply(QNetworkReply* reply)
 {
     reply->deleteLater();
 
+    QByteArray responseBody = reply->readAll();
+    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+    if (httpStatus == 401) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "Authentication failed: " + errorMsg);
+                return;
+            }
+        }
+        emit testResult(false, "Invalid API key");
+        return;
+    }
+
     if (reply->error() != QNetworkReply::NoError) {
+        QJsonDocument doc = QJsonDocument::fromJson(responseBody);
+        if (doc.isObject() && doc.object().contains("error")) {
+            QJsonValue errVal = doc.object()["error"];
+            QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+            if (!errorMsg.isEmpty()) {
+                emit testResult(false, "API error: " + errorMsg);
+                return;
+            }
+        }
         emit testResult(false, "Connection failed: " + reply->errorString());
         return;
     }
 
-    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonDocument doc = QJsonDocument::fromJson(responseBody);
     if (doc.object().contains("error")) {
-        QString errorMsg = doc.object()["error"].toObject()["message"].toString();
+        QJsonValue errVal = doc.object()["error"];
+        QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
+        if (errorMsg.isEmpty())
+            errorMsg = "Unknown API error";
         emit testResult(false, "API error: " + errorMsg);
         return;
     }
@@ -796,7 +922,6 @@ void OllamaProvider::sendRequest(const QUrl& url, const QJsonObject& requestBody
     QNetworkReply* reply = m_networkManager->post(req, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onAnalysisReply(reply);
-        reply->deleteLater();
     });
 }
 
@@ -914,7 +1039,6 @@ void OllamaProvider::refreshModels()
     QNetworkReply* reply = m_networkManager->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         onModelsReply(reply);
-        reply->deleteLater();
     });
 }
 

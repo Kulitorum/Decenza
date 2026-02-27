@@ -347,6 +347,7 @@ int main(int argc, char *argv[])
     // Connect screensaver manager and AI manager to shot server
     mainController.shotServer()->setScreensaverVideoManager(&screensaverManager);
     mainController.shotServer()->setAIManager(&aiManager);
+    mainController.shotServer()->setMqttClient(mainController.mqttClient());
     // Connect screensaver manager to data migration client for media import
     mainController.dataMigration()->setScreensaverVideoManager(&screensaverManager);
 
