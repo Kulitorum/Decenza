@@ -640,6 +640,7 @@ Rectangle {
         title: TranslationManager.translate("shotdetail.unsupportedbeverage.title", "AI Not Available")
         anchors.centerIn: parent
         width: Math.min(parent.width * 0.85, Theme.scaled(400))
+        padding: Theme.scaled(16)
         modal: true
 
         background: Rectangle {
@@ -647,13 +648,14 @@ Rectangle {
             radius: Theme.cardRadius
         }
 
-        Text {
+        contentItem: Text {
+            Accessible.ignored: true
             text: TranslationManager.translate("shotdetail.unsupportedbeverage.message",
                 "AI analysis isn't available for %1 profiles yet \u2014 only espresso and filter are supported for now. Sorry about that!").arg(unsupportedBeverageDialog.beverageType)
             font: Theme.bodyFont
             color: Theme.textColor
             wrapMode: Text.Wrap
-            width: parent.width
+            width: unsupportedBeverageDialog.availableWidth
         }
 
         standardButtons: Dialog.Ok

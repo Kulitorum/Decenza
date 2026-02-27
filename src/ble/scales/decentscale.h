@@ -39,6 +39,7 @@ private:
     void parseWeightData(const QByteArray& data);
     void sendCommand(const QByteArray& command);
     void sendHeartbeat();
+    void enableWeightNotifications(const QString& reason, bool force = false);
     void startHeartbeat();
     void stopHeartbeat();
     uint8_t calculateXor(const QByteArray& data);
@@ -47,5 +48,7 @@ private:
     QString m_name = "Decent Scale";
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
+    qint64 m_lastNotificationEnableMs = 0;
+    qint64 m_lastScalePacketMs = 0;
     QTimer* m_heartbeatTimer = nullptr;
 };

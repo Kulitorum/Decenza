@@ -16,6 +16,8 @@
 #include <QElapsedTimer>
 #include <QDateTime>
 #include <QNetworkAccessManager>
+#include <QPointer>
+#include <memory>
 
 class ShotHistoryStorage;
 class DE1Device;
@@ -216,11 +218,30 @@ private:
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
-    QTcpSocket* m_pendingLibrarySocket = nullptr;  // Socket waiting for community response
+    int m_nextLibraryRequestId = 0;
+    static constexpr int kLibraryTimeoutMs = 60000;
+    enum class LibraryRequestType { Browse, Download, Upload, Delete };
+    struct PendingLibraryRequest {
+        LibraryRequestType type;
+        QPointer<QTcpSocket> socket;
+        QList<QMetaObject::Connection> connections;
+        QTimer* timeoutTimer = nullptr;
+        std::shared_ptr<bool> fired = std::make_shared<bool>(false);
+    };
+    QHash<int, PendingLibraryRequest> m_pendingLibraryRequests;
+    bool hasInFlightLibraryRequest(LibraryRequestType type) const {
+        for (auto it = m_pendingLibraryRequests.constBegin(); it != m_pendingLibraryRequests.constEnd(); ++it)
+            if (it.value().type == type) return true;
+        return false;
+    }
+    void invalidateLibraryRequest(PendingLibraryRequest& req);
+    void completeLibraryRequest(int reqId, const QJsonObject& resp);
+    void cancelAllLibraryRequests();
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
     int m_activeMediaUploads = 0;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
+    QHash<QTcpSocket*, qint64> m_uploadProgressLog;  // Track last-logged byte offset per socket (cleaned up on disconnect)
     QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications
     QSet<QTcpSocket*> m_sseThemeClients;   // SSE connections for theme change notifications
     QHash<QTcpSocket*, QTimer*> m_keepAliveTimers;  // Idle timers for keep-alive connections

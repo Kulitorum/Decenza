@@ -288,40 +288,31 @@ void ShotServer::setSettings(Settings* settings)
     }
 }
 
-void ShotServer::onLayoutChanged()
+static void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event)
 {
-    // Notify all SSE clients that the layout has changed
-    QByteArray event = "event: layout-changed\ndata: {}\n\n";
     QList<QTcpSocket*> dead;
-    for (QTcpSocket* client : m_sseLayoutClients) {
-        if (client->state() != QAbstractSocket::ConnectedState) {
+    for (QTcpSocket* client : clients) {
+        if (client->state() != QAbstractSocket::ConnectedState || client->write(event) == -1) {
             dead.append(client);
             continue;
         }
-        client->write(event);
         client->flush();
     }
     for (QTcpSocket* s : dead) {
-        m_sseLayoutClients.remove(s);
+        clients.remove(s);
+        s->close();
+        s->deleteLater();
     }
+}
+
+void ShotServer::onLayoutChanged()
+{
+    broadcastSseEvent(m_sseLayoutClients, "event: layout-changed\ndata: {}\n\n");
 }
 
 void ShotServer::onThemeChanged()
 {
-    // Notify all SSE clients that the theme has changed
-    QByteArray event = "event: theme-changed\ndata: {}\n\n";
-    QList<QTcpSocket*> dead;
-    for (QTcpSocket* client : m_sseThemeClients) {
-        if (client->state() != QAbstractSocket::ConnectedState) {
-            dead.append(client);
-            continue;
-        }
-        client->write(event);
-        client->flush();
-    }
-    for (QTcpSocket* s : dead) {
-        m_sseThemeClients.remove(s);
-    }
+    broadcastSseEvent(m_sseThemeClients, "event: theme-changed\ndata: {}\n\n");
 }
 
 QString ShotServer::url() const
@@ -427,6 +418,8 @@ bool ShotServer::start()
 
 void ShotServer::stop()
 {
+    cancelAllLibraryRequests();
+
     if (m_discoverySocket) {
         m_discoverySocket->close();
         delete m_discoverySocket;
@@ -435,8 +428,15 @@ void ShotServer::stop()
 
     if (m_server) {
         m_cleanupTimer->stop();
+        // Copy sets before closing — s->close() can synchronously trigger
+        // onDisconnected() which calls m_sseLayoutClients.remove() during iteration.
+        auto layoutCopy = m_sseLayoutClients;
         m_sseLayoutClients.clear();
+        for (QTcpSocket* s : layoutCopy) s->close();
+        auto themeCopy = m_sseThemeClients;
         m_sseThemeClients.clear();
+        for (QTcpSocket* s : themeCopy) s->close();
+        for (QTimer* t : m_keepAliveTimers) t->stop();
         m_keepAliveTimers.clear();
         m_server->close();
         delete m_server;
@@ -586,8 +586,7 @@ void ShotServer::onReadyRead()
 
         // Log progress for large uploads
         if (pending.contentLength > 5 * 1024 * 1024) {
-            static QHash<QTcpSocket*, qint64> lastLog;
-            qint64& last = lastLog[socket];
+            qint64& last = m_uploadProgressLog[socket];
             if (pending.bodyReceived - last > 5 * 1024 * 1024) {
                 qDebug() << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
                 last = pending.bodyReceived;
@@ -598,6 +597,9 @@ void ShotServer::onReadyRead()
         if (pending.bodyReceived < pending.contentLength) {
             return;  // Still waiting for more data
         }
+
+        // Clean up upload progress tracking for this socket
+        m_uploadProgressLog.remove(socket);
 
         // Request complete
         if (pending.tempFile) {
@@ -639,11 +641,13 @@ void ShotServer::onReadyRead()
 
     } catch (const std::exception& e) {
         qWarning() << "ShotServer: Exception in onReadyRead:" << e.what();
+        m_uploadProgressLog.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->close();
     } catch (...) {
         qWarning() << "ShotServer: Unknown exception in onReadyRead";
+        m_uploadProgressLog.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->close();
@@ -659,14 +663,65 @@ void ShotServer::onDisconnected()
         m_keepAliveTimers.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
+
+        // Clean up any pending library requests for this socket (or already-destroyed sockets)
+        QList<int> toRemove;
+        for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
+            if (it.value().socket == socket || it.value().socket.isNull()) {
+                qDebug() << "ShotServer: Cleaning up pending library request" << it.key() << "- socket disconnected";
+                invalidateLibraryRequest(it.value());
+                toRemove.append(it.key());
+            }
+        }
+        for (int id : toRemove) {
+            m_pendingLibraryRequests.remove(id);
+        }
+
         socket->deleteLater();
     }
+}
+
+void ShotServer::invalidateLibraryRequest(PendingLibraryRequest& req)
+{
+    if (req.fired) *req.fired = true;
+    for (auto& conn : req.connections) disconnect(conn);
+    if (req.timeoutTimer) {
+        req.timeoutTimer->stop();
+        req.timeoutTimer->deleteLater();
+    }
+}
+
+void ShotServer::cancelAllLibraryRequests()
+{
+    for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
+        invalidateLibraryRequest(it.value());
+    }
+    m_pendingLibraryRequests.clear();
+}
+
+void ShotServer::completeLibraryRequest(int reqId, const QJsonObject& resp)
+{
+    if (!m_pendingLibraryRequests.contains(reqId)) return;
+    auto& req = m_pendingLibraryRequests[reqId];
+    if (*req.fired) {
+        qDebug() << "ShotServer: Library request" << reqId << "already handled, ignoring duplicate callback";
+        return;
+    }
+    invalidateLibraryRequest(req);
+
+    if (req.socket && req.socket->state() == QAbstractSocket::ConnectedState) {
+        sendJson(req.socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+    } else {
+        qDebug() << "ShotServer: Dropping response for library request" << reqId << "- socket disconnected";
+    }
+    m_pendingLibraryRequests.remove(reqId);
 }
 
 void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
 {
     if (!m_pendingRequests.contains(socket)) return;
 
+    m_uploadProgressLog.remove(socket);
     PendingRequest& pending = m_pendingRequests[socket];
     if (pending.tempFile) {
         pending.tempFile->close();
@@ -677,7 +732,9 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
         QFile::remove(pending.tempFilePath);
         qDebug() << "ShotServer: Cleaned up temp file:" << pending.tempFilePath;
     }
-    if ((pending.isMediaUpload || pending.isBackupRestore) && m_activeMediaUploads > 0) {
+    // Only decrement if this was a large upload that was actually counted
+    // (small uploads < MAX_SMALL_BODY_SIZE don't increment m_activeMediaUploads)
+    if ((pending.isMediaUpload || pending.isBackupRestore) && !pending.tempFilePath.isEmpty() && m_activeMediaUploads > 0) {
         m_activeMediaUploads--;
     }
 }
@@ -1229,7 +1286,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             handleMediaUpload(socket, tempPath, headers);
         }
     }
-    else if (path == "/api/media/personal") {
+    else if (path == "/api/media/personal" && method == "GET") {
         if (!m_screensaverManager) {
             sendJson(socket, R"({"error":"Screensaver manager not available"})");
             return;
