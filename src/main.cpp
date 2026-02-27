@@ -229,9 +229,12 @@ int main(int argc, char *argv[])
     QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                      &weightProcessor, &WeightProcessor::processWeight);
 
-    // WeightProcessor → DE1Device: stop-at-weight (worker → main, bypasses command queue)
+    // WeightProcessor → DE1Device: stop-at-weight (direct from worker thread).
+    // Uses DirectConnection so the BLE write happens immediately on the worker
+    // thread, bypassing the main thread event queue entirely. writeUrgentStop()
+    // is mutex-protected and safe to call from any thread.
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
-                     &de1Device, &DE1Device::stopOperationUrgent);
+                     &de1Device, &DE1Device::writeUrgentStop, Qt::DirectConnection);
 
     // WeightProcessor → MachineState: forward SAW trigger for QML "Target reached" display
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,

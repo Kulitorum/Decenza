@@ -5,6 +5,7 @@
 #include <QLowEnergyController>
 #include <QLowEnergyService>
 #include <QTimer>
+#include <QMutex>
 #include <QQueue>
 #include <functional>
 
@@ -112,6 +113,7 @@ public slots:
     void startClean();
     void stopOperation();         // Soft stop (for steam: stops flow, no purge)
     void stopOperationUrgent();   // Bypasses command queue for lowest-latency stop (SOW)
+    void writeUrgentStop();       // Thread-safe BLE stop — callable from worker thread
     void requestIdle();           // Hard stop (requests Idle state, triggers steam purge)
     void skipToNextFrame();   // Skip to next profile frame during extraction (0x0E)
     void goToSleep();
@@ -193,6 +195,7 @@ private:
     QLowEnergyController* m_controller = nullptr;
     QLowEnergyService* m_service = nullptr;
     QMap<QBluetoothUuid, QLowEnergyCharacteristic> m_characteristics;
+    QMutex m_bleWriteMutex;  // Protects m_service/m_characteristics for cross-thread urgent writes
 
     DE1::State m_state = DE1::State::Sleep;
     DE1::SubState m_subState = DE1::SubState::Ready;

@@ -73,7 +73,15 @@ QString MachineState::phaseString() const {
 }
 
 void MachineState::setScale(ScaleDevice* scale) {
-    if (m_scale && m_scale != scale) {
+    if (m_scale == scale) {
+        // Same scale pointer — just refresh QML, don't add duplicate connections.
+        // Without this guard, each call adds 2 more signal connections that never
+        // get disconnected, causing progressive main-thread congestion over days.
+        if (m_scale) emit scaleWeightChanged();
+        return;
+    }
+
+    if (m_scale) {
         disconnect(m_scale, nullptr, this, nullptr);
     }
 
