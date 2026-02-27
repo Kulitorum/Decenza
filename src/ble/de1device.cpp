@@ -310,16 +310,11 @@ void DE1Device::disconnect() {
     m_pendingDevice = QBluetoothDeviceInfo();
     m_retryCount = 0;
 
-    {
-        // Lock mutex to prevent writeUrgentStop() from using m_service
-        // while we're deleting it (worker thread may be mid-write)
-        QMutexLocker lock(&m_bleWriteMutex);
-        if (m_service) {
-            delete m_service;
-            m_service = nullptr;
-        }
-        m_characteristics.clear();
+    if (m_service) {
+        delete m_service;
+        m_service = nullptr;
     }
+    m_characteristics.clear();
 
     if (m_controller) {
         m_controller->disconnectFromDevice();
@@ -1000,28 +995,6 @@ void DE1Device::stopOperationUrgent() {
     clearCommandQueue();
     QByteArray data(1, static_cast<char>(DE1::State::Idle));
     writeCharacteristic(DE1::Characteristic::REQUESTED_STATE, data);
-}
-
-void DE1Device::writeUrgentStop() {
-    // Thread-safe BLE stop — called directly from WeightProcessor's worker thread.
-    // Only touches m_service and m_characteristics under mutex, avoiding the main
-    // thread event queue entirely. Qt BLE internally dispatches the GATT write to
-    // the platform's BLE handler thread (JNI on Android, Core Bluetooth on iOS).
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-    if (m_simulationMode && m_simulator) {
-        // Simulator runs on the main thread — post to it via QueuedConnection.
-        // Main thread congestion doesn't matter in simulation.
-        QMetaObject::invokeMethod(this, "stopOperationUrgent", Qt::QueuedConnection);
-        return;
-    }
-#endif
-    QMutexLocker lock(&m_bleWriteMutex);
-    if (!m_service) return;
-    auto it = m_characteristics.find(DE1::Characteristic::REQUESTED_STATE);
-    if (it == m_characteristics.end()) return;
-    qDebug() << "[SAW] Urgent stop: writing Idle directly from worker thread";
-    m_service->writeCharacteristic(it.value(),
-                                   QByteArray(1, static_cast<char>(DE1::State::Idle)));
 }
 
 void DE1Device::requestIdle() {
