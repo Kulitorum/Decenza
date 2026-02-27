@@ -488,8 +488,9 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
 
         m_librarySharing->downloadEntry(serverId);
 
-        // Guard against TOCTOU: downloadEntry() may silently reject if busy
-        if (!m_librarySharing->isDownloading()) {
+        // Guard against TOCTOU: isDownloading() may be false if the request already
+        // completed synchronously, so also check the request still exists.
+        if (!m_librarySharing->isDownloading() && m_pendingLibraryRequests.contains(reqId)) {
             qWarning() << "ShotServer: downloadEntry() was rejected (busy between check and call)";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Download service busy, please try again"}});
         }
@@ -506,6 +507,12 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         }
         if (hasInFlightLibraryRequest(LibraryRequestType::Upload)) {
             sendJson(socket, R"({"error":"An upload is already in progress"})");
+            return;
+        }
+
+        // Reject if LibrarySharing is already busy (e.g. from QML)
+        if (m_librarySharing->isUploading()) {
+            sendJson(socket, R"({"error":"An upload is already in progress, please try again"})");
             return;
         }
         // We serialize web uploads to prevent cross-source signal confusion,
@@ -553,6 +560,13 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
                 qWarning() << "ShotServer: Failed to load compact thumbnail for upload:" << entryId;
         }
         m_librarySharing->uploadEntryWithThumbnails(entryId, thumbnail, thumbnailCompact);
+
+        // Guard against TOCTOU: isUploading() may be false if the request was
+        // rejected synchronously, so also check the request still exists.
+        if (!m_librarySharing->isUploading() && m_pendingLibraryRequests.contains(reqId)) {
+            qWarning() << "ShotServer: uploadEntryWithThumbnails() was rejected (busy between check and call)";
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Upload service busy, please try again"}});
+        }
     }
     else if (method == "POST" && path == "/api/community/delete") {
         if (!m_librarySharing) {
@@ -3420,7 +3434,7 @@ QString ShotServer::generateLayoutPage() const
     // Live preview updates on WYSIWYG input
     wysiwygEl.addEventListener("input", function() { updatePreview(); autoSave(); });
 
-    function apiPost(url, data, cb) {
+    function apiPost(url, data, cb, hideSpinnerOnError) {
         var ctrl = new AbortController();
         var tid = setTimeout(function() { ctrl.abort(); }, 45000);
         fetch(url, {
@@ -3436,7 +3450,7 @@ QString ShotServer::generateLayoutPage() const
             if (cb) cb(result);
         }).catch(function(e) {
             clearTimeout(tid);
-            hideLibSpinner();
+            if (hideSpinnerOnError) hideLibSpinner();
             showLibToast(e.name === 'AbortError' ? 'Request timed out' : (e.message || 'Network error'));
         });
     }
@@ -3447,7 +3461,7 @@ QString ShotServer::generateLayoutPage() const
         if (!str) return '';
         var div = document.createElement("div");
         div.textContent = str;
-        return div.innerHTML;
+        return div.innerHTML.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
     }
 
     // ===== Library panel =====
@@ -3617,7 +3631,8 @@ QString ShotServer::generateLayoutPage() const
 
         // Type badge overlay
         var safeType = escapeHtml(entry.type || '');
-        html += '<span class="lib-type-overlay ' + safeType + '">' + (safeType || '?') + '</span>';
+        var cssClass = (entry.type || '').replace(/[^a-zA-Z0-9_-]/g, '');
+        html += '<span class="lib-type-overlay ' + cssClass + '">' + (safeType || '?') + '</span>';
 
         // Choose thumbnail URL based on display mode
         var thumbUrl = compact
@@ -3924,7 +3939,7 @@ QString ShotServer::generateLayoutPage() const
                 loadLibrary();
             }
             else showLibToast(r.error || 'Download failed');
-        });
+        }, true);
     }
 
     function downloadAndApply(entry) {
@@ -3944,7 +3959,7 @@ QString ShotServer::generateLayoutPage() const
                     else showLibToast(r2.error || 'Failed to apply');
                 });
             } else showLibToast(r.error || 'Download failed');
-        });
+        }, true);
     }
 
     function uploadToComm() {
@@ -3954,7 +3969,7 @@ QString ShotServer::generateLayoutPage() const
         apiPost('/api/community/upload', {entryId: libSelectedId}, function(r) {
             if (r.success) showLibToast('Shared to community!');
             else showLibToast(r.error || 'Upload failed');
-        });
+        }, true);
     }
 
     function showLibSpinner(msg) {

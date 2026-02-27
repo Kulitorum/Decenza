@@ -241,6 +241,7 @@ private:
     int m_port = 8888;
     int m_activeMediaUploads = 0;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
+    QHash<QTcpSocket*, qint64> m_uploadProgressLog;  // Track last-logged byte offset per socket (cleaned up on disconnect)
     QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications
     QSet<QTcpSocket*> m_sseThemeClients;   // SSE connections for theme change notifications
     QHash<QTcpSocket*, QTimer*> m_keepAliveTimers;  // Idle timers for keep-alive connections

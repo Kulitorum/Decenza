@@ -300,6 +300,8 @@ static void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& even
     }
     for (QTcpSocket* s : dead) {
         clients.remove(s);
+        s->close();
+        s->deleteLater();
     }
 }
 
@@ -426,10 +428,14 @@ void ShotServer::stop()
 
     if (m_server) {
         m_cleanupTimer->stop();
-        for (QTcpSocket* s : m_sseLayoutClients) s->close();
+        // Copy sets before closing — s->close() can synchronously trigger
+        // onDisconnected() which calls m_sseLayoutClients.remove() during iteration.
+        auto layoutCopy = m_sseLayoutClients;
         m_sseLayoutClients.clear();
-        for (QTcpSocket* s : m_sseThemeClients) s->close();
+        for (QTcpSocket* s : layoutCopy) s->close();
+        auto themeCopy = m_sseThemeClients;
         m_sseThemeClients.clear();
+        for (QTcpSocket* s : themeCopy) s->close();
         for (QTimer* t : m_keepAliveTimers) t->stop();
         m_keepAliveTimers.clear();
         m_server->close();
@@ -579,9 +585,8 @@ void ShotServer::onReadyRead()
         }
 
         // Log progress for large uploads
-        static QHash<QTcpSocket*, qint64> uploadProgressLog;
         if (pending.contentLength > 5 * 1024 * 1024) {
-            qint64& last = uploadProgressLog[socket];
+            qint64& last = m_uploadProgressLog[socket];
             if (pending.bodyReceived - last > 5 * 1024 * 1024) {
                 qDebug() << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
                 last = pending.bodyReceived;
@@ -594,7 +599,7 @@ void ShotServer::onReadyRead()
         }
 
         // Clean up upload progress tracking for this socket
-        uploadProgressLog.remove(socket);
+        m_uploadProgressLog.remove(socket);
 
         // Request complete
         if (pending.tempFile) {
@@ -636,11 +641,13 @@ void ShotServer::onReadyRead()
 
     } catch (const std::exception& e) {
         qWarning() << "ShotServer: Exception in onReadyRead:" << e.what();
+        m_uploadProgressLog.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->close();
     } catch (...) {
         qWarning() << "ShotServer: Unknown exception in onReadyRead";
+        m_uploadProgressLog.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->close();
@@ -714,6 +721,7 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
 {
     if (!m_pendingRequests.contains(socket)) return;
 
+    m_uploadProgressLog.remove(socket);
     PendingRequest& pending = m_pendingRequests[socket];
     if (pending.tempFile) {
         pending.tempFile->close();

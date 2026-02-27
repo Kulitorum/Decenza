@@ -649,6 +649,7 @@ Rectangle {
         }
 
         contentItem: Text {
+            Accessible.ignored: true
             text: TranslationManager.translate("shotdetail.unsupportedbeverage.message",
                 "AI analysis isn't available for %1 profiles yet \u2014 only espresso and filter are supported for now. Sorry about that!").arg(unsupportedBeverageDialog.beverageType)
             font: Theme.bodyFont
