@@ -671,18 +671,16 @@ git log v1.1.9..HEAD --oneline
 git log <previous-tag>..HEAD --oneline
 ```
 
-#### Step 3: Get the build number from the APK
-**IMPORTANT**: Always extract the build number directly from the APK, NOT from `versioncode.txt`. The version code file is a shared counter across all platforms and may have been incremented by a Windows/macOS build after the Android build, causing a mismatch.
+#### Step 3: Build number (automated)
+The Android CI workflow automatically injects `Build: XXXX` into the release notes after building. You do **not** need to extract it manually. If you need to verify:
 
 ```bash
-# Extract versionCode directly from the APK (always correct)
+# Extract versionCode directly from the APK
 /c/Users/Micro/AppData/Local/Android/Sdk/build-tools/36.1.0/aapt dump badging <path-to-apk> 2>/dev/null | grep -oP "versionCode='\K[0-9]+"
 ```
 
-This number **must** be included in the release notes for the auto-update system to work. If it doesn't match what's inside the APK, users will see false update notifications on every check.
-
 #### Step 4: Create release with comprehensive notes
-**CRITICAL**: Always include `Build: XXXX` in the release notes (where XXXX is from the APK, extracted in step 3). The in-app auto-updater uses this to detect new builds — even when the display version hasn't changed. Without it, users won't get update notifications.
+The `Build: XXXX` line is injected automatically by CI. If creating a release manually, include it yourself — the in-app auto-updater uses it to detect new builds.
 
 For beta/prerelease builds, add `--prerelease` flag. Users with "Beta updates" enabled in Settings will get these.
 
@@ -771,14 +769,14 @@ Each operation page (Steam, HotWater, Flush) has:
 ## Versioning
 
 - **Display version** (versionName): Set in `CMakeLists.txt` line 2: `project(Decenza_DE1 VERSION x.y.z)`
-- **Version code** (versionCode): Auto-increments in `versioncode.txt` on every build (never reset)
+- **Version code** (versionCode): Stored in `versioncode.txt`. Does **not** auto-increment during local builds. CI workflows bump it on tag push, and the Android workflow commits the new value back to `main`.
 - **version.h**: Auto-generated from `src/version.h.in` with VERSION_STRING macro
-- To release a new version: Update VERSION in CMakeLists.txt, build, commit, push
+- To release a new version: Update VERSION in CMakeLists.txt, commit, push a `v*` tag
 
 ## Git Workflow
 
-- **Version codes are global** across all platforms (Android, iOS, Desktop) - a build on any platform increments the shared counter in `versioncode.txt`
-- **IMPORTANT**: Always include version files in every commit if they've changed: `versioncode.txt`, `android/AndroidManifest.xml`, `installer/version.iss`. Never leave these unstaged.
+- **Version codes are managed by CI** — local builds use `versioncode.txt` as-is (no auto-increment). All 6 CI workflows bump the code identically on tag push. The Android workflow commits the bumped value back to `main`.
+- You do **not** need to manually commit version code files (`versioncode.txt`, `android/AndroidManifest.xml`) — CI handles this automatically.
 
 ## Accessibility (TalkBack/VoiceOver)
 
