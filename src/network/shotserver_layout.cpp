@@ -168,13 +168,37 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         if (page < 1) page = 1;
         if (sort.isEmpty()) sort = "newest";
 
-        m_pendingLibrarySocket = socket;
+        if (hasInFlightLibraryRequest(LibBrowse)) {
+            sendJson(socket, R"({"error":"A browse request is already in progress"})");
+            return;
+        }
 
-        QMetaObject::Connection* browseConn = new QMetaObject::Connection();
-        QMetaObject::Connection* errorConn = new QMetaObject::Connection();
+        int reqId = m_nextLibraryRequestId++;
+        QPointer<QTcpSocket> safeSocket(socket);
+        auto fired = std::make_shared<bool>(false);
+        auto* timer = new QTimer(this);
+        timer->setSingleShot(true);
 
-        *browseConn = connect(m_librarySharing, &LibrarySharing::communityEntriesChanged, this, [=]() {
-            if (!m_pendingLibrarySocket) return;
+        auto cleanup = [this, reqId, safeSocket, fired, timer](const QJsonObject& resp) {
+            if (*fired) return;
+            *fired = true;
+            timer->stop();
+            timer->deleteLater();
+            if (m_pendingLibraryRequests.contains(reqId)) {
+                auto& req = m_pendingLibraryRequests[reqId];
+                for (auto& conn : req.connections) disconnect(conn);
+                m_pendingLibraryRequests.remove(reqId);
+            }
+            if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState) return;
+            sendJson(safeSocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        };
+
+        PendingLibraryRequest req;
+        req.type = LibBrowse;
+        req.socket = safeSocket;
+        req.timeoutTimer = timer;
+
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::communityEntriesChanged, this, [=]() {
             QJsonObject resp;
             resp["success"] = true;
             QVariantList entries = m_librarySharing->communityEntries();
@@ -183,26 +207,23 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
                 arr.append(QJsonObject::fromVariantMap(v.toMap()));
             resp["entries"] = arr;
             resp["total"] = m_librarySharing->totalCommunityResults();
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*browseConn);
-            disconnect(*errorConn);
-            delete browseConn;
-            delete errorConn;
-        });
-        *errorConn = connect(m_librarySharing, &LibrarySharing::lastErrorChanged, this, [=]() {
-            if (!m_pendingLibrarySocket) return;
+            cleanup(resp);
+        }));
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::lastErrorChanged, this, [=]() {
             QString error = m_librarySharing->lastError();
             if (error.isEmpty()) return;
             QJsonObject resp;
             resp["error"] = error;
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*browseConn);
-            disconnect(*errorConn);
-            delete browseConn;
-            delete errorConn;
-        });
+            cleanup(resp);
+        }));
+        req.connections.append(connect(timer, &QTimer::timeout, this, [cleanup]() {
+            QJsonObject resp;
+            resp["error"] = "Request timed out";
+            cleanup(resp);
+        }));
+
+        m_pendingLibraryRequests.insert(reqId, req);
+        timer->start(60000);
 
         m_librarySharing->browseCommunity(type, variable, action, search, sort, page);
         return;
@@ -419,35 +440,62 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing serverId"})");
             return;
         }
+        if (hasInFlightLibraryRequest(LibDownload)) {
+            sendJson(socket, R"({"error":"A download is already in progress"})");
+            return;
+        }
 
-        m_pendingLibrarySocket = socket;
+        int reqId = m_nextLibraryRequestId++;
+        QPointer<QTcpSocket> safeSocket(socket);
+        auto fired = std::make_shared<bool>(false);
+        auto* timer = new QTimer(this);
+        timer->setSingleShot(true);
 
-        QMetaObject::Connection* doneConn = new QMetaObject::Connection();
-        QMetaObject::Connection* failConn = new QMetaObject::Connection();
+        auto cleanup = [this, reqId, safeSocket, fired, timer](const QJsonObject& resp) {
+            if (*fired) return;
+            *fired = true;
+            timer->stop();
+            timer->deleteLater();
+            if (m_pendingLibraryRequests.contains(reqId)) {
+                auto& req = m_pendingLibraryRequests[reqId];
+                for (auto& conn : req.connections) disconnect(conn);
+                m_pendingLibraryRequests.remove(reqId);
+            }
+            if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState) return;
+            sendJson(safeSocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        };
 
-        *doneConn = connect(m_librarySharing, &LibrarySharing::downloadComplete, this, [=](const QString& localEntryId) {
-            if (!m_pendingLibrarySocket) return;
+        PendingLibraryRequest req;
+        req.type = LibDownload;
+        req.socket = safeSocket;
+        req.timeoutTimer = timer;
+
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadComplete, this, [=](const QString& localEntryId) {
             QJsonObject resp;
             resp["success"] = true;
             resp["localEntryId"] = localEntryId;
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*doneConn);
-            disconnect(*failConn);
-            delete doneConn;
-            delete failConn;
-        });
-        *failConn = connect(m_librarySharing, &LibrarySharing::downloadFailed, this, [=](const QString& error) {
-            if (!m_pendingLibrarySocket) return;
+            cleanup(resp);
+        }));
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadAlreadyExists, this, [=](const QString& localEntryId) {
+            QJsonObject resp;
+            resp["success"] = true;
+            resp["localEntryId"] = localEntryId;
+            resp["alreadyExists"] = true;
+            cleanup(resp);
+        }));
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadFailed, this, [=](const QString& error) {
             QJsonObject resp;
             resp["error"] = error;
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*doneConn);
-            disconnect(*failConn);
-            delete doneConn;
-            delete failConn;
-        });
+            cleanup(resp);
+        }));
+        req.connections.append(connect(timer, &QTimer::timeout, this, [cleanup]() {
+            QJsonObject resp;
+            resp["error"] = "Request timed out";
+            cleanup(resp);
+        }));
+
+        m_pendingLibraryRequests.insert(reqId, req);
+        timer->start(60000);
 
         m_librarySharing->downloadEntry(serverId);
     }
@@ -461,39 +509,58 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing entryId"})");
             return;
         }
+        if (hasInFlightLibraryRequest(LibUpload)) {
+            sendJson(socket, R"({"error":"An upload is already in progress"})");
+            return;
+        }
 
-        m_pendingLibrarySocket = socket;
+        int reqId = m_nextLibraryRequestId++;
+        QPointer<QTcpSocket> safeSocket(socket);
+        auto fired = std::make_shared<bool>(false);
+        auto* timer = new QTimer(this);
+        timer->setSingleShot(true);
 
-        QMetaObject::Connection* successConn = new QMetaObject::Connection();
-        QMetaObject::Connection* failConn = new QMetaObject::Connection();
+        auto cleanup = [this, reqId, safeSocket, fired, timer](const QJsonObject& resp) {
+            if (*fired) return;
+            *fired = true;
+            timer->stop();
+            timer->deleteLater();
+            if (m_pendingLibraryRequests.contains(reqId)) {
+                auto& req = m_pendingLibraryRequests[reqId];
+                for (auto& conn : req.connections) disconnect(conn);
+                m_pendingLibraryRequests.remove(reqId);
+            }
+            if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState) return;
+            sendJson(safeSocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        };
 
-        *successConn = connect(m_librarySharing, &LibrarySharing::uploadSuccess, this, [=](const QString& serverId) {
-            if (!m_pendingLibrarySocket) return;
+        PendingLibraryRequest req;
+        req.type = LibUpload;
+        req.socket = safeSocket;
+        req.timeoutTimer = timer;
+
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::uploadSuccess, this, [=](const QString& serverId) {
             QJsonObject resp;
             resp["success"] = true;
             resp["serverId"] = serverId;
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*successConn);
-            disconnect(*failConn);
-            delete successConn;
-            delete failConn;
-        });
-        *failConn = connect(m_librarySharing, &LibrarySharing::uploadFailed, this, [=](const QString& error) {
-            if (!m_pendingLibrarySocket) return;
+            cleanup(resp);
+        }));
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::uploadFailed, this, [=](const QString& error) {
             QJsonObject resp;
             resp["error"] = error;
-            // Include the server's existing ID so clients can delete-and-reupload
             if (error == "Already shared") {
                 resp["existingId"] = m_librarySharing->lastExistingId();
             }
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*successConn);
-            disconnect(*failConn);
-            delete successConn;
-            delete failConn;
-        });
+            cleanup(resp);
+        }));
+        req.connections.append(connect(timer, &QTimer::timeout, this, [cleanup]() {
+            QJsonObject resp;
+            resp["error"] = "Request timed out";
+            cleanup(resp);
+        }));
+
+        m_pendingLibraryRequests.insert(reqId, req);
+        timer->start(60000);
 
         // Load local thumbnails if available (generated by QML on save)
         QImage thumbnail, thumbnailCompact;
@@ -515,34 +582,54 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing serverId"})");
             return;
         }
+        if (hasInFlightLibraryRequest(LibDelete)) {
+            sendJson(socket, R"({"error":"A delete is already in progress"})");
+            return;
+        }
 
-        m_pendingLibrarySocket = socket;
+        int reqId = m_nextLibraryRequestId++;
+        QPointer<QTcpSocket> safeSocket(socket);
+        auto fired = std::make_shared<bool>(false);
+        auto* timer = new QTimer(this);
+        timer->setSingleShot(true);
 
-        QMetaObject::Connection* successConn = new QMetaObject::Connection();
-        QMetaObject::Connection* failConn = new QMetaObject::Connection();
+        auto cleanup = [this, reqId, safeSocket, fired, timer](const QJsonObject& resp) {
+            if (*fired) return;
+            *fired = true;
+            timer->stop();
+            timer->deleteLater();
+            if (m_pendingLibraryRequests.contains(reqId)) {
+                auto& req = m_pendingLibraryRequests[reqId];
+                for (auto& conn : req.connections) disconnect(conn);
+                m_pendingLibraryRequests.remove(reqId);
+            }
+            if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState) return;
+            sendJson(safeSocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        };
 
-        *successConn = connect(m_librarySharing, &LibrarySharing::deleteSuccess, this, [=]() {
-            if (!m_pendingLibrarySocket) return;
+        PendingLibraryRequest req;
+        req.type = LibDelete;
+        req.socket = safeSocket;
+        req.timeoutTimer = timer;
+
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteSuccess, this, [=]() {
             QJsonObject resp;
             resp["success"] = true;
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*successConn);
-            disconnect(*failConn);
-            delete successConn;
-            delete failConn;
-        });
-        *failConn = connect(m_librarySharing, &LibrarySharing::deleteFailed, this, [=](const QString& error) {
-            if (!m_pendingLibrarySocket) return;
+            cleanup(resp);
+        }));
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteFailed, this, [=](const QString& error) {
             QJsonObject resp;
             resp["error"] = error;
-            sendJson(m_pendingLibrarySocket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-            m_pendingLibrarySocket = nullptr;
-            disconnect(*successConn);
-            disconnect(*failConn);
-            delete successConn;
-            delete failConn;
-        });
+            cleanup(resp);
+        }));
+        req.connections.append(connect(timer, &QTimer::timeout, this, [cleanup]() {
+            QJsonObject resp;
+            resp["error"] = "Request timed out";
+            cleanup(resp);
+        }));
+
+        m_pendingLibraryRequests.insert(reqId, req);
+        timer->start(60000);
 
         m_librarySharing->deleteFromServer(serverId);
     }
@@ -3349,12 +3436,20 @@ QString ShotServer::generateLayoutPage() const
     wysiwygEl.addEventListener("input", function() { updatePreview(); autoSave(); });
 
     function apiPost(url, data, cb) {
+        var ctrl = new AbortController();
+        var tid = setTimeout(function() { ctrl.abort(); }, 45000);
         fetch(url, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(data)
+            body: JSON.stringify(data),
+            signal: ctrl.signal
         }).then(function(r){return r.json()}).then(function(result) {
+            clearTimeout(tid);
             if (cb) cb(result);
+        }).catch(function(e) {
+            clearTimeout(tid);
+            hideLibSpinner();
+            showLibToast(e.name === 'AbortError' ? 'Request timed out' : 'Network error');
         });
     }
 )HTML";
@@ -3719,10 +3814,13 @@ QString ShotServer::generateLayoutPage() const
     function browseCommunity() {
         commPage = 1;
         var url = buildCommunityUrl(commPage);
+        var ctrl = new AbortController();
+        var tid = setTimeout(function() { ctrl.abort(); }, 45000);
 
         showLibSpinner('Browsing community...');
 
-        fetch(url).then(function(r){return r.json()}).then(function(data) {
+        fetch(url, {signal: ctrl.signal}).then(function(r){return r.json()}).then(function(data) {
+            clearTimeout(tid);
             hideLibSpinner();
             if (data.error) {
                 document.getElementById('libCommunityEntries').innerHTML = '<div class="lib-empty">' + escapeHtml(data.error) + '</div>';
@@ -3731,22 +3829,34 @@ QString ShotServer::generateLayoutPage() const
             libCommunityData = data.entries || [];
             commTotal = data.total || 0;
             renderCommunityEntries();
-        }).catch(function() {
+        }).catch(function(e) {
+            clearTimeout(tid);
             hideLibSpinner();
-            document.getElementById('libCommunityEntries').innerHTML = '<div class="lib-empty">Failed to load community entries.</div>';
+            var el = document.getElementById('libCommunityEntries');
+            var msgDiv = document.createElement('div');
+            msgDiv.className = 'lib-empty';
+            msgDiv.textContent = e.name === 'AbortError' ? 'Request timed out.' : 'Failed to load community entries.';
+            el.innerHTML = '';
+            el.appendChild(msgDiv);
         });
     }
 
     function loadMoreCommunity() {
         commPage++;
         var url = buildCommunityUrl(commPage);
+        var ctrl = new AbortController();
+        var tid = setTimeout(function() { ctrl.abort(); }, 45000);
 
-        fetch(url).then(function(r){return r.json()}).then(function(data) {
+        fetch(url, {signal: ctrl.signal}).then(function(r){return r.json()}).then(function(data) {
+            clearTimeout(tid);
             if (data.entries) {
                 libCommunityData = libCommunityData.concat(data.entries);
                 commTotal = data.total || commTotal;
                 renderCommunityEntries();
             }
+        }).catch(function(e) {
+            clearTimeout(tid);
+            showLibToast(e.name === 'AbortError' ? 'Request timed out' : 'Failed to load more entries');
         });
     }
 
@@ -3798,7 +3908,10 @@ QString ShotServer::generateLayoutPage() const
         var serverId = entry.serverId || entry.id;
         showLibSpinner('Downloading...');
         apiPost('/api/community/download', {serverId: serverId}, function(r) {
-            if (r.success) { showLibToast('Downloaded to My Library'); loadLibrary(); }
+            if (r.success) {
+                showLibToast(r.alreadyExists ? 'Already in My Library' : 'Downloaded to My Library');
+                loadLibrary();
+            }
             else showLibToast(r.error || 'Download failed');
         });
     }

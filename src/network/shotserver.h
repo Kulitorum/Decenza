@@ -16,6 +16,7 @@
 #include <QElapsedTimer>
 #include <QDateTime>
 #include <QNetworkAccessManager>
+#include <QPointer>
 
 class ShotHistoryStorage;
 class DE1Device;
@@ -216,7 +217,20 @@ private:
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
-    QTcpSocket* m_pendingLibrarySocket = nullptr;  // Socket waiting for community response
+    int m_nextLibraryRequestId = 0;
+    enum LibraryRequestType { LibBrowse, LibDownload, LibUpload, LibDelete };
+    struct PendingLibraryRequest {
+        LibraryRequestType type;
+        QPointer<QTcpSocket> socket;
+        QList<QMetaObject::Connection> connections;
+        QTimer* timeoutTimer = nullptr;
+    };
+    QHash<int, PendingLibraryRequest> m_pendingLibraryRequests;
+    bool hasInFlightLibraryRequest(LibraryRequestType type) const {
+        for (auto it = m_pendingLibraryRequests.constBegin(); it != m_pendingLibraryRequests.constEnd(); ++it)
+            if (it.value().type == type) return true;
+        return false;
+    }
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
     int m_activeMediaUploads = 0;

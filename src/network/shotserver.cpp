@@ -659,6 +659,23 @@ void ShotServer::onDisconnected()
         m_keepAliveTimers.remove(socket);
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
+
+        // Clean up any pending library requests for this socket
+        QList<int> toRemove;
+        for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
+            if (it.value().socket == socket || it.value().socket.isNull()) {
+                for (auto& conn : it.value().connections) disconnect(conn);
+                if (it.value().timeoutTimer) {
+                    it.value().timeoutTimer->stop();
+                    it.value().timeoutTimer->deleteLater();
+                }
+                toRemove.append(it.key());
+            }
+        }
+        for (int id : toRemove) {
+            m_pendingLibraryRequests.remove(id);
+        }
+
         socket->deleteLater();
     }
 }
