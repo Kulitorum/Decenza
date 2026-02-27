@@ -2200,8 +2200,10 @@ void MainController::computeAutoFlowCalibration() {
                    << "shotDataModel:" << (m_shotDataModel != nullptr) << ")";
         return;
     }
-    if (!m_settings->autoFlowCalibration())
+    if (!m_settings->autoFlowCalibration()) {
+        qDebug() << "Auto flow cal: disabled in settings";
         return;
+    }
 
     if (m_baseProfileName.isEmpty()) {
         qDebug() << "Auto flow cal: skipped (no profile name set)";
@@ -2358,6 +2360,12 @@ void MainController::computeAutoFlowCalibration() {
 
     double meanMachineFlow = bestSumMF / bestCount;
     double meanWeightFlow = bestSumWF / bestCount;
+
+    qDebug() << "Auto flow cal: steady window found"
+             << "t=" << bestStart << "-" << bestEnd << "(" << windowDuration << "s,"
+             << bestCount << "samples)"
+             << "meanMachineFlow=" << meanMachineFlow
+             << "meanWeightFlow=" << meanWeightFlow;
 
     // Guard against division by zero. Should be impossible since every sample
     // in the window passed the kMinWeightFlow (0.5 g/s) check.
@@ -2738,6 +2746,15 @@ void MainController::onShotEnded() {
         }
     }
 
+    // Smooth weight flow rate before saving (centered moving average over 7 points ≈ 1.4s at 5Hz).
+    // The raw LSLR data from recording has staircase artifacts from 0.1g scale quantization;
+    // this post-processing matches de1app's smoothing level for storage and visualizer export.
+    m_shotDataModel->smoothWeightFlowRate();
+
+    // Auto flow calibration: compute per-profile multiplier from this shot's data.
+    // Must run before stopCapture() so its debug output is included in the shot log.
+    computeAutoFlowCalibration();
+
     // Stop debug logging and get the captured log
     QString debugLog;
     if (m_shotDebugLogger) {
@@ -2766,14 +2783,6 @@ void MainController::onShotEnded() {
     if (shotYieldOverride <= 0 && finalWeight > 0) {
         shotYieldOverride = finalWeight;
     }
-
-    // Smooth weight flow rate before saving (centered moving average over 7 points ≈ 1.4s at 5Hz).
-    // The raw LSLR data from recording has staircase artifacts from 0.1g scale quantization;
-    // this post-processing matches de1app's smoothing level for storage and visualizer export.
-    m_shotDataModel->smoothWeightFlowRate();
-
-    // Auto flow calibration: compute per-profile multiplier from this shot's data
-    computeAutoFlowCalibration();
 
     // Always save shot to local history
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
