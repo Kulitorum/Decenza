@@ -432,6 +432,24 @@ Page {
             } else if (dimOverlay.opacity > 0) {
                 // Already dimmed — update to new level
                 dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+            } else {
+                // Dimming just enabled — start the delay (or apply immediately)
+                if (ScreensaverManager.dimDelayMinutes === 0) {
+                    dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+                } else {
+                    dimTimer.restart()
+                }
+            }
+        }
+        function onDimDelayMinutesChanged() {
+            // Only restart if dim hasn't triggered yet
+            if (dimOverlay.opacity === 0 && ScreensaverManager.dimPercent > 0 && !isDisabledMode) {
+                dimTimer.stop()
+                if (ScreensaverManager.dimDelayMinutes === 0) {
+                    dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+                } else {
+                    dimTimer.restart()
+                }
             }
         }
     }
@@ -442,9 +460,11 @@ Page {
         z: 2.5
         color: "black"
         opacity: 0
-        visible: !isDisabledMode && ScreensaverManager.dimPercent > 0
+        visible: !isDisabledMode
 
         Behavior on opacity {
+            id: dimBehavior
+            enabled: true
             NumberAnimation { duration: 2000; easing.type: Easing.InOutQuad }
         }
     }
@@ -507,7 +527,9 @@ Page {
         mediaPlayer.stop()
         imageDisplayTimer.stop()
         dimTimer.stop()
+        dimBehavior.enabled = false
         dimOverlay.opacity = 0
+        dimBehavior.enabled = true
         // Re-enable keep-screen-on when leaving screensaver
         // (especially needed if we were in "disabled" mode which turned it off)
         ScreensaverManager.setKeepScreenOn(true)
