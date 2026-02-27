@@ -795,10 +795,14 @@ KeyboardAwareContainer {
                             property int _calVersion: Settings.perProfileFlowCalVersion
                             property double effectiveCal: {
                                 void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
                                 return Settings.effectiveFlowCalibration(MainController.baseProfileName);
                             }
                             property bool isPerProfile: {
                                 void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
                                 return Settings.hasProfileFlowCalibration(MainController.baseProfileName);
                             }
 

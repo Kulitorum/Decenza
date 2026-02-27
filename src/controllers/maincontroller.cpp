@@ -116,6 +116,8 @@ MainController::MainController(Settings* settings, DE1Device* device,
                 this, &MainController::applyFlowCalibration);
         connect(m_settings, &Settings::autoFlowCalibrationChanged,
                 this, &MainController::applyFlowCalibration);
+        connect(m_settings, &Settings::perProfileFlowCalibrationChanged,
+                this, &MainController::applyFlowCalibration);
     }
 
     // Apply heater tweaks when any calibration setting changes (debounced to avoid BLE flood)
@@ -2365,10 +2367,12 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
-    // Density correction: machine measures volume (ml/s), scale measures mass (g/s).
-    // At ~93°C, water density is ~0.963 g/ml, so 1 ml/s reads as ~0.963 g/s on the scale.
-    // Multiplying the raw ratio by 0.963 compensates for this.
-    double computed = (meanMachineFlow / meanWeightFlow) * kWaterDensity93C;
+    // The machine's reported flow includes the active calibration multiplier.
+    // To find the ideal multiplier: ideal = weight_flow / (raw_flow * density).
+    // Since raw = reported / current_multiplier, this simplifies to:
+    // ideal = current_multiplier * weight_flow / (reported_flow * density)
+    double currentEffective = m_settings->effectiveFlowCalibration(m_baseProfileName);
+    double computed = currentEffective * meanWeightFlow / (meanMachineFlow * kWaterDensity93C);
 
     if (!std::isfinite(computed)) {
         qWarning() << "Auto flow cal: computed non-finite value" << computed
@@ -2378,8 +2382,6 @@ void MainController::computeAutoFlowCalibration() {
     }
 
     computed = qBound(kCalibrationMin, computed, kCalibrationMax);
-
-    double currentEffective = m_settings->effectiveFlowCalibration(m_baseProfileName);
 
     // Only update if relative change > 2%. The > 0.01 guard avoids division by zero
     // on first use (before any calibration is set).

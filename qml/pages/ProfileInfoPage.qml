@@ -198,10 +198,14 @@ Page {
                             property int _calVersion: Settings.perProfileFlowCalVersion
                             property double effectiveCal: {
                                 void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
                                 return profileFilename ? Settings.effectiveFlowCalibration(profileFilename) : Settings.flowCalibrationMultiplier;
                             }
                             property bool isAuto: {
                                 void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
                                 return profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false;
                             }
                             property string calLabel: isAuto
