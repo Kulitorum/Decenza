@@ -660,10 +660,12 @@ void ShotServer::onDisconnected()
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
 
-        // Clean up any pending library requests for this socket
+        // Clean up any pending library requests for this socket (or already-destroyed sockets)
         QList<int> toRemove;
         for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
             if (it.value().socket == socket || it.value().socket.isNull()) {
+                // Mark fired to prevent any queued signal callbacks from executing
+                if (it.value().fired) *it.value().fired = true;
                 for (auto& conn : it.value().connections) disconnect(conn);
                 if (it.value().timeoutTimer) {
                     it.value().timeoutTimer->stop();

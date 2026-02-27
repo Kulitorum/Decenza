@@ -17,6 +17,7 @@
 #include <QDateTime>
 #include <QNetworkAccessManager>
 #include <QPointer>
+#include <memory>
 
 class ShotHistoryStorage;
 class DE1Device;
@@ -224,6 +225,7 @@ private:
         QPointer<QTcpSocket> socket;
         QList<QMetaObject::Connection> connections;
         QTimer* timeoutTimer = nullptr;
+        std::shared_ptr<bool> fired;  // Prevents queued callbacks from executing after cleanup
     };
     QHash<int, PendingLibraryRequest> m_pendingLibraryRequests;
     bool hasInFlightLibraryRequest(LibraryRequestType type) const {
