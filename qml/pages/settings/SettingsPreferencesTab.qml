@@ -776,7 +776,44 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.translate("settings.preferences.currentMultiplier", "Current:") + " " + Settings.flowCalibrationMultiplier.toFixed(2)
+                                text: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration (beta)")
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: Settings.autoFlowCalibration
+                                accessibleName: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration (beta)")
+                                onToggled: Settings.autoFlowCalibration = checked
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            property int _calVersion: Settings.perProfileFlowCalVersion
+                            property double effectiveCal: {
+                                void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
+                                return Settings.effectiveFlowCalibration(MainController.baseProfileName);
+                            }
+                            property bool isPerProfile: {
+                                void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
+                                return Settings.hasProfileFlowCalibration(MainController.baseProfileName);
+                            }
+
+                            Text {
+                                property string calSuffix: {
+                                    if (!Settings.autoFlowCalibration) return "";
+                                    if (parent.isPerProfile)
+                                        return " " + TranslationManager.translate("settings.preferences.calAuto", "(auto)");
+                                    return " " + TranslationManager.translate("settings.preferences.calGlobal", "(global)");
+                                }
+                                text: TranslationManager.translate("settings.preferences.currentMultiplier", "Current:") + " " + parent.effectiveCal.toFixed(2) + calSuffix
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                             }
@@ -784,9 +821,17 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             AccessibleButton {
+                                visible: parent.isPerProfile
+                                accessibleName: TranslationManager.translate("settings.preferences.resetAutoCal", "Reset auto calibration for current profile")
+                                text: TranslationManager.translate("settings.preferences.reset", "Reset")
+                                onClicked: Settings.clearProfileFlowCalibration(MainController.baseProfileName)
+                            }
+
+                            AccessibleButton {
                                 accessibleName: TranslationManager.translate("settings.preferences.openFlowCalibration", "Open Flow Calibration")
                                 text: TranslationManager.translate("settings.preferences.calibrate", "Calibrate")
                                 primary: true
+                                enabled: !Settings.autoFlowCalibration
                                 onClicked: pageStack.push(Qt.resolvedUrl("../FlowCalibrationPage.qml"))
                             }
                         }

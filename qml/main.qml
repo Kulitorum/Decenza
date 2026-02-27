@@ -2586,6 +2586,53 @@ ApplicationWindow {
                 goToScreensaver()
             }
         }
+
+        function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
+            flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
+                "Flow cal updated for %1: %2 → %3").arg(profileTitle).arg(oldValue.toFixed(2)).arg(newValue.toFixed(2))
+            flowCalToast.opacity = 1
+            flowCalToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(flowCalToastText)
+            }
+        }
+    }
+
+    // ============ AUTO FLOW CALIBRATION TOAST ============
+    property string flowCalToastText: ""
+
+    Rectangle {
+        id: flowCalToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: flowCalToastLabel.implicitWidth + Theme.scaled(32)
+        height: flowCalToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: flowCalToastLabel
+            anchors.centerIn: parent
+            text: flowCalToastText
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+
+    Timer {
+        id: flowCalToastTimer
+        interval: 4000
+        onTriggered: flowCalToast.opacity = 0
     }
 
     // ============ ACCESSIBILITY: Machine State Announcements ============

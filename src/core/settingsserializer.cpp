@@ -326,6 +326,11 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     machineTuning["heaterWarmupTimeout"] = settings->heaterWarmupTimeout();
     machineTuning["hotWaterFlowRate"] = settings->hotWaterFlowRate();
     machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
+    machineTuning["autoFlowCalibration"] = settings->autoFlowCalibration();
+    QJsonObject perProfileMap = settings->allProfileFlowCalibrations();
+    if (!perProfileMap.isEmpty()) {
+        machineTuning["perProfileFlowCalibration"] = perProfileMap;
+    }
     root["machineTuning"] = machineTuning;
 
     // BLE health refresh
@@ -718,7 +723,39 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (mt.contains("heaterTestFlow")) settings->setHeaterTestFlow(mt["heaterTestFlow"].toInt());
         if (mt.contains("heaterWarmupTimeout")) settings->setHeaterWarmupTimeout(mt["heaterWarmupTimeout"].toInt());
         if (mt.contains("hotWaterFlowRate")) settings->setHotWaterFlowRate(mt["hotWaterFlowRate"].toInt());
-        if (mt.contains("flowCalibrationMultiplier")) settings->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
+        // Flow calibration is machine-specific — skip during cross-device migration
+        // but restore from same-machine backups (caller passes excludeKeys to control this)
+        if (mt.contains("flowCalibrationMultiplier") && !excludeKeys.contains("flowCalibration")) {
+            settings->setFlowCalibrationMultiplier(mt["flowCalibrationMultiplier"].toDouble());
+        }
+        if (mt.contains("autoFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
+            settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
+        }
+        if (mt.contains("perProfileFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
+            QJsonObject perProfile = mt["perProfileFlowCalibration"].toObject();
+            int imported = 0, rejected = 0;
+            for (auto it = perProfile.begin(); it != perProfile.end(); ++it) {
+                if (!it.value().isDouble()) {
+                    qWarning() << "Settings import: flow calibration for" << it.key()
+                               << "is not a number (type:" << it.value().type() << "), skipping";
+                    rejected++;
+                    continue;
+                }
+                double val = it.value().toDouble();
+                if (val >= 0.5 && val <= 1.8) {
+                    settings->setProfileFlowCalibration(it.key(), val);
+                    imported++;
+                } else {
+                    qWarning() << "Settings import: flow calibration out of bounds for"
+                               << it.key() << ":" << val << "(expected [0.5, 1.8])";
+                    rejected++;
+                }
+            }
+            if (rejected > 0) {
+                qWarning() << "Settings import: per-profile flow calibration -"
+                           << imported << "imported," << rejected << "rejected";
+            }
+        }
     }
 
     // BLE health refresh

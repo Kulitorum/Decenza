@@ -201,6 +201,8 @@ class Settings : public QObject {
 
     // Flow calibration
     Q_PROPERTY(double flowCalibrationMultiplier READ flowCalibrationMultiplier WRITE setFlowCalibrationMultiplier NOTIFY flowCalibrationMultiplierChanged)
+    Q_PROPERTY(bool autoFlowCalibration READ autoFlowCalibration WRITE setAutoFlowCalibration NOTIFY autoFlowCalibrationChanged)
+    Q_PROPERTY(int perProfileFlowCalVersion READ perProfileFlowCalVersion NOTIFY perProfileFlowCalibrationChanged)
 
     // SAW (Stop-at-Weight) learning
     Q_PROPERTY(double sawLearnedLag READ sawLearnedLag NOTIFY sawLearnedLagChanged)
@@ -665,6 +667,15 @@ public:
     // Flow calibration
     double flowCalibrationMultiplier() const;
     void setFlowCalibrationMultiplier(double multiplier);
+    bool autoFlowCalibration() const;
+    void setAutoFlowCalibration(bool enabled);
+    double profileFlowCalibration(const QString& profileFilename) const;
+    bool setProfileFlowCalibration(const QString& profileFilename, double multiplier);
+    Q_INVOKABLE void clearProfileFlowCalibration(const QString& profileFilename);
+    Q_INVOKABLE double effectiveFlowCalibration(const QString& profileFilename) const;
+    Q_INVOKABLE bool hasProfileFlowCalibration(const QString& profileFilename) const;
+    QJsonObject allProfileFlowCalibrations() const;
+    int perProfileFlowCalVersion() const { return m_perProfileFlowCalVersion; }
 
     // SAW (Stop-at-Weight) learning
     double sawLearnedLag() const;  // Average lag for display in QML (calculated from drip/flow)
@@ -822,6 +833,8 @@ signals:
     void mqttHomeAssistantDiscoveryChanged();
     void mqttClientIdChanged();
     void flowCalibrationMultiplierChanged();
+    void autoFlowCalibrationChanged();
+    void perProfileFlowCalibrationChanged();
     void sawLearnedLagChanged();
     void layoutConfigurationChanged();
     void valueChanged(const QString& key);
@@ -861,6 +874,10 @@ private:
     mutable bool m_dyeCacheInitialized = false;
     void ensureDyeCacheLoaded() const;
 
+    int m_perProfileFlowCalVersion = 0;  // Bumped on per-profile calibration changes to trigger QML rebind
+    mutable QJsonObject m_perProfileFlowCalCache;  // Cached per-profile flow calibration map
+    mutable bool m_perProfileFlowCalCacheValid = false;
+    void savePerProfileFlowCalMap(const QJsonObject& map);
     bool m_steamDisabled = false;  // Session-only, not persisted (for descaling)
     double m_temperatureOverride = 0;  // Session-only, for next shot
     bool m_hasTemperatureOverride = false;  // Session-only

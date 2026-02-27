@@ -183,6 +183,39 @@ Page {
                             color: Theme.textColor
                         }
                     }
+
+                    // Flow calibration
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            text: TranslationManager.translate("profileinfo.flowCalibration", "Flow Calibration:")
+                            font: Theme.bodyFont
+                            color: Theme.textSecondaryColor
+                        }
+                        Text {
+                            property int _calVersion: Settings.perProfileFlowCalVersion
+                            property double effectiveCal: {
+                                void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
+                                return profileFilename ? Settings.effectiveFlowCalibration(profileFilename) : Settings.flowCalibrationMultiplier;
+                            }
+                            property bool isAuto: {
+                                void(_calVersion);
+                                void(Settings.autoFlowCalibration);
+                                void(Settings.flowCalibrationMultiplier);
+                                return profileFilename ? Settings.hasProfileFlowCalibration(profileFilename) : false;
+                            }
+                            property string calLabel: isAuto
+                                ? TranslationManager.translate("profileinfo.flowCalAuto", "(auto)")
+                                : TranslationManager.translate("profileinfo.flowCalGlobal", "(global)")
+                            text: effectiveCal.toFixed(2) + " " + calLabel
+                            font: Theme.bodyFont
+                            color: Theme.textColor
+                        }
+                    }
                 }
             }
 

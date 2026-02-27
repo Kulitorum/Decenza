@@ -20,6 +20,7 @@
 #include "../ble/blemanager.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/flowscale.h"
+#include <cmath>
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
@@ -112,6 +113,10 @@ MainController::MainController(Settings* settings, DE1Device* device,
     // Apply flow calibration multiplier when setting changes
     if (m_settings && m_device) {
         connect(m_settings, &Settings::flowCalibrationMultiplierChanged,
+                this, &MainController::applyFlowCalibration);
+        connect(m_settings, &Settings::autoFlowCalibrationChanged,
+                this, &MainController::applyFlowCalibration);
+        connect(m_settings, &Settings::perProfileFlowCalibrationChanged,
                 this, &MainController::applyFlowCalibration);
     }
 
@@ -978,6 +983,9 @@ void MainController::loadProfile(const QString& profileName) {
     if (m_currentProfile.mode() == Profile::Mode::FrameBased) {
         uploadCurrentProfile();
     }
+
+    // Apply per-profile flow calibration if auto-cal is enabled
+    applyFlowCalibration();
 
     emit currentProfileChanged();
     emit targetWeightChanged();
@@ -2181,7 +2189,220 @@ void MainController::applyRefillKitOverride() {
 void MainController::applyFlowCalibration() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    m_device->setFlowCalibrationMultiplier(m_settings->flowCalibrationMultiplier());
+    double multiplier = m_settings->effectiveFlowCalibration(m_baseProfileName);
+    m_device->setFlowCalibrationMultiplier(multiplier);
+}
+
+void MainController::computeAutoFlowCalibration() {
+    if (!m_settings || !m_shotDataModel) {
+        qWarning() << "Auto flow cal: skipped due to null pointer"
+                   << "(settings:" << (m_settings != nullptr)
+                   << "shotDataModel:" << (m_shotDataModel != nullptr) << ")";
+        return;
+    }
+    if (!m_settings->autoFlowCalibration())
+        return;
+
+    if (m_baseProfileName.isEmpty()) {
+        qDebug() << "Auto flow cal: skipped (no profile name set)";
+        return;
+    }
+
+    // Require a physical BLE scale (not FlowScale). FlowScale derives weight from
+    // the DE1's own flow sensor, so comparing machine flow against FlowScale weight
+    // would be circular and produce meaningless calibration values.
+    bool hasPhysicalScale = m_bleManager && m_bleManager->scaleDevice()
+                            && m_bleManager->scaleDevice()->isConnected()
+                            && m_bleManager->scaleDevice()->type() != "flow";
+    if (!hasPhysicalScale) {
+        qDebug() << "Auto flow cal: skipped (no physical BLE scale connected)";
+        return;
+    }
+
+    const auto& weightFlowData = m_shotDataModel->weightFlowRateData();
+    if (weightFlowData.isEmpty()) {
+        qDebug() << "Auto flow cal: skipped (no scale weight data)";
+        return;
+    }
+
+    const auto& flowData = m_shotDataModel->flowData();
+    const auto& pressureData = m_shotDataModel->pressureData();
+    if (flowData.size() < 10 || pressureData.size() < 10) {
+        qDebug() << "Auto flow cal: skipped (insufficient data - flow:"
+                 << flowData.size() << "pressure:" << pressureData.size() << ")";
+        return;
+    }
+
+    // Algorithm thresholds
+    constexpr double kMaxPressureChangeRate = 0.5;   // bar/sec - max dP/dt for "stable" pressure
+    constexpr double kMinPressure = 1.5;             // bar - rejects empty-portafilter shots
+    constexpr double kMinWeightFlow = 0.5;           // g/s - excludes dripping/dead time
+    constexpr double kMinMachineFlow = 0.1;          // ml/s - excludes stalled flow
+    constexpr double kMaxScaleDataGap = 1.0;         // seconds - max distance to nearest weight flow point
+    constexpr double kMinWindowDuration = 5.0;       // seconds
+    constexpr int    kMinWindowSamples = 5;
+    constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
+    constexpr double kCalibrationMin = 0.5;          // sanity lower bound
+    constexpr double kCalibrationMax = 1.8;          // sanity upper bound
+    constexpr double kChangeThreshold = 0.02;        // 2% relative change required to update
+
+    // Find the best steady-pour window: stable pressure above minimum + meaningful weight flow.
+    // We track the best (longest) qualifying window found across the entire shot.
+    double bestStart = -1, bestEnd = -1;
+    double bestSumMF = 0, bestSumWF = 0;
+    int bestCount = 0;
+
+    double winStart = -1;
+    double winSumMF = 0, winSumWF = 0;
+    int winCount = 0;
+    double winLastT = -1;
+
+    // Finish the current window: save as best if longest, then reset for next window
+    auto finishWindow = [&]() {
+        if (winStart >= 0 && (winLastT - winStart) > (bestEnd - bestStart)) {
+            bestStart = winStart;
+            bestEnd = winLastT;
+            bestSumMF = winSumMF;
+            bestSumWF = winSumWF;
+            bestCount = winCount;
+        }
+        winStart = -1;
+        winCount = 0;
+        winSumMF = 0;
+        winSumWF = 0;
+    };
+
+    // Cursors for nearest-point/interpolation search (both arrays are time-sorted)
+    int wfCursor = 0;
+    int mfCursor = 1;
+    int mfMissCount = 0;  // Tracks flow interpolation misses for diagnostics
+
+    for (int i = 1; i < pressureData.size(); ++i) {
+        double dt = pressureData[i].x() - pressureData[i - 1].x();
+        if (dt <= 0) continue;
+        double dpdt = qAbs(pressureData[i].y() - pressureData[i - 1].y()) / dt;
+        double pressure = pressureData[i].y();
+        double t = pressureData[i].x();
+
+        // Require stable pressure AND minimum pressure.
+        // The minimum pressure rejects empty-portafilter / no-coffee shots where
+        // water flows freely through the basket with near-zero back-pressure.
+        if (dpdt > kMaxPressureChangeRate || pressure < kMinPressure) {
+            finishWindow();
+            continue;
+        }
+
+        // Find weight flow at this time (nearest point, using cursor since t increases monotonically)
+        double wf = 0;
+        double nearestDist = 1e9;
+        for (int k = wfCursor; k < weightFlowData.size(); ++k) {
+            double dist = qAbs(weightFlowData[k].x() - t);
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                wf = weightFlowData[k].y();
+                wfCursor = k;
+            } else {
+                break;  // Past the nearest point, distances only increase from here
+            }
+        }
+
+        if (nearestDist > kMaxScaleDataGap || wf < kMinWeightFlow) {
+            finishWindow();
+            continue;
+        }
+
+        // Find machine flow at this time (linear interpolation, using cursor)
+        double mf = 0;
+        for (int j = mfCursor; j < flowData.size(); ++j) {
+            if (flowData[j].x() >= t) {
+                double t0 = flowData[j - 1].x();
+                double t1 = flowData[j].x();
+                double dt2 = t1 - t0;
+                if (dt2 > 0) {
+                    double frac = (t - t0) / dt2;
+                    mf = flowData[j - 1].y() + frac * (flowData[j].y() - flowData[j - 1].y());
+                } else {
+                    mf = flowData[j].y();
+                }
+                mfCursor = j;
+                break;
+            }
+        }
+
+        if (mf < kMinMachineFlow) {
+            if (mf == 0.0) mfMissCount++;  // Interpolation produced no match
+            finishWindow();
+            continue;
+        }
+
+        // Extend or start window
+        if (winStart < 0) {
+            winStart = t;
+        }
+        winLastT = t;
+        winSumMF += mf;
+        winSumWF += wf;
+        winCount++;
+    }
+
+    // Check the final window
+    finishWindow();
+
+    double windowDuration = bestEnd - bestStart;
+    if (windowDuration < kMinWindowDuration || bestCount < kMinWindowSamples) {
+        qDebug() << "Auto flow cal: no qualifying steady window found"
+                 << "(duration:" << windowDuration << "samples:" << bestCount
+                 << "flowInterpolationMisses:" << mfMissCount << ")";
+        return;
+    }
+
+    double meanMachineFlow = bestSumMF / bestCount;
+    double meanWeightFlow = bestSumWF / bestCount;
+
+    // Guard against division by zero. Should be impossible since every sample
+    // in the window passed the kMinWeightFlow (0.5 g/s) check.
+    if (meanWeightFlow < 0.001) {
+        qWarning() << "Auto flow cal: meanWeightFlow unexpectedly low ("
+                   << meanWeightFlow << ") after qualifying window";
+        return;
+    }
+
+    // The machine's reported flow includes the active calibration multiplier.
+    // To find the ideal multiplier: ideal = weight_flow / (raw_flow * density).
+    // Since raw = reported / current_multiplier, this simplifies to:
+    // ideal = current_multiplier * weight_flow / (reported_flow * density)
+    double currentEffective = m_settings->effectiveFlowCalibration(m_baseProfileName);
+    double computed = currentEffective * meanWeightFlow / (meanMachineFlow * kWaterDensity93C);
+
+    if (!std::isfinite(computed)) {
+        qWarning() << "Auto flow cal: computed non-finite value" << computed
+                   << "(meanMachineFlow:" << meanMachineFlow
+                   << "meanWeightFlow:" << meanWeightFlow << ")";
+        return;
+    }
+
+    computed = qBound(kCalibrationMin, computed, kCalibrationMax);
+
+    // Only update if relative change > 2%. The > 0.01 guard avoids division by zero
+    // on first use (before any calibration is set).
+    if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
+        qDebug() << "Auto flow cal: computed" << computed << "≈ current" << currentEffective << "(< 2% change, skipping)";
+        return;
+    }
+
+    double oldValue = currentEffective;
+    if (!m_settings->setProfileFlowCalibration(m_baseProfileName, computed)) {
+        qWarning() << "Auto flow cal: computed value" << computed
+                   << "was rejected by settings for" << m_baseProfileName;
+        return;
+    }
+    applyFlowCalibration();
+
+    qDebug() << "Auto flow cal: updated" << m_baseProfileName
+             << "from" << oldValue << "to" << computed
+             << "(window:" << windowDuration << "s," << bestCount << "samples)";
+
+    emit flowCalibrationAutoUpdated(m_currentProfile.title(), oldValue, computed);
 }
 
 void MainController::applyHeaterTweaks() {
@@ -2550,6 +2771,9 @@ void MainController::onShotEnded() {
     // The raw LSLR data from recording has staircase artifacts from 0.1g scale quantization;
     // this post-processing matches de1app's smoothing level for storage and visualizer export.
     m_shotDataModel->smoothWeightFlowRate();
+
+    // Auto flow calibration: compute per-profile multiplier from this shot's data
+    computeAutoFlowCalibration();
 
     // Always save shot to local history
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")

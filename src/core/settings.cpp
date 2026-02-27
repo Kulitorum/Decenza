@@ -2850,6 +2850,103 @@ void Settings::setFlowCalibrationMultiplier(double multiplier) {
     }
 }
 
+// Auto flow calibration
+
+bool Settings::autoFlowCalibration() const {
+    return m_settings.value("calibration/autoFlowCalibration", false).toBool();
+}
+
+void Settings::setAutoFlowCalibration(bool enabled) {
+    if (autoFlowCalibration() != enabled) {
+        m_settings.setValue("calibration/autoFlowCalibration", enabled);
+        emit autoFlowCalibrationChanged();
+    }
+}
+
+double Settings::profileFlowCalibration(const QString& profileFilename) const {
+    QJsonObject map = allProfileFlowCalibrations();
+    if (map.contains(profileFilename)) {
+        return map[profileFilename].toDouble();
+    }
+    return 0.0;
+}
+
+bool Settings::setProfileFlowCalibration(const QString& profileFilename, double multiplier) {
+    if (profileFilename.isEmpty()) {
+        qWarning() << "Settings: setProfileFlowCalibration called with empty profile filename";
+        return false;
+    }
+    // Sanity bounds — same range [0.5, 1.8] as computeAutoFlowCalibration(),
+    // but we reject (don't clamp) to prevent stale/corrupt values from persisting
+    if (multiplier < 0.5 || multiplier > 1.8) {
+        qWarning() << "Settings: rejecting per-profile flow calibration"
+                   << multiplier << "for" << profileFilename << "(outside [0.5, 1.8])";
+        return false;
+    }
+    QJsonObject map = allProfileFlowCalibrations();
+    map[profileFilename] = multiplier;
+    savePerProfileFlowCalMap(map);
+    return true;
+}
+
+void Settings::clearProfileFlowCalibration(const QString& profileFilename) {
+    if (profileFilename.isEmpty()) {
+        qWarning() << "Settings: clearProfileFlowCalibration called with empty profile filename";
+        return;
+    }
+    QJsonObject map = allProfileFlowCalibrations();
+    map.remove(profileFilename);
+    savePerProfileFlowCalMap(map);
+}
+
+double Settings::effectiveFlowCalibration(const QString& profileFilename) const {
+    if (autoFlowCalibration()) {
+        double perProfile = profileFlowCalibration(profileFilename);
+        if (perProfile > 0.0) {
+            return perProfile;
+        }
+    }
+    return flowCalibrationMultiplier();
+}
+
+bool Settings::hasProfileFlowCalibration(const QString& profileFilename) const {
+    if (!autoFlowCalibration()) return false;
+    QJsonObject map = allProfileFlowCalibrations();
+    return map.contains(profileFilename);
+}
+
+QJsonObject Settings::allProfileFlowCalibrations() const {
+    if (m_perProfileFlowCalCacheValid)
+        return m_perProfileFlowCalCache;
+
+    QJsonParseError parseError;
+    QJsonObject map = QJsonDocument::fromJson(
+        m_settings.value("calibration/perProfileFlow", "{}").toByteArray(),
+        &parseError).object();
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "Settings: corrupt perProfileFlow JSON:" << parseError.errorString()
+                   << "- raw data:" << m_settings.value("calibration/perProfileFlow").toByteArray().left(200)
+                   << "- per-profile flow calibrations lost";
+        // Clear the corrupt data so it doesn't persist and cause repeated warnings
+        const_cast<QSettings&>(m_settings).setValue("calibration/perProfileFlow", "{}");
+        map = QJsonObject();
+    }
+    // Cache the result (even if empty from corruption) to prevent repeated re-parsing.
+    // INVARIANT: All modifications to "calibration/perProfileFlow" in QSettings
+    // MUST go through savePerProfileFlowCalMap() to maintain cache consistency.
+    m_perProfileFlowCalCache = map;
+    m_perProfileFlowCalCacheValid = true;
+    return m_perProfileFlowCalCache;
+}
+
+void Settings::savePerProfileFlowCalMap(const QJsonObject& map) {
+    m_settings.setValue("calibration/perProfileFlow", QJsonDocument(map).toJson(QJsonDocument::Compact));
+    m_perProfileFlowCalCache = map;
+    m_perProfileFlowCalCacheValid = true;
+    m_perProfileFlowCalVersion++;
+    emit perProfileFlowCalibrationChanged();
+}
+
 // SAW (Stop-at-Weight) learning
 
 // Returns average lag for display in QML settings (calculated from stored drip/flow)
