@@ -19,12 +19,16 @@ inline constexpr const char* WEB_JS_MENU = R"JS(
             var el = document.getElementById("powerToggle");
             var isAwake = el.dataset.awake === "true";
             fetch(isAwake ? "/api/power/sleep" : "/api/power/wake", { method: "POST" })
-                .then(function() { updatePowerStatus(); });
+                .then(function() { updatePowerStatus(); })
+                .catch(function(e) { console.warn('Power toggle failed:', e); });
         }
 
         function updatePowerStatus() {
             fetch("/api/power/status")
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('Server error (' + r.status + ')');
+                    return r.json();
+                })
                 .then(function(data) {
                     var el = document.getElementById("powerToggle");
                     if (data.awake) {
@@ -34,7 +38,8 @@ inline constexpr const char* WEB_JS_MENU = R"JS(
                         el.textContent = "⚡ Wake";
                         el.dataset.awake = "false";
                     }
-                });
+                })
+                .catch(function(e) { console.warn('Power status update failed:', e); });
         }
 
         updatePowerStatus();

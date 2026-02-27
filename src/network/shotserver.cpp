@@ -298,7 +298,10 @@ void ShotServer::onLayoutChanged()
             dead.append(client);
             continue;
         }
-        client->write(event);
+        if (client->write(event) == -1) {
+            dead.append(client);
+            continue;
+        }
         client->flush();
     }
     for (QTcpSocket* s : dead) {
@@ -316,7 +319,10 @@ void ShotServer::onThemeChanged()
             dead.append(client);
             continue;
         }
-        client->write(event);
+        if (client->write(event) == -1) {
+            dead.append(client);
+            continue;
+        }
         client->flush();
     }
     for (QTcpSocket* s : dead) {
@@ -437,8 +443,11 @@ void ShotServer::stop()
 
     if (m_server) {
         m_cleanupTimer->stop();
+        for (QTcpSocket* s : m_sseLayoutClients) s->close();
         m_sseLayoutClients.clear();
+        for (QTcpSocket* s : m_sseThemeClients) s->close();
         m_sseThemeClients.clear();
+        for (QTimer* t : m_keepAliveTimers) t->stop();
         m_keepAliveTimers.clear();
         m_server->close();
         delete m_server;
@@ -587,9 +596,9 @@ void ShotServer::onReadyRead()
         }
 
         // Log progress for large uploads
+        static QHash<QTcpSocket*, qint64> uploadProgressLog;
         if (pending.contentLength > 5 * 1024 * 1024) {
-            static QHash<QTcpSocket*, qint64> lastLog;
-            qint64& last = lastLog[socket];
+            qint64& last = uploadProgressLog[socket];
             if (pending.bodyReceived - last > 5 * 1024 * 1024) {
                 qDebug() << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
                 last = pending.bodyReceived;
@@ -600,6 +609,9 @@ void ShotServer::onReadyRead()
         if (pending.bodyReceived < pending.contentLength) {
             return;  // Still waiting for more data
         }
+
+        // Clean up upload progress tracking for this socket
+        uploadProgressLog.remove(socket);
 
         // Request complete
         if (pending.tempFile) {
@@ -735,7 +747,9 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
         QFile::remove(pending.tempFilePath);
         qDebug() << "ShotServer: Cleaned up temp file:" << pending.tempFilePath;
     }
-    if ((pending.isMediaUpload || pending.isBackupRestore) && m_activeMediaUploads > 0) {
+    // Only decrement if this was a large upload that was actually counted
+    // (small uploads < MAX_SMALL_BODY_SIZE don't increment m_activeMediaUploads)
+    if ((pending.isMediaUpload || pending.isBackupRestore) && !pending.tempFilePath.isEmpty() && m_activeMediaUploads > 0) {
         m_activeMediaUploads--;
     }
 }
@@ -1287,7 +1301,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             handleMediaUpload(socket, tempPath, headers);
         }
     }
-    else if (path == "/api/media/personal") {
+    else if (path == "/api/media/personal" && method == "GET") {
         if (!m_screensaverManager) {
             sendJson(socket, R"({"error":"Screensaver manager not available"})");
             return;
