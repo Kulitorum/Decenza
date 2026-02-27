@@ -12,10 +12,13 @@ All iOS CI builds (including pre-releases) are uploaded to App Store Connect aut
    - **External**: Up to 10,000 testers, first build requires Apple review
 3. Name the group (e.g., "Beta Testers")
 
-### 2. Add Testers
+### 2. Enable Public Link
 
-- **Internal**: Add team members by Apple ID (they must be part of your Apple Developer account)
-- **External**: Add testers by email — they'll receive an invite to install TestFlight
+In the external test group, enable **"Enable Public Link"**. This generates a shareable URL (e.g., `https://testflight.apple.com/join/XXXXXXXX`) that anyone can use to join the beta — no email invite needed.
+
+Share this link privately (Discord, forum, direct message) with testers you want to include. You can set a tester limit and disable the link at any time.
+
+Alternatively, you can add testers individually by email if you prefer a controlled list.
 
 ### 3. Enable Automatic Distribution (Optional)
 
