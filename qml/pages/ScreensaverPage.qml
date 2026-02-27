@@ -4,10 +4,13 @@ import QtMultimedia
 import DecenzaDE1
 import "../components"
 
-// Screensaver mode enum
-// "videos" - Video/image slideshow from catalog
-// "pipes" - Classic 3D pipes animation
+// Screensaver modes:
+// "disabled"  - Turn screen off (let system timeout handle it)
+// "videos"    - Video/image slideshow from catalog
+// "pipes"     - Classic 3D pipes animation
 // "flipclock" - Classic flip clock display
+// "attractor" - Strange attractor visualization
+// "shotmap"   - Shot location map
 
 Page {
     id: screensaverPage
@@ -44,15 +47,23 @@ Page {
         }
         // Start screen dimming if configured
         if (!isDisabledMode && ScreensaverManager.dimPercent > 0) {
-            if (ScreensaverManager.dimDelayMinutes === 0) {
-                dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
-            } else {
-                dimTimer.start()
-            }
+            startDimming()
         }
     }
 
-    // Listen for new media becoming available (downloaded)
+    function applyDim() {
+        dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+    }
+
+    function startDimming() {
+        if (ScreensaverManager.dimDelayMinutes === 0) {
+            applyDim()
+        } else {
+            dimTimer.restart()
+        }
+    }
+
+    // Listen for new media becoming available (downloaded) and screen dimming changes
     Connections {
         target: ScreensaverManager
         function onVideoReady(path) {
@@ -67,6 +78,23 @@ Page {
             if (!mediaPlaying && ScreensaverManager.itemCount > 0) {
                 console.log("[Screensaver] Catalog updated, trying playback")
                 playNextMedia()
+            }
+        }
+        function onDimPercentChanged() {
+            if (ScreensaverManager.dimPercent === 0) {
+                dimTimer.stop()
+                dimOverlay.opacity = 0
+            } else if (dimOverlay.opacity > 0) {
+                applyDim()
+            } else {
+                startDimming()
+            }
+        }
+        function onDimDelayMinutesChanged() {
+            // Only restart if dim hasn't triggered yet
+            if (dimOverlay.opacity === 0 && ScreensaverManager.dimPercent > 0 && !isDisabledMode) {
+                dimTimer.stop()
+                startDimming()
             }
         }
     }
@@ -412,48 +440,15 @@ Page {
     }
 
     // Screen dimming overlay - fades in after configured delay
-    // Overlay is at z:2.5 (above clock/credits at z:2, below touch MouseArea at z:3)
     Timer {
         id: dimTimer
         interval: Math.max(1, ScreensaverManager.dimDelayMinutes) * 60 * 1000
         repeat: false
         running: false
-        onTriggered: {
-            dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
-        }
+        onTriggered: applyDim()
     }
 
-    Connections {
-        target: ScreensaverManager
-        function onDimPercentChanged() {
-            if (ScreensaverManager.dimPercent === 0) {
-                dimTimer.stop()
-                dimOverlay.opacity = 0
-            } else if (dimOverlay.opacity > 0) {
-                // Already dimmed — update to new level
-                dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
-            } else {
-                // Dimming just enabled — start the delay (or apply immediately)
-                if (ScreensaverManager.dimDelayMinutes === 0) {
-                    dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
-                } else {
-                    dimTimer.restart()
-                }
-            }
-        }
-        function onDimDelayMinutesChanged() {
-            // Only restart if dim hasn't triggered yet
-            if (dimOverlay.opacity === 0 && ScreensaverManager.dimPercent > 0 && !isDisabledMode) {
-                dimTimer.stop()
-                if (ScreensaverManager.dimDelayMinutes === 0) {
-                    dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
-                } else {
-                    dimTimer.restart()
-                }
-            }
-        }
-    }
-
+    // z:2.5 positions this above clock/credits (z:2) but below the touch MouseArea (z:3)
     Rectangle {
         id: dimOverlay
         anchors.fill: parent
