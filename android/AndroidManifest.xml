@@ -61,6 +61,7 @@
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <meta-data android:name="android.app.lib_name" android:value="Decenza_DE1" />
         </activity-alias>
 
         <!-- Service for handling device shutdown when app is swiped away -->
