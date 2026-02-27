@@ -154,6 +154,9 @@ private:
     double m_cachedFlowRate = 0.0;
     double m_cachedFlowRateShort = 0.0;
 
+    // Throttled debug logging for scale weight during active phases
+    qint64 m_lastWeightLogMs = 0;
+
     // Auto-tare on cup removal detection
     double m_lastIdleWeight = 0.0;
     qint64 m_lastWeightTime = 0;

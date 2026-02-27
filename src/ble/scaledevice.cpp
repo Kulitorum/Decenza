@@ -1,4 +1,5 @@
 #include "scaledevice.h"
+#include <QDebug>
 
 ScaleDevice::ScaleDevice(QObject* parent)
     : QObject(parent)
@@ -69,10 +70,13 @@ void ScaleDevice::disconnectFromScale() {
 void ScaleDevice::setConnected(bool connected) {
     if (m_connected != connected) {
         m_connected = connected;
-        if (connected)
+        if (connected) {
+            qDebug() << "[Scale]" << name() << "CONNECTED";
             m_keepAliveTimer.start();
-        else
+        } else {
+            qWarning() << "[Scale]" << name() << "DISCONNECTED";
             m_keepAliveTimer.stop();
+        }
         emit connectedChanged();
     }
 }
