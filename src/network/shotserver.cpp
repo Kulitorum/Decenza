@@ -179,13 +179,20 @@ private:
             if (end > start) {
                 host = QString::fromLatin1(request.mid(start, end - start));
                 // Strip port from host if present (we'll add our own)
-                int colonIdx = host.lastIndexOf(':');
-                if (colonIdx > 0) host = host.left(colonIdx);
+                if (host.startsWith('[')) {
+                    // IPv6 literal: [::1]:port – strip after closing bracket
+                    int closeBracket = host.indexOf(']');
+                    if (closeBracket > 0)
+                        host = host.left(closeBracket + 1);
+                } else {
+                    int colonIdx = host.lastIndexOf(':');
+                    if (colonIdx > 0) host = host.left(colonIdx);
+                }
             }
         }
 
         // Sanitize host and path to prevent header injection via CRLF
-        static QRegularExpression validHost(QStringLiteral("^[a-zA-Z0-9.\\-]+$"));
+        static QRegularExpression validHost(QStringLiteral("^[a-zA-Z0-9.\\-]+$|^\\[[0-9a-fA-F:]+\\]$"));
         if (!validHost.match(host).hasMatch())
             host = QStringLiteral("localhost");
         path.remove(QChar('\r'));

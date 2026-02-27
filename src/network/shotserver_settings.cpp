@@ -969,29 +969,42 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
 
     QPointer<QTcpSocket> safeSocket(socket);
     QNetworkReply* reply = m_testNetworkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, safeSocket, reply]() {
-        reply->deleteLater();
+    auto fired = std::make_shared<bool>(false);
+
+    // Backup timeout in case QNetworkReply::finished never fires
+    auto* timer = new QTimer(this);
+    timer->setSingleShot(true);
+
+    auto cleanup = [this, safeSocket, fired, timer](bool success, const QString& message) {
+        if (*fired) return;
+        *fired = true;
         m_visualizerTestInFlight = false;
+        timer->stop();
+        timer->deleteLater();
         if (!safeSocket || safeSocket->state() != QAbstractSocket::ConnectedState)
             return;
+        QJsonObject result;
+        result["success"] = success;
+        result["message"] = message;
+        sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    };
 
+    connect(reply, &QNetworkReply::finished, this, [reply, cleanup]() {
+        reply->deleteLater();
         if (reply->error() == QNetworkReply::NoError) {
-            QJsonObject result;
-            result["success"] = true;
-            result["message"] = "Connection successful";
-            sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+            cleanup(true, "Connection successful");
         } else if (reply->error() == QNetworkReply::AuthenticationRequiredError) {
-            QJsonObject result;
-            result["success"] = false;
-            result["message"] = "Invalid username or password";
-            sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+            cleanup(false, "Invalid username or password");
         } else {
-            QJsonObject result;
-            result["success"] = false;
-            result["message"] = "Connection failed: " + reply->errorString();
-            sendJson(safeSocket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+            cleanup(false, "Connection failed: " + reply->errorString());
         }
     });
+
+    connect(timer, &QTimer::timeout, this, [reply, cleanup]() {
+        reply->abort();
+        cleanup(false, "Connection test timed out");
+    });
+    timer->start(20000);
 }
 
 void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
