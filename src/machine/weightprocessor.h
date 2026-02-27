@@ -15,11 +15,10 @@
 //   - configure(): called once at shot start with targets and learning data
 //   - setCurrentFrame(): called at ~5Hz from DE1 shot samples
 //
-// Output:
-//   - stopNow(): triggers DE1Device::writeUrgentStop() via DirectConnection
-//     (executes immediately on this worker thread, bypasses main thread)
-//   - sawTriggered(): carries context for SAW learning (QueuedConnection to main)
-//   - skipFrame(): triggers DE1Device::skipToNextFrame() (QueuedConnection to main)
+// Output (via QueuedConnection back to main thread):
+//   - stopNow(): triggers DE1Device::stopOperationUrgent()
+//   - sawTriggered(): carries context for SAW learning
+//   - skipFrame(): triggers DE1Device::skipToNextFrame()
 //   - flowRatesReady(): feeds ShotTimingController for graph/settling
 
 class WeightProcessor : public QObject {
