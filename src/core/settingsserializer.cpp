@@ -729,19 +729,25 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             QJsonObject perProfile = mt["perProfileFlowCalibration"].toObject();
             int imported = 0, rejected = 0;
             for (auto it = perProfile.begin(); it != perProfile.end(); ++it) {
+                if (!it.value().isDouble()) {
+                    qWarning() << "Settings import: flow calibration for" << it.key()
+                               << "is not a number (type:" << it.value().type() << "), skipping";
+                    rejected++;
+                    continue;
+                }
                 double val = it.value().toDouble();
                 if (val >= 0.5 && val <= 1.8) {
                     settings->setProfileFlowCalibration(it.key(), val);
                     imported++;
                 } else {
                     qWarning() << "Settings import: flow calibration out of bounds for"
-                               << it.key() << ":" << val;
+                               << it.key() << ":" << val << "(expected [0.5, 1.8])";
                     rejected++;
                 }
             }
             if (rejected > 0) {
                 qWarning() << "Settings import: per-profile flow calibration -"
-                           << imported << "imported," << rejected << "rejected (out of bounds)";
+                           << imported << "imported," << rejected << "rejected";
             }
         }
     }

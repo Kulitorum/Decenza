@@ -2192,7 +2192,13 @@ void MainController::applyFlowCalibration() {
 }
 
 void MainController::computeAutoFlowCalibration() {
-    if (!m_settings || !m_settings->autoFlowCalibration() || !m_shotDataModel)
+    if (!m_settings || !m_shotDataModel) {
+        qWarning() << "Auto flow cal: skipped due to null pointer"
+                   << "(settings:" << (m_settings != nullptr)
+                   << "shotDataModel:" << (m_shotDataModel != nullptr) << ")";
+        return;
+    }
+    if (!m_settings->autoFlowCalibration())
         return;
 
     if (m_baseProfileName.isEmpty()) {
@@ -2267,6 +2273,7 @@ void MainController::computeAutoFlowCalibration() {
     // Cursors for nearest-point/interpolation search (both arrays are time-sorted)
     int wfCursor = 0;
     int mfCursor = 1;
+    int mfMissCount = 0;  // Tracks flow interpolation misses for diagnostics
 
     for (int i = 1; i < pressureData.size(); ++i) {
         double dt = pressureData[i].x() - pressureData[i - 1].x();
@@ -2321,6 +2328,7 @@ void MainController::computeAutoFlowCalibration() {
         }
 
         if (mf < kMinMachineFlow) {
+            if (mf == 0.0) mfMissCount++;  // Interpolation produced no match
             finishWindow();
             continue;
         }
@@ -2341,15 +2349,17 @@ void MainController::computeAutoFlowCalibration() {
     double windowDuration = bestEnd - bestStart;
     if (windowDuration < kMinWindowDuration || bestCount < kMinWindowSamples) {
         qDebug() << "Auto flow cal: no qualifying steady window found"
-                 << "(duration:" << windowDuration << "samples:" << bestCount << ")";
+                 << "(duration:" << windowDuration << "samples:" << bestCount
+                 << "flowInterpolationMisses:" << mfMissCount << ")";
         return;
     }
 
     double meanMachineFlow = bestSumMF / bestCount;
     double meanWeightFlow = bestSumWF / bestCount;
 
-    // Defensive: should be impossible given per-sample kMinWeightFlow threshold
-    if (meanWeightFlow < kMinMachineFlow) {
+    // Guard against division by zero. Should be impossible since every sample
+    // in the window passed the kMinWeightFlow (0.5 g/s) check.
+    if (meanWeightFlow < 0.001) {
         qWarning() << "Auto flow cal: meanWeightFlow unexpectedly low ("
                    << meanWeightFlow << ") after qualifying window";
         return;
@@ -2371,15 +2381,19 @@ void MainController::computeAutoFlowCalibration() {
 
     double currentEffective = m_settings->effectiveFlowCalibration(m_baseProfileName);
 
-    // Only update if relative change > 2% (per-profile values are clamped to [0.5, 1.8];
-    // global fallback can be as low as 0.35)
+    // Only update if relative change > 2%. The > 0.01 guard avoids division by zero
+    // on first use (before any calibration is set).
     if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
         qDebug() << "Auto flow cal: computed" << computed << "≈ current" << currentEffective << "(< 2% change, skipping)";
         return;
     }
 
     double oldValue = currentEffective;
-    m_settings->setProfileFlowCalibration(m_baseProfileName, computed);
+    if (!m_settings->setProfileFlowCalibration(m_baseProfileName, computed)) {
+        qWarning() << "Auto flow cal: computed value" << computed
+                   << "was rejected by settings for" << m_baseProfileName;
+        return;
+    }
     applyFlowCalibration();
 
     qDebug() << "Auto flow cal: updated" << m_baseProfileName

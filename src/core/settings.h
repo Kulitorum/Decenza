@@ -670,7 +670,7 @@ public:
     bool autoFlowCalibration() const;
     void setAutoFlowCalibration(bool enabled);
     double profileFlowCalibration(const QString& profileFilename) const;
-    void setProfileFlowCalibration(const QString& profileFilename, double multiplier);
+    bool setProfileFlowCalibration(const QString& profileFilename, double multiplier);
     Q_INVOKABLE void clearProfileFlowCalibration(const QString& profileFilename);
     Q_INVOKABLE double effectiveFlowCalibration(const QString& profileFilename) const;
     Q_INVOKABLE bool hasProfileFlowCalibration(const QString& profileFilename) const;

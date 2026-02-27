@@ -2613,6 +2613,7 @@ ApplicationWindow {
         opacity: 0
         visible: opacity > 0
         z: 600
+        Accessible.ignored: true
 
         Behavior on opacity {
             NumberAnimation { duration: 300 }
@@ -2624,6 +2625,7 @@ ApplicationWindow {
             text: flowCalToastText
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
         }
     }
 

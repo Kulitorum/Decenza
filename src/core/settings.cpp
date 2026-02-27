@@ -2871,22 +2871,29 @@ double Settings::profileFlowCalibration(const QString& profileFilename) const {
     return 0.0;
 }
 
-void Settings::setProfileFlowCalibration(const QString& profileFilename, double multiplier) {
-    if (profileFilename.isEmpty()) return;
+bool Settings::setProfileFlowCalibration(const QString& profileFilename, double multiplier) {
+    if (profileFilename.isEmpty()) {
+        qWarning() << "Settings: setProfileFlowCalibration called with empty profile filename";
+        return false;
+    }
     // Sanity bounds — same range [0.5, 1.8] as computeAutoFlowCalibration(),
     // but we reject (don't clamp) to prevent stale/corrupt values from persisting
     if (multiplier < 0.5 || multiplier > 1.8) {
         qWarning() << "Settings: rejecting per-profile flow calibration"
                    << multiplier << "for" << profileFilename << "(outside [0.5, 1.8])";
-        return;
+        return false;
     }
     QJsonObject map = allProfileFlowCalibrations();
     map[profileFilename] = multiplier;
     savePerProfileFlowCalMap(map);
+    return true;
 }
 
 void Settings::clearProfileFlowCalibration(const QString& profileFilename) {
-    if (profileFilename.isEmpty()) return;
+    if (profileFilename.isEmpty()) {
+        qWarning() << "Settings: clearProfileFlowCalibration called with empty profile filename";
+        return;
+    }
     QJsonObject map = allProfileFlowCalibrations();
     map.remove(profileFilename);
     savePerProfileFlowCalMap(map);
@@ -2918,12 +2925,15 @@ QJsonObject Settings::allProfileFlowCalibrations() const {
         &parseError).object();
     if (parseError.error != QJsonParseError::NoError) {
         qWarning() << "Settings: corrupt perProfileFlow JSON:" << parseError.errorString()
+                   << "- raw data:" << m_settings.value("calibration/perProfileFlow").toByteArray().left(200)
                    << "- per-profile flow calibrations lost";
+        // Clear the corrupt data so it doesn't persist and cause repeated warnings
+        const_cast<QSettings&>(m_settings).setValue("calibration/perProfileFlow", "{}");
         map = QJsonObject();
     }
     // Cache the result (even if empty from corruption) to prevent repeated re-parsing.
-    // Write-through: setProfileFlowCalibration/clearProfileFlowCalibration update both
-    // QSettings and cache simultaneously, so no explicit invalidation is needed.
+    // INVARIANT: All modifications to "calibration/perProfileFlow" in QSettings
+    // MUST go through savePerProfileFlowCalMap() to maintain cache consistency.
     m_perProfileFlowCalCache = map;
     m_perProfileFlowCalCacheValid = true;
     return m_perProfileFlowCalCache;
