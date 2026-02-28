@@ -451,11 +451,11 @@ Page {
         }
     }
 
-    // Touch hint (fades out) - shown briefly so users know to tap
-    // z:2.75 positions above dimOverlay (z:2.5) but below touch MouseArea (z:3)
+    // Touch hint (fades out) - hidden in disabled mode (pure black screen)
     Tr {
         id: touchHint
-        z: 2.75
+        z: 2
+        visible: !isDisabledMode
         anchors.centerIn: parent
         key: "screensaver.touch_to_wake"
         fallback: "Touch to wake"
@@ -468,7 +468,7 @@ Page {
             from: 0.5
             to: 0
             duration: 3000
-            running: true
+            running: !isDisabledMode
         }
     }
 
