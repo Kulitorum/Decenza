@@ -423,7 +423,6 @@ Page {
             radius: Theme.scaled(8)
             color: Qt.alpha(Theme.primaryColor, 0.15)
             visible: initialFilter !== null
-            Accessible.ignored: true
 
             RowLayout {
                 id: filterBannerRow

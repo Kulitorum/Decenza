@@ -317,11 +317,7 @@ Page {
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("autofavorites.showShots", "Show shots") +
-                            ". " + favoriteDelegate._groupByText
-                        Accessible.focusable: true
-                        Accessible.onPressAction: showMouseArea.clicked(null)
+                        Accessible.ignored: true
 
                         Text {
                             anchors.centerIn: parent
@@ -332,10 +328,12 @@ Page {
                             Accessible.ignored: true
                         }
 
-                        MouseArea {
-                            id: showMouseArea
+                        AccessibleMouseArea {
                             anchors.fill: parent
-                            onClicked: {
+                            accessibleName: TranslationManager.translate("autofavorites.showShots", "Show shots") +
+                                ". " + favoriteDelegate._groupByText
+                            accessibleItem: showButton
+                            onAccessibleClicked: {
                                 var includes = getGroupByIncludes()
                                 var filter = {}
 
@@ -350,9 +348,10 @@ Page {
                                     if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
                                 }
 
-                                pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"), {
-                                    initialFilter: filter
-                                })
+                                var props = {}
+                                if (Object.keys(filter).length > 0)
+                                    props.initialFilter = filter
+                                pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"), props)
                             }
                         }
                     }
