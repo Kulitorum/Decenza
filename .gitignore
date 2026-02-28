@@ -23,6 +23,7 @@ cmake-build-*/
 
 # Installer
 installer/setupvars.iss
+installer/version.iss
 installer/deploy/
 installer/Output/
 

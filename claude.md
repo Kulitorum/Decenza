@@ -78,19 +78,19 @@ find ~/Qt/Tools -name "ninja"
 
 **Configure iOS (generates Xcode project):**
 ```bash
-rm -rf build/Qt_6_10_1_for_iOS && mkdir -p build/Qt_6_10_1_for_iOS && cd build/Qt_6_10_1_for_iOS && /Users/mic/Qt/6.10.2/ios/bin/qt-cmake ../.. -G Xcode
+rm -rf build/Qt_6_10_2_for_iOS && mkdir -p build/Qt_6_10_2_for_iOS && cd build/Qt_6_10_2_for_iOS && /Users/mic/Qt/6.10.2/ios/bin/qt-cmake ../.. -G Xcode
 ```
 
 **Configure macOS (generates Xcode project):**
 ```bash
-rm -rf build/Qt_6_10_1_for_macOS && mkdir -p build/Qt_6_10_1_for_macOS && cd build/Qt_6_10_1_for_macOS && /Users/mic/Qt/6.10.2/macos/bin/qt-cmake ../.. -G Xcode
+rm -rf build/Qt_6_10_2_for_macOS && mkdir -p build/Qt_6_10_2_for_macOS && cd build/Qt_6_10_2_for_macOS && /Users/mic/Qt/6.10.2/macos/bin/qt-cmake ../.. -G Xcode
 ```
 
 **Open in Xcode:**
 ```bash
-open build/Qt_6_10_1_for_iOS/Decenza_DE1.xcodeproj
+open build/Qt_6_10_2_for_iOS/Decenza_DE1.xcodeproj
 # or
-open build/Qt_6_10_1_for_macOS/Decenza_DE1.xcodeproj
+open build/Qt_6_10_2_for_macOS/Decenza_DE1.xcodeproj
 ```
 
 Then in Xcode: Product → Archive for App Store submission.
@@ -172,28 +172,45 @@ git push origin vX.Y.Z
 
 ```
 src/
+├── ai/                     # AI assistant integration
 ├── ble/                    # Bluetooth LE layer
 │   ├── de1device.*         # DE1 machine protocol
 │   ├── blemanager.*        # Device discovery
 │   ├── scaledevice.*       # Abstract scale interface
 │   ├── protocol/           # BLE UUIDs, binary codec
-│   └── scales/             # Scale implementations (14+ types)
+│   ├── scales/             # Scale implementations (13 types)
+│   └── transport/          # BLE transport abstraction
 ├── controllers/
 │   ├── maincontroller.*    # App logic, profiles, shot processing
 │   └── directcontroller.*  # Direct frame control mode
-├── machine/
-│   └── machinestate.*      # Phase tracking, stop-at-weight
-├── profile/
-│   ├── profile.*           # Profile container, JSON/TCL formats
-│   └── profileframe.*      # Single extraction step
-├── models/
-│   └── shotdatamodel.*     # Shot data for graphing
 ├── core/
 │   ├── settings.*          # QSettings persistence
 │   └── batterymanager.*    # Smart charging control
+├── history/                # Shot history storage and queries
+├── machine/
+│   └── machinestate.*      # Phase tracking, stop-at-weight
+├── models/
+│   └── shotdatamodel.*     # Shot data for graphing
 ├── network/
-│   ├── visualizeruploader.*  # Upload shots to visualizer.coffee
-│   └── visualizerimporter.*  # Import profiles from visualizer.coffee
+│   ├── shotserver.cpp      # HTTP server core + route dispatch
+│   ├── shotserver_backup.cpp   # Backup/restore endpoints
+│   ├── shotserver_layout.cpp   # Layout editor web UI
+│   ├── shotserver_shots.cpp    # Shot history endpoints
+│   ├── shotserver_settings.cpp # Settings endpoints
+│   ├── shotserver_ai.cpp       # AI assistant endpoints
+│   ├── shotserver_auth.cpp     # Authentication
+│   ├── shotserver_theme.cpp    # Theme endpoints
+│   ├── shotserver_upload.cpp   # File upload handling
+│   ├── visualizeruploader.*    # Upload shots to visualizer.coffee
+│   └── visualizerimporter.*    # Import profiles from visualizer.coffee
+├── profile/
+│   ├── profile.*           # Profile container, JSON/TCL formats
+│   └── profileframe.*      # Single extraction step
+├── rendering/              # Custom rendering (shot graphs, etc.)
+├── screensaver/            # Screensaver implementation
+├── simulator/              # DE1 machine simulator
+├── usb/                    # USB scale connectivity
+├── weather/                # Weather data for shot metadata
 └── main.cpp                # Entry point, object wiring
 
 qml/
@@ -228,7 +245,7 @@ ScaleDevice     → signals → MachineState (stop-at-weight)
 ```
 Disconnected → Sleep → Idle → Heating → Ready
 Ready → EspressoPreheating → Preinfusion → Pouring → Ending
-Also: Steaming, HotWater, Flushing
+Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 ```
 
 ## Conventions
@@ -343,9 +360,9 @@ Rectangle {
 }
 ```
 
-### ShotServer Web UI (shotserver_layout.cpp)
+### ShotServer Web UI (split across shotserver_*.cpp files)
 
-The layout editor web UI is served as inline HTML/JS from `shotserver_layout.cpp`. Follow these conventions:
+The ShotServer is split into multiple files: `shotserver.cpp` (core + routing), `shotserver_layout.cpp` (layout editor), `shotserver_shots.cpp`, `shotserver_backup.cpp`, `shotserver_settings.cpp`, `shotserver_ai.cpp`, `shotserver_auth.cpp`, `shotserver_theme.cpp`, `shotserver_upload.cpp`. The layout editor web UI is served as inline HTML/JS from `shotserver_layout.cpp`. Follow these conventions:
 
 **Async community endpoints (signal-based):**
 - Community API calls (`browse`, `download`, `upload`, `delete`) are async — they connect to `LibrarySharing` signals and wait for a callback. Use the established pattern: `QPointer<QTcpSocket>` + `std::shared_ptr<bool>` fired guard + `QTimer` timeout + `PendingLibraryRequest` tracking.
@@ -427,14 +444,15 @@ if (frame.exitIf && frame.exitType == "weight" ...) // BUG!
 Transfer profiles, shots, settings, and media between devices over WiFi.
 
 ### Architecture
-- **Server**: `ShotServer` (same as Remote Access) exposes `/backup/*` REST endpoints
+- **Server**: `ShotServer` (same as Remote Access) exposes `/api/backup/*` REST endpoints
 - **Client**: `DataMigrationClient` discovers servers and imports data
 - **Discovery**: UDP broadcast on port 8889 for automatic device finding
 - **UI**: Settings → Data tab
 
 ### Key Files
 - `src/core/datamigrationclient.cpp/.h` - Client-side discovery and import
-- `src/network/shotserver.cpp` - Server-side backup endpoints (lines 4400+)
+- `src/network/shotserver_backup.cpp` - Server-side backup endpoint handlers
+- `src/network/shotserver.cpp` - Route dispatch (routes `/api/backup/*` to handlers)
 - `qml/pages/settings/SettingsDataTab.qml` - UI
 
 ### How It Works
@@ -446,14 +464,16 @@ Transfer profiles, shots, settings, and media between devices over WiFi.
 6. User selects device and imports desired data types
 
 ### REST Endpoints (on ShotServer)
-- `GET /backup/manifest` - List available data (counts, sizes)
-- `GET /backup/settings` - Export settings JSON
-- `GET /backup/profiles` - List profile filenames
-- `GET /backup/profiles/{name}` - Download single profile
-- `GET /backup/shots` - List shot IDs
-- `GET /backup/shots/{id}` - Download single shot
-- `GET /backup/media` - List media files
-- `GET /backup/media/{name}` - Download media file
+- `GET /api/backup/manifest` - List available data (counts, sizes)
+- `GET /api/backup/settings` - Export settings JSON
+- `GET /api/backup/profiles` - List profile filenames
+- `GET /api/backup/profile/{category}/{filename}` - Download single profile
+- `GET /api/backup/shots` - List shot IDs
+- `GET /api/backup/media` - List media files
+- `GET /api/backup/media/{filename}` - Download media file
+- `GET /api/backup/ai-conversations` - Export AI conversations
+- `GET /api/backup/full` - Download full backup archive
+- `POST /api/backup/restore` - Restore from backup archive
 
 ### Import Options
 - **Import All**: Settings, profiles, shots, media
@@ -462,7 +482,7 @@ Transfer profiles, shots, settings, and media between devices over WiFi.
 ## Visualizer Integration
 
 ### DYE (Describe Your Espresso) Metadata
-- **Location**: `qml/pages/ShotMetadataPage.qml`
+- **Location**: `qml/pages/PostShotReviewPage.qml` and `qml/pages/BeanInfoPage.qml`
 - **Settings**: `src/core/settings.h` - dye* properties (sticky between shots)
 - **Feature toggle**: Settings → Visualizer → "Extended metadata"
 - **Auto-show**: Settings → Visualizer → "Edit after shot"
@@ -527,7 +547,8 @@ DE1Device: Write FAILED (timeout) after 3 retries - uuid: 0000a00f data: 0102...
 
 **Key UUIDs:**
 - `0000a002` = RequestedState
-- `0000a00d` = ShotSettings
+- `0000a00b` = ShotSettings (steam, hot water, flush settings)
+- `0000a00d` = ShotSample (real-time shot data ~5Hz)
 - `0000a00e` = StateInfo
 - `0000a00f` = HeaderWrite (profile header)
 - `0000a010` = FrameWrite (profile frames)
@@ -592,7 +613,7 @@ DE1Device: Write FAILED (timeout) after 3 retries - uuid: 0000a00f data: 0102...
 ## Platforms
 
 - Desktop: Windows, macOS, Linux
-- Mobile: Android (API 28+), iOS (14.0+)
+- Mobile: Android (API 28+), iOS (17.0+)
 - Android needs Location permission for BLE scanning
 
 ## Decent Tablet Troubleshooting
@@ -624,15 +645,16 @@ The tablet lacks Google certification, so:
 The Windows installer is built with Inno Setup (`installer/setup.iss`). It uses a local config file `installer/setupvars.iss` (gitignored) to define machine-specific paths.
 
 ### Local setupvars.iss
-Create `installer/setupvars.iss` with paths for your machine:
+Copy `installer/TEMPLATE_setupvars.iss` to `installer/setupvars.iss` and adjust paths for your machine:
 ```iss
 #define SourceDir "C:\CODE\de1-qt"
-#define AppBuildDir "C:\CODE\de1-qt\build\Release"
+#define AppBuildDir "C:\CODE\de1-qt\build\Desktop_Qt_6_10_1_MSVC2022_64bit-Release"
 #define AppDeployDir "C:\CODE\de1-qt\installer\deploy"
 #define QtDir "C:\Qt\6.10.2\msvc2022_64"
-#define VcRedistDir "C:\CODE\de1-qt\vcredist"
-#define VcRedistFile "vc_redist.x64.exe"
-#define OpenSslDir "C:\Program Files\OpenSSL-Win64\bin"
+#define VcRedistDir "C:\Qt\vcredist"
+#define VcRedistFile "vc14.50.35719_VC_redist.x64.exe"
+; Optional - not in TEMPLATE; add manually if OpenSSL is installed separately
+; #define OpenSslDir "C:\Program Files\OpenSSL-Win64\bin"
 ```
 
 ### OpenSSL Dependency
@@ -802,7 +824,7 @@ Each operation page (Steam, HotWater, Flush) has:
 ## Git Workflow
 
 - **Version codes are managed by CI** — local builds use `versioncode.txt` as-is (no auto-increment). All 6 CI workflows bump the code identically on tag push. The Android workflow commits the bumped value back to `main`.
-- You do **not** need to manually commit version code files (`versioncode.txt`, `android/AndroidManifest.xml`, `installer/version.iss`) — CI handles this automatically.
+- You do **not** need to manually commit version code files (`versioncode.txt`, `android/AndroidManifest.xml`) — CI handles this automatically. `installer/version.iss` is generated locally from `installer/version.iss.in` by CMake at build time and is gitignored.
 
 ## Accessibility (TalkBack/VoiceOver)
 
@@ -817,7 +839,7 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 ### Key Components
 - `src/core/accessibilitymanager.h/cpp` - TTS, tick sounds, settings persistence
 - `qml/components/AccessibleTapHandler.qml` - Touch handler that works with TalkBack
-- `qml/components/AccessibleMouseArea.qml` - Simpler version of above
+- `qml/components/AccessibleMouseArea.qml` - Alternative touch handler with announce-first TalkBack behavior
 - `qml/components/AccessibleButton.qml` - Button with required accessibleName
 - `qml/components/AccessibleLabel.qml` - Tap-to-announce text
 
@@ -829,7 +851,7 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 
 ### Rules for New Components
 
-1. Every interactive element must have `Accessible.role`, `Accessible.name`, `Accessible.focusable`, `Accessible.onPressAction` **on itself** (not on a child)
+1. Every interactive element must have `Accessible.role`, `Accessible.name`, `Accessible.focusable`, `Accessible.onPressAction` **on itself** (not on a child). Exception: `AccessibleMouseArea` with `accessibleItem` carries accessibility for its parent — see anti-pattern #1 exception above.
 2. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates
 3. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
 4. Test with TalkBack: double-tap to activate, swipe to navigate
@@ -878,7 +900,7 @@ Page {
 - `qml/pages/HotWaterPage.qml`
 - `qml/pages/FlushPage.qml`
 - `qml/pages/SettingsPage.qml` (and all settings tabs)
-- `qml/pages/RecipesPage.qml`
+- `qml/pages/RecipeEditorPage.qml`
 - `qml/pages/ProfileEditorPage.qml`
 
 **Testing:** Enable TalkBack on Android, then:
