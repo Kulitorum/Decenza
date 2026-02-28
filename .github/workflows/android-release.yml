@@ -258,6 +258,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
+          git stash --include-untracked
           git checkout origin/main
           echo "$BUILD_CODE" > versioncode.txt
           sed -i "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$BUILD_CODE\"/" android/AndroidManifest.xml
