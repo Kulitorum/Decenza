@@ -512,6 +512,7 @@ Page {
         dimBehavior.enabled = false
         dimOverlay.opacity = 0
         dimBehavior.enabled = true
+        // Re-enable keep-screen-on when leaving screensaver
         ScreensaverManager.setKeepScreenOn(true)
     }
 

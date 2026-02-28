@@ -2336,8 +2336,9 @@ ApplicationWindow {
         }
 
         // Navigate to screensaver page for all modes (including "disabled")
-        // For "disabled" mode, ScreensaverPage shows a black screen and lets
-        // Android's system timeout turn off the screen naturally
+        // For "disabled" mode, ScreensaverPage keeps the screen on and uses a
+        // full-opacity black overlay to simulate screen-off (avoids EGL surface
+        // loss on Samsung tablets, QTBUG-45019)
         pageStack.replace(screensaverPage)
     }
 

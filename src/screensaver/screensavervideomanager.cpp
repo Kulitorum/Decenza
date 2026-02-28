@@ -149,20 +149,6 @@ void ScreensaverVideoManager::setKeepScreenOn(bool on)
 #endif
 }
 
-void ScreensaverVideoManager::turnScreenOff()
-{
-#ifdef Q_OS_ANDROID
-    // Clear the keep screen on flag to allow Android's system screen timeout
-    // to turn off the screen naturally. We don't set brightness to 0 because
-    // that keeps the screen technically "on" (just dark) and prevents the
-    // system from actually putting the device to sleep.
-    setKeepScreenOn(false);
-//    qDebug() << "[Screensaver] Cleared keep-screen-on flag, allowing system timeout";
-#else
-//    qDebug() << "[Screensaver] Turn screen off not available on this platform";
-#endif
-}
-
 void ScreensaverVideoManager::restoreScreenBrightness()
 {
 #ifdef Q_OS_ANDROID
