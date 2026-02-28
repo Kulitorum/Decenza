@@ -171,7 +171,7 @@ jobs:
             --apiIssuer $APP_STORE_CONNECT_API_ISSUER_ID
 
       - name: Upload IPA as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Decenza_DE1-iOS
           path: ${{ runner.temp }}/export/*.ipa
