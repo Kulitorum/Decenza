@@ -50,8 +50,12 @@ find_package(Qt6 REQUIRED COMPONENTS
     Network
     Sql
     Positioning
-    SerialPort
 )
+
+# SerialPort is desktop-only (Android/iOS use JNI/native USB APIs instead)
+if(NOT ANDROID AND NOT IOS)
+    find_package(Qt6 REQUIRED COMPONENTS SerialPort)
+endif()
 
 # Optional: ShaderTools (for GPU CRT/Pip-Boy shader effect)
 find_package(Qt6 QUIET COMPONENTS ShaderTools)
@@ -396,8 +400,12 @@ target_link_libraries(Decenza_DE1 PRIVATE
     Qt6::Network
     Qt6::Sql
     Qt6::Positioning
-    Qt6::SerialPort
 )
+
+# Link SerialPort only on desktop (not available on Android/iOS)
+if(NOT ANDROID AND NOT IOS)
+    target_link_libraries(Decenza_DE1 PRIVATE Qt6::SerialPort)
+endif()
 
 # Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
 # statically linked (avoids duplicate SHA1 symbols), non-SSL on mobile
