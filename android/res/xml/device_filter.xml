@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- QinHeng/WCH USB-to-Serial chips (CH340, CH9102, etc.) used by DE1 -->
+    <usb-device vendor-id="6790" />
+</resources>
