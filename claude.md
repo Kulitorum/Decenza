@@ -661,10 +661,12 @@ gh release list --limit 5
 git log <previous-tag>..HEAD --oneline
 ```
 
-#### Step 2: Create the GitHub Release
+#### Step 2: Create the GitHub Release FIRST (before pushing the tag)
+**You must create the release before pushing the tag.** If CI runs and no release exists, it creates one as a draft without `--prerelease`, which is wrong. Creating it first ensures your release notes and prerelease flag are preserved.
+
 The `Build: XXXX` line is injected automatically by CI after the Android build completes. Do NOT add it manually.
 
-For beta/prerelease builds, add `--prerelease` flag. Users with "Beta updates" enabled in Settings will get these.
+For beta/prerelease builds, add `--prerelease` flag. Users with "Beta updates" enabled in Settings will get these. Omit `--prerelease` for stable releases.
 
 ```bash
 gh release create vX.Y.Z \
@@ -699,7 +701,7 @@ git push origin vX.Y.Z
 This triggers all 6 platform builds simultaneously. Each workflow will:
 - Bump the version code
 - Build the binary
-- Upload the artifact to the GitHub Release
+- Upload the artifact to the existing GitHub Release
 - Android workflow commits the bumped version code back to main
 - Android workflow injects `Build: XXXX` into the release notes
 - iOS workflow uploads to App Store Connect
@@ -712,6 +714,10 @@ git tag -d vX.Y.Z
 git push origin :refs/tags/vX.Y.Z
 git tag vX.Y.Z
 git push origin vX.Y.Z
+```
+**Note:** Do NOT delete the GitHub Release — only the tag. The release persists and CI will upload new artifacts to it. If the release was accidentally deleted or created as a draft, fix it with:
+```bash
+gh release edit vX.Y.Z --draft=false --prerelease
 ```
 
 ### Updating Release Notes
