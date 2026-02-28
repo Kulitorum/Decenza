@@ -223,7 +223,6 @@ int main(int argc, char *argv[])
     weightThread.setObjectName(QStringLiteral("WeightProcessor"));
     weightProcessor.moveToThread(&weightThread);
     weightThread.start(QThread::HighPriority);
-    qDebug() << "[SAW] WeightProcessor thread priority set to HighPriority";
 
     // Scale → WeightProcessor (main → worker, auto QueuedConnection)
     // Initially connected to FlowScale; reconnected when physical scale is found
