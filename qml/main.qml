@@ -357,11 +357,8 @@ ApplicationWindow {
         })
     }
 
-    Timer {
-        id: pendingPopupTimer
-        interval: 500  // Brief delay after wake to let UI settle
-        onTriggered: root.showNextPendingPopup()
-    }
+    // No timer needed — page transitions are instant (empty Transition{}),
+    // so Qt.callLater suffices to let the event loop finish the replace().
 
     // Periodic timer to keep steam heater on when idle
     // The DE1 may have an internal timeout that reduces steam heater power after some idle time.
@@ -2392,9 +2389,9 @@ ApplicationWindow {
         console.log("Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
                     " pendingPopups=" + pendingPopups.length)
         pageStack.replace(idlePage)
-        // Show any popups that arrived during screensaver (after brief delay for UI to settle)
+        // Show any popups that arrived during screensaver
         if (pendingPopups.length > 0) {
-            pendingPopupTimer.start()
+            Qt.callLater(root.showNextPendingPopup)
         }
     }
 
