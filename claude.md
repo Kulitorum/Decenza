@@ -97,7 +97,9 @@ Then in Xcode: Product → Archive for App Store submission.
 
 ## CI/CD (GitHub Actions)
 
-All platforms build automatically when a `v*` tag is pushed. Each workflow can also be triggered manually via `workflow_dispatch`.
+All platforms build automatically when a `v*` tag is pushed. Each workflow can also be triggered manually via `workflow_dispatch` for **test builds only** (no version bump, no uploads by default).
+
+All workflows have concurrency controls — if the same workflow triggers twice for the same ref, the older run is cancelled. Artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
 
 ### Workflows
 
@@ -110,33 +112,36 @@ All platforms build automatically when a `v*` tag is pushed. Each workflow can a
 | Linux | `linux-release.yml` | ubuntu-24.04 | AppImage |
 | Linux ARM64 | `linux-arm64-release.yml` | ubuntu-24.04-arm | AppImage (aarch64) |
 
-All workflows upload artifacts to the same GitHub Release when triggered by a `v*` tag.
+On tag push: all workflows bump version code, build, upload to GitHub Release, and (for iOS) upload to App Store Connect. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 
 ### Quick commands
 ```bash
-# Trigger individual platform builds
-gh workflow run android-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
-gh workflow run ios-release.yml --repo Kulitorum/de1-qt -f upload_to_appstore=false
-gh workflow run windows-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
-gh workflow run macos-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
-gh workflow run linux-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
-gh workflow run linux-arm64-release.yml --repo Kulitorum/de1-qt -f upload_to_release=false
+# Trigger individual TEST builds (no upload, no version bump)
+gh workflow run android-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
+gh workflow run ios-release.yml --repo Kulitorum/Decenza -f upload_to_appstore=false
+gh workflow run windows-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
+gh workflow run macos-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
+gh workflow run linux-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
+gh workflow run linux-arm64-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
 
 # Check build status
-gh run list --repo Kulitorum/de1-qt --limit 5
+gh run list --repo Kulitorum/Decenza --limit 5
 
 # Watch live logs
-gh run watch --repo Kulitorum/de1-qt
+gh run watch --repo Kulitorum/Decenza
 
 # View failed logs
-gh run view --repo Kulitorum/de1-qt --log-failed
+gh run view --repo Kulitorum/Decenza --log-failed
 ```
 
 ### Release all platforms at once
+See "Publishing Releases" section below for the full process. In short:
 ```bash
-# Push a version tag — all 6 workflows trigger simultaneously
-git tag v1.4.4
-git push origin v1.4.4
+# 1. Create the GitHub Release FIRST (so CI finds it)
+gh release create vX.Y.Z --title "Decenza DE1 vX.Y.Z" --prerelease --notes "..."
+# 2. Then push the tag to trigger all 6 builds
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 ### GitHub Secrets
@@ -159,7 +164,7 @@ git push origin v1.4.4
 ### Platform notes
 - iOS bundle ID: `io.github.kulitorum.decenza` (differs from Android: `io.github.kulitorum.decenza_de1`)
 - iOS signing credentials expire yearly — see `docs/IOS_CI_FOR_CLAUDE.md` for renewal
-- iOS builds are always uploaded to App Store Connect (including pre-releases). This makes them available in TestFlight automatically. App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
+- iOS tag-push builds upload to App Store Connect automatically (available in TestFlight). Manual `workflow_dispatch` builds default to `upload_to_appstore=false` (test only). App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
 - Android keystore path is configurable via `ANDROID_KEYSTORE_PATH` env var (falls back to local path)
 - Android build uses `build.gradle` post-build hook for signing and versioned APK naming
 
@@ -778,7 +783,7 @@ Each operation page (Steam, HotWater, Flush) has:
 - **Display version** (versionName): Set in `CMakeLists.txt` line 2: `project(Decenza_DE1 VERSION x.y.z)`
 - **Version code** (versionCode): Stored in `versioncode.txt`. Does **not** auto-increment during local builds. CI workflows bump it on tag push, and the Android workflow commits the new value back to `main`.
 - **version.h**: Auto-generated from `src/version.h.in` with VERSION_STRING macro
-- To release a new version: Update VERSION in CMakeLists.txt, commit, push a `v*` tag
+- To release a new version: Update VERSION in CMakeLists.txt, commit, then follow the "Publishing Releases" process (create release first, then push tag)
 
 ## Git Workflow
 
