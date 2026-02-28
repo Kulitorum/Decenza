@@ -72,6 +72,10 @@ QString MachineState::phaseString() const {
     return QString::fromLatin1(metaEnum.valueToKey(static_cast<int>(m_phase)));
 }
 
+ScaleDevice* MachineState::scale() const {
+    return m_scale;
+}
+
 void MachineState::setScale(ScaleDevice* scale) {
     if (m_scale == scale) {
         // Same scale pointer — just refresh QML, don't add duplicate connections.

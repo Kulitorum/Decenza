@@ -1,4 +1,6 @@
 #include "de1device.h"
+#include "de1transport.h"
+#include "bletransport.h"
 #include "protocol/binarycodec.h"
 #include "profile/profile.h"
 #include "../core/settings.h"
@@ -9,86 +11,8 @@
 #include <QBluetoothAddress>
 #include <QDateTime>
 #include <QDebug>
-#include <QFile>
-#include <QTextStream>
-#include <QStandardPaths>
 #include <chrono>
-
-#ifdef Q_OS_ANDROID
-#include <QJniObject>
-#include <QCoreApplication>
-
-// Store DE1 address in Android SharedPreferences for shutdown service
-static void storeDE1AddressForShutdown(const QString& address) {
-    QJniObject context = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "getContext",
-        "()Landroid/content/Context;");
-
-    if (!context.isValid()) {
-//        qWarning() << "DE1Device: Failed to get Android context for address storage";
-        return;
-    }
-
-    QJniObject::callStaticMethod<void>(
-        "io/github/kulitorum/decenza_de1/DeviceShutdownService",
-        "setDe1Address",
-        "(Landroid/content/Context;Ljava/lang/String;)V",
-        context.object(),
-        QJniObject::fromString(address).object<jstring>());
-}
-
-static void clearDE1AddressForShutdown() {
-    QJniObject context = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "getContext",
-        "()Landroid/content/Context;");
-
-    if (!context.isValid()) {
-        return;
-    }
-
-    QJniObject::callStaticMethod<void>(
-        "io/github/kulitorum/decenza_de1/DeviceShutdownService",
-        "clearDe1Address",
-        "(Landroid/content/Context;)V",
-        context.object());
-}
-
-static void startBleConnectionService() {
-    QJniObject context = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "getContext",
-        "()Landroid/content/Context;");
-
-    if (!context.isValid()) {
-        return;
-    }
-
-    QJniObject::callStaticMethod<void>(
-        "io/github/kulitorum/decenza_de1/BleConnectionService",
-        "start",
-        "(Landroid/content/Context;)V",
-        context.object());
-}
-
-static void stopBleConnectionService() {
-    QJniObject context = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "getContext",
-        "()Landroid/content/Context;");
-
-    if (!context.isValid()) {
-        return;
-    }
-
-    QJniObject::callStaticMethod<void>(
-        "io/github/kulitorum/decenza_de1/BleConnectionService",
-        "stop",
-        "(Landroid/content/Context;)V",
-        context.object());
-}
-#endif
+#include <memory>
 
 namespace {
 qint64 monotonicMsNow()
@@ -101,95 +25,114 @@ qint64 monotonicMsNow()
 DE1Device::DE1Device(QObject* parent)
     : QObject(parent)
 {
-    m_commandTimer.setInterval(50);  // Process queue every 50ms
-    m_commandTimer.setSingleShot(true);
-    connect(&m_commandTimer, &QTimer::timeout, this, &DE1Device::processCommandQueue);
-
-    // Write timeout timer - detect hung BLE writes (like de1app)
-    m_writeTimeoutTimer.setSingleShot(true);
-    m_writeTimeoutTimer.setInterval(WRITE_TIMEOUT_MS);
-    connect(&m_writeTimeoutTimer, &QTimer::timeout, this, [this]() {
-        if (m_writePending) {
-//            qWarning() << "DE1Device: BLE write TIMEOUT after" << WRITE_TIMEOUT_MS << "ms"
-//                       << "- uuid:" << m_lastWriteUuid << "data:" << m_lastWriteData.toHex();
-            m_writePending = false;
-            if (m_lastCommand && m_writeRetryCount < MAX_WRITE_RETRIES) {
-                m_writeRetryCount++;
-//                qWarning() << "DE1Device: Retrying after timeout ("
-//                           << m_writeRetryCount << "/" << MAX_WRITE_RETRIES << ")";
-                QTimer::singleShot(100, this, [this]() {
-                    if (m_lastCommand) {
-                        m_lastCommand();
-                    }
-                });
-            } else {
-//                qWarning() << "DE1Device: Write FAILED (timeout) after" << m_writeRetryCount
-//                           << "retries - uuid:" << m_lastWriteUuid << "data:" << m_lastWriteData.toHex();
-                if (m_sawStopWritePending) {
-                    qWarning() << "[SAW-Latency] Stop command failed before BLE ack (timeout), elapsed="
-                               << (monotonicMsNow() - m_lastSawTriggerMs) << "ms";
-                    m_sawStopWritePending = false;
-                    m_lastSawTriggerMs = 0;
-                    m_lastSawWriteMs = 0;
-                }
-                m_lastCommand = nullptr;
-                m_writeRetryCount = 0;
-                processCommandQueue();  // Move on to next command
-            }
-        }
-    });
-
-    // Retry timer for failed service discovery
-    m_retryTimer.setSingleShot(true);
-    m_retryTimer.setInterval(RETRY_DELAY_MS);
-    connect(&m_retryTimer, &QTimer::timeout, this, [this]() {
-        if (m_pendingDevice.isValid()) {
-//            qDebug() << "DE1Device: Retry" << m_retryCount << "of" << MAX_RETRIES;
-            // Clean up before retry
-            if (m_controller) {
-                m_controller->disconnectFromDevice();
-                delete m_controller;
-                m_controller = nullptr;
-            }
-            // Reconnect
-            m_connecting = true;
-            emit connectingChanged();
-            m_controller = QLowEnergyController::createCentral(m_pendingDevice, this);
-            // Use Qt::QueuedConnection for all BLE signals - fixes iOS CoreBluetooth threading
-            // issues where callbacks arrive on CoreBluetooth thread and cause re-entrancy/crash
-            auto qc = Qt::QueuedConnection;
-            connect(m_controller, &QLowEnergyController::connected,
-                    this, &DE1Device::onControllerConnected, qc);
-            connect(m_controller, &QLowEnergyController::disconnected,
-                    this, &DE1Device::onControllerDisconnected, qc);
-            connect(m_controller, &QLowEnergyController::errorOccurred,
-                    this, &DE1Device::onControllerError, qc);
-            connect(m_controller, &QLowEnergyController::serviceDiscovered,
-                    this, &DE1Device::onServiceDiscovered, qc);
-            connect(m_controller, &QLowEnergyController::discoveryFinished,
-                    this, &DE1Device::onServiceDiscoveryFinished, qc);
-            m_controller->connectToDevice();
-        }
-    });
 }
 
 DE1Device::~DE1Device() {
     disconnect();
 }
 
-bool DE1Device::isConnected() const {
-    // In simulation mode, we're "connected" to the simulated machine
-    if (m_simulationMode) return true;
+// -- Transport abstraction --
 
-    // After service discovery, controller is in DiscoveredState, not ConnectedState
-    return m_controller &&
-           (m_controller->state() == QLowEnergyController::ConnectedState ||
-            m_controller->state() == QLowEnergyController::DiscoveredState) &&
-           m_service != nullptr;
+void DE1Device::setTransport(DE1Transport* transport) {
+    // Disconnect old transport signals if any
+    if (m_transport) {
+        QObject::disconnect(m_transport, nullptr, this, nullptr);
+    }
+
+    bool wasConnected = isConnected();
+    m_transport = transport;
+
+    if (m_transport) {
+        connect(m_transport, &DE1Transport::connected,
+                this, &DE1Device::onTransportConnected);
+        connect(m_transport, &DE1Transport::disconnected,
+                this, &DE1Device::onTransportDisconnected);
+        connect(m_transport, &DE1Transport::dataReceived,
+                this, &DE1Device::onTransportDataReceived);
+        connect(m_transport, &DE1Transport::writeComplete,
+                this, &DE1Device::onTransportWriteComplete);
+        connect(m_transport, &DE1Transport::errorOccurred,
+                this, &DE1Device::errorOccurred);
+        connect(m_transport, &DE1Transport::logMessage,
+                this, &DE1Device::logMessage);
+    }
+
+    if (wasConnected != isConnected()) {
+        emit connectedChanged();
+        emit guiEnabledChanged();
+    }
+}
+
+QString DE1Device::connectionType() const {
+    if (m_simulationMode) return QStringLiteral("Simulation");
+    if (!m_transport) return QString();
+    return m_transport->transportName();
+}
+
+// -- Transport signal handlers --
+
+void DE1Device::onTransportConnected() {
+    m_connecting = false;
+    emit connectingChanged();
+    emit connectedChanged();
+    emit guiEnabledChanged();
+
+    // Send Idle state to wake the machine (same as de1app on connect)
+    requestState(DE1::State::Idle);
+}
+
+void DE1Device::onTransportDisconnected() {
+    m_sawStopWritePending = false;
+    m_lastSawTriggerMs = 0;
+    m_lastSawWriteMs = 0;
+
+    m_connecting = false;
+    emit connectingChanged();
+    emit connectedChanged();
+    emit guiEnabledChanged();
+}
+
+void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteArray& data) {
+    if (uuid == DE1::Characteristic::STATE_INFO) {
+        parseStateInfo(data);
+    } else if (uuid == DE1::Characteristic::SHOT_SAMPLE) {
+        parseShotSample(data);
+    } else if (uuid == DE1::Characteristic::WATER_LEVELS) {
+        parseWaterLevel(data);
+    } else if (uuid == DE1::Characteristic::VERSION) {
+        parseVersion(data);
+    } else if (uuid == DE1::Characteristic::READ_FROM_MMR) {
+        parseMMRResponse(data);
+    }
+}
+
+void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data) {
+    // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack)
+    if (m_sawStopWritePending
+        && uuid == DE1::Characteristic::REQUESTED_STATE
+        && data.size() == 1
+        && static_cast<uint8_t>(data[0]) == static_cast<uint8_t>(DE1::State::Idle)) {
+        qint64 ackMs = monotonicMsNow();
+        qint64 dispatchMs = m_lastSawWriteMs - m_lastSawTriggerMs;
+        qint64 bleAckMs = ackMs - m_lastSawWriteMs;
+        qint64 totalMs = ackMs - m_lastSawTriggerMs;
+        qDebug() << "[SAW-Latency] dispatch=" << dispatchMs
+                 << "ms, bleAck=" << bleAckMs
+                 << "ms, total=" << totalMs << "ms";
+        m_sawStopWritePending = false;
+        m_lastSawTriggerMs = 0;
+        m_lastSawWriteMs = 0;
+    }
+}
+
+// -- Connection state --
+
+bool DE1Device::isConnected() const {
+    if (m_simulationMode) return true;
+    return m_transport && m_transport->isConnected();
 }
 
 bool DE1Device::isGuiEnabled() const {
-    // GUI is enabled when connected OR in simulation/offline mode
     return isConnected() || m_simulationMode;
 }
 
@@ -197,15 +140,15 @@ bool DE1Device::isConnecting() const {
     return m_connecting;
 }
 
+// -- Simulation mode --
+
 void DE1Device::setSimulationMode(bool enabled) {
     if (m_simulationMode == enabled) {
         return;
     }
     m_simulationMode = enabled;
-//    qDebug() << "DE1Device: Simulation mode" << (enabled ? "ENABLED" : "DISABLED");
 
     if (enabled) {
-        // Set some default simulated state
         m_state = DE1::State::Idle;
         m_subState = DE1::SubState::Ready;
         m_pressure = 0.0;
@@ -213,8 +156,8 @@ void DE1Device::setSimulationMode(bool enabled) {
         m_headTemp = 93.0;
         m_mixTemp = 92.5;
         m_waterLevel = 75.0;
-        m_waterLevelMm = 31.25;  // ~75% = (31.25-5)/(40-5)*100
-        m_waterLevelMl = 872;    // From lookup table at ~31mm
+        m_waterLevelMm = 31.25;
+        m_waterLevelMl = 872;
         m_firmwareVersion = "SIM-1.0";
         emit stateChanged();
         emit subStateChanged();
@@ -258,7 +201,6 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
 void DE1Device::emitSimulatedShotSample(const ShotSample& sample) {
     if (!m_simulationMode) return;
 
-    // Update internal state from sample
     m_pressure = sample.groupPressure;
     m_flow = sample.groupFlow;
     m_headTemp = sample.headTemp;
@@ -267,6 +209,8 @@ void DE1Device::emitSimulatedShotSample(const ShotSample& sample) {
 
     emit shotSampleReceived(sample);
 }
+
+// -- Connection management --
 
 void DE1Device::connectToDevice(const QString& address) {
     QBluetoothDeviceInfo info(QBluetoothAddress(address), QString(), 0);
@@ -279,101 +223,42 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
         return;
     }
 
-    if (m_controller) {
+    // Clean up any existing transport
+    if (m_transport) {
         disconnect();
     }
-
-    // Store device for potential retries and reset counter
-    m_pendingDevice = device;
-    m_retryCount = 0;
-    m_retryTimer.stop();
 
     m_connecting = true;
     emit connectingChanged();
 
-    m_controller = QLowEnergyController::createCentral(device, this);
-
-    // Use Qt::QueuedConnection for all BLE signals - fixes iOS CoreBluetooth threading
-    // issues where callbacks arrive on CoreBluetooth thread and cause re-entrancy/crash
-    auto qc = Qt::QueuedConnection;
-    connect(m_controller, &QLowEnergyController::connected,
-            this, &DE1Device::onControllerConnected, qc);
-    connect(m_controller, &QLowEnergyController::disconnected,
-            this, &DE1Device::onControllerDisconnected, qc);
-    connect(m_controller, &QLowEnergyController::errorOccurred,
-            this, &DE1Device::onControllerError, qc);
-    connect(m_controller, &QLowEnergyController::serviceDiscovered,
-            this, &DE1Device::onServiceDiscovered, qc);
-    connect(m_controller, &QLowEnergyController::discoveryFinished,
-            this, &DE1Device::onServiceDiscoveryFinished, qc);
-
-    m_controller->connectToDevice();
+    // Create a new BleTransport and wire it up (DE1Device owns it)
+    auto* bleTransport = new BleTransport(this);
+    setTransport(bleTransport);
+    m_ownsTransport = true;
+    bleTransport->connectToDevice(device);
 }
 
 void DE1Device::disconnect() {
-    m_commandQueue.clear();
-    m_writePending = false;
     m_profileUploadInProgress = false;
     m_sleepPendingAfterUpload = false;
-    m_writeTimeoutTimer.stop();
-    m_lastCommand = nullptr;
-    m_writeRetryCount = 0;
-    m_lastWriteUuid.clear();
-    m_lastWriteData.clear();
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
 
-    // Stop any pending retries
-    m_retryTimer.stop();
-    m_pendingDevice = QBluetoothDeviceInfo();
-    m_retryCount = 0;
-
-    if (m_service) {
-        delete m_service;
-        m_service = nullptr;
+    if (m_transport) {
+        // Disconnect signals FIRST to prevent re-entrant emissions
+        // (BleTransport::disconnect() emits disconnected(), which would
+        // trigger onTransportDisconnected() and double-emit our signals)
+        QObject::disconnect(m_transport, nullptr, this, nullptr);
+        m_transport->disconnect();
+        // Only delete transports we created (connectToDevice). External
+        // transports (USB via setTransport) are owned by their creator.
+        if (m_ownsTransport) {
+            m_transport->deleteLater();
+        }
+        m_transport = nullptr;
+        m_ownsTransport = false;
     }
-    m_characteristics.clear();
-
-    if (m_controller) {
-        m_controller->disconnectFromDevice();
-        delete m_controller;
-        m_controller = nullptr;
-    }
-
-#ifdef Q_OS_ANDROID
-    // Clear address from shutdown service
-    clearDE1AddressForShutdown();
-    // Stop foreground service — no longer connected
-    stopBleConnectionService();
-#endif
-    m_connecting = false;
-    emit connectingChanged();
-    emit connectedChanged();
-    emit guiEnabledChanged();
-}
-
-void DE1Device::onControllerConnected() {
-    m_controller->discoverServices();
-}
-
-void DE1Device::onControllerDisconnected() {
-#ifdef Q_OS_ANDROID
-    // Clear address from shutdown service
-    clearDE1AddressForShutdown();
-    // Stop foreground service — no longer connected
-    stopBleConnectionService();
-#endif
-
-    // Clear pending BLE operations to prevent writes against a dead connection,
-    // which causes DeadObjectException crashes on Android (issue #189)
-    m_commandQueue.clear();
-    m_writePending = false;
-    m_writeTimeoutTimer.stop();
-    m_commandTimer.stop();
-    m_sawStopWritePending = false;
-    m_lastSawTriggerMs = 0;
-    m_lastSawWriteMs = 0;
 
     m_connecting = false;
     emit connectingChanged();
@@ -381,241 +266,7 @@ void DE1Device::onControllerDisconnected() {
     emit guiEnabledChanged();
 }
 
-void DE1Device::onControllerError(QLowEnergyController::Error error) {
-    QString errorMsg;
-    switch (error) {
-        case QLowEnergyController::UnknownError:
-            errorMsg = "Unknown error";
-            break;
-        case QLowEnergyController::UnknownRemoteDeviceError:
-            errorMsg = "Remote device not found";
-            break;
-        case QLowEnergyController::NetworkError:
-            errorMsg = "Network error";
-            break;
-        case QLowEnergyController::InvalidBluetoothAdapterError:
-            errorMsg = "Invalid Bluetooth adapter";
-            break;
-        case QLowEnergyController::ConnectionError:
-            errorMsg = "Connection error";
-            break;
-        case QLowEnergyController::AdvertisingError:
-            errorMsg = "Advertising error";
-            break;
-        case QLowEnergyController::RemoteHostClosedError:
-            errorMsg = "Remote host closed connection";
-            break;
-        case QLowEnergyController::AuthorizationError:
-            errorMsg = "Authorization error";
-            break;
-        default:
-            errorMsg = "Bluetooth error";
-            break;
-    }
-//    qWarning() << "DE1Device: Controller error:" << errorMsg;
-    emit errorOccurred(errorMsg);
-    m_connecting = false;
-    emit connectingChanged();
-}
-
-void DE1Device::onServiceDiscovered(const QBluetoothUuid& uuid) {
-    if (uuid == DE1::SERVICE_UUID) {
-        m_service = m_controller->createServiceObject(uuid, this);
-        if (m_service) {
-            // Use Qt::QueuedConnection for all service signals - fixes iOS CoreBluetooth
-            // threading issues where callbacks arrive on CoreBluetooth thread
-            auto qc = Qt::QueuedConnection;
-            connect(m_service, &QLowEnergyService::stateChanged,
-                    this, &DE1Device::onServiceStateChanged, qc);
-            connect(m_service, &QLowEnergyService::characteristicChanged,
-                    this, &DE1Device::onCharacteristicChanged, qc);
-            connect(m_service, &QLowEnergyService::characteristicRead,
-                    this, &DE1Device::onCharacteristicChanged, qc);  // Use same handler for reads
-            connect(m_service, &QLowEnergyService::characteristicWritten,
-                    this, &DE1Device::onCharacteristicWritten, qc);
-            connect(m_service, &QLowEnergyService::errorOccurred,
-                    this, [this](QLowEnergyService::ServiceError error) {
-                // Log but don't fail on descriptor errors - common on Windows
-                if (error != QLowEnergyService::DescriptorReadError &&
-                    error != QLowEnergyService::DescriptorWriteError) {
-//                    qWarning() << "DE1Device: Service error:" << error
-//                               << "- uuid:" << m_lastWriteUuid << "data:" << m_lastWriteData.toHex();
-
-                    // Handle write errors with retry (like de1app)
-                    if (error == QLowEnergyService::CharacteristicWriteError && m_writePending) {
-                        m_writePending = false;
-                        m_writeTimeoutTimer.stop();  // Cancel timeout - we're handling the error
-                        if (m_lastCommand && m_writeRetryCount < MAX_WRITE_RETRIES) {
-                            m_writeRetryCount++;
-//                            qWarning() << "DE1Device: Write ERROR, retrying ("
-//                                       << m_writeRetryCount << "/" << MAX_WRITE_RETRIES << ")";
-                            // Re-execute the last command after a short delay
-                            QTimer::singleShot(100, this, [this]() {
-                                if (m_lastCommand) {
-                                    m_lastCommand();
-                                }
-                            });
-                        } else {
-//                            qWarning() << "DE1Device: Write FAILED (error) after" << m_writeRetryCount
-//                                       << "retries - uuid:" << m_lastWriteUuid << "data:" << m_lastWriteData.toHex();
-                            if (m_sawStopWritePending) {
-                                qWarning() << "[SAW-Latency] Stop command failed before BLE ack (write error), elapsed="
-                                           << (monotonicMsNow() - m_lastSawTriggerMs) << "ms";
-                                m_sawStopWritePending = false;
-                                m_lastSawTriggerMs = 0;
-                                m_lastSawWriteMs = 0;
-                            }
-                            m_lastCommand = nullptr;
-                            m_writeRetryCount = 0;
-                            processCommandQueue();  // Move on to next command
-                        }
-                    } else {
-                        emit errorOccurred(QString("Service error: %1").arg(error));
-                    }
-                }
-            }, qc);
-            m_service->discoverDetails();
-        } else {
-//            qWarning() << "DE1Device: Failed to create service object";
-        }
-    }
-}
-
-void DE1Device::onServiceDiscoveryFinished() {
-    if (!m_service) {
-        // Retry logic - Android sometimes returns wrong/cached services
-        m_retryCount++;
-        if (m_retryCount <= MAX_RETRIES && m_pendingDevice.isValid()) {
-//            qWarning() << "DE1Device: Service not found, retry" << m_retryCount << "of" << MAX_RETRIES;
-            if (m_controller) {
-                m_controller->disconnectFromDevice();
-            }
-            m_retryTimer.start();
-        } else {
-//            qWarning() << "DE1Device: Max retries exceeded";
-            emit errorOccurred("DE1 service not found after " + QString::number(MAX_RETRIES) + " retries. Try toggling Bluetooth off/on.");
-            m_pendingDevice = QBluetoothDeviceInfo();
-            disconnect();
-        }
-    } else {
-        // Success - clear pending device
-        m_pendingDevice = QBluetoothDeviceInfo();
-        m_retryCount = 0;
-    }
-}
-
-void DE1Device::onServiceStateChanged(QLowEnergyService::ServiceState state) {
-    if (state == QLowEnergyService::RemoteServiceDiscovered) {
-        setupService();
-        subscribeToNotifications();
-        m_connecting = false;
-//        qDebug() << "DE1Device: Connected";
-
-#ifdef Q_OS_ANDROID
-        // Store address for shutdown service (handles swipe-to-kill)
-        if (m_controller) {
-            storeDE1AddressForShutdown(m_controller->remoteAddress().toString());
-        }
-        // Start foreground service to prevent Samsung/OEM app killing
-        startBleConnectionService();
-#endif
-
-        emit connectingChanged();
-        emit connectedChanged();
-        emit guiEnabledChanged();
-    }
-}
-
-void DE1Device::setupService() {
-    if (!m_service) return;
-
-    // Cache all characteristics
-    const QList<QLowEnergyCharacteristic> chars = m_service->characteristics();
-    for (const auto& c : chars) {
-        m_characteristics[c.uuid()] = c;
-    }
-}
-
-void DE1Device::subscribeToNotifications() {
-    if (!m_service) return;
-
-    // Helper to subscribe to a characteristic's notifications
-    auto subscribe = [this](const QBluetoothUuid& uuid) {
-        if (m_characteristics.contains(uuid)) {
-            QLowEnergyCharacteristic c = m_characteristics[uuid];
-            QLowEnergyDescriptor notification = c.descriptor(
-                QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
-            if (notification.isValid()) {
-                m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
-            }
-        }
-    };
-
-    // Subscribe to notifications
-    subscribe(DE1::Characteristic::STATE_INFO);
-    subscribe(DE1::Characteristic::SHOT_SAMPLE);
-    subscribe(DE1::Characteristic::WATER_LEVELS);
-    subscribe(DE1::Characteristic::READ_FROM_MMR);
-    subscribe(DE1::Characteristic::TEMPERATURES);
-
-    // Read initial values
-    if (m_characteristics.contains(DE1::Characteristic::VERSION)) {
-        m_service->readCharacteristic(m_characteristics[DE1::Characteristic::VERSION]);
-    }
-    if (m_characteristics.contains(DE1::Characteristic::STATE_INFO)) {
-        m_service->readCharacteristic(m_characteristics[DE1::Characteristic::STATE_INFO]);
-    }
-    if (m_characteristics.contains(DE1::Characteristic::WATER_LEVELS)) {
-        m_service->readCharacteristic(m_characteristics[DE1::Characteristic::WATER_LEVELS]);
-    }
-
-    // Send Idle state to wake the machine (this is what the tablet app does)
-    requestState(DE1::State::Idle);  // Makes fan go quiet
-}
-
-void DE1Device::onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    if (c.uuid() == DE1::Characteristic::STATE_INFO) {
-        parseStateInfo(value);
-    } else if (c.uuid() == DE1::Characteristic::SHOT_SAMPLE) {
-        parseShotSample(value);
-    } else if (c.uuid() == DE1::Characteristic::WATER_LEVELS) {
-        parseWaterLevel(value);
-    } else if (c.uuid() == DE1::Characteristic::VERSION) {
-        parseVersion(value);
-    } else if (c.uuid() == DE1::Characteristic::READ_FROM_MMR) {
-        parseMMRResponse(value);
-    }
-}
-
-void DE1Device::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value) {
-    // Log all writes for debugging
-    QString uuidShort = c.uuid().toString().mid(1, 8);  // Extract xxxx from {0000xxxx-...}
-//    qDebug() << "DE1Device: Write confirmed to" << uuidShort << "data:" << value.toHex();
-    m_writePending = false;
-    m_writeTimeoutTimer.stop();  // Cancel timeout - write succeeded
-    m_writeRetryCount = 0;       // Reset retry count on successful write
-    m_lastCommand = nullptr;     // Clear stored command
-    m_lastWriteUuid.clear();
-    m_lastWriteData.clear();
-
-    // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack)
-    if (m_sawStopWritePending
-        && c.uuid() == DE1::Characteristic::REQUESTED_STATE
-        && value.size() == 1
-        && static_cast<uint8_t>(value[0]) == static_cast<uint8_t>(DE1::State::Idle)) {
-        qint64 ackMs = monotonicMsNow();
-        qint64 dispatchMs = m_lastSawWriteMs - m_lastSawTriggerMs;
-        qint64 bleAckMs = ackMs - m_lastSawWriteMs;
-        qint64 totalMs = ackMs - m_lastSawTriggerMs;
-        qDebug() << "[SAW-Latency] dispatch=" << dispatchMs
-                 << "ms, bleAck=" << bleAckMs
-                 << "ms, total=" << totalMs << "ms";
-        m_sawStopWritePending = false;
-        m_lastSawTriggerMs = 0;
-        m_lastSawWriteMs = 0;
-    }
-    processCommandQueue();
-}
+// -- Parse methods --
 
 void DE1Device::parseStateInfo(const QByteArray& data) {
     if (data.size() < 2) return;
@@ -625,12 +276,6 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
 
     bool stateChanged = (newState != m_state);
     bool subStateChanged = (newSubState != m_subState);
-
-    // Only log when state actually changes
-    if (stateChanged || subStateChanged) {
-//        qDebug() << "DE1Device: State changed to" << DE1::stateToString(newState)
-//                 << "/" << DE1::subStateToString(newSubState);
-    }
 
     m_state = newState;
     m_subState = newSubState;
@@ -657,18 +302,6 @@ void DE1Device::parseShotSample(const QByteArray& data) {
 
     if (newSpec) {
         // NEW BLE SPEC (>= 1.0): 19 bytes
-        // Bytes 0-1: SampleTime (Short, big-endian, /100 for seconds - actually half-cycles)
-        // Bytes 2-3: GroupPressure (Short, /4096.0)
-        // Bytes 4-5: GroupFlow (Short, /4096.0)
-        // Bytes 6-7: MixTemp (Short, /256.0)
-        // Bytes 8-10: HeadTemp (3 bytes, U24P16)
-        // Bytes 11-12: SetMixTemp (Short, /256.0)
-        // Bytes 13-14: SetHeadTemp (Short, /256.0)
-        // Byte 15: SetGroupPressure (char, /16.0)
-        // Byte 16: SetGroupFlow (char, /16.0)
-        // Byte 17: FrameNumber (char)
-        // Byte 18: SteamTemp (char)
-
         sample.timer = BinaryCodec::decodeShortBE(data, 0) / 100.0;
         sample.groupPressure = BinaryCodec::decodeShortBE(data, 2) / 4096.0;
         sample.groupFlow = BinaryCodec::decodeShortBE(data, 4) / 4096.0;
@@ -682,18 +315,6 @@ void DE1Device::parseShotSample(const QByteArray& data) {
         sample.steamTemp = d[18];
     } else if (data.size() >= 17) {
         // OLD BLE SPEC (< 1.0): 17 bytes
-        // Bytes 0-1: SampleTime
-        // Byte 2: GroupPressure (U8P4)
-        // Byte 3: GroupFlow (U8P4)
-        // Bytes 4-5: MixTemp (U16P8)
-        // Bytes 6-7: HeadTemp (U16P8)
-        // Bytes 8-9: SetMixTemp (U16P8)
-        // Bytes 10-11: SetHeadTemp (U16P8)
-        // Byte 12: SetGroupPressure (U8P4)
-        // Byte 13: SetGroupFlow (U8P4)
-        // Byte 14: FrameNumber
-        // Bytes 15-16: SteamTemp (U16P8)
-
         sample.timer = BinaryCodec::decodeShortBE(data, 0) / 100.0;
         sample.groupPressure = d[2] / 16.0;
         sample.groupFlow = d[3] / 16.0;
@@ -705,12 +326,8 @@ void DE1Device::parseShotSample(const QByteArray& data) {
         sample.frameNumber = d[14];
         sample.steamTemp = BinaryCodec::decodeShortBE(data, 15) / 256.0;
     } else {
-//        qDebug() << "DE1Device: ShotSample too short:" << data.size() << "bytes";
         return;
     }
-
-    // Uncomment for debugging:
-    // qDebug() << "DE1Device: ShotSample - headTemp:" << sample.headTemp << "pressure:" << sample.groupPressure;
 
     // Update internal state
     m_pressure = sample.groupPressure;
@@ -718,7 +335,6 @@ void DE1Device::parseShotSample(const QByteArray& data) {
     m_mixTemp = sample.mixTemp;
     m_headTemp = sample.headTemp;
     m_steamTemp = sample.steamTemp;
-
 
     emit shotSampleReceived(sample);
 }
@@ -730,22 +346,19 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     double rawMm = BinaryCodec::decodeU16P8(BinaryCodec::decodeShortBE(data, 0));
 
     // Apply sensor offset correction (sensor is mounted 5mm above water intake)
-    // This matches de1app's water_level_mm_correction = 5
     constexpr double SENSOR_OFFSET = 5.0;
     m_waterLevelMm = rawMm + SENSOR_OFFSET;
 
     // Use fixed full point matching de1app (water_level_full_point = 40)
-    // Refill point comes from user setting (default 5mm, range 3-70)
     constexpr double FULL_POINT = 40.0;
     double refillPoint = m_settings ? static_cast<double>(m_settings->waterRefillPoint()) : 5.0;
 
     // Calculate percentage: 0% at refill point, 100% at full point
     double range = FULL_POINT - refillPoint;
-    if (range <= 0) range = 1.0;  // Safety: avoid division by zero
+    if (range <= 0) range = 1.0;
     m_waterLevel = qBound(0.0, ((m_waterLevelMm - refillPoint) / range) * 100.0, 100.0);
 
-    // Lookup table from de1app CAD data (vars.tcl water_tank_level_to_milliliters)
-    // Maps mm (0-65) to ml volume, accounting for non-linear tank geometry
+    // Lookup table from de1app CAD data
     static const int mmToMl[] = {
         0, 16, 43, 70, 97, 124, 151, 179, 206, 233,      // 0-9mm
         261, 288, 316, 343, 371, 398, 426, 453, 481, 509, // 10-19mm
@@ -761,13 +374,12 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     if (index < 0) {
         m_waterLevelMl = 0;
     } else if (index >= tableSize) {
-        m_waterLevelMl = mmToMl[tableSize - 1];  // Max value
+        m_waterLevelMl = mmToMl[tableSize - 1];
     } else {
         m_waterLevelMl = mmToMl[index];
     }
 
     // Only emit when water level changes by at least 0.5% or ml changes
-    // (ml thresholds drive color changes in WaterLevelItem.qml at 200ml/400ml)
     if (qAbs(m_waterLevel - m_lastEmittedWaterLevel) >= 0.5
         || m_waterLevelMl != m_lastEmittedWaterLevelMl) {
         m_lastEmittedWaterLevel = m_waterLevel;
@@ -803,17 +415,11 @@ void DE1Device::requestGHCStatus() {
     mmrRead[2] = 0x38;   // Address mid byte
     mmrRead[3] = 0x1C;   // Address low byte (GHC info)
 
-    queueCommand([this, mmrRead]() {
-//        qDebug() << "DE1Device: Requesting GHC_INFO...";
-        writeCharacteristic(DE1::Characteristic::READ_FROM_MMR, mmrRead);
-    });
+    if (!m_transport) return;
+    m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
 }
 
 void DE1Device::parseMMRResponse(const QByteArray& data) {
-    // MMR response format:
-    // Byte 0: Length
-    // Bytes 1-3: Address (big endian)
-    // Bytes 4+: Data (little endian)
     if (data.size() < 5) return;
 
     const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
@@ -823,24 +429,9 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
                        (static_cast<uint32_t>(d[2]) << 8) |
                        static_cast<uint32_t>(d[3]);
 
-    // Log raw MMR response
-//    qDebug() << "DE1Device: MMR response - address:" << QString("0x%1").arg(address, 6, 16, QChar('0'))
-//             << "raw data:" << data.toHex();
-
     // Check if this is GHC_INFO response (address 0x80381C)
     if (address == 0x80381C) {
-        // Log raw GHC byte FIRST before any interpretation
         uint8_t ghcStatus = d[4];
-//        qDebug() << "DE1Device: GHC_INFO raw byte:" << ghcStatus << QString("(0x%1)").arg(ghcStatus, 2, 16, QChar('0'));
-
-        // GHC_INFO bitmask from DE1:
-        // 0 = not installed (headless) - app can start operations
-        // 1 = GHC present but unused - app can start operations
-        // 2 = GHC installed but inactive - app can start operations
-        // 3 = GHC present and active - app CANNOT start, must use GHC buttons
-        // 4 = debug mode - app can start operations
-        // Other values = GHC required - app CANNOT start
-        // See de1app's ghc_required() in vars.tcl for reference
 
         QString statusName;
         switch (ghcStatus) {
@@ -857,27 +448,21 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             .arg(statusName)
             .arg(canStartFromApp ? "CAN" : "CANNOT");
 
-//        qDebug() << "DE1Device:" << logMsg;
         emit logMessage(logMsg);
 
         if (m_isHeadless != canStartFromApp) {
             m_isHeadless = canStartFromApp;
-//            qDebug() << "DE1Device: isHeadless changed to" << m_isHeadless;
             emit isHeadlessChanged();
         }
     }
     // Check if this is REFILL_KIT response (address 0x80385C)
     else if (address == 0x80385C) {
         uint8_t kitStatus = d[4];
-//        qDebug() << "DE1Device: REFILL_KIT raw byte:" << kitStatus
-//                 << QString("(0x%1)").arg(kitStatus, 2, 16, QChar('0'));
 
-        // 0 = not detected, 1 = detected
         int detected = (kitStatus > 0) ? 1 : 0;
         QString statusName = detected ? "detected" : "not detected";
 
         QString logMsg = QString("Refill kit: %1").arg(statusName);
-//        qDebug() << "DE1Device:" << logMsg;
         emit logMessage(logMsg);
 
         if (m_refillKitDetected != detected) {
@@ -887,54 +472,10 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
     }
 }
 
-void DE1Device::writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data) {
-    if (!m_service || !m_characteristics.contains(uuid)) {
-        if (m_sawStopWritePending
-            && uuid == DE1::Characteristic::REQUESTED_STATE
-            && data.size() == 1
-            && static_cast<uint8_t>(data[0]) == static_cast<uint8_t>(DE1::State::Idle)) {
-            qWarning() << "[SAW-Latency] Stop command could not be sent (not connected/missing characteristic), elapsed="
-                       << (monotonicMsNow() - m_lastSawTriggerMs) << "ms";
-            m_sawStopWritePending = false;
-            m_lastSawTriggerMs = 0;
-            m_lastSawWriteMs = 0;
-        }
-        // Silently ignore in simulation mode
-        if (!m_simulationMode) {
-//            qWarning() << "DE1Device: Cannot write - not connected or characteristic not found:" << uuid.toString();
-        }
-        return;
-    }
-    QString uuidShort = uuid.toString().mid(1, 8);  // Extract xxxx from {0000xxxx-...}
-//    qDebug() << "DE1Device: Writing to" << uuidShort << "data:" << data.toHex();
-    m_writePending = true;
-    m_lastWriteUuid = uuidShort;   // Store for error logging
-    m_lastWriteData = data;        // Store for error logging
-    m_writeTimeoutTimer.start();   // Start timeout timer for this write
-    m_service->writeCharacteristic(m_characteristics[uuid], data);
-}
+// -- Machine control methods (delegate through transport) --
 
-void DE1Device::queueCommand(std::function<void()> command) {
-    m_commandQueue.enqueue(command);
-    if (!m_writePending && !m_commandTimer.isActive()) {
-        m_commandTimer.start();
-    }
-}
-
-void DE1Device::processCommandQueue() {
-    if (m_writePending || m_commandQueue.isEmpty()) return;
-
-    auto command = m_commandQueue.dequeue();
-    m_lastCommand = command;  // Store for potential retry
-    command();
-}
-
-// Machine control methods
 void DE1Device::requestState(DE1::State state) {
-//    qDebug() << "DE1Device::requestState called with state:" << static_cast<int>(state);
-
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-    // In simulation mode, relay to simulator
     if (m_simulationMode && m_simulator) {
         switch (state) {
         case DE1::State::Espresso:
@@ -950,7 +491,6 @@ void DE1Device::requestState(DE1::State state) {
             m_simulator->startFlush();
             break;
         case DE1::State::Idle:
-            // If waking from sleep, use wakeUp; otherwise stop current operation
             if (m_simulator->state() == DE1::State::Sleep) {
                 m_simulator->wakeUp();
             } else {
@@ -961,66 +501,48 @@ void DE1Device::requestState(DE1::State state) {
             m_simulator->goToSleep();
             break;
         default:
-//            qDebug() << "DE1Device: Simulation - unhandled state request:" << static_cast<int>(state);
             break;
         }
         return;
     }
 #endif
 
-//    qDebug() << "DE1Device: Queueing state change command to" << static_cast<int>(state);
+    if (!m_transport) return;
     QByteArray data(1, static_cast<char>(state));
-    queueCommand([this, data]() {
-//        qDebug() << "DE1Device: Executing queued state change command";
-        writeCharacteristic(DE1::Characteristic::REQUESTED_STATE, data);
-    });
+    m_transport->write(DE1::Characteristic::REQUESTED_STATE, data);
 }
 
 void DE1Device::startEspresso() {
-    // Re-check GHC status right before starting
-//    qDebug() << "DE1Device::startEspresso() - current m_isHeadless:" << m_isHeadless << "m_state:" << static_cast<int>(m_state);
-
-    // Set GHC_MODE to 1 (app controls) - this tells the machine we want to start from the app
-    // Address 0x803820, value 1 = app controls
-//    qDebug() << "DE1Device: Setting GHC_MODE to 1 (app controls)";
     writeMMR(DE1::MMR::GHC_MODE, 1);
 
-    // Like de1app: optionally go to Idle first to ensure machine is responsive
     if (m_state != DE1::State::Idle) {
-//        qDebug() << "DE1Device: Going to Idle before Espresso (current state:" << static_cast<int>(m_state) << ")";
         requestState(DE1::State::Idle);
     }
     requestState(DE1::State::Espresso);
 }
 
 void DE1Device::startSteam() {
-//    qDebug() << "DE1Device: Setting GHC_MODE to 1 (app controls)";
     writeMMR(DE1::MMR::GHC_MODE, 1);
 
     if (m_state != DE1::State::Idle) {
-//        qDebug() << "DE1Device: Going to Idle before Steam (current state:" << static_cast<int>(m_state) << ")";
         requestState(DE1::State::Idle);
     }
     requestState(DE1::State::Steam);
 }
 
 void DE1Device::startHotWater() {
-//    qDebug() << "DE1Device: Setting GHC_MODE to 1 (app controls)";
     writeMMR(DE1::MMR::GHC_MODE, 1);
 
     if (m_state != DE1::State::Idle) {
-//        qDebug() << "DE1Device: Going to Idle before HotWater (current state:" << static_cast<int>(m_state) << ")";
         requestState(DE1::State::Idle);
     }
     requestState(DE1::State::HotWater);
 }
 
 void DE1Device::startFlush() {
-//    qDebug() << "DE1Device: Setting GHC_MODE to 1 (app controls)";
     writeMMR(DE1::MMR::GHC_MODE, 1);
 
     if (m_state != DE1::State::Idle) {
-//        qDebug() << "DE1Device: Going to Idle before Flush (current state:" << static_cast<int>(m_state) << ")";
         requestState(DE1::State::Idle);
     }
     requestState(DE1::State::HotWaterRinse);
@@ -1035,7 +557,6 @@ void DE1Device::startClean() {
 }
 
 void DE1Device::stopOperation() {
-//    qDebug() << "[REFACTOR] DE1Device::stopOperation() - requesting Idle state to stop current operation";
     requestState(DE1::State::Idle);
 }
 
@@ -1044,14 +565,13 @@ void DE1Device::stopOperationUrgent() {
 }
 
 void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
-    // Bypass the 50ms command queue for faster stop (used by SOW).
-    // Clears any pending commands and writes directly to the characteristic.
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     if (m_simulationMode && m_simulator) {
         m_simulator->stop();
         return;
     }
 #endif
+    if (!m_transport) return;
     clearCommandQueue();
     if (sawTriggerMs > 0) {
         m_lastSawTriggerMs = sawTriggerMs;
@@ -1063,7 +583,7 @@ void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
         m_lastSawWriteMs = 0;
     }
     QByteArray data(1, static_cast<char>(DE1::State::Idle));
-    writeCharacteristic(DE1::Characteristic::REQUESTED_STATE, data);
+    m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
 }
 
 void DE1Device::requestIdle() {
@@ -1071,13 +591,11 @@ void DE1Device::requestIdle() {
 }
 
 void DE1Device::skipToNextFrame() {
-//    qDebug() << "[REFACTOR] DE1Device::skipToNextFrame() - sending SkipToNext (0x0E) command to machine";
     requestState(DE1::State::SkipToNext);
 }
 
 void DE1Device::goToSleep() {
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-    // In simulation mode, relay to simulator
     if (m_simulationMode && m_simulator) {
         m_simulator->goToSleep();
         return;
@@ -1085,20 +603,19 @@ void DE1Device::goToSleep() {
 #endif
 
     // If a profile upload is in progress, defer sleep until it completes.
-    // Sending sleep mid-upload leaves the DE1 GHC in a stuck state (flashing magenta).
     if (m_profileUploadInProgress) {
         qDebug() << "DE1Device: Sleep requested during profile upload, deferring until upload completes";
         m_sleepPendingAfterUpload = true;
         return;
     }
 
+    if (!m_transport) return;
     // Clear pending commands - sleep takes priority
-    m_commandQueue.clear();
-    m_writePending = false;
+    m_transport->clearQueue();
 
     // Send sleep command directly (don't queue it)
     QByteArray data(1, static_cast<char>(DE1::State::Sleep));
-    writeCharacteristic(DE1::Characteristic::REQUESTED_STATE, data);
+    m_transport->writeUrgent(DE1::Characteristic::REQUESTED_STATE, data);
 }
 
 void DE1Device::wakeUp() {
@@ -1106,149 +623,144 @@ void DE1Device::wakeUp() {
 }
 
 void DE1Device::clearCommandQueue() {
-    int cleared = m_commandQueue.size();
-    m_commandQueue.clear();
-    m_writePending = false;
     m_profileUploadInProgress = false;
     m_sleepPendingAfterUpload = false;
-    m_writeTimeoutTimer.stop();  // Cancel any pending timeout
-    m_lastCommand = nullptr;     // Clear stored command
-    m_writeRetryCount = 0;       // Reset retry count
-    m_lastWriteUuid.clear();
-    m_lastWriteData.clear();
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
-    if (cleared > 0) {
-//        qDebug() << "DE1Device::clearCommandQueue: Cleared" << cleared << "pending commands";
+    if (m_transport) {
+        m_transport->clearQueue();
     }
 }
 
 void DE1Device::uploadProfile(const Profile& profile) {
-//    qDebug() << "uploadProfile: Uploading profile with" << profile.steps().size() << "frames,"
-//             << "queue size before:" << m_commandQueue.size();
-    for (int i = 0; i < profile.steps().size(); i++) {
-//        qDebug() << "  BLE Frame" << i << ": temp=" << profile.steps()[i].temperature;
-    }
-
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     if (m_simulationMode && m_simulator) {
         m_simulator->setProfile(profile);
     }
 #endif
 
+    if (!m_transport) return;
+
     m_profileUploadInProgress = true;
 
     // Queue header write
     QByteArray header = profile.toHeaderBytes();
-    queueCommand([this, header]() {
-        writeCharacteristic(DE1::Characteristic::HEADER_WRITE, header);
-    });
+    m_transport->write(DE1::Characteristic::HEADER_WRITE, header);
 
     // Queue each frame
     QList<QByteArray> frames = profile.toFrameBytes();
     for (const QByteArray& frame : frames) {
-        queueCommand([this, frame]() {
-            writeCharacteristic(DE1::Characteristic::FRAME_WRITE, frame);
-        });
+        m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
     }
 
-    // Signal completion and handle deferred sleep after queue processes
-    queueCommand([this]() {
-        m_profileUploadInProgress = false;
-        emit profileUploaded(true);
-        if (m_sleepPendingAfterUpload) {
-            m_sleepPendingAfterUpload = false;
-            qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
-            goToSleep();
-        }
-    });
+    // Track completion by counting writeComplete signals for profile-related UUIDs.
+    // Only count HEADER_WRITE and FRAME_WRITE completions to avoid interference
+    // from concurrent writes (e.g., MMR writes from other code paths).
+    int totalWrites = 1 + frames.size();  // header + frames
+    auto* counter = new int(0);
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = connect(m_transport, &DE1Transport::writeComplete, this,
+        [this, totalWrites, counter, conn](const QBluetoothUuid& uuid, const QByteArray& /*data*/) {
+            if (uuid == DE1::Characteristic::HEADER_WRITE || uuid == DE1::Characteristic::FRAME_WRITE) {
+                (*counter)++;
+                if (*counter >= totalWrites) {
+                    QObject::disconnect(*conn);
+                    delete counter;
+                    m_profileUploadInProgress = false;
+                    emit profileUploaded(true);
+                    if (m_sleepPendingAfterUpload) {
+                        m_sleepPendingAfterUpload = false;
+                        qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
+                        goToSleep();
+                    }
+                }
+            }
+        });
 }
 
 void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
-//    qDebug() << "uploadProfileAndStartEspresso: Uploading profile with" << profile.steps().size() << "frames, then starting espresso";
-
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     if (m_simulationMode && m_simulator) {
         m_simulator->setProfile(profile);
     }
 #endif
 
+    if (!m_transport) return;
+
     m_profileUploadInProgress = true;
 
     // Queue header write
     QByteArray header = profile.toHeaderBytes();
-    queueCommand([this, header]() {
-        writeCharacteristic(DE1::Characteristic::HEADER_WRITE, header);
-    });
+    m_transport->write(DE1::Characteristic::HEADER_WRITE, header);
 
     // Queue each frame
     QList<QByteArray> frames = profile.toFrameBytes();
     for (const QByteArray& frame : frames) {
-        queueCommand([this, frame]() {
-            writeCharacteristic(DE1::Characteristic::FRAME_WRITE, frame);
-        });
+        m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
     }
 
-    // Queue espresso start AFTER all profile frames - this ensures correct order
-    queueCommand([this]() {
-//        qDebug() << "uploadProfileAndStartEspresso: Profile uploaded, now starting espresso";
-        writeCharacteristic(DE1::Characteristic::REQUESTED_STATE,
-                           QByteArray(1, static_cast<char>(DE1::State::Espresso)));
-    });
+    // Queue espresso start AFTER all profile frames
+    m_transport->write(DE1::Characteristic::REQUESTED_STATE,
+                       QByteArray(1, static_cast<char>(DE1::State::Espresso)));
 
-    // Signal completion after espresso starts
-    queueCommand([this]() {
-        m_profileUploadInProgress = false;
-        emit profileUploaded(true);
-        if (m_sleepPendingAfterUpload) {
-            m_sleepPendingAfterUpload = false;
-            qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
-            goToSleep();
-        }
-    });
+    // Track completion: header + frames + espresso start command.
+    // Count only profile-related UUIDs and the REQUESTED_STATE for espresso start.
+    int totalWrites = 1 + frames.size() + 1;
+    auto* counter = new int(0);
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = connect(m_transport, &DE1Transport::writeComplete, this,
+        [this, totalWrites, counter, conn](const QBluetoothUuid& uuid, const QByteArray& /*data*/) {
+            if (uuid == DE1::Characteristic::HEADER_WRITE ||
+                uuid == DE1::Characteristic::FRAME_WRITE ||
+                uuid == DE1::Characteristic::REQUESTED_STATE) {
+                (*counter)++;
+                if (*counter >= totalWrites) {
+                    QObject::disconnect(*conn);
+                    delete counter;
+                    m_profileUploadInProgress = false;
+                    emit profileUploaded(true);
+                    if (m_sleepPendingAfterUpload) {
+                        m_sleepPendingAfterUpload = false;
+                        qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
+                        goToSleep();
+                    }
+                }
+            }
+        });
 }
 
 void DE1Device::writeHeader(const QByteArray& headerData) {
-    // Direct header write for direct control mode
-    queueCommand([this, headerData]() {
-        writeCharacteristic(DE1::Characteristic::HEADER_WRITE, headerData);
-    });
+    if (!m_transport) return;
+    m_transport->write(DE1::Characteristic::HEADER_WRITE, headerData);
 }
 
 void DE1Device::writeFrame(const QByteArray& frameData) {
-    // Direct frame write for direct control mode
-    // This writes a single frame immediately, used for live setpoint updates
-    queueCommand([this, frameData]() {
-        writeCharacteristic(DE1::Characteristic::FRAME_WRITE, frameData);
-    });
+    if (!m_transport) return;
+    m_transport->write(DE1::Characteristic::FRAME_WRITE, frameData);
 }
 
 void DE1Device::writeMMR(uint32_t address, uint32_t value) {
+    if (!m_transport) return;
     // MMR Write format (20 bytes):
     // Byte 0: Length (0x04 for 4-byte value)
     // Bytes 1-3: Address (big endian)
     // Bytes 4-7: Value (little endian)
     // Bytes 8-19: Padding (zeros)
     QByteArray data(20, 0);
-    data[0] = 0x04;  // Length: 4 bytes
-    data[1] = (address >> 16) & 0xFF;  // Address high byte
-    data[2] = (address >> 8) & 0xFF;   // Address mid byte
-    data[3] = address & 0xFF;          // Address low byte
-    data[4] = value & 0xFF;            // Value byte 0 (little endian)
-    data[5] = (value >> 8) & 0xFF;     // Value byte 1
-    data[6] = (value >> 16) & 0xFF;    // Value byte 2
-    data[7] = (value >> 24) & 0xFF;    // Value byte 3
+    data[0] = 0x04;
+    data[1] = (address >> 16) & 0xFF;
+    data[2] = (address >> 8) & 0xFF;
+    data[3] = address & 0xFF;
+    data[4] = value & 0xFF;
+    data[5] = (value >> 8) & 0xFF;
+    data[6] = (value >> 16) & 0xFF;
+    data[7] = (value >> 24) & 0xFF;
 
-    queueCommand([this, data]() {
-        writeCharacteristic(DE1::Characteristic::WRITE_TO_MMR, data);
-    });
+    m_transport->write(DE1::Characteristic::WRITE_TO_MMR, data);
 }
 
 void DE1Device::setUsbChargerOn(bool on, bool force) {
-    // IMPORTANT: The DE1 has a 10-minute timeout that automatically turns the charger back ON.
-    // We must resend the charger state periodically (every 60 seconds) to overcome this.
-    // Use force=true to resend even if state hasn't changed.
     bool stateChanged = (m_usbChargerOn != on);
 
     if (!stateChanged && !force) {
@@ -1267,53 +779,38 @@ void DE1Device::setUsbChargerOn(bool on, bool force) {
 }
 
 void DE1Device::setWaterRefillLevel(int refillPointMm) {
-    // Write to WaterLevels characteristic (A011)
-    // Format: Level (U16P8, 2 bytes) + StartFillLevel (U16P8, 2 bytes)
-    // Level is set to 0 (read-only field, machine ignores it)
-    // StartFillLevel is the refill threshold in mm
+    if (!m_transport) return;
     QByteArray data;
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(0)));
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(static_cast<double>(refillPointMm))));
 
-//    qDebug() << "DE1Device: Setting water refill level to" << refillPointMm << "mm";
-    queueCommand([this, data]() {
-        writeCharacteristic(DE1::Characteristic::WATER_LEVELS, data);
-    });
+    m_transport->write(DE1::Characteristic::WATER_LEVELS, data);
 }
 
 void DE1Device::setFlowCalibrationMultiplier(double multiplier) {
     uint32_t value = static_cast<uint32_t>(1000.0 * multiplier);
-//    qDebug() << "DE1Device: Setting flow calibration multiplier to" << multiplier << "(MMR value:" << value << ")";
     writeMMR(DE1::MMR::FLOW_CALIBRATION, value);
 }
 
 void DE1Device::setRefillKitPresent(int value) {
-    // Write refill kit override to machine via MMR (0x80385C)
-    // 0 = force off (no refill kit), 1 = force on, 2 = auto-detect
-//    qDebug() << "DE1Device: Setting refill kit present to" << value;
     writeMMR(DE1::MMR::REFILL_KIT, static_cast<uint32_t>(value));
 }
 
 void DE1Device::requestRefillKitStatus() {
-    // Request refill kit status via MMR read (same pattern as requestGHCStatus)
+    if (!m_transport) return;
     QByteArray mmrRead(20, 0);
-    mmrRead[0] = 0x00;   // Len = 0 (read 4 bytes)
-    mmrRead[1] = 0x80;   // Address high byte
-    mmrRead[2] = 0x38;   // Address mid byte
-    mmrRead[3] = 0x5C;   // Address low byte (REFILL_KIT)
+    mmrRead[0] = 0x00;
+    mmrRead[1] = 0x80;
+    mmrRead[2] = 0x38;
+    mmrRead[3] = 0x5C;
 
-    queueCommand([this, mmrRead]() {
-//        qDebug() << "DE1Device: Requesting REFILL_KIT status...";
-        writeCharacteristic(DE1::Characteristic::READ_FROM_MMR, mmrRead);
-    });
+    m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
 }
 
 void DE1Device::sendInitialSettings() {
-    // This mimics de1app's later_new_de1_connection_setup
-    // Send a basic profile and shot settings to trigger machine wake-up response
+    if (!m_transport) return;
 
     // Ensure USB charger is ON at startup (safe default like de1app)
-    // This prevents the tablet from dying if it was left with charger off
     if (!m_usbChargerOn) {
         m_usbChargerOn = true;
         writeMMR(DE1::MMR::USB_CHARGER, 1);
@@ -1321,14 +818,9 @@ void DE1Device::sendInitialSettings() {
     }
 
     // CRITICAL: Set fan temperature threshold via MMR
-    // This tells the machine at what temperature the fan should activate
-    // Setting this allows the fan to go quiet when temps are stable
-    // Default value: 60°C (de1app default from machine.tcl)
     writeMMR(DE1::MMR::FAN_THRESHOLD, 60);
 
-    // Heater tweaks — matches de1app's set_heater_tweaks() called from
-    // later_new_de1_connection_setup(). Sent immediately on every connection.
-    // Also re-sent on user calibration changes via MainController::applyHeaterTweaks().
+    // Heater tweaks — matches de1app's set_heater_tweaks()
     if (m_settings) {
         writeMMR(DE1::MMR::PHASE1_FLOW_RATE, m_settings->heaterWarmupFlow());
         writeMMR(DE1::MMR::PHASE2_FLOW_RATE, m_settings->heaterTestFlow());
@@ -1336,10 +828,9 @@ void DE1Device::sendInitialSettings() {
         writeMMR(DE1::MMR::ESPRESSO_WARMUP_TIMEOUT, m_settings->heaterWarmupTimeout());
         writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
         writeMMR(DE1::MMR::STEAM_TWO_TAP_STOP, m_settings->steamTwoTapStop() ? 1 : 0);
-        writeMMR(DE1::MMR::STEAM_HIGHFLOW_START, 70);   // de1app default, no UI
-        writeMMR(DE1::MMR::TANK_TEMP_THRESHOLD, 0);     // de1app default (off), no UI
+        writeMMR(DE1::MMR::STEAM_HIGHFLOW_START, 70);
+        writeMMR(DE1::MMR::TANK_TEMP_THRESHOLD, 0);
     } else {
-        // Fallback defaults if Settings not yet wired (matches de1app defaults)
         writeMMR(DE1::MMR::PHASE1_FLOW_RATE, 20);
         writeMMR(DE1::MMR::PHASE2_FLOW_RATE, 40);
         writeMMR(DE1::MMR::HOT_WATER_IDLE_TEMP, 990);
@@ -1351,87 +842,71 @@ void DE1Device::sendInitialSettings() {
     }
 
     // Send a basic profile header (5 bytes)
-    // HeaderV=1, NumFrames=1, NumPreinfuse=0, MinPressure=0, MaxFlow=6.0
     QByteArray header(5, 0);
-    header[0] = 1;   // HeaderV - always 1
+    header[0] = 1;   // HeaderV
     header[1] = 1;   // NumberOfFrames
-    header[2] = 0;   // NumberOfPreinfuseFrames  
+    header[2] = 0;   // NumberOfPreinfuseFrames
     header[3] = 0;   // MinimumPressure (U8P4)
     header[4] = 96;  // MaximumFlow (U8P4) = 6.0 * 16
 
-    queueCommand([this, header]() {
-        writeCharacteristic(DE1::Characteristic::HEADER_WRITE, header);
-    });
+    m_transport->write(DE1::Characteristic::HEADER_WRITE, header);
 
     // Send a basic profile frame (8 bytes)
-    // Frame 0: 9 bar pressure, 93°C, 30 seconds
     QByteArray frame(8, 0);
     frame[0] = 0;    // FrameToWrite = 0
-    frame[1] = 0;    // Flag = 0 (pressure control, no exit condition)
-    frame[2] = static_cast<char>(144);  // SetVal (U8P4) = 9.0 * 16 = 144 (9 bar)
-    frame[3] = static_cast<char>(186);  // Temp (U8P1) = 93.0 * 2 = 186 (93°C)
-    frame[4] = 62;   // FrameLen (F8_1_7) ~30 seconds encoded
+    frame[1] = 0;    // Flag
+    frame[2] = static_cast<char>(144);  // SetVal (U8P4) = 9.0 * 16 = 144
+    frame[3] = static_cast<char>(186);  // Temp (U8P1) = 93.0 * 2 = 186
+    frame[4] = 62;   // FrameLen (F8_1_7)
     frame[5] = 0;    // TriggerVal
     frame[6] = 0;    // MaxVol high byte
     frame[7] = 0;    // MaxVol low byte
 
-    queueCommand([this, frame]() {
-        writeCharacteristic(DE1::Characteristic::FRAME_WRITE, frame);
-    });
+    m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
 
-    // Send tail frame (required to complete profile upload)
-    // FrameToWrite = NumberOfFrames (1), MaxTotalVolume = 0
+    // Send tail frame
     QByteArray tailFrame(8, 0);
     tailFrame[0] = 1;    // FrameToWrite = NumberOfFrames
-    // Bytes 1-7 are all 0 (no volume limit)
 
-    queueCommand([this, tailFrame]() {
-        writeCharacteristic(DE1::Characteristic::FRAME_WRITE, tailFrame);
-    });
+    m_transport->write(DE1::Characteristic::FRAME_WRITE, tailFrame);
 
-    // Read GHC (Group Head Controller) info via MMR
-    // Write to ReadFromMMR to request a read; response comes as notification
-    // Address 0x80381C, Length 0 (4 bytes)
+    // Read GHC info via MMR
     QByteArray mmrRead(20, 0);
-    mmrRead[0] = 0x00;   // Len = 0 (read 4 bytes)
-    mmrRead[1] = 0x80;   // Address high byte
-    mmrRead[2] = 0x38;   // Address mid byte
-    mmrRead[3] = 0x1C;   // Address low byte (GHC info)
+    mmrRead[0] = 0x00;
+    mmrRead[1] = 0x80;
+    mmrRead[2] = 0x38;
+    mmrRead[3] = 0x1C;
 
-    queueCommand([this, mmrRead]() {
-//        qDebug() << "DE1Device: Requesting GHC_INFO from machine...";
-        writeCharacteristic(DE1::Characteristic::READ_FROM_MMR, mmrRead);
-    });
+    m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
 
-    // Read refill kit status via MMR (like de1app's get_refill_kit_present)
+    // Read refill kit status
     requestRefillKitStatus();
 
     // Send shot settings
-    // Default values similar to de1app defaults
-    double steamTemp = 0.0;        // Default to off; applyAllSettings() sends user settings 1s later
-    int steamDuration = 120;       // Steam timeout in seconds
-    double hotWaterTemp = 80.0;    // Hot water temperature
-    int hotWaterVolume = 200;      // Hot water volume in ml
-    double groupTemp = 93.0;       // Group head temperature
+    double steamTemp = 0.0;
+    int steamDuration = 120;
+    double hotWaterTemp = 80.0;
+    int hotWaterVolume = 200;
+    double groupTemp = 93.0;
 
     setShotSettings(steamTemp, steamDuration, hotWaterTemp, hotWaterVolume, groupTemp);
 
-    // Signal that initial settings are complete (after queue processes)
-    queueCommand([this]() {
-        emit initialSettingsComplete();
-    });
+    // Signal that initial settings are complete
+    // Use a write-complete counter to detect when all queued writes finish
+    // For simplicity, emit immediately — the transport queues ensure ordering,
+    // and MainController connects to this signal to apply user settings
+    emit initialSettingsComplete();
 }
 
 void DE1Device::setShotSettings(double steamTemp, int steamDuration,
                                 double hotWaterTemp, int hotWaterVolume,
                                 double groupTemp) {
+    if (!m_transport) return;
     QByteArray data(9, 0);
     data[0] = 0;  // SteamSettings flags
     data[1] = BinaryCodec::encodeU8P0(steamTemp);
     data[2] = BinaryCodec::encodeU8P0(steamDuration);
     data[3] = BinaryCodec::encodeU8P0(hotWaterTemp);
-    // Volume mode: caller sends actual ml so machine auto-stops via flowmeter
-    // Weight mode: caller sends 0, app controls stop via scale instead
     data[4] = BinaryCodec::encodeU8P0(hotWaterVolume);
     data[5] = BinaryCodec::encodeU8P0(60);  // TargetHotWaterLength
     data[6] = BinaryCodec::encodeU8P0(36);  // TargetEspressoVol
@@ -1440,7 +915,5 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     data[7] = (groupTempEncoded >> 8) & 0xFF;
     data[8] = groupTempEncoded & 0xFF;
 
-    queueCommand([this, data]() {
-        writeCharacteristic(DE1::Characteristic::SHOT_SETTINGS, data);
-    });
+    m_transport->write(DE1::Characteristic::SHOT_SETTINGS, data);
 }

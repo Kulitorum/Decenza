@@ -26,6 +26,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
@@ -47,7 +48,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+
             <meta-data android:name="android.app.lib_name" android:value="Decenza_DE1" />
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
 
         <!-- Launcher/kiosk mode: disabled by default, enabled at runtime via Settings -->

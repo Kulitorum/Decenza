@@ -50,6 +50,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Network
     Sql
     Positioning
+    SerialPort
 )
 
 # Optional: ShaderTools (for GPU CRT/Pip-Boy shader effect)
@@ -180,6 +181,7 @@ set(SOURCES
     src/ble/protocol/binarycodec.cpp
     src/ble/blemanager.cpp
     src/ble/de1device.cpp
+    src/ble/bletransport.cpp
     src/ble/scaledevice.cpp
     src/ble/scales/scalefactory.cpp
     src/ble/scales/decentscale.cpp
@@ -245,6 +247,12 @@ set(SOURCES
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
     src/weather/weathermanager.cpp
+    src/usb/serialtransport.cpp
+    src/usb/usbmanager.cpp
+    src/usb/androidusbhelper.cpp
+    src/usb/androidusbscalehelper.cpp
+    src/usb/usbdecentscale.cpp
+    src/usb/usbscalemanager.cpp
 )
 
 # Simulator files - Windows Debug or macOS
@@ -276,7 +284,9 @@ set(HEADERS
     src/ble/protocol/binarycodec.h
     src/ble/protocol/de1characteristics.h
     src/ble/blemanager.h
+    src/ble/de1transport.h
     src/ble/de1device.h
+    src/ble/bletransport.h
     src/ble/scaledevice.h
     src/ble/scales/scalefactory.h
     src/ble/scales/decentscale.h
@@ -334,6 +344,12 @@ set(HEADERS
     src/core/databasebackupmanager.h
     src/core/documentformatter.h
     src/weather/weathermanager.h
+    src/usb/serialtransport.h
+    src/usb/usbmanager.h
+    src/usb/androidusbhelper.h
+    src/usb/androidusbscalehelper.h
+    src/usb/usbdecentscale.h
+    src/usb/usbscalemanager.h
 )
 
 # Simulator headers - Windows Debug or macOS
@@ -380,6 +396,7 @@ target_link_libraries(Decenza_DE1 PRIVATE
     Qt6::Network
     Qt6::Sql
     Qt6::Positioning
+    Qt6::SerialPort
 )
 
 # Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
@@ -454,7 +471,7 @@ set(QML_FILES
     qml/pages/ShotComparisonPage.qml
     qml/pages/FlowCalibrationPage.qml
     qml/pages/ProfileInfoPage.qml
-    qml/pages/settings/SettingsBluetoothTab.qml
+    qml/pages/settings/SettingsConnectionsTab.qml
     qml/pages/settings/SettingsPreferencesTab.qml
     qml/pages/settings/SettingsScreensaverTab.qml
     qml/pages/settings/SettingsVisualizerTab.qml

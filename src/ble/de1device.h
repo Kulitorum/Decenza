@@ -2,16 +2,14 @@
 
 #include <QObject>
 #include <QBluetoothDeviceInfo>
-#include <QLowEnergyController>
-#include <QLowEnergyService>
-#include <QTimer>
-#include <QQueue>
-#include <functional>
+#include <QBluetoothUuid>
 
 #include "protocol/de1characteristics.h"
 
 class Profile;
 class Settings;
+class DE1Transport;
+class BleTransport;
 
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
 class DE1Simulator;
@@ -53,6 +51,7 @@ class DE1Device : public QObject {
     Q_PROPERTY(bool usbChargerOn READ usbChargerOn NOTIFY usbChargerOnChanged)
     Q_PROPERTY(bool isHeadless READ isHeadless NOTIFY isHeadlessChanged)
     Q_PROPERTY(int refillKitDetected READ refillKitDetected NOTIFY refillKitDetectedChanged)
+    Q_PROPERTY(QString connectionType READ connectionType NOTIFY connectedChanged)
 
 public:
     explicit DE1Device(QObject* parent = nullptr);
@@ -82,6 +81,11 @@ public:
     bool isHeadless() const { return m_isHeadless; }
     Q_INVOKABLE void setIsHeadless(bool headless);  // Debug toggle
     int refillKitDetected() const { return m_refillKitDetected; }  // -1=unknown, 0=not detected, 1=detected
+
+    // Transport abstraction
+    void setTransport(DE1Transport* transport);
+    DE1Transport* transport() const { return m_transport; }
+    QString connectionType() const;
 
     // Simulation mode for GUI development without hardware
     bool simulationMode() const { return m_simulationMode; }
@@ -166,20 +170,14 @@ signals:
     void refillKitDetectedChanged();
     void logMessage(const QString& message);
 
-private slots:
-    void onControllerConnected();
-    void onControllerDisconnected();
-    void onControllerError(QLowEnergyController::Error error);
-    void onServiceDiscovered(const QBluetoothUuid& uuid);
-    void onServiceDiscoveryFinished();
-    void onServiceStateChanged(QLowEnergyService::ServiceState state);
-    void onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value);
-    void onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value);
-    void processCommandQueue();
-
 private:
-    void setupService();
-    void subscribeToNotifications();
+    // Transport signal handlers
+    void onTransportConnected();
+    void onTransportDisconnected();
+    void onTransportDataReceived(const QBluetoothUuid& uuid, const QByteArray& data);
+    void onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data);
+
+    // Parse methods (dispatch from onTransportDataReceived)
     void parseStateInfo(const QByteArray& data);
     void parseShotSample(const QByteArray& data);
     void parseWaterLevel(const QByteArray& data);
@@ -187,13 +185,12 @@ private:
     void parseMMRResponse(const QByteArray& data);
     void requestGHCStatus();
 
-    void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
-    void queueCommand(std::function<void()> command);
     void sendInitialSettings();
 
-    QLowEnergyController* m_controller = nullptr;
-    QLowEnergyService* m_service = nullptr;
-    QMap<QBluetoothUuid, QLowEnergyCharacteristic> m_characteristics;
+    // Owned when created internally via connectToDevice(); set externally via setTransport() for USB
+    DE1Transport* m_transport = nullptr;
+    bool m_ownsTransport = false;  // True when DE1Device created the transport (connectToDevice)
+
     DE1::State m_state = DE1::State::Sleep;
     DE1::SubState m_subState = DE1::SubState::Ready;
     double m_pressure = 0.0;
@@ -208,19 +205,7 @@ private:
     int m_lastEmittedWaterLevelMl = -1;    // Throttle: also emit when ml changes (color thresholds)
     QString m_firmwareVersion;
 
-    QQueue<std::function<void()>> m_commandQueue;
-    QTimer m_commandTimer;
-    bool m_writePending = false;
     bool m_connecting = false;
-
-    // Retry logic for failed BLE writes (like de1app)
-    std::function<void()> m_lastCommand;  // Store last command for retry
-    int m_writeRetryCount = 0;
-    static constexpr int MAX_WRITE_RETRIES = 3;
-    QTimer m_writeTimeoutTimer;  // Timeout for BLE writes
-    static constexpr int WRITE_TIMEOUT_MS = 5000;  // 5 second timeout
-    QString m_lastWriteUuid;     // For error logging: which characteristic was being written
-    QByteArray m_lastWriteData;  // For error logging: what data was being written
     bool m_simulationMode = false;
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     DE1Simulator* m_simulator = nullptr;  // For simulation mode
@@ -231,13 +216,6 @@ private:
     bool m_usbChargerOn = true;  // Default on (safe default like de1app)
     bool m_isHeadless = false;   // True if app can start operations (GHC not installed or inactive)
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected
-
-    // Retry logic for service discovery failures
-    QBluetoothDeviceInfo m_pendingDevice;
-    QTimer m_retryTimer;
-    int m_retryCount = 0;
-    static constexpr int MAX_RETRIES = 3;
-    static constexpr int RETRY_DELAY_MS = 2000;
 
     // SAW stop latency instrumentation (monotonic ms timestamps)
     bool m_sawStopWritePending = false;

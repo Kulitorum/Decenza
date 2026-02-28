@@ -1111,6 +1111,8 @@ ApplicationWindow {
             // Users without a saved scale expect FlowScale — no need to nag them.
             if (!BLEManager.hasSavedScale) return
             if (!Settings.showScaleDialogs) return
+            // Don't nag if a USB scale is connected — it satisfies the requirement
+            if (UsbScaleManager.scaleConnected) return
             if (screensaverActive) { queuePopup("flowScale"); return }
             if (root.scaleDialogDeferred) { queuePopup("flowScale"); return }
             flowScaleDialog.open()

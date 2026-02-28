@@ -2620,9 +2620,13 @@ void MainController::onEspressoCycleStarted() {
     // The machine may have been started from the group head button, so we can only
     // abort here (during preheat) — before any water flows.
     // Volume-based profiles can proceed without a physical scale.
+    // Skip this check if any real scale (BLE or USB) is currently active.
     if (m_bleManager && !m_bleManager->isDisabled() && m_bleManager->hasSavedScale()) {
-        ScaleDevice* physicalScale = m_bleManager->scaleDevice();
-        if (!physicalScale || !physicalScale->isConnected()) {
+        // Check if any real scale is connected (BLE scale, USB scale, etc.)
+        ScaleDevice* activeScale = m_machineState ? m_machineState->scale() : nullptr;
+        bool hasRealScale = activeScale && activeScale->isConnected()
+                            && activeScale->type() != QStringLiteral("flow");
+        if (!hasRealScale) {
             // Check if the profile actually needs a scale
             bool profileNeedsScale = (m_currentProfile.stopAtType() == Profile::StopAtType::Weight);
             if (!profileNeedsScale) {

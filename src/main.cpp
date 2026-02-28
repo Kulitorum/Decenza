@@ -34,6 +34,10 @@
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
 #include "ble/de1device.h"
+#include "usb/usbmanager.h"
+#include "usb/usbscalemanager.h"
+#include "usb/usbdecentscale.h"
+#include "usb/serialtransport.h"
 #include "ble/scaledevice.h"
 #include "ble/scales/scalefactory.h"
 #include "ble/scales/flowscale.h"
@@ -164,6 +168,8 @@ int main(int argc, char *argv[])
     machineState.setScale(&flowScale);  // Start with FlowScale, switch to physical scale if found
     flowScale.setSettings(&settings);
     ProfileStorage profileStorage;
+    USBManager usbManager;
+    UsbScaleManager usbScaleManager;
     checkpoint("Core objects");
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
     checkpoint("MainController");
@@ -419,6 +425,9 @@ int main(int argc, char *argv[])
 
     checkpoint("Managers wired");
 
+    usbManager.startPolling();
+    usbScaleManager.startPolling();
+
     AccessibilityManager accessibilityManager;
     accessibilityManager.setTranslationManager(&translationManager);
 
@@ -431,9 +440,13 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
 
-    // Auto-connect when DE1 is discovered
+    // Auto-connect when DE1 is discovered via BLE
     QObject::connect(&bleManager, &BLEManager::de1Discovered,
-                     &de1Device, [&de1Device, &bleManager, &physicalScale](const QBluetoothDeviceInfo& device) {
+                     &de1Device, [&de1Device, &bleManager, &physicalScale, &usbManager](const QBluetoothDeviceInfo& device) {
+        // Don't connect via BLE if already connected via USB
+        if (usbManager.isDe1Connected()) {
+            return;
+        }
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
             de1Device.connectToDevice(device);
             // Only stop scan if we're not still looking for a scale
@@ -444,8 +457,33 @@ int main(int argc, char *argv[])
         }
     });
 
+    // When USB DE1 discovered: disconnect BLE, switch to USB transport
+    QObject::connect(&usbManager, &USBManager::de1Discovered,
+        [&de1Device, &bleManager](SerialTransport* transport) {
+            // Disconnect BLE if connected
+            if (de1Device.isConnected()) {
+                de1Device.disconnect();
+            }
+            // Stop BLE scanning while USB is connected
+            bleManager.stopScan();
+            // Switch to USB transport
+            de1Device.setTransport(transport);
+        });
+
+    // When USB DE1 lost: clear transport, BLE scanning can resume
+    QObject::connect(&usbManager, &USBManager::de1Lost,
+        [&de1Device, &bleManager]() {
+            de1Device.disconnect();
+            // Resume BLE scanning to find DE1 via Bluetooth
+            bleManager.startScan();
+        });
+
     // Forward DE1 log messages to BLEManager for display in connection log
     QObject::connect(&de1Device, &DE1Device::logMessage,
+                     &bleManager, &BLEManager::de1LogMessage);
+
+    // Forward USBManager log messages to BLEManager for display in connection log
+    QObject::connect(&usbManager, &USBManager::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);
 
     // Connect to any supported scale when discovered
@@ -592,6 +630,93 @@ int main(int argc, char *argv[])
         }
     });
 
+    // When USB scale discovered: wire it as the active scale (same pattern as BLE scale)
+    QObject::connect(&usbScaleManager, &UsbScaleManager::scaleDiscovered,
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine,
+                      &bleManager, &timingController, &weightProcessor, &usbScaleManager, &settings](UsbDecentScale* usbScale) {
+        // Don't connect if we already have a connected BLE scale
+        if (physicalScale && physicalScale->isConnected()) {
+            qDebug() << "[USB Scale] BLE scale already connected, ignoring USB scale";
+            return;
+        }
+
+        // If we have a disconnected BLE scale, clean it up
+        if (physicalScale) {
+            machineState.setScale(&flowScale);
+            timingController.setScale(&flowScale);
+            bleManager.setScaleDevice(nullptr);
+            physicalScale.reset();
+        }
+
+        // Switch to USB scale
+        machineState.setScale(usbScale);
+        timingController.setScale(usbScale);
+        engine.rootContext()->setContextProperty("ScaleDevice", usbScale);
+
+        // Disconnect FlowScale from graph and weight processor
+        QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+                            &mainController, &MainController::onScaleWeightChanged);
+        QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+                            &weightProcessor, &WeightProcessor::processWeight);
+
+        // Connect USB scale weight updates
+        QObject::connect(usbScale, &ScaleDevice::weightChanged,
+                         &mainController, &MainController::onScaleWeightChanged);
+        QObject::connect(usbScale, &ScaleDevice::weightChanged,
+                         &weightProcessor, &WeightProcessor::processWeight);
+
+        // Save USB scale as the active scale type (so Settings panel shows it)
+        settings.setScaleType(usbScale->name());
+        settings.setScaleName(usbScale->name());
+
+        // Notify MQTT
+        if (mainController.mqttClient()) {
+            mainController.mqttClient()->onScaleConnectedChanged(true);
+        }
+
+        qDebug() << "[USB Scale] Switched to USB scale:" << usbScale->name();
+    });
+
+    // When USB scale lost: fall back to FlowScale (or BLE scale if available)
+    QObject::connect(&usbScaleManager, &UsbScaleManager::scaleLost,
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine,
+                      &timingController, &weightProcessor, &usbScaleManager]() {
+        // Disconnect the USB scale's weight signals
+        if (usbScaleManager.scale()) {
+            QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightChanged,
+                                &mainController, &MainController::onScaleWeightChanged);
+            QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightChanged,
+                                &weightProcessor, &WeightProcessor::processWeight);
+        }
+
+        // Fall back to BLE scale if connected, otherwise FlowScale
+        if (physicalScale && physicalScale->isConnected()) {
+            machineState.setScale(physicalScale.get());
+            timingController.setScale(physicalScale.get());
+            engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
+            qDebug() << "[USB Scale] Lost — falling back to BLE scale";
+        } else {
+            machineState.setScale(&flowScale);
+            timingController.setScale(&flowScale);
+            engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
+            // Reconnect FlowScale
+            QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+                             &mainController, &MainController::onScaleWeightChanged);
+            QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+                             &weightProcessor, &WeightProcessor::processWeight);
+            qDebug() << "[USB Scale] Lost — falling back to FlowScale";
+        }
+
+        // Notify MQTT
+        if (mainController.mqttClient()) {
+            mainController.mqttClient()->onScaleConnectedChanged(false);
+        }
+    });
+
+    // Forward USB scale manager log messages
+    QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
+                     &bleManager, &BLEManager::de1LogMessage);
+
     // Load saved scale address for direct wake connection
     QString savedScaleAddr = settings.scaleAddress();
     QString savedScaleType = settings.scaleType();
@@ -630,6 +755,8 @@ int main(int argc, char *argv[])
     context->setContextProperty("CrashReporter", &crashReporter);
     context->setContextProperty("WidgetLibrary", &widgetLibrary);
     context->setContextProperty("LibrarySharing", &librarySharing);
+    context->setContextProperty("USBManager", &usbManager);
+    context->setContextProperty("UsbScaleManager", &usbScaleManager);
 
     FlowCalibrationModel flowCalibrationModel;
     flowCalibrationModel.setStorage(mainController.shotHistory());

@@ -72,6 +72,7 @@ public:
     double pourVolume() const { return m_pourVolume; }
     StopAtType stopAtType() const { return m_stopAtType; }
 
+    ScaleDevice* scale() const;
     void setScale(ScaleDevice* scale);
     void setSettings(Settings* settings);
     void setTimingController(ShotTimingController* controller);
