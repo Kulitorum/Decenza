@@ -248,6 +248,7 @@ set(SOURCES
     src/core/documentformatter.cpp
     src/weather/weathermanager.cpp
     src/usb/serialtransport.cpp
+    src/usb/usbmanager.cpp
 )
 
 # Simulator files - Windows Debug or macOS
@@ -340,6 +341,7 @@ set(HEADERS
     src/core/documentformatter.h
     src/weather/weathermanager.h
     src/usb/serialtransport.h
+    src/usb/usbmanager.h
 )
 
 # Simulator headers - Windows Debug or macOS
