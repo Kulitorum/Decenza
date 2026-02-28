@@ -468,6 +468,7 @@ Page {
             from: 0.5
             to: 0
             duration: 3000
+            running: true
         }
     }
 
