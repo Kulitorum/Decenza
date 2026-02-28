@@ -458,6 +458,40 @@ Item {
                     }
                 }
 
+                // Scale connection alert toggle
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: BLEManager.hasSavedScale
+                    spacing: Theme.scaled(15)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Tr {
+                            key: "settings.bluetooth.scaleDialogs"
+                            fallback: "Scale connection alerts"
+                            font.pixelSize: Theme.scaled(14)
+                            color: Theme.textColor
+                            Accessible.ignored: true
+                        }
+                        Tr {
+                            key: "settings.bluetooth.scaleDialogsDesc"
+                            fallback: "Show popup when scale disconnects or is not found"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    StyledSwitch {
+                        checked: Settings.showScaleDialogs
+                        accessibleName: "Scale connection alerts"
+                        onToggled: Settings.showScaleDialogs = checked
+                    }
+                }
+
                 // Show weight when connected
                 RowLayout {
                     Layout.fillWidth: true

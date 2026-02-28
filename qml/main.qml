@@ -293,13 +293,8 @@ ApplicationWindow {
     property bool shuttingDown: false
 
 
-    // Suppress scale dialogs briefly after waking from sleep
-    property bool justWokeFromSleep: false
-    Timer {
-        id: wakeSuppressionTimer
-        interval: 2000  // Suppress dialogs for 2 seconds after wake
-        onTriggered: root.justWokeFromSleep = false
-    }
+    // Defer scale dialogs until machine reaches Ready (event-driven, not timer-based)
+    property bool scaleDialogDeferred: false
 
     // Popup queue: popups that arrived during screensaver, shown after wake
     property var pendingPopups: []
@@ -315,9 +310,26 @@ ApplicationWindow {
     function showNextPendingPopup() {
         if (screensaverActive) return  // Don't show popups during screensaver
         if (pendingPopups.length === 0) return
+
+        // While scale dialogs are deferred, skip scale popups and show others
         var queue = pendingPopups.slice()
-        var next = queue.shift()
-        pendingPopups = queue
+        var next
+        if (root.scaleDialogDeferred) {
+            var idx = -1
+            for (var i = 0; i < queue.length; i++) {
+                if (queue[i].id !== "flowScale" && queue[i].id !== "scaleDisconnected") {
+                    idx = i
+                    break
+                }
+            }
+            if (idx < 0) return  // Only scale popups remain — wait for deferral to clear
+            next = queue.splice(idx, 1)[0]
+            pendingPopups = queue
+        } else {
+            next = queue.shift()
+            pendingPopups = queue
+        }
+
         switch (next.id) {
             case "flowScale": flowScaleDialog.open(); break
             case "scaleDisconnected": scaleDisconnectedDialog.open(); break
@@ -337,6 +349,12 @@ ApplicationWindow {
                     showNextPendingPopup()  // Skip stale refill, show next
                 break
         }
+    }
+
+    function removeQueuedScalePopups() {
+        pendingPopups = pendingPopups.filter(function(p) {
+            return p.id !== "flowScale" && p.id !== "scaleDisconnected"
+        })
     }
 
     Timer {
@@ -1095,13 +1113,15 @@ ApplicationWindow {
             // Only show "No Scale Found" if user has a saved scale.
             // Users without a saved scale expect FlowScale — no need to nag them.
             if (!BLEManager.hasSavedScale) return
+            if (!Settings.showScaleDialogs) return
             if (screensaverActive) { queuePopup("flowScale"); return }
-            if (root.justWokeFromSleep) return
+            if (root.scaleDialogDeferred) { queuePopup("flowScale"); return }
             flowScaleDialog.open()
         }
         function onScaleDisconnected() {
+            if (!Settings.showScaleDialogs) return
             if (screensaverActive) { queuePopup("scaleDisconnected"); return }
-            if (root.justWokeFromSleep) return
+            if (root.scaleDialogDeferred) { queuePopup("scaleDisconnected"); return }
             scaleDisconnectedDialog.open()
         }
     }
@@ -2054,6 +2074,25 @@ ApplicationWindow {
                 }
             }
 
+            // Clear scale dialog deferral when machine reaches Ready or an active phase
+            if (root.scaleDialogDeferred) {
+                if (phase === MachineStateType.Phase.Ready ||
+                    phase === MachineStateType.Phase.EspressoPreheating ||
+                    phase === MachineStateType.Phase.Steaming ||
+                    phase === MachineStateType.Phase.HotWater ||
+                    phase === MachineStateType.Phase.Flushing) {
+                    root.scaleDialogDeferred = false
+                    // If scale connected during warmup, discard queued scale popups
+                    if (ScaleDevice && ScaleDevice.connected) {
+                        removeQueuedScalePopups()
+                    } else if (BLEManager.hasSavedScale) {
+                        showNextPendingPopup()  // Show deferred dialog now
+                    }
+                } else if (phase === MachineStateType.Phase.Sleep) {
+                    root.scaleDialogDeferred = false
+                }
+            }
+
             // Navigate to active operation pages (skip during page transition)
             if (phase === MachineStateType.Phase.EspressoPreheating ||
                 phase === MachineStateType.Phase.Preinfusion ||
@@ -2707,6 +2746,18 @@ ApplicationWindow {
                 AccessibilityManager.announce(trAnnounceScaleConnected.text + " " + ScaleDevice.name)
             }
             // Disconnection is handled by scaleDisconnectedDialog
+        }
+    }
+
+    // Discard stale scale popups when scale reconnects
+    Connections {
+        target: ScaleDevice
+        enabled: ScaleDevice !== null
+
+        function onConnectedChanged() {
+            if (ScaleDevice && ScaleDevice.connected) {
+                removeQueuedScalePopups()
+            }
         }
     }
 
