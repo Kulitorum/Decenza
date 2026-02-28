@@ -1,6 +1,0 @@
-#define BuildNumber "3132"
-#define VersionNumber "1.5.6"
-#define TargetName "Decenza_DE1"
-#define TargetArch "x64"
-#define TargetProduct "Decenza"
-#define TargetCompany "Decenza"
