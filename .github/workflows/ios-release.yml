@@ -176,6 +176,7 @@ jobs:
           name: Decenza_DE1-iOS
           path: ${{ runner.temp }}/export/*.ipa
           retention-days: 1
+          overwrite: true
 
       - name: Cleanup keychain
         if: always()
