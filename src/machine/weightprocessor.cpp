@@ -128,6 +128,15 @@ void WeightProcessor::stopExtraction()
     // Don't clear weight samples — settling still needs flow rate data
 }
 
+void WeightProcessor::resetForRetare()
+{
+    m_weightSamples.clear();
+    m_extractionStartTime = QDateTime::currentMSecsSinceEpoch();
+    m_stopTriggered = false;
+    m_frameWeightSkipSent.clear();
+    qDebug() << "[SAW-Worker] Reset for auto-retare";
+}
+
 double WeightProcessor::computeLSLR(int windowMs) const
 {
     if (m_weightSamples.size() < 2) return 0.0;

@@ -325,6 +325,16 @@ int main(int argc, char *argv[])
                              }, Qt::QueuedConnection);
                      });
 
+    // Auto-tare during "flow before" phase → WeightProcessor: clear stale cup-weight data.
+    // NOTE: resetForRetare() must NOT call setTareComplete() — see ordering comment above
+    // (lines 284-287). A separate queued setTareComplete would race with startExtraction().
+    QObject::connect(&machineState, &MachineState::flowBeforeAutoTare,
+                     [&weightProcessor]() {
+                         QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
+                             weightProcessor.resetForRetare();
+                         }, Qt::QueuedConnection);
+                     });
+
     QObject::connect(&machineState, &MachineState::shotEnded,
                      [&weightProcessor]() {
                          QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
