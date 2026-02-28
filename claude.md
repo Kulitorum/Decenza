@@ -649,51 +649,29 @@ The app links OpenSSL directly (for TLS certificate generation in Remote Access)
 - GitHub CLI (`gh`) installed: `winget install GitHub.cli`
 - Authenticated: `gh auth login`
 
-### Creating a Release
+### Release Process
+
+**IMPORTANT: Always use tag pushes to build releases.** Never use `workflow_dispatch` for release builds — it skips version code bumps and causes duplicate upload errors (especially iOS App Store). The `workflow_dispatch` trigger is only for test builds that don't upload anywhere.
 
 **IMPORTANT**: Release notes should only include **user-experience changes** (new features, UI changes, bug fixes users would notice). Skip internal changes like code refactoring, developer tools, translation system improvements, or debug logging changes.
 
-#### Step 1: Find the previous release tag
+#### Step 1: Review changes since last release
 ```bash
 gh release list --limit 5
-# Or find it by version tag
-git tag --list 'v*' | sort -V | tail -5
-```
-
-#### Step 2: Get all commits since the previous release
-```bash
-# Fetch tags first if needed
-git fetch --tags
-
-# View commits between previous release and current HEAD
-git log v1.1.9..HEAD --oneline
-
-# Or use the previous release tag directly
 git log <previous-tag>..HEAD --oneline
 ```
 
-#### Step 3: Build number (automated)
-The Android CI workflow automatically injects `Build: XXXX` into the release notes after building. You do **not** need to extract it manually. If you need to verify:
-
-```bash
-# Extract versionCode directly from the APK
-/c/Users/Micro/AppData/Local/Android/Sdk/build-tools/36.1.0/aapt dump badging <path-to-apk> 2>/dev/null | grep -oP "versionCode='\K[0-9]+"
-```
-
-#### Step 4: Create release with comprehensive notes
-The `Build: XXXX` line is injected automatically by CI. If creating a release manually, include it yourself — the in-app auto-updater uses it to detect new builds.
+#### Step 2: Create the GitHub Release
+The `Build: XXXX` line is injected automatically by CI after the Android build completes. Do NOT add it manually.
 
 For beta/prerelease builds, add `--prerelease` flag. Users with "Beta updates" enabled in Settings will get these.
 
 ```bash
-cd /c/CODE/de1-qt
 gh release create vX.Y.Z \
   --title "Decenza DE1 vX.Y.Z" \
   --prerelease \
   --notes "$(cat <<'EOF'
 ## Changes
-
-Build: XXXX
 
 ### New Features
 - Feature 1 (from commit messages)
@@ -709,12 +687,34 @@ Build: XXXX
 
 Install on your Android device (allow unknown sources).
 EOF
-)" \
-  "build/Qt_6_10_1_for_Android_arm64_v8a-Release/android-build-Decenza_DE1/build/outputs/apk/release/Decenza_DE1_X.Y.Z.apk"
+)"
+```
+
+#### Step 3: Push the tag to trigger builds
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+This triggers all 6 platform builds simultaneously. Each workflow will:
+- Bump the version code
+- Build the binary
+- Upload the artifact to the GitHub Release
+- Android workflow commits the bumped version code back to main
+- Android workflow injects `Build: XXXX` into the release notes
+- iOS workflow uploads to App Store Connect
+
+#### Updating an existing pre-release
+To rebuild an existing pre-release at the current HEAD:
+```bash
+# Delete old tag and recreate at HEAD
+git tag -d vX.Y.Z
+git push origin :refs/tags/vX.Y.Z
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 ### Updating Release Notes
-If you need to fix release notes after publishing:
 ```bash
 gh release edit vX.Y.Z --notes "$(cat <<'EOF'
 Updated notes here...
@@ -730,14 +730,14 @@ EOF
 - **Platforms**: Android auto-downloads APK; iOS directs to App Store; desktop shows release page
 
 ### Notes
+- **Always use tag pushes** — never `workflow_dispatch` — for release builds
 - **Always review `git log <prev-release>..HEAD`** to include all changes in release notes
-- **Always include `Build: XXXX`** in release notes — the auto-updater needs it
+- `Build: XXXX` is injected automatically by CI — do not add manually
 - Always include direct APK link in release notes (old browsers can't see Assets section)
 - Remove `--prerelease` flag for stable releases
 - APK files are for direct distribution (sideloading)
 - AAB files are only for Google Play Store uploads
 - Users cannot install AAB files directly
-- **CI builds**: When creating a release with a `v*` tag, all 6 platform workflows trigger automatically and upload their artifacts to the release. You only need to manually attach the APK if building locally.
 
 ## QML Navigation System
 
