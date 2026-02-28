@@ -249,6 +249,7 @@ set(SOURCES
     src/weather/weathermanager.cpp
     src/usb/serialtransport.cpp
     src/usb/usbmanager.cpp
+    src/usb/androidusbhelper.cpp
 )
 
 # Simulator files - Windows Debug or macOS
@@ -342,6 +343,7 @@ set(HEADERS
     src/weather/weathermanager.h
     src/usb/serialtransport.h
     src/usb/usbmanager.h
+    src/usb/androidusbhelper.h
 )
 
 # Simulator headers - Windows Debug or macOS

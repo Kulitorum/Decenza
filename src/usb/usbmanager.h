@@ -1,28 +1,28 @@
 #pragma once
 
 #include <QObject>
-#include <QSerialPort>
-#include <QSerialPortInfo>
 #include <QSet>
 #include <QTimer>
+
+#ifndef Q_OS_ANDROID
+#include <QSerialPort>
+#include <QSerialPortInfo>
+#endif
 
 class SerialTransport;
 
 /**
  * USB device discovery manager for DE1 espresso machines.
  *
- * Polls for serial ports, filters by vendor ID (QinHeng/WCH — covers CH340,
- * CH9102, and other USB-serial bridges used by the DE1), and probes new ports
- * by sending a subscribe command and waiting for a recognisable response.
+ * On desktop: polls QSerialPortInfo, filters by vendor ID (QinHeng/WCH),
+ * and probes new ports by sending a subscribe command.
+ *
+ * On Android: uses JNI to call the Android USB Host API (UsbManager), which
+ * is the only way to enumerate USB devices and do serial I/O on Android
+ * (QSerialPortInfo reports VID=0, QSerialPort can't open /dev/ttyACM0).
  *
  * When a DE1 is confirmed, a SerialTransport is created and de1Discovered()
  * is emitted. When the port disappears (cable unplugged), de1Lost() is emitted.
- *
- * Usage:
- *   USBManager usbManager;
- *   connect(&usbManager, &USBManager::de1Discovered,
- *           [&](SerialTransport* t) { de1Device.setTransport(t); });
- *   usbManager.startPolling();
  */
 class USBManager : public QObject {
     Q_OBJECT
@@ -54,23 +54,39 @@ private slots:
     void pollPorts();
 
 private:
+    QTimer m_pollTimer;
+    SerialTransport* m_transport = nullptr;
+    QString m_connectedPortName;
+    QString m_connectedSerialNumber;
+    QByteArray m_probeBuffer;
+    bool m_hasLoggedInitialPorts = false;  // Prevent repeated first-poll logging
+
+#ifdef Q_OS_ANDROID
+    // Android: JNI-based device detection and probing
+    void pollPortsAndroid();
+    void probeAndroid();
+    void onAndroidProbeRead();
+    void onAndroidProbeTimeout();
+    void cleanupAndroidProbe(bool closeConnection);
+
+    bool m_androidProbing = false;
+    bool m_androidPermissionRequested = false;
+    QTimer* m_androidProbeTimer = nullptr;
+    QTimer* m_androidReadTimer = nullptr;
+#else
+    // Desktop: QSerialPort-based detection and probing
+    void pollPortsDesktop();
     void probePort(const QSerialPortInfo& portInfo);
     void onProbeReadyRead();
     void onProbeTimeout();
     void cleanupProbe();
 
-    QTimer m_pollTimer;
-    SerialTransport* m_transport = nullptr;  // Created by USBManager, transferred to DE1Device
-    QString m_connectedPortName;
-    QString m_connectedSerialNumber;
-    QSet<QString> m_knownPorts;        // Port names we've already seen
-    QSet<QString> m_probingPorts;      // Ports currently being probed
-
-    // Probe state (one probe at a time)
+    QSet<QString> m_knownPorts;
+    QSet<QString> m_probingPorts;
     QSerialPort* m_probePort = nullptr;
     QTimer* m_probeTimer = nullptr;
     QSerialPortInfo m_probingPortInfo;
-    QByteArray m_probeBuffer;
+#endif
 
     static constexpr int POLL_INTERVAL_MS = 2000;
     static constexpr int PROBE_TIMEOUT_MS = 2000;

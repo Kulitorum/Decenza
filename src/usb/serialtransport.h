@@ -2,15 +2,23 @@
 
 #include "ble/de1transport.h"
 
-#include <QSerialPort>
 #include <QSet>
+#include <QTimer>
+
+#ifndef Q_OS_ANDROID
+#include <QSerialPort>
+#endif
 
 /**
  * Serial (USB-C) transport for DE1 communication.
  *
- * Implements DE1Transport using QSerialPort over a USB-C wired connection.
- * The DE1's serial protocol maps BLE characteristic UUIDs to single-letter
- * codes (A-R) and hex-encodes binary payloads as ASCII text lines.
+ * Implements DE1Transport for USB-C wired connections. The DE1's serial protocol
+ * maps BLE characteristic UUIDs to single-letter codes (A-R) and hex-encodes
+ * binary payloads as ASCII text lines.
+ *
+ * On desktop: uses QSerialPort for I/O.
+ * On Android: uses AndroidUsbHelper (JNI → Android USB Host API) for I/O,
+ * because QSerialPort cannot access USB serial devices on Android.
  *
  * Protocol summary (from reaprime firmware analysis):
  *   Host  -> DE1:  <LETTER>hexdata\n     (write)
@@ -23,12 +31,6 @@
  *   Formula: letter = 'A' + (shortUuid - 0xA001)
  *
  * Serial config: 115200 baud, 8N1, no flow control, DTR=false, RTS=false.
- *
- * Lifecycle:
- *   1. Construct SerialTransport with port name
- *   2. Call open() to open the port and begin communication
- *   3. Emits connected() when ready
- *   4. Call disconnect() or delete to tear down
  */
 class SerialTransport : public DE1Transport {
     Q_OBJECT
@@ -48,7 +50,7 @@ public:
 
     // -- Serial-specific API --
 
-    /** The OS serial port name (e.g., "COM3" or "/dev/ttyACM0"). */
+    /** The OS serial port name (e.g., "COM3", "/dev/ttyACM0", or "android-usb"). */
     QString portName() const;
 
     /** DE1 serial number (set by USBManager after identification). */
@@ -57,36 +59,41 @@ public:
 
     /**
      * Open the serial port and begin communication.
-     * Configures 115200/8N1, subscribes to DE1 notifications,
-     * and emits connected() on success or errorOccurred() on failure.
+     * On desktop: opens QSerialPort with 115200/8N1.
+     * On Android: starts read polling on already-open JNI connection.
+     * Subscribes to DE1 notifications and emits connected() on success.
      */
     void open();
 
 private slots:
+#ifdef Q_OS_ANDROID
+    void onAndroidReadTimer();
+#else
     void onReadyRead();
     void onErrorOccurred(QSerialPort::SerialPortError error);
+#endif
 
 private:
     void processLine(const QString& line);
+    void processBuffer();  ///< Extract and process complete lines from m_buffer
 
-    /** Convert a full BLE UUID to the single-letter serial protocol code.
-     *  Returns '\0' if the UUID is not a DE1 characteristic (0xA001..0xA012). */
+    /** Write raw bytes to the serial connection (platform-specific). */
+    void writeRaw(const QByteArray& data);
+
     static char uuidToLetter(const QBluetoothUuid& uuid);
-
-    /** Convert a single-letter serial protocol code back to a full BLE UUID.
-     *  Returns a null QBluetoothUuid if the letter is out of range. */
     static QBluetoothUuid letterToUuid(char letter);
-
-    /** Decode an ASCII hex string ("0102ab") to binary bytes. */
     static QByteArray hexStringToBytes(const QString& hex);
-
-    /** Encode binary bytes to an ASCII hex string ("0102ab"). */
     static QString bytesToHexString(const QByteArray& data);
 
-    QSerialPort* m_port = nullptr;
     QString m_portName;
     QString m_serialNumber;
-    QByteArray m_buffer;        ///< Line buffer for incomplete serial reads
+    QByteArray m_buffer;
     bool m_connected = false;
-    QSet<char> m_subscribed;    ///< Letters we have already subscribed to
+    QSet<char> m_subscribed;
+
+#ifdef Q_OS_ANDROID
+    QTimer m_readTimer;  ///< Polls AndroidUsbHelper::readAvailable() at ~20ms
+#else
+    QSerialPort* m_port = nullptr;
+#endif
 };
