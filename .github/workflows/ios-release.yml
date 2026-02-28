@@ -148,24 +148,8 @@ jobs:
             -exportPath $RUNNER_TEMP/export \
             -allowProvisioningUpdates
 
-      - name: Check if pre-release
-        if: ${{ github.event_name == 'push' }}
-        id: check_prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          # Give GitHub up to 30s to create the release from the tag
-          for i in 1 2 3 4 5 6; do
-            PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease' 2>/dev/null || echo "not_found")
-            if [ "$PRERELEASE" != "not_found" ]; then break; fi
-            sleep 5
-          done
-          echo "is_prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
-          echo "Release $TAG prerelease=$PRERELEASE"
-
       - name: Upload to App Store Connect
-        if: ${{ inputs.upload_to_appstore != 'false' && steps.check_prerelease.outputs.is_prerelease != 'true' }}
+        if: ${{ inputs.upload_to_appstore != 'false' }}
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}

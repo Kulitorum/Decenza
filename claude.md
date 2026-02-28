@@ -159,6 +159,7 @@ git push origin v1.4.4
 ### Platform notes
 - iOS bundle ID: `io.github.kulitorum.decenza` (differs from Android: `io.github.kulitorum.decenza_de1`)
 - iOS signing credentials expire yearly — see `docs/IOS_CI_FOR_CLAUDE.md` for renewal
+- iOS builds are always uploaded to App Store Connect (including pre-releases). This makes them available in TestFlight automatically. App Store submission remains a manual step in App Store Connect. See `docs/IOS_TESTFLIGHT_SETUP.md` for setup instructions.
 - Android keystore path is configurable via `ANDROID_KEYSTORE_PATH` env var (falls back to local path)
 - Android build uses `build.gradle` post-build hook for signing and versioned APK naming
 
