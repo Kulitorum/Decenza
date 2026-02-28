@@ -201,6 +201,18 @@ void Settings::setUseFlowScale(bool enabled) {
     }
 }
 
+// Scale connection alert dialogs
+bool Settings::showScaleDialogs() const {
+    return m_settings.value("scale/showDialogs", true).toBool();
+}
+
+void Settings::setShowScaleDialogs(bool enabled) {
+    if (showScaleDialogs() != enabled) {
+        m_settings.setValue("scale/showDialogs", enabled);
+        emit showScaleDialogsChanged();
+    }
+}
+
 // Espresso settings
 double Settings::espressoTemperature() const {
     return m_settings.value("espresso/temperature", 93.0).toDouble();

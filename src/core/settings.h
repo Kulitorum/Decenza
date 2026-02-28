@@ -23,6 +23,9 @@ class Settings : public QObject {
     // FlowScale (virtual scale from flow data)
     Q_PROPERTY(bool useFlowScale READ useFlowScale WRITE setUseFlowScale NOTIFY useFlowScaleChanged)
 
+    // Allow user to disable modal scale connection alert dialogs
+    Q_PROPERTY(bool showScaleDialogs READ showScaleDialogs WRITE setShowScaleDialogs NOTIFY showScaleDialogsChanged)
+
     // Espresso settings
     Q_PROPERTY(double espressoTemperature READ espressoTemperature WRITE setEspressoTemperature NOTIFY espressoTemperatureChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
@@ -247,6 +250,10 @@ public:
     // FlowScale
     bool useFlowScale() const;
     void setUseFlowScale(bool enabled);
+
+    // Scale connection alert dialogs
+    bool showScaleDialogs() const;
+    void setShowScaleDialogs(bool enabled);
 
     // Espresso settings
     double espressoTemperature() const;
@@ -713,6 +720,7 @@ signals:
     void scaleTypeChanged();
     void scaleNameChanged();
     void useFlowScaleChanged();
+    void showScaleDialogsChanged();
     void espressoTemperatureChanged();
     void targetWeightChanged();
     void lastUsedRatioChanged();

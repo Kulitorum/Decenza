@@ -496,9 +496,8 @@ Page {
             BLEManager.tryDirectConnectToScale()
         }
 
-        // Suppress scale dialogs briefly after waking
-        root.justWokeFromSleep = true
-        wakeSuppressionTimer.start()
+        // Defer scale dialogs until machine reaches Ready
+        root.scaleDialogDeferred = true
 
         // Navigate back to idle
         root.goToIdleFromScreensaver()
@@ -527,9 +526,8 @@ Page {
                 } else {
                     BLEManager.tryDirectConnectToScale()
                 }
-                // Suppress scale dialogs briefly after waking
-                root.justWokeFromSleep = true
-                wakeSuppressionTimer.start()
+                // Defer scale dialogs until machine reaches Ready
+                root.scaleDialogDeferred = true
                 // Navigate back to idle
                 root.goToIdleFromScreensaver()
             }
