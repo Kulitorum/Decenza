@@ -1075,6 +1075,13 @@ int main(int argc, char *argv[])
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&accessibilityManager, &batteryManager, &de1Device, &physicalScale, &engine, &weightThread]() {
         qDebug() << "Application exiting - shutting down devices";
 
+        // Set QML shuttingDown flag to prevent screensaver from activating.
+        // Qt.quit() does NOT trigger ApplicationWindow.onClosing, so the QML-side
+        // shuttingDown flag may not be set. Setting it here covers all exit paths.
+        if (!engine.rootObjects().isEmpty()) {
+            engine.rootObjects().first()->setProperty("shuttingDown", true);
+        }
+
         // Stop weight processor thread first (before BLE shutdown).
         // Any pending SOW commands are no longer needed since we're exiting.
         weightThread.quit();
