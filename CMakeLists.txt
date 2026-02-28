@@ -277,7 +277,9 @@ set(HEADERS
     src/ble/protocol/binarycodec.h
     src/ble/protocol/de1characteristics.h
     src/ble/blemanager.h
+    src/ble/de1transport.h
     src/ble/de1device.h
+    src/ble/bletransport.h
     src/ble/scaledevice.h
     src/ble/scales/scalefactory.h
     src/ble/scales/decentscale.h

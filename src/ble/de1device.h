@@ -187,7 +187,7 @@ private:
 
     void sendInitialSettings();
 
-    // Transport pointer — not owned; BleTransport or SerialTransport
+    // Owned when created internally via connectToDevice(); set externally via setTransport() for USB
     DE1Transport* m_transport = nullptr;
 
     DE1::State m_state = DE1::State::Sleep;
