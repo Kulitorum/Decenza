@@ -140,7 +140,7 @@ jobs:
         with:
           name: Decenza_DE1-Linux-x86_64
           path: Decenza_DE1_${{ steps.version.outputs.version }}-x86_64.AppImage
-          retention-days: 3
+          retention-days: 1
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_to_release == true
