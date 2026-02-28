@@ -112,7 +112,7 @@ All workflows have concurrency controls — if the same workflow triggers twice 
 | Linux | `linux-release.yml` | ubuntu-24.04 | AppImage |
 | Linux ARM64 | `linux-arm64-release.yml` | ubuntu-24.04-arm | AppImage (aarch64) |
 
-On tag push: all workflows bump version code, build, upload to GitHub Release, and (for iOS) upload to App Store Connect. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
+On tag push: all workflows bump version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 
 ### Quick commands
 ```bash
@@ -667,7 +667,7 @@ git log <previous-tag>..HEAD --oneline
 ```
 
 #### Step 2: Create the GitHub Release FIRST (before pushing the tag)
-**You must create the release before pushing the tag.** If CI runs and no release exists, it creates one as a draft without `--prerelease`, which is wrong. Creating it first ensures your release notes and prerelease flag are preserved.
+**You must create the release before pushing the tag.** If the release doesn't exist when CI runs, behavior varies: Android and Linux workflows auto-create a non-prerelease with auto-generated notes (losing your custom notes and prerelease flag), while macOS and Windows silently skip the upload (artifacts lost). Creating it first ensures all platforms upload correctly with your release notes and prerelease flag.
 
 The `Build: XXXX` line is injected automatically by CI after the Android build completes. Do NOT add it manually.
 
