@@ -251,13 +251,19 @@ set(SOURCES
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
     src/weather/weathermanager.cpp
-    src/usb/serialtransport.cpp
-    src/usb/usbmanager.cpp
-    src/usb/androidusbhelper.cpp
-    src/usb/androidusbscalehelper.cpp
-    src/usb/usbdecentscale.cpp
-    src/usb/usbscalemanager.cpp
 )
+
+# USB serial files — not available on iOS (no QSerialPort, no Android JNI)
+if(NOT IOS)
+    list(APPEND SOURCES
+        src/usb/serialtransport.cpp
+        src/usb/usbmanager.cpp
+        src/usb/androidusbhelper.cpp
+        src/usb/androidusbscalehelper.cpp
+        src/usb/usbdecentscale.cpp
+        src/usb/usbscalemanager.cpp
+    )
+endif()
 
 # Simulator files - Windows Debug or macOS
 if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -348,13 +354,19 @@ set(HEADERS
     src/core/databasebackupmanager.h
     src/core/documentformatter.h
     src/weather/weathermanager.h
-    src/usb/serialtransport.h
-    src/usb/usbmanager.h
-    src/usb/androidusbhelper.h
-    src/usb/androidusbscalehelper.h
-    src/usb/usbdecentscale.h
-    src/usb/usbscalemanager.h
 )
+
+# USB serial headers — not available on iOS
+if(NOT IOS)
+    list(APPEND HEADERS
+        src/usb/serialtransport.h
+        src/usb/usbmanager.h
+        src/usb/androidusbhelper.h
+        src/usb/androidusbscalehelper.h
+        src/usb/usbdecentscale.h
+        src/usb/usbscalemanager.h
+    )
+endif()
 
 # Simulator headers - Windows Debug or macOS
 if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")

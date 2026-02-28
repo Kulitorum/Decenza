@@ -34,10 +34,12 @@
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
 #include "ble/de1device.h"
+#ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
 #include "usb/usbscalemanager.h"
 #include "usb/usbdecentscale.h"
 #include "usb/serialtransport.h"
+#endif
 #include "ble/scaledevice.h"
 #include "ble/scales/scalefactory.h"
 #include "ble/scales/flowscale.h"
@@ -168,8 +170,10 @@ int main(int argc, char *argv[])
     machineState.setScale(&flowScale);  // Start with FlowScale, switch to physical scale if found
     flowScale.setSettings(&settings);
     ProfileStorage profileStorage;
+#ifndef Q_OS_IOS
     USBManager usbManager;
     UsbScaleManager usbScaleManager;
+#endif
     checkpoint("Core objects");
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
     checkpoint("MainController");
@@ -425,8 +429,10 @@ int main(int argc, char *argv[])
 
     checkpoint("Managers wired");
 
+#ifndef Q_OS_IOS
     usbManager.startPolling();
     usbScaleManager.startPolling();
+#endif
 
     AccessibilityManager accessibilityManager;
     accessibilityManager.setTranslationManager(&translationManager);
@@ -457,6 +463,11 @@ int main(int argc, char *argv[])
         }
     });
 
+    // Forward DE1 log messages to BLEManager for display in connection log
+    QObject::connect(&de1Device, &DE1Device::logMessage,
+                     &bleManager, &BLEManager::de1LogMessage);
+
+#ifndef Q_OS_IOS
     // When USB DE1 discovered: disconnect BLE, switch to USB transport
     QObject::connect(&usbManager, &USBManager::de1Discovered,
         [&de1Device, &bleManager](SerialTransport* transport) {
@@ -478,13 +489,10 @@ int main(int argc, char *argv[])
             bleManager.startScan();
         });
 
-    // Forward DE1 log messages to BLEManager for display in connection log
-    QObject::connect(&de1Device, &DE1Device::logMessage,
-                     &bleManager, &BLEManager::de1LogMessage);
-
     // Forward USBManager log messages to BLEManager for display in connection log
     QObject::connect(&usbManager, &USBManager::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);
+#endif
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
@@ -630,6 +638,7 @@ int main(int argc, char *argv[])
         }
     });
 
+#ifndef Q_OS_IOS
     // When USB scale discovered: wire it as the active scale (same pattern as BLE scale)
     QObject::connect(&usbScaleManager, &UsbScaleManager::scaleDiscovered,
                      [&physicalScale, &flowScale, &machineState, &mainController, &engine,
@@ -716,6 +725,7 @@ int main(int argc, char *argv[])
     // Forward USB scale manager log messages
     QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);
+#endif // !Q_OS_IOS
 
     // Load saved scale address for direct wake connection
     QString savedScaleAddr = settings.scaleAddress();
@@ -755,8 +765,10 @@ int main(int argc, char *argv[])
     context->setContextProperty("CrashReporter", &crashReporter);
     context->setContextProperty("WidgetLibrary", &widgetLibrary);
     context->setContextProperty("LibrarySharing", &librarySharing);
+#ifndef Q_OS_IOS
     context->setContextProperty("USBManager", &usbManager);
     context->setContextProperty("UsbScaleManager", &usbScaleManager);
+#endif
 
     FlowCalibrationModel flowCalibrationModel;
     flowCalibrationModel.setStorage(mainController.shotHistory());
