@@ -1057,8 +1057,6 @@ void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
         m_lastSawTriggerMs = sawTriggerMs;
         m_lastSawWriteMs = monotonicMsNow();
         m_sawStopWritePending = true;
-        qDebug() << "[SAW-Latency] worker->main dispatch="
-                 << (m_lastSawWriteMs - m_lastSawTriggerMs) << "ms";
     } else {
         m_sawStopWritePending = false;
         m_lastSawTriggerMs = 0;

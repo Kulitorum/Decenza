@@ -222,8 +222,7 @@ int main(int argc, char *argv[])
     QThread weightThread;
     weightThread.setObjectName(QStringLiteral("WeightProcessor"));
     weightProcessor.moveToThread(&weightThread);
-    weightThread.start();
-    weightThread.setPriority(QThread::HighPriority);
+    weightThread.start(QThread::HighPriority);
     qDebug() << "[SAW] WeightProcessor thread priority set to HighPriority";
 
     // Scale → WeightProcessor (main → worker, auto QueuedConnection)

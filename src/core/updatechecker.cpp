@@ -288,14 +288,6 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 void UpdateChecker::downloadAndInstall()
 {
     if (m_downloading || m_checking) return;
-#ifdef Q_OS_ANDROID
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    if (m_lastInstallIntentLaunchMs > 0
-        && (nowMs - m_lastInstallIntentLaunchMs) < kInstallIntentCooldownMs) {
-        qDebug() << "UpdateChecker: install intent launched recently; ignoring duplicate request";
-        return;
-    }
-#endif
     if (m_downloadUrl.isEmpty()) {
         m_errorMessage = "No download available for this platform";
         qWarning() << "UpdateChecker:" << m_errorMessage;
@@ -316,6 +308,16 @@ void UpdateChecker::downloadAndInstall()
         installApk(m_downloadedApkPath);
         return;
     }
+#ifdef Q_OS_ANDROID
+    // Dedup guard: prevent rapid taps from spawning multiple download+install flows.
+    // Placed after the cached-APK fast-path so permission-flow retaps still work.
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastInstallIntentLaunchMs > 0
+        && (nowMs - m_lastInstallIntentLaunchMs) < kInstallIntentCooldownMs) {
+        qDebug() << "UpdateChecker: install intent launched recently; ignoring duplicate request";
+        return;
+    }
+#endif
     m_downloadedApkPath.clear();
     m_expectedDownloadSize = 0;
     emit downloadReadyChanged();
