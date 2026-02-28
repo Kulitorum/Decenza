@@ -5,7 +5,7 @@ import DecenzaDE1
 import "../components"
 
 // Screensaver modes:
-// "disabled"  - Turn screen off (let system timeout handle it)
+// "disabled"  - Simulate screen-off (black overlay, screen stays on to avoid EGL surface loss)
 // "videos"    - Video/image slideshow from catalog
 // "pipes"     - Classic 3D pipes animation
 // "flipclock" - Classic flip clock display
@@ -37,10 +37,14 @@ Page {
         console.log("[ScreensaverPage] Loaded, type:", screensaverType,
                     "videos:", isVideosMode, "pipes:", isPipesMode, "flipclock:", isFlipClockMode,
                     "disabled:", isDisabledMode)
-        // For "disabled" mode, turn OFF keep-screen-on to let Android's
-        // system timeout turn off the screen naturally
         if (isDisabledMode) {
-            ScreensaverManager.setKeepScreenOn(false)
+            // Simulate screen-off with black overlay instead of actually turning
+            // off the screen. Letting Android turn off the display destroys the
+            // EGL surface on Samsung tablets (QTBUG-45019), causing a blank screen
+            // on wake. Keep the screen on and use full-opacity dim overlay instead.
+            dimBehavior.enabled = false
+            dimOverlay.opacity = 1
+            dimBehavior.enabled = true
         }
         if (isVideosMode) {
             playNextMedia()
@@ -81,6 +85,7 @@ Page {
             }
         }
         function onDimPercentChanged() {
+            if (isDisabledMode) return  // Disabled mode keeps overlay at 100%
             if (ScreensaverManager.dimPercent === 0) {
                 dimTimer.stop()
                 dimOverlay.opacity = 0
@@ -438,7 +443,6 @@ Page {
         z: 2.5
         color: "black"
         opacity: 0
-        visible: !isDisabledMode
 
         Behavior on opacity {
             id: dimBehavior
@@ -447,11 +451,11 @@ Page {
         }
     }
 
-    // Touch hint (fades out) - hidden in disabled mode for pure black screen
+    // Touch hint (fades out) - shown briefly so users know to tap
+    // z:2.75 positions above dimOverlay (z:2.5) but below touch MouseArea (z:3)
     Tr {
         id: touchHint
-        z: 2
-        visible: !isDisabledMode
+        z: 2.75
         anchors.centerIn: parent
         key: "screensaver.touch_to_wake"
         fallback: "Touch to wake"
@@ -464,7 +468,7 @@ Page {
             from: 0.5
             to: 0
             duration: 3000
-            running: !isDisabledMode
+            running: true
         }
     }
 
@@ -509,7 +513,6 @@ Page {
         dimOverlay.opacity = 0
         dimBehavior.enabled = true
         // Re-enable keep-screen-on when leaving screensaver
-        // (especially needed if we were in "disabled" mode which turned it off)
         ScreensaverManager.setKeepScreenOn(true)
     }
 

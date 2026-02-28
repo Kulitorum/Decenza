@@ -213,9 +213,6 @@ public slots:
     // Screen wake lock (prevents screen from turning off)
     void setKeepScreenOn(bool on);
 
-    // Turn screen off (for disabled screensaver mode)
-    void turnScreenOff();
-
     // Restore screen brightness (after disabled mode wake)
     void restoreScreenBrightness();
 
