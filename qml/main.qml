@@ -2076,7 +2076,8 @@ ApplicationWindow {
 
             // Clear scale dialog deferral when machine reaches Ready or an active phase
             if (root.scaleDialogDeferred) {
-                if (phase === MachineStateType.Phase.Ready ||
+                if (phase === MachineStateType.Phase.Idle ||
+                    phase === MachineStateType.Phase.Ready ||
                     phase === MachineStateType.Phase.EspressoPreheating ||
                     phase === MachineStateType.Phase.Steaming ||
                     phase === MachineStateType.Phase.HotWater ||

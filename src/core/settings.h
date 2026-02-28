@@ -23,7 +23,7 @@ class Settings : public QObject {
     // FlowScale (virtual scale from flow data)
     Q_PROPERTY(bool useFlowScale READ useFlowScale WRITE setUseFlowScale NOTIFY useFlowScaleChanged)
 
-    // Scale connection alert dialogs (defer until Ready, or disable entirely)
+    // Allow user to disable modal scale connection alert dialogs
     Q_PROPERTY(bool showScaleDialogs READ showScaleDialogs WRITE setShowScaleDialogs NOTIFY showScaleDialogsChanged)
 
     // Espresso settings
