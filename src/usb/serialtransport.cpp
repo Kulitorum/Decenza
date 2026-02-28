@@ -13,6 +13,10 @@ SerialTransport::SerialTransport(const QString& portName, QObject* parent)
     m_port->setStopBits(QSerialPort::OneStop);
     m_port->setParity(QSerialPort::NoParity);
     m_port->setFlowControl(QSerialPort::NoFlowControl);
+
+    // Connect signals once here (not in open()) to prevent stacking on reconnect
+    connect(m_port, &QSerialPort::readyRead, this, &SerialTransport::onReadyRead);
+    connect(m_port, &QSerialPort::errorOccurred, this, &SerialTransport::onErrorOccurred);
 }
 
 SerialTransport::~SerialTransport()
@@ -159,9 +163,6 @@ void SerialTransport::open()
     // DE1 serial protocol requires DTR and RTS off
     m_port->setDataTerminalReady(false);
     m_port->setRequestToSend(false);
-
-    connect(m_port, &QSerialPort::readyRead, this, &SerialTransport::onReadyRead);
-    connect(m_port, &QSerialPort::errorOccurred, this, &SerialTransport::onErrorOccurred);
 
     m_connected = true;
     m_buffer.clear();

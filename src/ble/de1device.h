@@ -189,6 +189,7 @@ private:
 
     // Owned when created internally via connectToDevice(); set externally via setTransport() for USB
     DE1Transport* m_transport = nullptr;
+    bool m_ownsTransport = false;  // True when DE1Device created the transport (connectToDevice)
 
     DE1::State m_state = DE1::State::Sleep;
     DE1::SubState m_subState = DE1::SubState::Ready;

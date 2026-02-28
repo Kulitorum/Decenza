@@ -300,6 +300,16 @@ Item {
                                 usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
                             }
                         }
+
+                        // Also show DE1 transport logs (SerialTransport TX/RX) in the USB log panel
+                        Connections {
+                            target: BLEManager
+                            enabled: USBManager.de1Connected
+                            function onDe1LogMessage(message) {
+                                usbLogText.text += message + "\n"
+                                usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
+                            }
+                        }
                     }
                 }
 

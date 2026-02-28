@@ -231,9 +231,10 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_connecting = true;
     emit connectingChanged();
 
-    // Create a new BleTransport and wire it up
+    // Create a new BleTransport and wire it up (DE1Device owns it)
     auto* bleTransport = new BleTransport(this);
     setTransport(bleTransport);
+    m_ownsTransport = true;
     bleTransport->connectToDevice(device);
 }
 
@@ -250,8 +251,13 @@ void DE1Device::disconnect() {
         // trigger onTransportDisconnected() and double-emit our signals)
         QObject::disconnect(m_transport, nullptr, this, nullptr);
         m_transport->disconnect();
-        m_transport->deleteLater();
+        // Only delete transports we created (connectToDevice). External
+        // transports (USB via setTransport) are owned by their creator.
+        if (m_ownsTransport) {
+            m_transport->deleteLater();
+        }
         m_transport = nullptr;
+        m_ownsTransport = false;
     }
 
     m_connecting = false;
