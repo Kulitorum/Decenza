@@ -46,6 +46,8 @@
     <string>This app uses your location to show where your espresso shots were made on the shot map.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>This app uses your location to show where your espresso shots were made on the shot map.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>This app uses your location to show where your espresso shots were made on the shot map.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>This app uses Bluetooth to connect to your DE1 espresso machine and scales.</string>
     <key>NSCameraUsageDescription</key>
