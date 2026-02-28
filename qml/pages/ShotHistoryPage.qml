@@ -186,7 +186,7 @@ Page {
 
             // Pass remaining text (after stripping keywords) as FTS search
             searchText = searchText.trim().replace(/\s+/g, " ")
-            if (searchText.length > 0) {
+            if (searchText.length > 0 && !initialFilter) {
                 filter.searchText = searchText
             }
         }
@@ -341,7 +341,8 @@ Page {
                         // User edited the search field — drop exact-match filter, use FTS
                         if (!_populatingSearch && initialFilter)
                             initialFilter = null
-                        searchTimer.restart()
+                        if (!_populatingSearch)
+                            searchTimer.restart()
                     }
                 }
 
@@ -422,6 +423,7 @@ Page {
             radius: Theme.scaled(8)
             color: Qt.alpha(Theme.primaryColor, 0.15)
             visible: initialFilter !== null
+            Accessible.ignored: true
 
             RowLayout {
                 id: filterBannerRow
