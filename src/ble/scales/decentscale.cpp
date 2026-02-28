@@ -207,7 +207,9 @@ void DecentScale::enableWeightNotifications(const QString& reason, bool force) {
         return;
     }
 
-    DECENT_LOG(QString("Enabling notifications (%1)").arg(reason));
+    if (dataStale || force) {
+        DECENT_LOG(QString("Enabling notifications (%1)").arg(reason));
+    }
     m_transport->enableNotifications(Scale::Decent::SERVICE, Scale::Decent::READ);
     m_lastNotificationEnableMs = now;
 }
