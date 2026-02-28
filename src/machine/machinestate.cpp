@@ -428,11 +428,10 @@ void MachineState::onScaleWeightChanged(double weight) {
 
     bool isFlowBefore = false;
 
-    if (m_phase == Phase::EspressoPreheating) {
-        // Espresso: entire EspressoPreheating phase is "before flow"
-        isFlowBefore = true;
-    } else if (m_phase == Phase::HotWater && m_device) {
-        // HotWater: only heating/stabilising substates are "before flow"
+    // Both Espresso preheat and HotWater heating use the same substates before flow.
+    // Check substate directly (not just m_phase) because m_phase can lag behind
+    // BLE state changes — avoids taring after water has already started flowing.
+    if ((m_phase == Phase::EspressoPreheating || m_phase == Phase::HotWater) && m_device) {
         DE1::SubState subState = m_device->subState();
         isFlowBefore = (subState == DE1::SubState::Heating ||
                         subState == DE1::SubState::FinalHeating ||
