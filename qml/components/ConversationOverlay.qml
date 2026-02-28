@@ -648,16 +648,25 @@ Rectangle {
             radius: Theme.cardRadius
         }
 
-        contentItem: Text {
-            Accessible.ignored: true
-            text: TranslationManager.translate("shotdetail.unsupportedbeverage.message",
-                "AI analysis isn't available for %1 profiles yet \u2014 only espresso and filter are supported for now. Sorry about that!").arg(unsupportedBeverageDialog.beverageType)
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
-            width: unsupportedBeverageDialog.availableWidth
-        }
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
 
-        standardButtons: Dialog.Ok
+            Text {
+                Accessible.ignored: true
+                text: TranslationManager.translate("shotdetail.unsupportedbeverage.message",
+                    "AI analysis isn't available for %1 profiles yet \u2014 only espresso and filter are supported for now. Sorry about that!").arg(unsupportedBeverageDialog.beverageType)
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("common.ok", "OK")
+                accessibleName: TranslationManager.translate("common.ok", "OK")
+                Layout.alignment: Qt.AlignRight
+                onClicked: unsupportedBeverageDialog.close()
+            }
+        }
     }
 }

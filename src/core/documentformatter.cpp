@@ -214,7 +214,6 @@ QVariantList DocumentFormatter::toSegments() const
     QVariantList segments;
     QTextDocument *doc = textDocument();
     if (!doc) {
-        qDebug() << "DocumentFormatter::toSegments: no document!";
         return segments;
     }
 
