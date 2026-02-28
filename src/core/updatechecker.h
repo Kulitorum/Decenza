@@ -102,6 +102,7 @@ private:
     bool m_latestIsBeta = false;
     QString m_downloadedApkPath;
     qint64 m_expectedDownloadSize = 0;
+    qint64 m_lastInstallIntentLaunchMs = 0;
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;

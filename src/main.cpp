@@ -223,6 +223,8 @@ int main(int argc, char *argv[])
     weightThread.setObjectName(QStringLiteral("WeightProcessor"));
     weightProcessor.moveToThread(&weightThread);
     weightThread.start();
+    weightThread.setPriority(QThread::HighPriority);
+    qDebug() << "[SAW] WeightProcessor thread priority set to HighPriority";
 
     // Scale → WeightProcessor (main → worker, auto QueuedConnection)
     // Initially connected to FlowScale; reconnected when physical scale is found
@@ -231,16 +233,18 @@ int main(int argc, char *argv[])
 
     // WeightProcessor → DE1Device: stop-at-weight (auto QueuedConnection back to main thread)
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
-                     &de1Device, &DE1Device::stopOperationUrgent);
+                     &de1Device, qOverload<qint64>(&DE1Device::stopOperationUrgent));
 
     // WeightProcessor → MachineState: forward SAW trigger for QML "Target reached" display
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
-                     &machineState, &MachineState::targetWeightReached);
+                     &machineState, [&machineState](qint64) {
+                         QMetaObject::invokeMethod(&machineState, "targetWeightReached", Qt::DirectConnection);
+                     });
 
     // WeightProcessor → ShotDataModel: mark stop time on graph.
     // Using &shotDataModel as context ensures lambda runs on the main thread.
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
-                     &shotDataModel, [&timingController, &shotDataModel]() {
+                     &shotDataModel, [&timingController, &shotDataModel](qint64) {
                          shotDataModel.markStopAt(timingController.shotTime());
                      });
 

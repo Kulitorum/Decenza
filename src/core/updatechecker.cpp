@@ -11,6 +11,7 @@
 #include <QRegularExpression>
 #include <QDesktopServices>
 #include <QGuiApplication>
+#include <QDateTime>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -22,6 +23,9 @@
 
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
+namespace {
+constexpr qint64 kInstallIntentCooldownMs = 5000;
+}
 
 UpdateChecker::UpdateChecker(Settings* settings, QObject* parent)
     : QObject(parent)
@@ -284,6 +288,14 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 void UpdateChecker::downloadAndInstall()
 {
     if (m_downloading || m_checking) return;
+#ifdef Q_OS_ANDROID
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastInstallIntentLaunchMs > 0
+        && (nowMs - m_lastInstallIntentLaunchMs) < kInstallIntentCooldownMs) {
+        qDebug() << "UpdateChecker: install intent launched recently; ignoring duplicate request";
+        return;
+    }
+#endif
     if (m_downloadUrl.isEmpty()) {
         m_errorMessage = "No download available for this platform";
         qWarning() << "UpdateChecker:" << m_errorMessage;
@@ -687,6 +699,7 @@ void UpdateChecker::installApk(const QString& apkPath)
     }
 
     qDebug() << "UpdateChecker: APK install intent launched";
+    m_lastInstallIntentLaunchMs = QDateTime::currentMSecsSinceEpoch();
 #else
     qDebug() << "UpdateChecker: APK installation only supported on Android. File saved to:" << apkPath;
     m_errorMessage = "APK installation only supported on Android";

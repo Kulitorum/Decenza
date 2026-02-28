@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QStandardPaths>
+#include <chrono>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -89,6 +90,14 @@ static void stopBleConnectionService() {
 }
 #endif
 
+namespace {
+qint64 monotonicMsNow()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+}
+
 DE1Device::DE1Device(QObject* parent)
     : QObject(parent)
 {
@@ -116,6 +125,13 @@ DE1Device::DE1Device(QObject* parent)
             } else {
 //                qWarning() << "DE1Device: Write FAILED (timeout) after" << m_writeRetryCount
 //                           << "retries - uuid:" << m_lastWriteUuid << "data:" << m_lastWriteData.toHex();
+                if (m_sawStopWritePending) {
+                    qWarning() << "[SAW-Latency] Stop command failed before BLE ack (timeout), elapsed="
+                               << (monotonicMsNow() - m_lastSawTriggerMs) << "ms";
+                    m_sawStopWritePending = false;
+                    m_lastSawTriggerMs = 0;
+                    m_lastSawWriteMs = 0;
+                }
                 m_lastCommand = nullptr;
                 m_writeRetryCount = 0;
                 processCommandQueue();  // Move on to next command
@@ -304,6 +320,9 @@ void DE1Device::disconnect() {
     m_writeRetryCount = 0;
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
+    m_sawStopWritePending = false;
+    m_lastSawTriggerMs = 0;
+    m_lastSawWriteMs = 0;
 
     // Stop any pending retries
     m_retryTimer.stop();
@@ -352,6 +371,9 @@ void DE1Device::onControllerDisconnected() {
     m_writePending = false;
     m_writeTimeoutTimer.stop();
     m_commandTimer.stop();
+    m_sawStopWritePending = false;
+    m_lastSawTriggerMs = 0;
+    m_lastSawWriteMs = 0;
 
     m_connecting = false;
     emit connectingChanged();
@@ -436,6 +458,13 @@ void DE1Device::onServiceDiscovered(const QBluetoothUuid& uuid) {
                         } else {
 //                            qWarning() << "DE1Device: Write FAILED (error) after" << m_writeRetryCount
 //                                       << "retries - uuid:" << m_lastWriteUuid << "data:" << m_lastWriteData.toHex();
+                            if (m_sawStopWritePending) {
+                                qWarning() << "[SAW-Latency] Stop command failed before BLE ack (write error), elapsed="
+                                           << (monotonicMsNow() - m_lastSawTriggerMs) << "ms";
+                                m_sawStopWritePending = false;
+                                m_lastSawTriggerMs = 0;
+                                m_lastSawWriteMs = 0;
+                            }
                             m_lastCommand = nullptr;
                             m_writeRetryCount = 0;
                             processCommandQueue();  // Move on to next command
@@ -568,6 +597,23 @@ void DE1Device::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const
     m_lastCommand = nullptr;     // Clear stored command
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
+
+    // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack)
+    if (m_sawStopWritePending
+        && c.uuid() == DE1::Characteristic::REQUESTED_STATE
+        && value.size() == 1
+        && static_cast<uint8_t>(value[0]) == static_cast<uint8_t>(DE1::State::Idle)) {
+        qint64 ackMs = monotonicMsNow();
+        qint64 dispatchMs = m_lastSawWriteMs - m_lastSawTriggerMs;
+        qint64 bleAckMs = ackMs - m_lastSawWriteMs;
+        qint64 totalMs = ackMs - m_lastSawTriggerMs;
+        qDebug() << "[SAW-Latency] dispatch=" << dispatchMs
+                 << "ms, bleAck=" << bleAckMs
+                 << "ms, total=" << totalMs << "ms";
+        m_sawStopWritePending = false;
+        m_lastSawTriggerMs = 0;
+        m_lastSawWriteMs = 0;
+    }
     processCommandQueue();
 }
 
@@ -843,6 +889,16 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 
 void DE1Device::writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data) {
     if (!m_service || !m_characteristics.contains(uuid)) {
+        if (m_sawStopWritePending
+            && uuid == DE1::Characteristic::REQUESTED_STATE
+            && data.size() == 1
+            && static_cast<uint8_t>(data[0]) == static_cast<uint8_t>(DE1::State::Idle)) {
+            qWarning() << "[SAW-Latency] Stop command could not be sent (not connected/missing characteristic), elapsed="
+                       << (monotonicMsNow() - m_lastSawTriggerMs) << "ms";
+            m_sawStopWritePending = false;
+            m_lastSawTriggerMs = 0;
+            m_lastSawWriteMs = 0;
+        }
         // Silently ignore in simulation mode
         if (!m_simulationMode) {
 //            qWarning() << "DE1Device: Cannot write - not connected or characteristic not found:" << uuid.toString();
@@ -984,6 +1040,10 @@ void DE1Device::stopOperation() {
 }
 
 void DE1Device::stopOperationUrgent() {
+    stopOperationUrgent(0);
+}
+
+void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
     // Bypass the 50ms command queue for faster stop (used by SOW).
     // Clears any pending commands and writes directly to the characteristic.
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
@@ -993,6 +1053,17 @@ void DE1Device::stopOperationUrgent() {
     }
 #endif
     clearCommandQueue();
+    if (sawTriggerMs > 0) {
+        m_lastSawTriggerMs = sawTriggerMs;
+        m_lastSawWriteMs = monotonicMsNow();
+        m_sawStopWritePending = true;
+        qDebug() << "[SAW-Latency] worker->main dispatch="
+                 << (m_lastSawWriteMs - m_lastSawTriggerMs) << "ms";
+    } else {
+        m_sawStopWritePending = false;
+        m_lastSawTriggerMs = 0;
+        m_lastSawWriteMs = 0;
+    }
     QByteArray data(1, static_cast<char>(DE1::State::Idle));
     writeCharacteristic(DE1::Characteristic::REQUESTED_STATE, data);
 }
@@ -1047,6 +1118,9 @@ void DE1Device::clearCommandQueue() {
     m_writeRetryCount = 0;       // Reset retry count
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
+    m_sawStopWritePending = false;
+    m_lastSawTriggerMs = 0;
+    m_lastSawWriteMs = 0;
     if (cleared > 0) {
 //        qDebug() << "DE1Device::clearCommandQueue: Cleared" << cleared << "pending commands";
     }

@@ -16,7 +16,7 @@
 //   - setCurrentFrame(): called at ~5Hz from DE1 shot samples
 //
 // Output (via QueuedConnection back to main thread):
-//   - stopNow(): triggers DE1Device::stopOperationUrgent()
+//   - stopNow(triggerMs): triggers DE1Device::stopOperationUrgent(triggerMs)
 //   - sawTriggered(): carries context for SAW learning
 //   - skipFrame(): triggers DE1Device::skipToNextFrame()
 //   - flowRatesReady(): feeds ShotTimingController for graph/settling
@@ -39,7 +39,8 @@ public slots:
     void stopExtraction();
 
 signals:
-    void stopNow();
+    // Emitted when SAW triggers. Includes monotonic timestamp (ms) for latency tracing.
+    void stopNow(qint64 triggerMs);
     // Carries SAW context for learning (weight/flow at stop time)
     void sawTriggered(double weightAtStop, double flowRateAtStop, double targetWeight);
     void skipFrame(int frameNumber);
