@@ -60,7 +60,7 @@ Page {
 
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                 // Build tab names based on which tabs are visible
-                var tabNames = ["Bluetooth", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Layout", "Language", "History", "Data", "MQTT"]
+                var tabNames = ["Connections", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Layout", "Language", "History", "Data", "MQTT"]
                 if (MainController.updateChecker.canCheckForUpdates) tabNames.push("Update")
                 tabNames.push("About")
                 if (Settings.isDebugBuild) tabNames.push("Debug")
@@ -96,9 +96,9 @@ Page {
         }
 
         StyledTabButton {
-            id: bluetoothTab
-            text: TranslationManager.translate("settings.tab.bluetooth", "Bluetooth")
-            tabLabel: TranslationManager.translate("settings.tab.bluetooth", "Bluetooth")
+            id: connectionsTab
+            text: TranslationManager.translate("settings.tab.connections", "Connections")
+            tabLabel: TranslationManager.translate("settings.tab.connections", "Connections")
         }
 
         StyledTabButton {
@@ -235,12 +235,12 @@ Page {
 
         currentIndex: tabBar.currentIndex
 
-        // Tab 0: Bluetooth - loads synchronously (first tab appears instantly)
+        // Tab 0: Connections - loads synchronously (first tab appears instantly)
         Loader {
-            id: bluetoothLoader
+            id: connectionsLoader
             active: true
             asynchronous: false
-            source: "settings/SettingsBluetoothTab.qml"
+            source: "settings/SettingsConnectionsTab.qml"
         }
 
         // Tab 1: Preferences - lazy loaded on first visit

@@ -5,7 +5,7 @@ import DecenzaDE1
 import "../../components"
 
 Item {
-    id: bluetoothTab
+    id: connectionsTab
 
     // Share Log Dialog
     Popup {
@@ -191,109 +191,229 @@ Item {
                 anchors.margins: Theme.scaled(15)
                 spacing: Theme.scaled(10)
 
-                Tr {
-                    key: "settings.bluetooth.machine"
-                    fallback: "Machine"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-
-                RowLayout {
+                // === USB-C view (shown when USB connected) ===
+                ColumnLayout {
                     Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: USBManager.de1Connected
+                    spacing: Theme.scaled(10)
 
-                    Tr {
-                        key: "settings.bluetooth.status"
-                        fallback: "Status:"
+                    // Title row with status badge
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: "USB-C"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Rectangle {
+                            width: usbStatusText.implicitWidth + Theme.scaled(16)
+                            height: Theme.scaled(24)
+                            radius: Theme.scaled(12)
+                            color: DE1Device.connected
+                                   ? Qt.rgba(Theme.successColor.r, Theme.successColor.g, Theme.successColor.b, 0.2)
+                                   : Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.2)
+
+                            Text {
+                                id: usbStatusText
+                                anchors.centerIn: parent
+                                text: DE1Device.connected ? "Connected" : "Connecting..."
+                                color: DE1Device.connected ? Theme.successColor : Theme.warningColor
+                                font.pixelSize: Theme.scaled(12)
+                                font.bold: true
+                            }
+                        }
+                    }
+
+                    // Connection type indicator
+                    Text {
+                        text: TranslationManager.translate("settings.connections.transport", "Transport:") + " " + (DE1Device.connectionType || "USB-C")
                         color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
                     }
 
-                    Tr {
-                        key: DE1Device.connected ? "settings.bluetooth.connected" : "settings.bluetooth.disconnected"
-                        fallback: DE1Device.connected ? "Connected" : "Disconnected"
-                        color: DE1Device.connected ? Theme.successColor : Theme.errorColor
+                    // Port info
+                    Text {
+                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + USBManager.portName
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
                     }
 
-                    Item { Layout.fillWidth: true }
+                    // Serial number
+                    Text {
+                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + USBManager.serialNumber
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        visible: USBManager.serialNumber !== ""
+                    }
 
-                    AccessibleButton {
-                        text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.stopScan", "Stop Scan") : TranslationManager.translate("settings.bluetooth.scanForDE1", "Scan for DE1")
-                        accessibleName: BLEManager.scanning ? "Stop scanning for DE1" : "Scan for DE1 machine"
-                        onClicked: {
-                            console.log("DE1 scan button clicked! scanning=" + BLEManager.scanning)
-                            if (BLEManager.scanning) {
-                                BLEManager.stopScan()
-                            } else {
-                                BLEManager.startScan()
+                    // Firmware version
+                    Text {
+                        text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (DE1Device.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        visible: DE1Device.connected
+                    }
+
+                    // Machine state
+                    Text {
+                        text: TranslationManager.translate("settings.connections.state", "State:") + " " + DE1Device.stateString
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        visible: DE1Device.connected
+                    }
+
+                    // USB-C connection log
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: Qt.darker(Theme.surfaceColor, 1.2)
+                        radius: Theme.scaled(4)
+
+                        ScrollView {
+                            id: usbLogScroll
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            clip: true
+
+                            TextArea {
+                                id: usbLogText
+                                readOnly: true
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                font.family: "monospace"
+                                wrapMode: Text.Wrap
+                                background: null
+                                text: ""
+                            }
+                        }
+
+                        Connections {
+                            target: USBManager
+                            function onLogMessage(message) {
+                                usbLogText.text += message + "\n"
+                                usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
                             }
                         }
                     }
                 }
 
-                Text {
-                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (DE1Device.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
-                    color: Theme.textSecondaryColor
-                    visible: DE1Device.connected
-                }
-
-                ListView {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(60)
-                    clip: true
-                    model: BLEManager.discoveredDevices
-
-                    delegate: ItemDelegate {
-                        width: ListView.view.width
-                        contentItem: Text {
-                            text: modelData.name + " (" + modelData.address + ")"
-                            color: Theme.textColor
-                        }
-                        background: Rectangle {
-                            color: parent.hovered ? Theme.accentColor : "transparent"
-                            radius: Theme.scaled(4)
-                        }
-                        onClicked: DE1Device.connectToDevice(modelData.address)
-                    }
-
-                    Tr {
-                        anchors.centerIn: parent
-                        key: "settings.bluetooth.noDevices"
-                        fallback: "No devices found"
-                        visible: parent.count === 0
-                        color: Theme.textSecondaryColor
-                    }
-                }
-
-                // DE1 scan log
-                Rectangle {
+                // === BLE view (shown when no USB connection) ===
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Qt.darker(Theme.surfaceColor, 1.2)
-                    radius: Theme.scaled(4)
+                    visible: !USBManager.de1Connected
+                    spacing: Theme.scaled(10)
 
-                    ScrollView {
-                        id: de1LogScroll
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(8)
-                        clip: true
+                    Tr {
+                        key: "settings.bluetooth.machine"
+                        fallback: "Machine"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
 
-                        TextArea {
-                            id: de1LogText
-                            readOnly: true
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Tr {
+                            key: "settings.bluetooth.status"
+                            fallback: "Status:"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            font.family: "monospace"
-                            wrapMode: Text.Wrap
-                            background: null
-                            text: ""
+                        }
+
+                        Tr {
+                            key: DE1Device.connected ? "settings.bluetooth.connected" : "settings.bluetooth.disconnected"
+                            fallback: DE1Device.connected ? "Connected" : "Disconnected"
+                            color: DE1Device.connected ? Theme.successColor : Theme.errorColor
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.stopScan", "Stop Scan") : TranslationManager.translate("settings.bluetooth.scanForDE1", "Scan for DE1")
+                            accessibleName: BLEManager.scanning ? "Stop scanning for DE1" : "Scan for DE1 machine"
+                            onClicked: {
+                                console.log("DE1 scan button clicked! scanning=" + BLEManager.scanning)
+                                if (BLEManager.scanning) {
+                                    BLEManager.stopScan()
+                                } else {
+                                    BLEManager.startScan()
+                                }
+                            }
                         }
                     }
 
-                    Connections {
-                        target: BLEManager
-                        function onDe1LogMessage(message) {
-                            de1LogText.text += message + "\n"
-                            de1LogScroll.ScrollBar.vertical.position = 1.0 - de1LogScroll.ScrollBar.vertical.size
+                    Text {
+                        text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (DE1Device.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
+                        color: Theme.textSecondaryColor
+                        visible: DE1Device.connected
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(60)
+                        clip: true
+                        model: BLEManager.discoveredDevices
+
+                        delegate: ItemDelegate {
+                            width: ListView.view.width
+                            contentItem: Text {
+                                text: modelData.name + " (" + modelData.address + ")"
+                                color: Theme.textColor
+                            }
+                            background: Rectangle {
+                                color: parent.hovered ? Theme.accentColor : "transparent"
+                                radius: Theme.scaled(4)
+                            }
+                            onClicked: DE1Device.connectToDevice(modelData.address)
+                        }
+
+                        Tr {
+                            anchors.centerIn: parent
+                            key: "settings.bluetooth.noDevices"
+                            fallback: "No devices found"
+                            visible: parent.count === 0
+                            color: Theme.textSecondaryColor
+                        }
+                    }
+
+                    // DE1 scan log
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: Qt.darker(Theme.surfaceColor, 1.2)
+                        radius: Theme.scaled(4)
+
+                        ScrollView {
+                            id: de1LogScroll
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            clip: true
+
+                            TextArea {
+                                id: de1LogText
+                                readOnly: true
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                font.family: "monospace"
+                                wrapMode: Text.Wrap
+                                background: null
+                                text: ""
+                            }
+                        }
+
+                        Connections {
+                            target: BLEManager
+                            function onDe1LogMessage(message) {
+                                de1LogText.text += message + "\n"
+                                de1LogScroll.ScrollBar.vertical.position = 1.0 - de1LogScroll.ScrollBar.vertical.size
+                            }
                         }
                     }
                 }

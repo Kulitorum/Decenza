@@ -463,7 +463,7 @@ set(QML_FILES
     qml/pages/ShotComparisonPage.qml
     qml/pages/FlowCalibrationPage.qml
     qml/pages/ProfileInfoPage.qml
-    qml/pages/settings/SettingsBluetoothTab.qml
+    qml/pages/settings/SettingsConnectionsTab.qml
     qml/pages/settings/SettingsPreferencesTab.qml
     qml/pages/settings/SettingsScreensaverTab.qml
     qml/pages/settings/SettingsVisualizerTab.qml
