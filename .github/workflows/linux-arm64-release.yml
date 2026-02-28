@@ -7,7 +7,7 @@ on:
       upload_to_release:
         description: 'Upload to GitHub Release'
         required: true
-        default: 'true'
+        default: 'false'
         type: boolean
 
   # Or trigger on version tags
