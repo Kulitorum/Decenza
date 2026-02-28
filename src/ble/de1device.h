@@ -112,6 +112,7 @@ public slots:
     void startClean();
     void stopOperation();         // Soft stop (for steam: stops flow, no purge)
     void stopOperationUrgent();   // Bypasses command queue for faster stop (SOW)
+    void stopOperationUrgent(qint64 sawTriggerMs);  // Includes SAW trigger timestamp for latency tracing
     void requestIdle();           // Hard stop (requests Idle state, triggers steam purge)
     void skipToNextFrame();   // Skip to next profile frame during extraction (0x0E)
     void goToSleep();
@@ -237,4 +238,9 @@ private:
     int m_retryCount = 0;
     static constexpr int MAX_RETRIES = 3;
     static constexpr int RETRY_DELAY_MS = 2000;
+
+    // SAW stop latency instrumentation (monotonic ms timestamps)
+    bool m_sawStopWritePending = false;
+    qint64 m_lastSawTriggerMs = 0;
+    qint64 m_lastSawWriteMs = 0;
 };

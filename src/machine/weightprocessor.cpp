@@ -1,6 +1,15 @@
 #include "weightprocessor.h"
 #include <QtMath>
 #include <QDebug>
+#include <chrono>
+
+namespace {
+qint64 monotonicMsNow()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+}
 
 WeightProcessor::WeightProcessor(QObject* parent)
     : QObject(parent)
@@ -58,13 +67,14 @@ void WeightProcessor::processWeight(double weight)
 
         if (weight >= stopThreshold) {
             m_stopTriggered = true;
+            qint64 triggerMs = monotonicMsNow();
             qDebug() << "[SAW-Worker] Stop triggered: weight=" << weight
                      << "threshold=" << stopThreshold
                      << "flow=" << flowRateShort << "(short)"
                      << "expectedDrip=" << expectedDrip
                      << "target=" << m_targetWeight;
             emit sawTriggered(weight, flowRateShort, m_targetWeight);
-            emit stopNow();
+            emit stopNow(triggerMs);
         }
     }
 
