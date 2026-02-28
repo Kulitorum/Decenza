@@ -50,6 +50,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Network
     Sql
     Positioning
+    SerialPort
 )
 
 # Optional: ShaderTools (for GPU CRT/Pip-Boy shader effect)
@@ -246,6 +247,7 @@ set(SOURCES
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
     src/weather/weathermanager.cpp
+    src/usb/serialtransport.cpp
 )
 
 # Simulator files - Windows Debug or macOS
@@ -337,6 +339,7 @@ set(HEADERS
     src/core/databasebackupmanager.h
     src/core/documentformatter.h
     src/weather/weathermanager.h
+    src/usb/serialtransport.h
 )
 
 # Simulator headers - Windows Debug or macOS
@@ -383,6 +386,7 @@ target_link_libraries(Decenza_DE1 PRIVATE
     Qt6::Network
     Qt6::Sql
     Qt6::Positioning
+    Qt6::SerialPort
 )
 
 # Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
