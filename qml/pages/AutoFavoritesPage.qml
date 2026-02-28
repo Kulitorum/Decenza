@@ -300,6 +300,54 @@ Page {
                         }
                     }
 
+                    // Show button — opens Shot History filtered to this group
+                    Rectangle {
+                        id: showButton
+                        width: Theme.scaled(70)
+                        height: Theme.scaled(40)
+                        radius: Theme.scaled(20)
+                        color: Theme.primaryColor
+                        Accessible.ignored: true
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("autofavorites.show", "Show")
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                            color: "white"
+                            Accessible.ignored: true
+                        }
+
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: TranslationManager.translate("autofavorites.showShots", "Show shots") +
+                                ". " + favoriteDelegate._groupByText
+                            accessibleItem: showButton
+                            onAccessibleClicked: {
+                                var filter = {}
+                                var groupBy = Settings.autoFavoritesGroupBy
+                                var includeBean = (groupBy === "bean" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder")
+                                var includeProfile = (groupBy === "profile" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder")
+                                var includeGrinder = (groupBy === "bean_profile_grinder")
+
+                                if (includeBean) {
+                                    if (model.beanBrand) filter.beanBrand = model.beanBrand
+                                    if (model.beanType) filter.beanType = model.beanType
+                                }
+                                if (includeProfile && model.profileName)
+                                    filter.profileName = model.profileName
+                                if (includeGrinder) {
+                                    if (model.grinderModel) filter.grinderModel = model.grinderModel
+                                    if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
+                                }
+
+                                pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"), {
+                                    initialFilter: filter
+                                })
+                            }
+                        }
+                    }
+
                     // Load button
                     Rectangle {
                         id: loadButton
