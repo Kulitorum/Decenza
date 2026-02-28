@@ -32,15 +32,25 @@ Page {
         }
     }
 
+    // Determine which fields to include based on current groupBy setting
+    function getGroupByIncludes() {
+        var groupBy = Settings.autoFavoritesGroupBy
+        return {
+            bean: (groupBy === "bean" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder"),
+            profile: (groupBy === "profile" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder"),
+            grinder: (groupBy === "bean_profile_grinder")
+        }
+    }
+
     // Build accessible text based on current groupBy setting
     function buildGroupByText(beanBrand, beanType, profileName, grinderModel, grinderSetting, doseWeight, finalWeight, shotCount, avgEnjoyment) {
-        var groupBy = Settings.autoFavoritesGroupBy
+        var includes = getGroupByIncludes()
         var parts = []
 
         // Add fields based on groupBy
-        var includeBean = (groupBy === "bean" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder")
-        var includeProfile = (groupBy === "profile" || groupBy === "bean_profile" || groupBy === "bean_profile_grinder")
-        var includeGrinder = (groupBy === "bean_profile_grinder")
+        var includeBean = includes.bean
+        var includeProfile = includes.profile
+        var includeGrinder = includes.grinder
 
         if (includeBean) {
             var bean = (beanBrand || "") + (beanType ? " - " + beanType : "")
@@ -296,6 +306,52 @@ Page {
                                     avgEnjoyment: model.avgEnjoyment || 0,
                                     shotCount: model.shotCount || 0
                                 })
+                            }
+                        }
+                    }
+
+                    // Show button — opens Shot History filtered to this group
+                    Rectangle {
+                        id: showButton
+                        width: Theme.scaled(70)
+                        height: Theme.scaled(40)
+                        radius: Theme.scaled(20)
+                        color: Theme.primaryColor
+                        Accessible.ignored: true
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("autofavorites.show", "Show")
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                            color: "white"
+                            Accessible.ignored: true
+                        }
+
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: TranslationManager.translate("autofavorites.showShots", "Show shots") +
+                                ". " + favoriteDelegate._groupByText
+                            accessibleItem: showButton
+                            onAccessibleClicked: {
+                                var includes = getGroupByIncludes()
+                                var filter = {}
+
+                                if (includes.bean) {
+                                    if (model.beanBrand) filter.beanBrand = model.beanBrand
+                                    if (model.beanType) filter.beanType = model.beanType
+                                }
+                                if (includes.profile && model.profileName)
+                                    filter.profileName = model.profileName
+                                if (includes.grinder) {
+                                    if (model.grinderModel) filter.grinderModel = model.grinderModel
+                                    if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
+                                }
+
+                                var props = {}
+                                if (Object.keys(filter).length > 0)
+                                    props.initialFilter = filter
+                                pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"), props)
                             }
                         }
                     }

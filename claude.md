@@ -289,7 +289,7 @@ KeyboardAwareContainer {
 
 | Element | Use instead | If raw, must set |
 |---------|-------------|------------------|
-| Button (Rectangle+MouseArea) | `AccessibleButton` | `Accessible.role: Accessible.Button` + `name` + `focusable` + `onPressAction` |
+| Button (Rectangle+MouseArea) | `AccessibleButton` or `AccessibleMouseArea` | `Accessible.role: Accessible.Button` + `name` + `focusable` + `onPressAction` |
 | Text input | `StyledTextField` | `Accessible.role: Accessible.EditableText` + `name` + `description: text` + `focusable` |
 | Autocomplete field | `SuggestionField` | (same as text input) |
 | Checkbox | Qt `CheckBox` | `Accessible.name` + `Accessible.checked: checked` + `focusable` |
@@ -297,9 +297,9 @@ KeyboardAwareContainer {
 | List delegate | — | `Accessible.role: Accessible.Button` + `name` (summarize row content) + `focusable` + `onPressAction` |
 
 Common mistakes:
-- **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton` or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
-- **Accessibility on MouseArea instead of Rectangle**: Never put `Accessible.role`/`name`/`focusable` on the MouseArea child — put them on the parent Rectangle. MouseArea should only have an `id` so the Rectangle's `Accessible.onPressAction` can route to it. This is a recurring bug that is easy to miss in review.
-- **Missing `Accessible.onPressAction`**: Every Rectangle+MouseArea button **must** have `Accessible.onPressAction: mouseAreaId.clicked(null)` (or `.tapped()` for TapHandler). Without it, TalkBack/VoiceOver double-tap does nothing. This applies even when the other three properties (`role`, `name`, `focusable`) are present.
+- **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton`, `AccessibleMouseArea`, or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
+- **Accessibility on raw MouseArea instead of Rectangle**: Never put `Accessible.role`/`name`/`focusable` on a raw `MouseArea` child — put them on the parent Rectangle. MouseArea should only have an `id` so the Rectangle's `Accessible.onPressAction` can route to it. This does **not** apply to `AccessibleMouseArea`, which is a project component designed to handle accessibility on behalf of the parent via `accessibleItem`.
+- **Missing `Accessible.onPressAction`**: Every raw Rectangle+MouseArea button **must** have `Accessible.onPressAction: mouseAreaId.clicked(null)` (or `.tapped()` for TapHandler). Without it, TalkBack/VoiceOver double-tap does nothing. This applies even when the other three properties (`role`, `name`, `focusable`) are present. Not needed when using `AccessibleMouseArea` or `AccessibleButton`.
 - **Child Text inside accessible button missing `Accessible.ignored: true`**: When a Rectangle has `Accessible.name`, all child Text elements must set `Accessible.ignored: true`. Otherwise TalkBack announces the button name AND the text content, doubling the announcement.
 - **Text input missing `Accessible.description: text`**: Field sounds "Empty" even when it contains text. `StyledTextField` and `SuggestionField` set this automatically. Note: `Accessible.value` does not exist in Qt QML — use `Accessible.description` instead.
 - **ComboBox `Accessible.name` set to `displayText`**: Announces the selected value instead of the field label. Override with the label text.
@@ -312,14 +312,28 @@ Rectangle {
     MouseArea { onClicked: doSomething() }
 }
 
-// GOOD - use AccessibleButton
+// GOOD - use AccessibleButton (preferred for standard buttons)
 AccessibleButton {
     text: "Save"
     accessibleName: "Save changes"
     onClicked: doSomething()
 }
 
-// GOOD - or add accessibility to Rectangle manually
+// GOOD - use AccessibleMouseArea (for custom-styled buttons, provides announce-first TalkBack behavior)
+Rectangle {
+    id: myButton
+    color: Theme.primaryColor
+    Accessible.ignored: true
+    Text { text: "Save"; Accessible.ignored: true }
+    AccessibleMouseArea {
+        anchors.fill: parent
+        accessibleName: "Save changes"
+        accessibleItem: myButton
+        onAccessibleClicked: doSomething()
+    }
+}
+
+// OK - add accessibility to Rectangle manually (last resort, loses announce-first behavior)
 Rectangle {
     Accessible.role: Accessible.Button
     Accessible.name: "Save changes"
@@ -809,7 +823,7 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 
 ### Accessibility Anti-patterns (Do NOT Use)
 
-1. **Parent-ignored / child-accessible**: Never set `Accessible.ignored: true` on a parent and put `Accessible.role` on a child occupying the same bounds. TalkBack can't reliably route activation to the child. Put accessibility properties on the interactive element itself.
+1. **Parent-ignored / child-accessible**: Never set `Accessible.ignored: true` on a parent and put `Accessible.role` on a child occupying the same bounds. TalkBack can't reliably route activation to the child. Put accessibility properties on the interactive element itself. **Exception**: `AccessibleMouseArea` with `accessibleItem` is designed for this pattern — the parent Rectangle has `Accessible.ignored: true` and `AccessibleMouseArea` carries the accessibility properties. This is the established pattern for custom-styled buttons throughout the codebase.
 2. **Popup for selection lists**: Never use `Popup` for lists users must navigate. TalkBack can't trap focus inside Qt `Popup` elements. Use `Dialog { modal: true }` with `AccessibleButton` delegates instead.
 3. **Overlapping accessible elements**: Never position accessible buttons inside another accessible element's bounds (e.g., buttons inside a TextField's padding area). TalkBack will only discover one element. Use conditional layout to show buttons in separate bounds when accessibility is enabled.
 

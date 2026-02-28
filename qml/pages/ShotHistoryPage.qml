@@ -28,6 +28,10 @@ Page {
     property bool isLoadingMore: false
     property int filteredTotalCount: 0
 
+    // External filter passed from other pages (e.g., AutoFavoritesPage "Show" button)
+    property var initialFilter: null
+    property bool _populatingSearch: false
+
     // Sort settings
     property string sortField: Settings.shotHistorySortField
     property string sortDirection: Settings.shotHistorySortDirection
@@ -55,6 +59,19 @@ Page {
 
     StackView.onActivated: {
         root.currentPageTitle = TranslationManager.translate("shothistory.title", "Shot History")
+        if (initialFilter) {
+            // Populate search field with filter terms so user can edit/save
+            var parts = []
+            if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
+            if (initialFilter.beanType) parts.push(initialFilter.beanType)
+            if (initialFilter.profileName) parts.push(initialFilter.profileName)
+            if (initialFilter.grinderModel) parts.push(initialFilter.grinderModel)
+            if (initialFilter.grinderSetting) parts.push(initialFilter.grinderSetting)
+            _populatingSearch = true
+            searchField.text = parts.join(" ")
+            searchField.lastTriggeredText = searchField.text.trim()
+            _populatingSearch = false
+        }
         loadShots()
     }
 
@@ -167,15 +184,34 @@ Page {
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
 
-            // Pass remaining text (after stripping keywords) as FTS search
+            // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
-            if (searchText.length > 0) {
+            if (searchText.length > 0 && !initialFilter) {
                 filter.searchText = searchText
             }
         }
+        // Merge initialFilter fields (from AutoFavoritesPage "Show" button etc.)
+        if (initialFilter) {
+            var filterFields = ["profileName", "beanBrand", "beanType", "grinderModel", "grinderSetting"]
+            for (var k = 0; k < filterFields.length; k++) {
+                var field = filterFields[k]
+                if (initialFilter[field] !== undefined && initialFilter[field] !== "")
+                    filter[field] = initialFilter[field]
+            }
+        }
+
         filter.sortField = sortField
         filter.sortDirection = sortDirection
         return filter
+    }
+
+    function clearInitialFilter() {
+        initialFilter = null
+        _populatingSearch = true
+        searchField.text = ""
+        searchField.lastTriggeredText = ""
+        _populatingSearch = false
+        loadShots()
     }
 
     function toggleSelection(shotId) {
@@ -302,7 +338,11 @@ Page {
                     var trimmed = text.trim()
                     if (trimmed !== lastTriggeredText) {
                         lastTriggeredText = trimmed
-                        searchTimer.restart()
+                        // User edited the search field — drop exact-match filter, use FTS
+                        if (!_populatingSearch && initialFilter)
+                            initialFilter = null
+                        if (!_populatingSearch)
+                            searchTimer.restart()
                     }
                 }
 
@@ -373,6 +413,50 @@ Page {
                 id: searchTimer
                 interval: 300
                 onTriggered: loadShots()
+            }
+        }
+
+        // Filter banner (shown when initialFilter is active)
+        Rectangle {
+            Layout.fillWidth: true
+            height: filterBannerRow.implicitHeight + Theme.spacingSmall * 2
+            radius: Theme.scaled(8)
+            color: Qt.alpha(Theme.primaryColor, 0.15)
+            visible: initialFilter !== null
+
+            RowLayout {
+                id: filterBannerRow
+                anchors.fill: parent
+                anchors.margins: Theme.spacingSmall
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: {
+                        if (!initialFilter) return ""
+                        var parts = []
+                        if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
+                        if (initialFilter.beanType) parts.push(initialFilter.beanType)
+                        if (initialFilter.profileName) parts.push(initialFilter.profileName)
+                        if (initialFilter.grinderModel) {
+                            var g = initialFilter.grinderModel
+                            if (initialFilter.grinderSetting) g += " @ " + initialFilter.grinderSetting
+                            parts.push(g)
+                        }
+                        return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00b7 ")
+                    }
+                    font.family: Theme.labelFont.family
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    color: Theme.primaryColor
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                    Accessible.ignored: true
+                }
+
+                AccessibleButton {
+                    text: "\u2715 " + TranslationManager.translate("shothistory.clearFilter", "Clear")
+                    accessibleName: TranslationManager.translate("shothistory.clearFilterAccessible", "Clear favorites filter")
+                    onClicked: clearInitialFilter()
+                }
             }
         }
 
