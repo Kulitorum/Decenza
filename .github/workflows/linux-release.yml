@@ -140,7 +140,7 @@ jobs:
           mv Decenza_DE1-x86_64.AppImage Decenza_DE1_${{ steps.version.outputs.version }}-x86_64.AppImage
 
       - name: Upload AppImage as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Decenza_DE1-Linux-x86_64
           path: Decenza_DE1_${{ steps.version.outputs.version }}-x86_64.AppImage
