@@ -184,7 +184,7 @@ Page {
             // Strip any remaining keyword tokens (e.g. duplicate dose:18 dose:20)
             searchText = searchText.replace(/\b(rating|dose|yield|time|tds|ey):\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?|\+)?/g, "")
 
-            // Pass remaining text (after stripping keywords) as FTS search
+            // Pass remaining text as FTS search (skipped when exact initialFilter is active)
             searchText = searchText.trim().replace(/\s+/g, " ")
             if (searchText.length > 0 && !initialFilter) {
                 filter.searchText = searchText
