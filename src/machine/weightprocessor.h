@@ -37,6 +37,7 @@ public slots:
     void setTareComplete(bool complete);
     void startExtraction();
     void stopExtraction();
+    void resetForRetare();  // Clear LSLR buffer after auto-tare during preheat
 
 signals:
     // Emitted when SAW triggers. Includes monotonic timestamp (ms) for latency tracing.

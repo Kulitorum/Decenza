@@ -325,6 +325,14 @@ int main(int argc, char *argv[])
                              }, Qt::QueuedConnection);
                      });
 
+    // Auto-tare during "flow before" phase → WeightProcessor: clear stale cup-weight data
+    QObject::connect(&machineState, &MachineState::flowBeforeAutoTare,
+                     [&weightProcessor]() {
+                         QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
+                             weightProcessor.resetForRetare();
+                         }, Qt::QueuedConnection);
+                     });
+
     QObject::connect(&machineState, &MachineState::shotEnded,
                      [&weightProcessor]() {
                          QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {

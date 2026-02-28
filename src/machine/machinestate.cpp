@@ -263,6 +263,7 @@ void MachineState::updatePhase() {
                 m_stopAtWeightTriggered = false;
                 m_stopAtVolumeTriggered = false;
                 m_stopAtTimeTriggered = false;
+                m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
                 m_cumulativeVolume = 0.0;
@@ -348,6 +349,7 @@ void MachineState::updatePhase() {
         if (isInEspresso && !wasInEspresso) {
             m_shotTime = 0.0;
             m_shotStartTime = 0;  // Mark as invalid so preinfusion properly starts it
+            m_lastAutoTareTime = 0;  // Reset holdoff for new espresso cycle
             emit shotTimeChanged();  // Update UI to show 0 during preheating
 
             // CRITICAL: Emit espressoCycleStarted IMMEDIATELY (not deferred) so MainController
@@ -417,6 +419,35 @@ void MachineState::onScaleWeightChanged(double weight) {
         m_lastIdleWeight = weight;
         m_lastWeightTime = now;
         return;
+    }
+
+    // Auto-tare during "flow before" phase (like de1app: heating substates before water flows)
+    // Handles forgotten-cup scenario for both Espresso and HotWater
+    constexpr double AUTO_TARE_THRESHOLD = 2.0;  // grams (de1app uses 0.04g, 2g avoids noise)
+    constexpr qint64 AUTO_TARE_HOLDOFF_MS = 1000;  // 1s between tares (matches de1app)
+
+    bool isFlowBefore = false;
+
+    if (m_phase == Phase::EspressoPreheating) {
+        // Espresso: entire EspressoPreheating phase is "before flow"
+        isFlowBefore = true;
+    } else if (m_phase == Phase::HotWater && m_device) {
+        // HotWater: only heating/stabilising substates are "before flow"
+        DE1::SubState subState = m_device->subState();
+        isFlowBefore = (subState == DE1::SubState::Heating ||
+                        subState == DE1::SubState::FinalHeating ||
+                        subState == DE1::SubState::Stabilising);
+    }
+
+    if (isFlowBefore && m_tareCompleted && weight > AUTO_TARE_THRESHOLD) {
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastAutoTareTime >= AUTO_TARE_HOLDOFF_MS) {
+            m_lastAutoTareTime = now;
+            qDebug() << "=== AUTO-TARE: Cup placed during" << phaseString()
+                     << "(weight:" << weight << "g) ===";
+            tareScale();
+            emit flowBeforeAutoTare();
+        }
     }
 
     // Reset tracking when not idle (so we detect removal after next shot)

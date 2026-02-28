@@ -109,6 +109,7 @@ signals:
     void targetWeightReached();
     void targetVolumeReached();
     void tareCompleted();         // Emitted when scale reports ~0g after tare command
+    void flowBeforeAutoTare();    // Emitted when auto-tare fires during preheat (tells WeightProcessor to reset)
 
 private slots:
     void onDE1StateChanged();
@@ -160,4 +161,7 @@ private:
     // Auto-tare on cup removal detection
     double m_lastIdleWeight = 0.0;
     qint64 m_lastWeightTime = 0;
+
+    // Auto-tare during "flow before" phase (cup placed during preheat)
+    qint64 m_lastAutoTareTime = 0;
 };
