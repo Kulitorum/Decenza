@@ -12,8 +12,11 @@ Item {
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
     property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
-    // Scale warning: saved scale not connected or connection failed
-    property bool showScaleWarning: BLEManager.scaleConnectionFailed || (BLEManager.hasSavedScale && !root.scaleConnected)
+    // Scale warning: saved BLE scale not connected or connection failed
+    // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement
+    property bool showScaleWarning: !root.scaleConnected
+        && (BLEManager.scaleConnectionFailed || BLEManager.hasSavedScale)
+        && !UsbScaleManager.scaleConnected
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

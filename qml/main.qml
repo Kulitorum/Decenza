@@ -1095,6 +1095,8 @@ ApplicationWindow {
             // Only show "No Scale Found" if user has a saved scale.
             // Users without a saved scale expect FlowScale — no need to nag them.
             if (!BLEManager.hasSavedScale) return
+            // Don't nag if a USB scale is connected — it satisfies the requirement
+            if (UsbScaleManager.scaleConnected) return
             if (screensaverActive) { queuePopup("flowScale"); return }
             if (root.justWokeFromSleep) return
             flowScaleDialog.open()

@@ -203,7 +203,7 @@ Item {
                         Layout.fillWidth: true
 
                         Text {
-                            text: "USB-C"
+                            text: "DE1 Machine (USB)"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
@@ -266,6 +266,14 @@ Item {
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                         visible: DE1Device.connected
+                    }
+
+                    // Disconnect button
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.connections.disconnect", "Disconnect USB")
+                        accessibleName: "Disconnect DE1 USB connection"
+                        Layout.alignment: Qt.AlignLeft
+                        onClicked: USBManager.disconnectUsb()
                     }
 
                     // USB-C connection log
@@ -443,276 +451,412 @@ Item {
                 anchors.margins: Theme.scaled(15)
                 spacing: Theme.scaled(10)
 
-                Tr {
-                    key: "settings.bluetooth.scale"
-                    fallback: "Scale"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Tr {
-                        key: "settings.bluetooth.status"
-                        fallback: "Status:"
-                        color: Theme.textSecondaryColor
-                    }
-
-                    Tr {
-                        property bool isFlowScale: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
-                        property bool isSimulated: ScaleDevice && ScaleDevice.name === "Simulated Scale"
-                        key: {
-                            if (ScaleDevice && ScaleDevice.connected) {
-                                if (isFlowScale) return "settings.bluetooth.virtualScale"
-                                if (isSimulated) return "settings.bluetooth.simulated"
-                                return "settings.bluetooth.connected"
-                            }
-                            return BLEManager.scaleConnectionFailed ? "settings.bluetooth.notFound" : "settings.bluetooth.disconnected"
-                        }
-                        fallback: {
-                            if (ScaleDevice && ScaleDevice.connected) {
-                                if (isFlowScale) return "Virtual Scale"
-                                if (isSimulated) return "Simulated"
-                                return "Connected"
-                            }
-                            return BLEManager.scaleConnectionFailed ? "Not found" : "Disconnected"
-                        }
-                        color: {
-                            if (ScaleDevice && ScaleDevice.connected) {
-                                return (isFlowScale || isSimulated) ? Theme.warningColor : Theme.successColor
-                            }
-                            return BLEManager.scaleConnectionFailed ? Theme.errorColor : Theme.textSecondaryColor
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    AccessibleButton {
-                        text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForScales", "Scan for Scales")
-                        accessibleName: BLEManager.scanning ? "Scanning for scales" : "Scan for Bluetooth scales"
-                        enabled: !BLEManager.scanning
-                        onClicked: BLEManager.scanForScales()
-                    }
-                }
-
-                // Connected scale name
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: ScaleDevice && ScaleDevice.connected && ScaleDevice.name !== "Flow Scale"
-
-                    Tr {
-                        key: "settings.bluetooth.connectedScale"
-                        fallback: "Connected:"
-                        color: Theme.textSecondaryColor
-                    }
-
-                    Text {
-                        text: ScaleDevice ? ScaleDevice.name : ""
-                        color: Theme.textColor
-                    }
-                }
-
-                // Virtual scale notice (FlowScale active)
-                Rectangle {
-                    Layout.fillWidth: true
-                    height: flowScaleNotice.implicitHeight + 16
-                    radius: Theme.scaled(6)
-                    color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-                    border.color: Theme.primaryColor
-                    border.width: 1
-                    visible: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
-
-                    Text {
-                        id: flowScaleNotice
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(8)
-                        text: TranslationManager.translate("settings.bluetooth.flowScaleNotice",
-                              "Using Virtual Scale — estimating cup weight from flow data. Set your dose weight for best accuracy.")
-                        color: Theme.primaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.Wrap
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                // Simulated scale notice
-                Rectangle {
-                    Layout.fillWidth: true
-                    height: simScaleNotice.implicitHeight + 16
-                    radius: Theme.scaled(6)
-                    color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
-                    border.color: Theme.warningColor
-                    border.width: 1
-                    visible: ScaleDevice && ScaleDevice.name === "Simulated Scale"
-
-                    Text {
-                        id: simScaleNotice
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(8)
-                        text: TranslationManager.translate("settings.bluetooth.simulatedScaleNotice", "Using Simulated Scale (simulator mode)")
-                        color: Theme.warningColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.Wrap
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                // Saved scale info (show even in simulator mode so user can forget stale scale)
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: BLEManager.hasSavedScale
-
-                    Tr {
-                        key: "settings.bluetooth.savedScale"
-                        fallback: "Saved scale:"
-                        color: Theme.textSecondaryColor
-                    }
-
-                    Text {
-                        text: Settings.scaleType || "Unknown"
-                        color: Theme.textColor
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
-                        accessibleName: "Forget saved scale"
-                        onClicked: {
-                            Settings.scaleAddress = ""
-                            Settings.scaleType = ""
-                            BLEManager.clearSavedScale()
-                        }
-                    }
-                }
-
-                // Show weight when connected
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: ScaleDevice && ScaleDevice.connected
-
-                    Tr {
-                        key: "settings.bluetooth.weight"
-                        fallback: "Weight:"
-                        color: Theme.textSecondaryColor
-                    }
-
-                    Text {
-                        text: MachineState.scaleWeight.toFixed(1) + " g"
-                        color: Theme.textColor
-                        font: Theme.bodyFont
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.bluetooth.tare", "Tare")
-                        accessibleName: "Tare scale to zero"
-                        onClicked: {
-                            if (ScaleDevice) ScaleDevice.tare()
-                        }
-                    }
-                }
-
-                ListView {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(60)
-                    clip: true
-                    visible: !ScaleDevice || !ScaleDevice.connected
-                    model: BLEManager.discoveredScales
-
-                    delegate: ItemDelegate {
-                        width: ListView.view.width
-                        contentItem: RowLayout {
-                            Text {
-                                text: modelData.name
-                                color: Theme.textColor
-                                Layout.fillWidth: true
-                            }
-                            Text {
-                                text: modelData.type
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
-                            }
-                        }
-                        background: Rectangle {
-                            color: parent.hovered ? Theme.accentColor : "transparent"
-                            radius: Theme.scaled(4)
-                        }
-                        onClicked: {
-                            BLEManager.connectToScale(modelData.address)
-                        }
-                    }
-
-                    Tr {
-                        anchors.centerIn: parent
-                        key: "settings.bluetooth.noScales"
-                        fallback: "No scales found"
-                        visible: parent.count === 0
-                        color: Theme.textSecondaryColor
-                    }
-                }
-
-                // Scale scan log
-                Rectangle {
+                // === USB Scale view (shown when USB scale connected) ===
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Qt.darker(Theme.surfaceColor, 1.2)
-                    radius: Theme.scaled(4)
+                    visible: UsbScaleManager.scaleConnected
+                    spacing: Theme.scaled(10)
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(8)
-                        spacing: Theme.scaled(4)
+                    // Title row with status badge (mirrors USB machine panel)
+                    RowLayout {
+                        Layout.fillWidth: true
 
-                        ScrollView {
-                            id: scaleLogScroll
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            clip: true
-
-                            TextArea {
-                                id: scaleLogText
-                                readOnly: true
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(11)
-                                font.family: "monospace"
-                                wrapMode: Text.Wrap
-                                background: null
-                                text: ""
-                            }
+                        Text {
+                            text: "Half Decent Scale (USB)"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
                         }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(8)
+                        Item { Layout.fillWidth: true }
 
-                            Item { Layout.fillWidth: true }
+                        Rectangle {
+                            width: usbScaleStatusText.implicitWidth + Theme.scaled(16)
+                            height: Theme.scaled(24)
+                            radius: Theme.scaled(12)
+                            color: Qt.rgba(Theme.successColor.r, Theme.successColor.g, Theme.successColor.b, 0.2)
 
-                            AccessibleButton {
-                                text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
-                                accessibleName: "Clear scale log"
-                                onClicked: {
-                                    scaleLogText.text = ""
-                                    BLEManager.clearScaleLog()
+                            Text {
+                                id: usbScaleStatusText
+                                anchors.centerIn: parent
+                                text: "Connected"
+                                color: Theme.successColor
+                                font.pixelSize: Theme.scaled(12)
+                                font.bold: true
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Transport: USB-C"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
+                    }
+
+                    // Show weight when connected
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: TranslationManager.translate("settings.bluetooth.weight", "Weight:") + " " + MachineState.scaleWeight.toFixed(1) + " g"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(13)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.bluetooth.tare", "Tare")
+                            accessibleName: "Tare scale to zero"
+                            onClicked: {
+                                if (ScaleDevice) ScaleDevice.tare()
+                            }
+                        }
+                    }
+
+                    // USB scale log
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: Qt.darker(Theme.surfaceColor, 1.2)
+                        radius: Theme.scaled(4)
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            spacing: Theme.scaled(4)
+
+                            ScrollView {
+                                id: usbScaleLogScroll
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+
+                                TextArea {
+                                    id: usbScaleLogText
+                                    readOnly: true
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(11)
+                                    font.family: "monospace"
+                                    wrapMode: Text.Wrap
+                                    background: null
+                                    text: ""
                                 }
                             }
 
-                            AccessibleButton {
-                                text: TranslationManager.translate("settings.bluetooth.shareLog", "Share Log")
-                                accessibleName: "Share scale debug log"
-                                onClicked: shareLogDialog.open()
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+
+                                Item { Layout.fillWidth: true }
+
+                                AccessibleButton {
+                                    text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
+                                    accessibleName: "Clear scale log"
+                                    onClicked: usbScaleLogText.text = ""
+                                }
+                            }
+                        }
+
+                        Connections {
+                            target: UsbScaleManager
+                            function onLogMessage(message) {
+                                usbScaleLogText.text += message + "\n"
+                                usbScaleLogScroll.ScrollBar.vertical.position = 1.0 - usbScaleLogScroll.ScrollBar.vertical.size
+                            }
+                        }
+
+                        // Also show BLE scale log messages in USB view (for connection history)
+                        Connections {
+                            target: BLEManager
+                            enabled: UsbScaleManager.scaleConnected
+                            function onScaleLogMessage(message) {
+                                usbScaleLogText.text += message + "\n"
+                                usbScaleLogScroll.ScrollBar.vertical.position = 1.0 - usbScaleLogScroll.ScrollBar.vertical.size
+                            }
+                        }
+                    }
+                }
+
+                // === BLE Scale view (shown when no USB scale) ===
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: !UsbScaleManager.scaleConnected
+                    spacing: Theme.scaled(10)
+
+                    Tr {
+                        key: "settings.bluetooth.scale"
+                        fallback: "Scale"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Tr {
+                            key: "settings.bluetooth.status"
+                            fallback: "Status:"
+                            color: Theme.textSecondaryColor
+                        }
+
+                        Tr {
+                            property bool isFlowScale: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
+                            property bool isSimulated: ScaleDevice && ScaleDevice.name === "Simulated Scale"
+                            key: {
+                                if (ScaleDevice && ScaleDevice.connected) {
+                                    if (isFlowScale) return "settings.bluetooth.virtualScale"
+                                    if (isSimulated) return "settings.bluetooth.simulated"
+                                    return "settings.bluetooth.connected"
+                                }
+                                return BLEManager.scaleConnectionFailed ? "settings.bluetooth.notFound" : "settings.bluetooth.disconnected"
+                            }
+                            fallback: {
+                                if (ScaleDevice && ScaleDevice.connected) {
+                                    if (isFlowScale) return "Virtual Scale"
+                                    if (isSimulated) return "Simulated"
+                                    return "Connected"
+                                }
+                                return BLEManager.scaleConnectionFailed ? "Not found" : "Disconnected"
+                            }
+                            color: {
+                                if (ScaleDevice && ScaleDevice.connected) {
+                                    return (isFlowScale || isSimulated) ? Theme.warningColor : Theme.successColor
+                                }
+                                return BLEManager.scaleConnectionFailed ? Theme.errorColor : Theme.textSecondaryColor
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForScales", "Scan for Scales")
+                            accessibleName: BLEManager.scanning ? "Scanning for scales" : "Scan for Bluetooth scales"
+                            enabled: !BLEManager.scanning
+                            onClicked: BLEManager.scanForScales()
+                        }
+                    }
+
+                    // Connected BLE scale name
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: ScaleDevice && ScaleDevice.connected && ScaleDevice.name !== "Flow Scale"
+
+                        Tr {
+                            key: "settings.bluetooth.connectedScale"
+                            fallback: "Connected:"
+                            color: Theme.textSecondaryColor
+                        }
+
+                        Text {
+                            text: ScaleDevice ? ScaleDevice.name : ""
+                            color: Theme.textColor
+                        }
+                    }
+
+                    // Virtual scale notice (FlowScale active)
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: flowScaleNotice.implicitHeight + 16
+                        radius: Theme.scaled(6)
+                        color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+                        border.color: Theme.primaryColor
+                        border.width: 1
+                        visible: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
+
+                        Text {
+                            id: flowScaleNotice
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            text: TranslationManager.translate("settings.bluetooth.flowScaleNotice",
+                                  "Using Virtual Scale — estimating cup weight from flow data. Set your dose weight for best accuracy.")
+                            color: Theme.primaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.Wrap
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    // Simulated scale notice
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: simScaleNotice.implicitHeight + 16
+                        radius: Theme.scaled(6)
+                        color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
+                        border.color: Theme.warningColor
+                        border.width: 1
+                        visible: ScaleDevice && ScaleDevice.name === "Simulated Scale"
+
+                        Text {
+                            id: simScaleNotice
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            text: TranslationManager.translate("settings.bluetooth.simulatedScaleNotice", "Using Simulated Scale (simulator mode)")
+                            color: Theme.warningColor
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.Wrap
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    // Saved scale info
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: BLEManager.hasSavedScale
+
+                        Tr {
+                            key: "settings.bluetooth.savedScale"
+                            fallback: "Saved scale:"
+                            color: Theme.textSecondaryColor
+                        }
+
+                        Text {
+                            text: Settings.scaleType || "Unknown"
+                            color: Theme.textColor
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
+                            accessibleName: "Forget saved scale"
+                            onClicked: {
+                                Settings.scaleAddress = ""
+                                Settings.scaleType = ""
+                                BLEManager.clearSavedScale()
                             }
                         }
                     }
 
-                    Connections {
-                        target: BLEManager
-                        function onScaleLogMessage(message) {
-                            scaleLogText.text += message + "\n"
-                            scaleLogScroll.ScrollBar.vertical.position = 1.0 - scaleLogScroll.ScrollBar.vertical.size
+                    // Show weight when connected
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: ScaleDevice && ScaleDevice.connected
+
+                        Tr {
+                            key: "settings.bluetooth.weight"
+                            fallback: "Weight:"
+                            color: Theme.textSecondaryColor
+                        }
+
+                        Text {
+                            text: MachineState.scaleWeight.toFixed(1) + " g"
+                            color: Theme.textColor
+                            font: Theme.bodyFont
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.bluetooth.tare", "Tare")
+                            accessibleName: "Tare scale to zero"
+                            onClicked: {
+                                if (ScaleDevice) ScaleDevice.tare()
+                            }
+                        }
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(60)
+                        clip: true
+                        visible: !ScaleDevice || !ScaleDevice.connected
+                        model: BLEManager.discoveredScales
+
+                        delegate: ItemDelegate {
+                            width: ListView.view.width
+                            contentItem: RowLayout {
+                                Text {
+                                    text: modelData.name
+                                    color: Theme.textColor
+                                    Layout.fillWidth: true
+                                }
+                                Text {
+                                    text: modelData.type
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(12)
+                                }
+                            }
+                            background: Rectangle {
+                                color: parent.hovered ? Theme.accentColor : "transparent"
+                                radius: Theme.scaled(4)
+                            }
+                            onClicked: {
+                                BLEManager.connectToScale(modelData.address)
+                            }
+                        }
+
+                        Tr {
+                            anchors.centerIn: parent
+                            key: "settings.bluetooth.noScales"
+                            fallback: "No scales found"
+                            visible: parent.count === 0
+                            color: Theme.textSecondaryColor
+                        }
+                    }
+
+                    // Scale scan log
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: Qt.darker(Theme.surfaceColor, 1.2)
+                        radius: Theme.scaled(4)
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            spacing: Theme.scaled(4)
+
+                            ScrollView {
+                                id: scaleLogScroll
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                clip: true
+
+                                TextArea {
+                                    id: scaleLogText
+                                    readOnly: true
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(11)
+                                    font.family: "monospace"
+                                    wrapMode: Text.Wrap
+                                    background: null
+                                    text: ""
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+
+                                Item { Layout.fillWidth: true }
+
+                                AccessibleButton {
+                                    text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
+                                    accessibleName: "Clear scale log"
+                                    onClicked: {
+                                        scaleLogText.text = ""
+                                        BLEManager.clearScaleLog()
+                                    }
+                                }
+
+                                AccessibleButton {
+                                    text: TranslationManager.translate("settings.bluetooth.shareLog", "Share Log")
+                                    accessibleName: "Share scale debug log"
+                                    onClicked: shareLogDialog.open()
+                                }
+                            }
+                        }
+
+                        Connections {
+                            target: BLEManager
+                            function onScaleLogMessage(message) {
+                                scaleLogText.text += message + "\n"
+                                scaleLogScroll.ScrollBar.vertical.position = 1.0 - scaleLogScroll.ScrollBar.vertical.size
+                            }
                         }
                     }
                 }

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- QinHeng/WCH USB-to-Serial chips (CH340, CH9102, etc.) used by DE1 -->
-    <usb-device vendor-id="6790" />
+    <!-- DE1 espresso machine: WCH CH9102 (VID 0x1A86 = 6790, PID 0x55D3 = 21971) -->
+    <usb-device vendor-id="6790" product-id="21971" />
+    <!-- Half Decent Scale: WCH CH340 (VID 0x1A86 = 6790, PID 0x7522 or 0x7523) -->
+    <usb-device vendor-id="6790" product-id="29986" />
+    <usb-device vendor-id="6790" product-id="29987" />
 </resources>

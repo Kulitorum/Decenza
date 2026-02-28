@@ -71,6 +71,30 @@ void USBManager::stopPolling()
 #endif
 }
 
+void USBManager::disconnectUsb()
+{
+    if (!m_transport) return;
+
+    qDebug() << "[USB] User-initiated USB disconnect";
+    emit logMessage(QStringLiteral("[USB] Disconnecting..."));
+
+    // Prevent auto-reconnect while cable is still physically connected.
+    // Flag is cleared when the device physically disappears (cable unplugged).
+    m_userDisconnected = true;
+
+    m_connectedPortName.clear();
+    m_connectedSerialNumber.clear();
+
+    // de1Lost handler (main.cpp) calls de1Device.disconnect() which calls
+    // transport->disconnect() — this closes the USB connection. Safe to call
+    // before deleteLater because signals are dispatched synchronously.
+    m_transport->deleteLater();
+    m_transport = nullptr;
+
+    emit de1Lost();
+    emit de1ConnectedChanged();
+}
+
 // ---------------------------------------------------------------------------
 // Port polling — dispatches to platform-specific implementation
 // ---------------------------------------------------------------------------
@@ -126,6 +150,18 @@ void USBManager::pollPortsAndroid()
     if (m_androidProbing && !devicePresent) {
         qDebug() << "[USB] Probing device disappeared, aborting probe";
         cleanupAndroidProbe(true);
+        return;
+    }
+
+    // User disconnected — wait for device to physically disappear before allowing reconnect
+    if (m_userDisconnected) {
+        if (!devicePresent) {
+            m_userDisconnected = false;
+            m_androidPermissionRequested = false;
+            m_hasLoggedInitialPorts = false;
+            qDebug() << "[USB] Device unplugged after user disconnect — ready to reconnect";
+            emit logMessage(QStringLiteral("[USB] Ready for reconnection"));
+        }
         return;
     }
 
@@ -305,8 +341,10 @@ void USBManager::pollPortsDesktop()
     QList<QSerialPortInfo> candidatePorts;
 
     for (const auto& port : ports) {
-        // Filter by WCH vendor ID (CH340, CH9102, etc.)
-        if (port.vendorIdentifier() == VENDOR_ID_WCH) {
+        // Filter by WCH vendor ID + DE1 product ID (CH9102).
+        // PID filter prevents claiming the Half Decent Scale (PID 0x7523).
+        if (port.vendorIdentifier() == VENDOR_ID_WCH
+            && port.productIdentifier() == PRODUCT_ID_DE1) {
             currentPorts.insert(port.portName());
 
             // If this is a new port we haven't seen, it's a probe candidate
@@ -330,6 +368,18 @@ void USBManager::pollPortsDesktop()
 
         emit de1Lost();
         emit de1ConnectedChanged();
+    }
+
+    // User disconnected — wait for DE1 device to physically disappear before allowing reconnect
+    if (m_userDisconnected) {
+        if (currentPorts.isEmpty()) {
+            m_userDisconnected = false;
+            m_hasLoggedInitialPorts = false;
+            qDebug() << "[USB] Device unplugged after user disconnect — ready to reconnect";
+            emit logMessage(QStringLiteral("[USB] Ready for reconnection"));
+        }
+        m_knownPorts = currentPorts;
+        return;
     }
 
     // Check if a port being probed disappeared

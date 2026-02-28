@@ -42,6 +42,8 @@ public:
     void startPolling();
     void stopPolling();
 
+    Q_INVOKABLE void disconnectUsb();
+
     SerialTransport* transport() const { return m_transport; }
 
 signals:
@@ -56,6 +58,7 @@ private slots:
 private:
     QTimer m_pollTimer;
     SerialTransport* m_transport = nullptr;
+    bool m_userDisconnected = false;  // Suppress auto-reconnect after user-initiated disconnect
     QString m_connectedPortName;
     QString m_connectedSerialNumber;
     QByteArray m_probeBuffer;
@@ -91,4 +94,5 @@ private:
     static constexpr int POLL_INTERVAL_MS = 2000;
     static constexpr int PROBE_TIMEOUT_MS = 2000;
     static constexpr uint16_t VENDOR_ID_WCH = 0x1A86;
+    static constexpr uint16_t PRODUCT_ID_DE1 = 0x55D3;  // CH9102 — DE1 only (not scale)
 };

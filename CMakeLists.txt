@@ -250,6 +250,9 @@ set(SOURCES
     src/usb/serialtransport.cpp
     src/usb/usbmanager.cpp
     src/usb/androidusbhelper.cpp
+    src/usb/androidusbscalehelper.cpp
+    src/usb/usbdecentscale.cpp
+    src/usb/usbscalemanager.cpp
 )
 
 # Simulator files - Windows Debug or macOS
@@ -344,6 +347,9 @@ set(HEADERS
     src/usb/serialtransport.h
     src/usb/usbmanager.h
     src/usb/androidusbhelper.h
+    src/usb/androidusbscalehelper.h
+    src/usb/usbdecentscale.h
+    src/usb/usbscalemanager.h
 )
 
 # Simulator headers - Windows Debug or macOS
