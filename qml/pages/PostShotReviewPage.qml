@@ -221,7 +221,7 @@ Page {
                 Layout.preferredHeight: Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), postShotReviewPage.graphHeight))
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: (editShotData.pressure && editShotData.pressure.length > 0) ?? false
+                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
                 Accessible.role: Accessible.Graphic
                 Accessible.name: "Shot graph. Tap to inspect values"
                 Accessible.focusable: true
@@ -320,7 +320,7 @@ Page {
 
             GraphLegend {
                 graph: reviewGraph
-                visible: (editShotData.pressure && editShotData.pressure.length > 0) ?? false
+                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
             }
 
             // Rating (moved to top, right after graph)
