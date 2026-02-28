@@ -45,8 +45,8 @@ void USBManager::startPolling()
         return;
     }
 
-    qDebug() << "USBManager: Starting USB port polling every" << POLL_INTERVAL_MS << "ms";
-    emit logMessage(QStringLiteral("USB polling started"));
+    qDebug() << "[USB] Starting port polling every" << POLL_INTERVAL_MS << "ms";
+    emit logMessage(QStringLiteral("[USB] Polling started"));
 
     // Do an immediate poll, then start the timer
     pollPorts();
@@ -67,6 +67,27 @@ void USBManager::pollPorts()
 {
     const auto ports = QSerialPortInfo::availablePorts();
 
+    // Log all ports on first poll for debugging
+    if (m_knownPorts.isEmpty() && !ports.isEmpty()) {
+        for (const auto& port : ports) {
+            qDebug() << "[USB] Found port:" << port.portName()
+                     << "VID:" << Qt::hex << port.vendorIdentifier()
+                     << "PID:" << port.productIdentifier() << Qt::dec
+                     << "desc:" << port.description()
+                     << "mfg:" << port.manufacturer()
+                     << "serial:" << port.serialNumber()
+                     << "sysLoc:" << port.systemLocation();
+            emit logMessage(QStringLiteral("[USB] Port %1 VID:%2 PID:%3 %4")
+                                .arg(port.portName())
+                                .arg(port.vendorIdentifier(), 4, 16, QLatin1Char('0'))
+                                .arg(port.productIdentifier(), 4, 16, QLatin1Char('0'))
+                                .arg(port.description()));
+        }
+        if (ports.isEmpty()) {
+            qDebug() << "[USB] No serial ports found";
+        }
+    }
+
     // Build set of currently-present port names (filtered by VID)
     QSet<QString> currentPorts;
     QList<QSerialPortInfo> candidatePorts;
@@ -86,8 +107,8 @@ void USBManager::pollPorts()
 
     // Check if our connected port disappeared
     if (!m_connectedPortName.isEmpty() && !currentPorts.contains(m_connectedPortName)) {
-        qWarning() << "USBManager: Connected port" << m_connectedPortName << "disappeared";
-        emit logMessage(QStringLiteral("USB port %1 disconnected").arg(m_connectedPortName));
+        qWarning() << "[USB] Connected port" << m_connectedPortName << "disappeared";
+        emit logMessage(QStringLiteral("[USB] Port %1 disconnected").arg(m_connectedPortName));
 
         m_connectedPortName.clear();
         m_connectedSerialNumber.clear();
@@ -101,7 +122,7 @@ void USBManager::pollPorts()
 
     // Check if a port being probed disappeared
     if (m_probePort && !currentPorts.contains(m_probingPortInfo.portName())) {
-        qDebug() << "USBManager: Probing port" << m_probingPortInfo.portName() << "disappeared, aborting probe";
+        qDebug() << "[USB] Probing port" << m_probingPortInfo.portName() << "disappeared, aborting probe";
         cleanupProbe();
     }
 
@@ -130,10 +151,12 @@ void USBManager::probePort(const QSerialPortInfo& portInfo)
         return;
     }
 
-    qDebug() << "USBManager: Probing port" << portInfo.portName()
+    qDebug() << "[USB] Probing port" << portInfo.portName()
              << "VID:" << Qt::hex << portInfo.vendorIdentifier()
-             << "PID:" << portInfo.productIdentifier() << Qt::dec;
-    emit logMessage(QStringLiteral("Probing USB port %1").arg(portInfo.portName()));
+             << "PID:" << portInfo.productIdentifier() << Qt::dec
+             << "sysLoc:" << portInfo.systemLocation();
+    emit logMessage(QStringLiteral("[USB] Probing %1 (%2)")
+                        .arg(portInfo.portName(), portInfo.systemLocation()));
 
     m_probingPortInfo = portInfo;
     m_probingPorts.insert(portInfo.portName());
@@ -149,9 +172,9 @@ void USBManager::probePort(const QSerialPortInfo& portInfo)
     m_probePort->setFlowControl(QSerialPort::NoFlowControl);
 
     if (!m_probePort->open(QIODevice::ReadWrite)) {
-        qWarning() << "USBManager: Failed to open" << portInfo.portName()
+        qWarning() << "[USB] Failed to open" << portInfo.portName()
                     << "for probing:" << m_probePort->errorString();
-        emit logMessage(QStringLiteral("Failed to open %1: %2")
+        emit logMessage(QStringLiteral("[USB] FAILED to open %1: %2")
                             .arg(portInfo.portName(), m_probePort->errorString()));
         cleanupProbe();
         return;
@@ -189,9 +212,9 @@ void USBManager::onProbeReadyRead()
         QString confirmedPortName = m_probingPortInfo.portName();
         QString sn = m_probingPortInfo.serialNumber();
 
-        qDebug() << "USBManager: DE1 confirmed on port" << confirmedPortName
+        qDebug() << "[USB] DE1 confirmed on port" << confirmedPortName
                  << "serial:" << sn;
-        emit logMessage(QStringLiteral("DE1 found on %1 (S/N: %2)")
+        emit logMessage(QStringLiteral("[USB] DE1 found on %1 (S/N: %2)")
                             .arg(confirmedPortName, sn.isEmpty() ? QStringLiteral("N/A") : sn));
 
         // Close the probe port before creating the transport
@@ -217,10 +240,12 @@ void USBManager::onProbeTimeout()
         return;
     }
 
-    qDebug() << "USBManager: Probe timeout on port" << m_probingPortInfo.portName()
-             << "- not a DE1 (received:" << m_probeBuffer.size() << "bytes)";
-    emit logMessage(QStringLiteral("Port %1 is not a DE1 (probe timeout)")
-                        .arg(m_probingPortInfo.portName()));
+    qDebug() << "[USB] Probe timeout on" << m_probingPortInfo.portName()
+             << "- not a DE1 (received:" << m_probeBuffer.size() << "bytes:"
+             << m_probeBuffer.toHex() << ")";
+    emit logMessage(QStringLiteral("[USB] Probe timeout on %1 (got %2 bytes)")
+                        .arg(m_probingPortInfo.portName())
+                        .arg(m_probeBuffer.size()));
 
     cleanupProbe();
 }

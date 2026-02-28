@@ -47,7 +47,7 @@ void SerialTransport::write(const QBluetoothUuid& uuid, const QByteArray& data)
     QString command = QStringLiteral("<%1>%2\n").arg(QChar(letter), bytesToHexString(data));
     m_port->write(command.toLatin1());
 
-    emit logMessage(QStringLiteral("TX <%1> %2 bytes: %3")
+    emit logMessage(QStringLiteral("[USB] TX <%1> %2 bytes: %3")
                         .arg(QChar(letter))
                         .arg(data.size())
                         .arg(bytesToHexString(data)));
@@ -88,7 +88,7 @@ void SerialTransport::subscribe(const QBluetoothUuid& uuid)
     m_port->write(command.toLatin1());
     m_subscribed.insert(letter);
 
-    emit logMessage(QStringLiteral("Subscribe %1 (UUID %2)").arg(QChar(letter), uuid.toString()));
+    emit logMessage(QStringLiteral("[USB] Subscribe %1 (UUID %2)").arg(QChar(letter), uuid.toString()));
 }
 
 void SerialTransport::subscribeAll()
@@ -115,7 +115,7 @@ void SerialTransport::disconnect()
     m_buffer.clear();
 
     if (wasConnected) {
-        emit logMessage(QStringLiteral("Serial disconnected: %1").arg(m_portName));
+        emit logMessage(QStringLiteral("[USB] Disconnected: %1").arg(m_portName));
         emit disconnected();
     }
 }
@@ -155,7 +155,7 @@ void SerialTransport::open()
     if (!m_port->open(QIODevice::ReadWrite)) {
         QString err = QStringLiteral("Failed to open serial port %1: %2")
                           .arg(m_portName, m_port->errorString());
-        qWarning() << "SerialTransport:" << err;
+        qWarning() << "[USB]" << err;
         emit errorOccurred(err);
         return;
     }
@@ -168,7 +168,7 @@ void SerialTransport::open()
     m_buffer.clear();
     m_subscribed.clear();
 
-    emit logMessage(QStringLiteral("Serial port opened: %1 (115200 8N1)").arg(m_portName));
+    emit logMessage(QStringLiteral("[USB] Port opened: %1 (115200 8N1)").arg(m_portName));
 
     // Subscribe to all standard DE1 notifications
     subscribeAll();
@@ -183,7 +183,7 @@ void SerialTransport::open()
     if (versionLetter != '\0') {
         QString cmd = QStringLiteral("<%1>\n").arg(QChar(versionLetter));
         m_port->write(cmd.toLatin1());
-        emit logMessage(QStringLiteral("Requested version (<%1>)").arg(QChar(versionLetter)));
+        emit logMessage(QStringLiteral("[USB] Requested version (<%1>)").arg(QChar(versionLetter)));
     }
 }
 
@@ -212,7 +212,7 @@ void SerialTransport::onReadyRead()
 
     // Safety: prevent unbounded buffer growth from garbage data
     if (m_buffer.size() > 4096) {
-        qWarning() << "SerialTransport: Buffer overflow, discarding" << m_buffer.size() << "bytes";
+        qWarning() << "[USB] Buffer overflow, discarding" << m_buffer.size() << "bytes";
         m_buffer.clear();
     }
 }
@@ -224,7 +224,7 @@ void SerialTransport::onErrorOccurred(QSerialPort::SerialPortError error)
     }
 
     QString errorStr = m_port->errorString();
-    qWarning() << "SerialTransport: Port error:" << error << errorStr;
+    qWarning() << "[USB] Port error:" << error << errorStr;
 
     // Resource errors (device unplugged, etc.) are fatal
     if (error == QSerialPort::ResourceError
@@ -246,21 +246,21 @@ void SerialTransport::processLine(const QString& line)
     // Response format: [LETTER]hexdata
     // Minimum valid line: [X] (3 chars, possibly with empty hex data)
     if (line.length() < 3 || line[0] != QLatin1Char('[') || line[2] != QLatin1Char(']')) {
-        emit logMessage(QStringLiteral("RX unknown: %1").arg(line));
+        emit logMessage(QStringLiteral("[USB] RX unknown: %1").arg(line));
         return;
     }
 
     char letter = line[1].toLatin1();
     QBluetoothUuid uuid = letterToUuid(letter);
     if (uuid.isNull()) {
-        emit logMessage(QStringLiteral("RX unknown letter: %1").arg(QChar(letter)));
+        emit logMessage(QStringLiteral("[USB] RX unknown letter: %1").arg(QChar(letter)));
         return;
     }
 
     QString hexData = line.mid(3);  // Everything after [X]
     QByteArray data = hexStringToBytes(hexData);
 
-    emit logMessage(QStringLiteral("RX [%1] %2 bytes").arg(QChar(letter)).arg(data.size()));
+    emit logMessage(QStringLiteral("[USB] RX [%1] %2 bytes").arg(QChar(letter)).arg(data.size()));
     emit dataReceived(uuid, data);
 }
 
