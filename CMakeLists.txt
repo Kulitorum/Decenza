@@ -179,7 +179,6 @@ set(SOURCES
     src/core/updatechecker.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blemanager.cpp
-    src/ble/blerefresher.cpp
     src/ble/de1device.cpp
     src/ble/scaledevice.cpp
     src/ble/scales/scalefactory.cpp

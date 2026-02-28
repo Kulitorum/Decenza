@@ -33,7 +33,6 @@
 #include "network/crashreporter.h"
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
-#include "ble/blerefresher.h"
 #include "ble/de1device.h"
 #include "ble/scaledevice.h"
 #include "ble/scales/scalefactory.h"
@@ -390,11 +389,6 @@ int main(int argc, char *argv[])
     });
     autoWakeManager.start();
 
-    // BLE health refresh (settings-controlled) - cycles BLE connections on wake from
-    // sleep and every 5 hours to prevent long-uptime Android Bluetooth degradation.
-    BleRefresher bleRefresher(&de1Device, &bleManager, &machineState, &settings);
-    bleRefresher.startPeriodicRefresh(5);
-
     // Database backup manager for scheduled daily backups
     DatabaseBackupManager backupManager(&settings, mainController.shotHistory(),
                                        &profileStorage, &screensaverManager);
@@ -506,11 +500,11 @@ int main(int argc, char *argv[])
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                             &weightProcessor, &WeightProcessor::processWeight);
 
-        // Connect physical scale weight updates to MainController and WeightProcessor
+        // Connect physical scale weight updates to MainController (permanent for scale lifetime).
+        // WeightProcessor connection is managed by the connectedChanged lambda below
+        // to avoid double-connecting (once here + once on connect event).
         QObject::connect(physicalScale.get(), &ScaleDevice::weightChanged,
                          &mainController, &MainController::onScaleWeightChanged);
-        QObject::connect(physicalScale.get(), &ScaleDevice::weightChanged,
-                         &weightProcessor, &WeightProcessor::processWeight);
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
@@ -620,7 +614,6 @@ int main(int argc, char *argv[])
     context->setContextProperty("MainController", &mainController);
     context->setContextProperty("ScreensaverManager", &screensaverManager);
     context->setContextProperty("BatteryManager", &batteryManager);
-    context->setContextProperty("BleRefresher", &bleRefresher);
     context->setContextProperty("AccessibilityManager", &accessibilityManager);
     context->setContextProperty("ProfileStorage", &profileStorage);
     context->setContextProperty("WeatherManager", &weatherManager);

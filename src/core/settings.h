@@ -154,9 +154,6 @@ class Settings : public QObject {
     Q_PROPERTY(bool autoFavoritesOpenBrewSettings READ autoFavoritesOpenBrewSettings WRITE setAutoFavoritesOpenBrewSettings NOTIFY autoFavoritesOpenBrewSettingsChanged)
     Q_PROPERTY(bool autoFavoritesHideUnrated READ autoFavoritesHideUnrated WRITE setAutoFavoritesHideUnrated NOTIFY autoFavoritesHideUnratedChanged)
 
-    // BLE settings
-    Q_PROPERTY(bool bleHealthRefreshEnabled READ bleHealthRefreshEnabled WRITE setBleHealthRefreshEnabled NOTIFY bleHealthRefreshEnabledChanged)
-
     // Auto-update settings
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
     Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
@@ -571,10 +568,6 @@ public:
     bool autoFavoritesHideUnrated() const;
     void setAutoFavoritesHideUnrated(bool hide);
 
-    // BLE settings
-    bool bleHealthRefreshEnabled() const;
-    void setBleHealthRefreshEnabled(bool enabled);
-
     // Auto-update settings
     bool autoCheckUpdates() const;
     void setAutoCheckUpdates(bool enabled);
@@ -799,7 +792,6 @@ signals:
     void webSecurityEnabledChanged();
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();
-    void bleHealthRefreshEnabledChanged();
     void autoFavoritesOpenBrewSettingsChanged();
     void autoFavoritesHideUnratedChanged();
     void autoCheckUpdatesChanged();

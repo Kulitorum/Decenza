@@ -333,9 +333,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     }
     root["machineTuning"] = machineTuning;
 
-    // BLE health refresh
-    root["bleHealthRefreshEnabled"] = settings->bleHealthRefreshEnabled();
-
     // Daily backup hour
     root["dailyBackupHour"] = settings->dailyBackupHour();
 
@@ -756,11 +753,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                            << imported << "imported," << rejected << "rejected";
             }
         }
-    }
-
-    // BLE health refresh
-    if (json.contains("bleHealthRefreshEnabled") && !excludeKeys.contains("bleHealthRefreshEnabled")) {
-        settings->setBleHealthRefreshEnabled(json["bleHealthRefreshEnabled"].toBool());
     }
 
     // Daily backup hour

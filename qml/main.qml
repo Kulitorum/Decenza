@@ -1651,38 +1651,6 @@ ApplicationWindow {
         }
     }
 
-    // BLE refresh overlay - shown while cycling BLE connections
-    Rectangle {
-        id: bleRefreshOverlay
-        anchors.fill: parent
-        color: Theme.backgroundColor
-        opacity: BleRefresher.refreshing ? 1 : 0
-        visible: opacity > 0
-        z: 500
-
-        Behavior on opacity {
-            NumberAnimation { duration: 200 }
-        }
-
-        Column {
-            anchors.centerIn: parent
-            spacing: 20
-
-            BusyIndicator {
-                anchors.horizontalCenter: parent.horizontalCenter
-                running: bleRefreshOverlay.visible
-                palette.dark: Theme.primaryColor
-            }
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "Refreshing Bluetooth..."
-                color: Theme.textColor
-                font: Theme.bodyFont
-            }
-        }
-    }
-
     // CRT / Pip-Boy shader overlay (renders above all content including status bar)
     CrtOverlay {
         id: crtOverlay

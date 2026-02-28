@@ -298,56 +298,6 @@ Item {
                     }
                 }
 
-                // BLE health refresh
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: bleHealthContent.implicitHeight + Theme.scaled(16)
-                    color: Qt.darker(Theme.surfaceColor, 1.1)
-                    radius: Theme.scaled(6)
-                    border.color: Theme.borderColor
-                    border.width: 1
-
-                    ColumnLayout {
-                        id: bleHealthContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(10)
-                        spacing: Theme.scaled(6)
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(8)
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(1)
-
-                                Tr {
-                                    key: "settings.preferences.bleHealthRefresh"
-                                    fallback: "BLE health refresh"
-                                    color: Theme.textColor
-                                    font.pixelSize: Theme.scaled(13)
-                                }
-
-                                Tr {
-                                    Layout.fillWidth: true
-                                    key: "settings.preferences.bleHealthRefreshDesc"
-                                    fallback: "Cycle all Bluetooth connections on wake and periodically to prevent long-uptime BLE degradation"
-                                    color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(11)
-                                    wrapMode: Text.WordWrap
-                                }
-                            }
-
-                            StyledSwitch {
-                                checked: Settings.bleHealthRefreshEnabled
-                                accessibleName: TranslationManager.translate("settings.preferences.bleHealthRefresh", "BLE health refresh")
-                                onToggled: Settings.bleHealthRefreshEnabled = checked
-                            }
-                        }
-                    }
-                }
             }
         }
 
