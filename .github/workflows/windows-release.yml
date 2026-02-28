@@ -52,7 +52,7 @@ jobs:
           version: '6.10.2'
           target: 'desktop'
           arch: 'win64_msvc2022_64'
-          modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets'
+          modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport'
           cache: true
           cache-key-prefix: 'qt-windows-v2'
 
