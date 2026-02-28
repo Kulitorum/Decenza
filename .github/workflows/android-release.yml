@@ -181,7 +181,7 @@ jobs:
         with:
           name: Decenza_DE1-Android-arm64
           path: ${{ steps.signed_apk.outputs.apk_path || steps.apk.outputs.apk_path }}
-          retention-days: 30
+          retention-days: 3
 
       - name: Upload to GitHub Release
         if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
