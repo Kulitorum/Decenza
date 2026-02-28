@@ -448,11 +448,17 @@ int main(int argc, char *argv[])
 
     // Auto-connect when DE1 is discovered via BLE
     QObject::connect(&bleManager, &BLEManager::de1Discovered,
-                     &de1Device, [&de1Device, &bleManager, &physicalScale, &usbManager](const QBluetoothDeviceInfo& device) {
+                     &de1Device, [&de1Device, &bleManager, &physicalScale
+#ifndef Q_OS_IOS
+                     , &usbManager
+#endif
+                     ](const QBluetoothDeviceInfo& device) {
+#ifndef Q_OS_IOS
         // Don't connect via BLE if already connected via USB
         if (usbManager.isDe1Connected()) {
             return;
         }
+#endif
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
             de1Device.connectToDevice(device);
             // Only stop scan if we're not still looking for a scale
