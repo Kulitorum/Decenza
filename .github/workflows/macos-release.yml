@@ -15,6 +15,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,8 +25,6 @@ concurrency:
 jobs:
   build-macos:
     runs-on: macos-15
-    permissions:
-      contents: write  # Required for uploading to releases
 
     steps:
       - name: Checkout code

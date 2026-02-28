@@ -148,9 +148,9 @@ jobs:
           overwrite: true
 
       - name: Upload to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.upload_to_release == true
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Get the tag name (either from push or extract version)
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
