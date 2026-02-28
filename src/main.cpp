@@ -34,6 +34,8 @@
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
 #include "ble/de1device.h"
+#include "usb/usbmanager.h"
+#include "usb/serialtransport.h"
 #include "ble/scaledevice.h"
 #include "ble/scales/scalefactory.h"
 #include "ble/scales/flowscale.h"
@@ -164,6 +166,7 @@ int main(int argc, char *argv[])
     machineState.setScale(&flowScale);  // Start with FlowScale, switch to physical scale if found
     flowScale.setSettings(&settings);
     ProfileStorage profileStorage;
+    USBManager usbManager;
     checkpoint("Core objects");
     MainController mainController(&settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
     checkpoint("MainController");
@@ -409,6 +412,8 @@ int main(int argc, char *argv[])
 
     checkpoint("Managers wired");
 
+    usbManager.startPolling();
+
     AccessibilityManager accessibilityManager;
     accessibilityManager.setTranslationManager(&translationManager);
 
@@ -421,9 +426,13 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
 
-    // Auto-connect when DE1 is discovered
+    // Auto-connect when DE1 is discovered via BLE
     QObject::connect(&bleManager, &BLEManager::de1Discovered,
-                     &de1Device, [&de1Device, &bleManager, &physicalScale](const QBluetoothDeviceInfo& device) {
+                     &de1Device, [&de1Device, &bleManager, &physicalScale, &usbManager](const QBluetoothDeviceInfo& device) {
+        // Don't connect via BLE if already connected via USB
+        if (usbManager.isDe1Connected()) {
+            return;
+        }
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
             de1Device.connectToDevice(device);
             // Only stop scan if we're not still looking for a scale
@@ -434,8 +443,33 @@ int main(int argc, char *argv[])
         }
     });
 
+    // When USB DE1 discovered: disconnect BLE, switch to USB transport
+    QObject::connect(&usbManager, &USBManager::de1Discovered,
+        [&de1Device, &bleManager](SerialTransport* transport) {
+            // Disconnect BLE if connected
+            if (de1Device.isConnected()) {
+                de1Device.disconnect();
+            }
+            // Stop BLE scanning while USB is connected
+            bleManager.stopScan();
+            // Switch to USB transport
+            de1Device.setTransport(transport);
+        });
+
+    // When USB DE1 lost: clear transport, BLE scanning can resume
+    QObject::connect(&usbManager, &USBManager::de1Lost,
+        [&de1Device, &bleManager]() {
+            de1Device.disconnect();
+            // Resume BLE scanning to find DE1 via Bluetooth
+            bleManager.startScan();
+        });
+
     // Forward DE1 log messages to BLEManager for display in connection log
     QObject::connect(&de1Device, &DE1Device::logMessage,
+                     &bleManager, &BLEManager::de1LogMessage);
+
+    // Forward USBManager log messages to BLEManager for display in connection log
+    QObject::connect(&usbManager, &USBManager::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);
 
     // Connect to any supported scale when discovered
@@ -620,6 +654,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("CrashReporter", &crashReporter);
     context->setContextProperty("WidgetLibrary", &widgetLibrary);
     context->setContextProperty("LibrarySharing", &librarySharing);
+    context->setContextProperty("USBManager", &usbManager);
 
     FlowCalibrationModel flowCalibrationModel;
     flowCalibrationModel.setStorage(mainController.shotHistory());
