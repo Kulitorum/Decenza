@@ -11,7 +11,6 @@
 #include <QRegularExpression>
 #include <QDesktopServices>
 #include <QGuiApplication>
-#include <QDateTime>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -23,10 +22,6 @@
 
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
-namespace {
-constexpr qint64 kInstallIntentCooldownMs = 5000;
-}
-
 UpdateChecker::UpdateChecker(Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
@@ -44,6 +39,16 @@ UpdateChecker::UpdateChecker(Settings* settings, QObject* parent)
         // Check shortly after startup (30 seconds delay)
         QTimer::singleShot(30000, this, &UpdateChecker::onPeriodicCheck);
     }
+#endif
+
+#ifdef Q_OS_ANDROID
+    // Clear install-intent flag when app returns to foreground (event-based guard).
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive && m_installIntentPending) {
+            m_installIntentPending = false;
+            qDebug() << "UpdateChecker: app resumed, install intent guard cleared";
+        }
+    });
 #endif
 
     connect(m_settings, &Settings::betaUpdatesEnabledChanged, this, [this]() {
@@ -309,12 +314,11 @@ void UpdateChecker::downloadAndInstall()
         return;
     }
 #ifdef Q_OS_ANDROID
-    // Dedup guard: prevent rapid taps from spawning multiple download+install flows.
+    // Event-based dedup guard: prevent rapid taps from spawning multiple download+install flows.
+    // Flag is set when install intent launches, cleared when app returns to foreground.
     // Placed after the cached-APK fast-path so permission-flow retaps still work.
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    if (m_lastInstallIntentLaunchMs > 0
-        && (nowMs - m_lastInstallIntentLaunchMs) < kInstallIntentCooldownMs) {
-        qDebug() << "UpdateChecker: install intent launched recently; ignoring duplicate request";
+    if (m_installIntentPending) {
+        qDebug() << "UpdateChecker: install intent still pending; ignoring duplicate request";
         return;
     }
 #endif
@@ -701,7 +705,7 @@ void UpdateChecker::installApk(const QString& apkPath)
     }
 
     qDebug() << "UpdateChecker: APK install intent launched";
-    m_lastInstallIntentLaunchMs = QDateTime::currentMSecsSinceEpoch();
+    m_installIntentPending = true;
 #else
     qDebug() << "UpdateChecker: APK installation only supported on Android. File saved to:" << apkPath;
     m_errorMessage = "APK installation only supported on Android";

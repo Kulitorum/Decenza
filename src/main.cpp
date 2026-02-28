@@ -237,7 +237,7 @@ int main(int argc, char *argv[])
     // WeightProcessor → MachineState: forward SAW trigger for QML "Target reached" display
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
                      &machineState, [&machineState](qint64) {
-                         QMetaObject::invokeMethod(&machineState, "targetWeightReached", Qt::DirectConnection);
+                         emit machineState.targetWeightReached();
                      });
 
     // WeightProcessor → ShotDataModel: mark stop time on graph.
