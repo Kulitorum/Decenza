@@ -157,6 +157,7 @@ MainController::MainController(Settings* settings, DE1Device* device,
     // Create shot history storage and comparison model
     m_shotHistory = new ShotHistoryStorage(this);
     m_shotHistory->initialize();
+    connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
 
     // Create shot importer for importing .shot files from DE1 app
     m_shotImporter = new ShotImporter(m_shotHistory, this);
@@ -3073,7 +3074,7 @@ void MainController::generateFakeShotData() {
                     m_settings->setDyeShotNotes("");
                     m_settings->sync();
                 } else {
-                    qDebug() << "DEV: WARNING: Failed to save simulated shot to history";
+                    qWarning() << "DEV: Failed to save simulated shot to history";
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 

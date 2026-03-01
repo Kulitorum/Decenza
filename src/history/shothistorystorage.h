@@ -147,14 +147,7 @@ struct ShotSaveData {
     int sampleCount = 0;
 
     // Phase markers (pre-extracted from QVariantList)
-    struct PhaseMarker {
-        double time = 0;
-        QString label;
-        int frameNumber = 0;
-        bool isFlowMode = false;
-        QString transitionReason;
-    };
-    QList<PhaseMarker> phaseMarkers;
+    QList<HistoryPhaseMarker> phaseMarkers;
 };
 
 class ShotHistoryStorage : public QObject {
@@ -339,7 +332,7 @@ signals:
     void shotMetadataUpdated(qint64 shotId, bool success);
     void autoFavoritesReady(const QVariantList& results);
     void autoFavoriteGroupDetailsReady(const QVariantMap& details);
-    void backupFinished(const QString& resultPath);
+    void backupFinished(bool success, const QString& resultPath);
 
 private:
     bool createTables();

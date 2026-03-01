@@ -41,6 +41,10 @@ Page {
             if (id !== shotDetailPage.shotId) return
             shotData = shot
         }
+        function onShotDeleted(deletedId) {
+            if (deletedId === shotDetailPage.shotId)
+                pageStack.pop()
+        }
     }
 
     function navigateToShot(index) {
@@ -755,7 +759,6 @@ Page {
 
         onAccepted: {
             MainController.shotHistory.requestDeleteShot(shotId)
-            pageStack.pop()
         }
     }
 

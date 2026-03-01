@@ -556,11 +556,11 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         // Send response on main thread
         QMetaObject::invokeMethod(this, [this, socketGuard, destroyed,
                                          archiveData = std::move(archiveData), backupDate]() {
+            m_backupFullInProgress = false;  // Always reset before destroyed check
             if (*destroyed) {
                 qDebug() << "ShotServer: Backup response dropped (server destroyed)";
                 return;
             }
-            m_backupFullInProgress = false;
             if (!socketGuard) {
                 qDebug() << "ShotServer: Backup response dropped (socket disconnected)";
                 return;

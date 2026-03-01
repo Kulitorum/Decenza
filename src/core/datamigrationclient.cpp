@@ -798,7 +798,10 @@ void DataMigrationClient::onShotsReply()
         QFile::remove(tempDbPath);
 
         QMetaObject::invokeMethod(this, [this, success, beforeCount, afterCount, destroyed]() {
-            if (*destroyed) return;
+            if (*destroyed) {
+                qDebug() << "DataMigrationClient: Shots import callback dropped (object destroyed)";
+                return;
+            }
 
             if (success && m_shotHistory) {
                 m_shotsImported = afterCount > beforeCount ? afterCount - beforeCount : 0;
