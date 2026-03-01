@@ -342,7 +342,7 @@ void MqttClient::onInternalDisconnected()
             .arg(m_reconnectAttempts + 1)
             .arg(MAX_RECONNECT_ATTEMPTS);
         emit statusChanged();
-        m_reconnectTimer.start(RECONNECT_DELAY_MS);
+        m_reconnectTimer.start(reconnectDelayMs());
     } else if (m_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         m_status = "Disconnected - max retries reached";
         emit statusChanged();
@@ -365,9 +365,11 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
     emit statusChanged();
     emit connectedChanged();
 
-    // Attempt reconnection
+    // Attempt reconnection with exponential backoff
     if (m_settings && m_settings->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        m_reconnectTimer.start(RECONNECT_DELAY_MS);
+        int delay = reconnectDelayMs();
+        qDebug() << "MqttClient: Retrying in" << delay / 1000 << "seconds";
+        m_reconnectTimer.start(delay);
     }
 }
 

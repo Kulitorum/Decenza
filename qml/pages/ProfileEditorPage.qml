@@ -845,7 +845,7 @@ Page {
                     border.color: saveAsTitleField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                     border.width: 1
                 }
-                onAccepted: saveAsDialog.handleSave()
+                onAccepted: saveAsDialog.doSave()
             }
 
             RowLayout {
@@ -867,12 +867,12 @@ Page {
                     text: TranslationManager.translate("profileEditor.save", "Save")
                     accessibleName: TranslationManager.translate("profileEditor.saveProfile", "Save profile")
                     Layout.fillWidth: true
-                    onClicked: saveAsDialog.handleSave()
+                    onClicked: saveAsDialog.doSave()
                 }
             }
         }
 
-        function handleSave() {
+        function doSave() {
             if (saveAsTitleField.text.length > 0) {
                 var filename = MainController.titleToFilename(saveAsTitleField.text)
                 if (MainController.profileExists(filename) && filename !== originalProfileName) {
@@ -1402,7 +1402,7 @@ Page {
                     border.color: nameField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                     border.width: 1
                 }
-                onAccepted: profileNameDialog.handleSave()
+                onAccepted: profileNameDialog.doSave()
             }
 
             RowLayout {
@@ -1424,12 +1424,12 @@ Page {
                     text: TranslationManager.translate("profileEditor.ok", "OK")
                     accessibleName: TranslationManager.translate("profileEditor.confirmRename", "Confirm rename")
                     Layout.fillWidth: true
-                    onClicked: profileNameDialog.handleSave()
+                    onClicked: profileNameDialog.doSave()
                 }
             }
         }
 
-        function handleSave() {
+        function doSave() {
             if (profile && nameField.text.length > 0) {
                 profile.title = nameField.text
                 updatePageTitle()

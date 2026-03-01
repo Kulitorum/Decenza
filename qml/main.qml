@@ -737,23 +737,24 @@ ApplicationWindow {
         return true
     }
 
-    // Android system back button / Escape key → go back.
-    // Pages that need custom back handling (e.g. BeanInfoPage's unsaved-changes
-    // dialog) intercept Key_Back first and set event.accepted = true.
-    Keys.onReleased: function(event) {
-        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
-            if (pageStack.depth > 1) {
-                event.accepted = true
-                goBack()
-            }
-        }
-    }
-
     // Page stack for navigation
     StackView {
         id: pageStack
         anchors.fill: parent
+        focus: true
         initialItem: idlePage
+
+        // Android system back button / Escape key → go back.
+        // Pages that need custom back handling (e.g. BeanInfoPage's unsaved-changes
+        // dialog) intercept Key_Back first and set event.accepted = true.
+        Keys.onReleased: function(event) {
+            if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+                if (pageStack.depth > 1) {
+                    event.accepted = true
+                    goBack()
+                }
+            }
+        }
 
         // CRT shader: render to FBO and process through GPU shader
         layer.enabled: Settings.activeShader === "crt"
