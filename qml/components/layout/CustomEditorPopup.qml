@@ -185,6 +185,16 @@ Popup {
             flickableDirection: Flickable.VerticalFlick
             boundsBehavior: Flickable.StopAtBounds
 
+            // Dismiss keyboard when tapping outside the text input
+            TapHandler {
+                onTapped: {
+                    if (contentInput.activeFocus) {
+                        contentInput.focus = false
+                        Qt.inputMethod.hide()
+                    }
+                }
+            }
+
             ScrollBar.vertical: ScrollBar {
                 policy: editorFlickable.contentHeight > editorFlickable.height
                         ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
