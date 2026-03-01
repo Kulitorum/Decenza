@@ -322,7 +322,7 @@ Item {
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 30
-        text: Qt.formatTime(new Date(), WeatherManager.use12HourTime ? "h:mmap" : "HH:mm")
+        text: Qt.formatTime(currentTime, WeatherManager.use12HourTime ? "h:mmap" : "HH:mm")
         color: mapTexture === "bright" ? "#ffffff" : "#aabbcc"
         font.pixelSize: 48
         font.bold: true
@@ -330,11 +330,13 @@ Item {
         opacity: 0.9
         visible: showClock && !testMode
 
+        property date currentTime: new Date()
+
         Timer {
             interval: 1000
             running: showClock && root.visible
             repeat: true
-            onTriggered: parent.text = Qt.formatTime(new Date(), WeatherManager.use12HourTime ? "h:mmap" : "HH:mm")
+            onTriggered: parent.currentTime = new Date()
         }
     }
 
