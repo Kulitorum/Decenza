@@ -790,18 +790,18 @@ void DataMigrationClient::onShotsReply()
     QThread* thread = QThread::create([this, destDbPath, tempDbPath, beforeCount, destroyed]() {
         bool success = ShotHistoryStorage::importDatabaseStatic(destDbPath, tempDbPath, true);
 
+        // Count shots on background thread right after import (no signal race)
+        int afterCount = success ? ShotHistoryStorage::getShotCountStatic(destDbPath) : 0;
+
         // Clean up temp file on background thread (safe even if object is destroyed)
         QFile::remove(tempDbPath);
 
-        QMetaObject::invokeMethod(this, [this, success, beforeCount, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, success, beforeCount, afterCount, destroyed]() {
             if (*destroyed) return;
 
             if (success && m_shotHistory) {
-                connect(m_shotHistory, &ShotHistoryStorage::totalShotsChanged, this,
-                    [this, beforeCount]() {
-                        m_shotsImported = m_shotHistory->totalShots() - beforeCount;
-                        qDebug() << "DataMigrationClient: Imported" << m_shotsImported << "new shots";
-                    }, static_cast<Qt::ConnectionType>(Qt::SingleShotConnection | Qt::QueuedConnection));
+                m_shotsImported = afterCount > beforeCount ? afterCount - beforeCount : 0;
+                qDebug() << "DataMigrationClient: Imported" << m_shotsImported << "new shots";
                 m_shotHistory->refreshTotalShots();
             }
 
