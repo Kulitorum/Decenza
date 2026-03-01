@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <QPointer>
 #include <QSettings>
+#include <memory>
 
 class Settings;
 class ProfileStorage;
@@ -199,4 +200,7 @@ private:
     // Authentication
     bool m_needsAuthentication = false;
     QString m_sessionToken;  // Current session cookie token
+
+    // Shared flag for destructor safety in background thread lambdas
+    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
 };

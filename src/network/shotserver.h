@@ -202,6 +202,9 @@ private:
     };
     QHash<QString, SessionInfo> m_sessions;
 
+    // Shared flag for destructor safety in background thread lambdas
+    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
+
     QTcpServer* m_server = nullptr;
     QUdpSocket* m_discoverySocket = nullptr;
     ShotHistoryStorage* m_storage = nullptr;
