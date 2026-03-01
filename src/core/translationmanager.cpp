@@ -18,11 +18,12 @@
 #include <functional>
 #include <memory>
 
-TranslationManager::TranslationManager(Settings* settings, QObject* parent)
+TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
     // Ensure translations directory exists
     QDir dir(translationsDir());
     if (!dir.exists()) {

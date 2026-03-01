@@ -21,6 +21,7 @@
 #include "../core/datamigrationclient.h"
 #include "../core/databasebackupmanager.h"
 
+class QNetworkAccessManager;
 class Settings;
 class DE1Device;
 class MachineState;
@@ -93,7 +94,8 @@ class MainController : public QObject {
     Q_PROPERTY(bool sawSettling READ isSawSettling NOTIFY sawSettlingChanged)
 
 public:
-    explicit MainController(Settings* settings, DE1Device* device,
+    explicit MainController(QNetworkAccessManager* networkManager,
+                           Settings* settings, DE1Device* device,
                            MachineState* machineState, ShotDataModel* shotDataModel,
                            ProfileStorage* profileStorage = nullptr,
                            QObject* parent = nullptr);
@@ -290,6 +292,7 @@ private:
     double getGroupTemperature() const;
     void sendMachineSettings();
 
+    QNetworkAccessManager* m_networkManager = nullptr;
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
@@ -321,6 +324,7 @@ private:
     bool m_profileModified = false;
     QString m_currentFrameName;  // For accessibility announcements
 
+    bool m_profileUploadPending = false;  // Set when upload blocked during active phase; cleared on successful upload or disconnect
     QTimer m_settingsTimer;  // Delayed settings application after connection
     QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 

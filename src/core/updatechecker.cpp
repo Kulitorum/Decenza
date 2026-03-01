@@ -22,12 +22,13 @@
 
 const QString UpdateChecker::GITHUB_API_URL = "https://api.github.com/repos/%1/releases?per_page=10";
 const QString UpdateChecker::GITHUB_REPO = "Kulitorum/Decenza";
-UpdateChecker::UpdateChecker(Settings* settings, QObject* parent)
+UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
-    , m_network(new QNetworkAccessManager(this))
+    , m_network(networkManager)
     , m_periodicTimer(new QTimer(this))
 {
+    Q_ASSERT(networkManager);
     // Check every hour
     m_periodicTimer->setInterval(60 * 60 * 1000);  // 1 hour
     connect(m_periodicTimer, &QTimer::timeout, this, &UpdateChecker::onPeriodicCheck);

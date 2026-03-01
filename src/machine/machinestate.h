@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <QElapsedTimer>
 #include "../ble/protocol/de1characteristics.h"
 
 class DE1Device;
@@ -22,8 +23,8 @@ class MachineState : public QObject {
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(double targetVolume READ targetVolume WRITE setTargetVolume NOTIFY targetVolumeChanged)
     Q_PROPERTY(double scaleWeight READ scaleWeight NOTIFY scaleWeightChanged)
-    Q_PROPERTY(double scaleFlowRate READ scaleFlowRate NOTIFY scaleWeightChanged)
-    Q_PROPERTY(double smoothedScaleFlowRate READ smoothedScaleFlowRate NOTIFY scaleWeightChanged)
+    Q_PROPERTY(double scaleFlowRate READ scaleFlowRate NOTIFY scaleFlowRateChanged)
+    Q_PROPERTY(double smoothedScaleFlowRate READ smoothedScaleFlowRate NOTIFY scaleFlowRateChanged)
     Q_PROPERTY(double cumulativeVolume READ cumulativeVolume NOTIFY cumulativeVolumeChanged)
     Q_PROPERTY(double preinfusionVolume READ preinfusionVolume NOTIFY preinfusionVolumeChanged)
     Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged)
@@ -104,6 +105,7 @@ signals:
     void pourVolumeChanged();
     void stopAtTypeChanged();
     void scaleWeightChanged();
+    void scaleFlowRateChanged();
     void espressoCycleStarted();  // When entering espresso preheating (clear graph here)
     void shotStarted();           // When extraction actually begins (flow starts)
     void shotEnded();
@@ -165,4 +167,11 @@ private:
 
     // Auto-tare during "flow before" phase (cup placed during preheat)
     qint64 m_lastAutoTareTime = 0;
+
+    // Throttle scaleWeightChanged / scaleFlowRateChanged to QML (10Hz cap).
+    // Trailing-edge timers ensure the last update is never dropped.
+    QElapsedTimer m_weightEmitTimer;                 // Throttle gate for scaleWeightChanged
+    QTimer* m_weightTrailingTimer = nullptr;          // Trailing-edge for scaleWeightChanged
+    QElapsedTimer m_flowRateEmitTimer;               // Throttle gate for scaleFlowRateChanged
+    QTimer* m_flowRateTrailingTimer = nullptr;        // Trailing-edge for scaleFlowRateChanged
 };

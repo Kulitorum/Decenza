@@ -11,13 +11,14 @@
 #include <QDateTime>
 #include <QDebug>
 
-ShotReporter::ShotReporter(Settings* settings, LocationProvider* locationProvider,
-                           QObject* parent)
+ShotReporter::ShotReporter(QNetworkAccessManager* networkManager, Settings* settings,
+                           LocationProvider* locationProvider, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
     , m_locationProvider(locationProvider)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
     // Connect to location provider signals
     if (m_locationProvider) {
         connect(m_locationProvider, &LocationProvider::locationChanged,

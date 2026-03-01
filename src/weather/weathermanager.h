@@ -48,7 +48,7 @@ class WeatherManager : public QObject {
     Q_PROPERTY(bool use12HourTime READ use12HourTime NOTIFY weatherChanged)
 
 public:
-    explicit WeatherManager(QObject* parent = nullptr);
+    explicit WeatherManager(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
 
     void setLocationProvider(LocationProvider* provider);
 

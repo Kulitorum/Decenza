@@ -35,7 +35,7 @@ class AIManager : public QObject {
     Q_PROPERTY(bool hasAnyConversation READ hasAnyConversation NOTIFY conversationIndexChanged)
 
 public:
-    explicit AIManager(Settings* settings, QObject* parent = nullptr);
+    explicit AIManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
     ~AIManager();
 
     static constexpr int MAX_CONVERSATIONS = 5;

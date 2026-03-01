@@ -30,7 +30,7 @@ class UpdateChecker : public QObject {
     Q_PROPERTY(bool latestIsBeta READ latestIsBeta NOTIFY latestIsBetaChanged)
 
 public:
-    explicit UpdateChecker(Settings* settings, QObject* parent = nullptr);
+    explicit UpdateChecker(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
     ~UpdateChecker();
 
     bool isChecking() const { return m_checking; }
