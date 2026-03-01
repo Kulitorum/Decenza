@@ -25,7 +25,7 @@ Popup {
     signal saved()
 
     modal: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    closePolicy: Popup.CloseOnEscape
     padding: Theme.spacingSmall
 
     // Wide popup at top of window to avoid keyboard
