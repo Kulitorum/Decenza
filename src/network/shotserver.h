@@ -243,6 +243,7 @@ private:
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
     int m_activeMediaUploads = 0;
+    bool m_backupFullInProgress = false;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
     QHash<QTcpSocket*, qint64> m_uploadProgressLog;  // Track last-logged byte offset per socket (cleaned up on disconnect)
     QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications

@@ -175,7 +175,8 @@ public:
     bool loadingFiltered() const { return m_loadingFiltered; }
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
-    // Returns 0 immediately; actual shot ID delivered via shotSaved() signal (-1 on failure).
+    // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
+    // Actual shot ID delivered via shotSaved() signal.
     qint64 saveShot(ShotDataModel* shotData,
                     const Profile* profile,
                     double duration,

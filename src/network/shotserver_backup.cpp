@@ -383,6 +383,12 @@ void ShotServer::handleBackupAIConversations(QTcpSocket* socket)
 
 void ShotServer::handleBackupFull(QTcpSocket* socket)
 {
+    if (m_backupFullInProgress) {
+        sendJsonError(socket, 429, "Backup already in progress");
+        return;
+    }
+    m_backupFullInProgress = true;
+
     struct Entry {
         QByteArray name;
         QByteArray data;
@@ -554,6 +560,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
                 qDebug() << "ShotServer: Backup response dropped (server destroyed)";
                 return;
             }
+            m_backupFullInProgress = false;
             if (!socketGuard) {
                 qDebug() << "ShotServer: Backup response dropped (socket disconnected)";
                 return;

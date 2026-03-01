@@ -797,9 +797,12 @@ void DataMigrationClient::onShotsReply()
             if (*destroyed) return;
 
             if (success && m_shotHistory) {
+                connect(m_shotHistory, &ShotHistoryStorage::totalShotsChanged, this,
+                    [this, beforeCount]() {
+                        m_shotsImported = m_shotHistory->totalShots() - beforeCount;
+                        qDebug() << "DataMigrationClient: Imported" << m_shotsImported << "new shots";
+                    }, static_cast<Qt::ConnectionType>(Qt::SingleShotConnection | Qt::QueuedConnection));
                 m_shotHistory->refreshTotalShots();
-                m_shotsImported = m_shotHistory->totalShots() - beforeCount;
-                qDebug() << "DataMigrationClient: Imported" << m_shotsImported << "new shots";
             }
 
             startNextImport();

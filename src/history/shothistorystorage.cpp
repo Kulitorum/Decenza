@@ -641,8 +641,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
             if (shotId > 0) {
                 m_lastSavedShotId = shotId;
-                updateTotalShots();
-                invalidateDistinctCache();
+                refreshTotalShots();  // already calls invalidateDistinctCache() internally
 
                 qDebug() << "ShotHistoryStorage: Saved shot" << shotId
                          << "- Profile:" << profileName
