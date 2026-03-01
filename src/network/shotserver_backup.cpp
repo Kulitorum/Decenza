@@ -398,7 +398,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         mainThreadEntries.append({"settings.json", settingsData});
     }
 
-    // 5. AI conversations (requires m_aiManager QObject)
+    // 2. AI conversations (requires m_aiManager QObject)
     {
         QJsonArray conversations = serializeAIConversations();
         if (!conversations.isEmpty()) {
@@ -407,7 +407,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         }
     }
 
-    // 6. Extra QSettings data (not in Settings class)
+    // 3. Extra QSettings data (not in Settings class)
     {
         QSettings settings;
         QJsonObject extra;
@@ -468,6 +468,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
                 QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
                 db.setDatabaseName(dbPath);
                 if (db.open()) {
+                    QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
                     QSqlQuery walQuery(db);
                     walQuery.exec("PRAGMA wal_checkpoint(FULL)");
                 }
