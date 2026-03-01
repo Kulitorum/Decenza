@@ -784,30 +784,54 @@ Page {
     // Save As dialog - just title input, filename derived automatically
     Dialog {
         id: saveAsDialog
-        title: TranslationManager.translate("profileEditor.saveProfileAs", "Save Profile As")
+        parent: Overlay.overlay
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Theme.scaled(400)
         modal: true
-        standardButtons: Dialog.Save | Dialog.Cancel
+        padding: 0
 
         property string pendingFilename: ""
 
-        ColumnLayout {
-            anchors.left: parent.left; anchors.right: parent.right
-            spacing: Theme.scaled(10)
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
 
-            Tr {
-                key: "profileeditor.label.profiletitle"
-                fallback: "Profile Title"
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("profileEditor.saveProfileAs", "Save Profile As")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            Text {
+                text: TranslationManager.translate("profileeditor.label.profiletitle", "Profile Title")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
             }
 
             StyledTextField {
                 id: saveAsTitleField
                 Accessible.name: "Profile name"
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(6)
                 text: profile ? profile.title : ""
                 font: Theme.bodyFont
                 color: Theme.textColor
@@ -821,15 +845,37 @@ Page {
                     border.color: saveAsTitleField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                     border.width: 1
                 }
-                onAccepted: saveAsDialog.accept()
+                onAccepted: saveAsDialog.accepted()
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileEditor.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("profileEditor.cancelSave", "Cancel save")
+                    Layout.fillWidth: true
+                    onClicked: saveAsDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileEditor.save", "Save")
+                    accessibleName: TranslationManager.translate("profileEditor.saveProfile", "Save profile")
+                    Layout.fillWidth: true
+                    onClicked: saveAsDialog.accepted()
+                }
             }
         }
 
-        onAccepted: {
+        function accepted() {
             if (saveAsTitleField.text.length > 0) {
                 var filename = MainController.titleToFilename(saveAsTitleField.text)
                 if (MainController.profileExists(filename) && filename !== originalProfileName) {
-                    // File exists and it's not the current file - ask to overwrite
                     saveAsDialog.pendingFilename = filename
                     overwriteDialog.open()
                 } else {
@@ -840,6 +886,7 @@ Page {
                     }
                 }
             }
+            saveAsDialog.close()
         }
 
         onOpened: {
@@ -851,27 +898,75 @@ Page {
     // Overwrite confirmation dialog
     Dialog {
         id: overwriteDialog
-        title: TranslationManager.translate("profileEditor.profileExists", "Profile Exists")
+        parent: Overlay.overlay
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Theme.scaled(400)
         modal: true
-        standardButtons: Dialog.Yes | Dialog.No
+        padding: 0
 
-        Tr {
-            anchors.left: parent.left; anchors.right: parent.right
-            key: "profileeditor.dialog.overwriteconfirm"
-            fallback: "A profile with this name already exists.\nDo you want to overwrite it?"
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
         }
 
-        onAccepted: {
-            if (saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
-                root.goBack()
-            } else {
-                saveErrorDialog.open()
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("profileEditor.profileExists", "Profile Exists")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            Text {
+                text: TranslationManager.translate("profileeditor.dialog.overwriteconfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileEditor.no", "No")
+                    accessibleName: TranslationManager.translate("profileEditor.cancelOverwrite", "Cancel overwrite")
+                    Layout.fillWidth: true
+                    onClicked: overwriteDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileEditor.yes", "Yes")
+                    accessibleName: TranslationManager.translate("profileEditor.confirmOverwrite", "Confirm overwrite")
+                    destructive: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        overwriteDialog.close()
+                        if (saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
+                            root.goBack()
+                        } else {
+                            saveErrorDialog.open()
+                        }
+                    }
+                }
             }
         }
     }
@@ -879,20 +974,56 @@ Page {
     // Save error dialog
     Dialog {
         id: saveErrorDialog
-        title: TranslationManager.translate("profileEditor.saveError", "Save Failed")
+        parent: Overlay.overlay
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Theme.scaled(350)
         modal: true
-        standardButtons: Dialog.Ok
+        padding: 0
 
-        Tr {
-            width: saveErrorDialog.availableWidth
-            key: "profileeditor.dialog.saveerror"
-            fallback: "Could not save the profile. Please try again or use Save As with a different name."
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("profileEditor.saveError", "Save Failed")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            Text {
+                text: TranslationManager.translate("profileeditor.dialog.saveerror", "Could not save the profile. Please try again or use Save As with a different name.")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("profileEditor.ok", "OK")
+                accessibleName: TranslationManager.translate("profileEditor.dismissError", "Dismiss error")
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                onClicked: saveErrorDialog.close()
+            }
         }
     }
 
@@ -1223,37 +1354,87 @@ Page {
     // Profile name edit dialog
     Dialog {
         id: profileNameDialog
-        title: TranslationManager.translate("profileEditor.editProfileName", "Edit Profile Name")
+        parent: Overlay.overlay
         anchors.centerIn: parent
         width: Theme.scaled(400)
         modal: true
-        standardButtons: Dialog.Ok | Dialog.Cancel
+        padding: 0
 
-        StyledTextField {
-            id: nameField
-            Accessible.name: "Profile name"
-            anchors.left: parent.left; anchors.right: parent.right
-            text: profile ? profile.title : ""
-            font: Theme.bodyFont
-            color: Theme.textColor
-            leftPadding: Theme.scaled(12)
-            rightPadding: Theme.scaled(12)
-            topPadding: Theme.scaled(12)
-            bottomPadding: Theme.scaled(12)
-            background: Rectangle {
-                color: Theme.backgroundColor
-                radius: Theme.scaled(4)
-                border.color: nameField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                border.width: 1
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("profileEditor.editProfileName", "Edit Profile Name")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            StyledTextField {
+                id: nameField
+                Accessible.name: "Profile name"
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(10)
+                text: profile ? profile.title : ""
+                font: Theme.bodyFont
+                color: Theme.textColor
+                leftPadding: Theme.scaled(12)
+                rightPadding: Theme.scaled(12)
+                topPadding: Theme.scaled(12)
+                bottomPadding: Theme.scaled(12)
+                background: Rectangle {
+                    color: Theme.backgroundColor
+                    radius: Theme.scaled(4)
+                    border.color: nameField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
+                    border.width: 1
+                }
+                onAccepted: profileNameDialog.accepted()
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileEditor.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("profileEditor.cancelRename", "Cancel rename")
+                    Layout.fillWidth: true
+                    onClicked: profileNameDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileEditor.ok", "OK")
+                    accessibleName: TranslationManager.translate("profileEditor.confirmRename", "Confirm rename")
+                    Layout.fillWidth: true
+                    onClicked: profileNameDialog.accepted()
+                }
             }
         }
 
-        onAccepted: {
+        function accepted() {
             if (profile && nameField.text.length > 0) {
                 profile.title = nameField.text
                 updatePageTitle()
                 uploadProfile()
             }
+            profileNameDialog.close()
         }
 
         onOpened: {

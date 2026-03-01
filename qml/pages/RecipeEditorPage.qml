@@ -627,19 +627,56 @@ Page {
     // Save error dialog
     Dialog {
         id: saveErrorDialog
-        title: TranslationManager.translate("recipeEditor.saveError", "Save Failed")
+        parent: Overlay.overlay
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Theme.scaled(350)
         modal: true
-        standardButtons: Dialog.Ok
+        padding: 0
 
-        contentItem: Text {
-            width: parent.width
-            text: TranslationManager.translate("recipeEditor.saveErrorMessage", "Could not save the profile. Please try again or use Save As with a different name.")
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("recipeEditor.saveError", "Save Failed")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            Text {
+                text: TranslationManager.translate("recipeEditor.saveErrorMessage", "Could not save the profile. Please try again or use Save As with a different name.")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("recipeEditor.ok", "OK")
+                accessibleName: TranslationManager.translate("recipeEditor.dismissError", "Dismiss error")
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                onClicked: saveErrorDialog.close()
+            }
         }
     }
 
@@ -685,35 +722,60 @@ Page {
     // Save As dialog
     Dialog {
         id: saveAsDialog
-        title: TranslationManager.translate("recipeEditor.saveRecipeAs", "Save Recipe As")
+        parent: Overlay.overlay
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
-        standardButtons: Dialog.Save | Dialog.Cancel
+        padding: 0
 
         property string pendingFilename: ""
 
-        ColumnLayout {
-            width: parent.width
-            spacing: Theme.scaled(10)
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("recipeEditor.saveRecipeAs", "Save Recipe As")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
 
             Text {
                 text: TranslationManager.translate("recipeEditor.recipeTitle", "Recipe Title")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
             }
 
             RowLayout {
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(6)
                 spacing: Theme.scaled(4)
 
-                // Fixed prefix label
                 Text {
                     text: editorPrefix()
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     verticalAlignment: Text.AlignVCenter
+                    Accessible.ignored: true
                 }
 
                 StyledTextField {
@@ -734,12 +796,35 @@ Page {
                         border.color: saveAsTitleField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
                     }
-                    onAccepted: saveAsDialog.accept()
+                    onAccepted: saveAsDialog.accepted()
+                }
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("recipeEditor.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("recipeEditor.cancelSave", "Cancel save")
+                    Layout.fillWidth: true
+                    onClicked: saveAsDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("recipeEditor.save", "Save")
+                    accessibleName: TranslationManager.translate("recipeEditor.saveRecipe", "Save recipe")
+                    Layout.fillWidth: true
+                    onClicked: saveAsDialog.accepted()
                 }
             }
         }
 
-        onAccepted: {
+        function accepted() {
             if (saveAsTitleField.text.length > 0) {
                 var fullTitle = editorPrefix() + saveAsTitleField.text
                 var filename = MainController.titleToFilename(fullTitle)
@@ -754,10 +839,10 @@ Page {
                     }
                 }
             }
+            saveAsDialog.close()
         }
 
         onOpened: {
-            // Strip prefix from current title to show only the suffix
             var currentName = MainController.currentProfileName || "New Recipe"
             saveAsTitleField.text = stripPrefix(currentName)
             saveAsTitleField.forceActiveFocus()
@@ -767,27 +852,76 @@ Page {
     // Overwrite confirmation dialog
     Dialog {
         id: overwriteDialog
-        title: TranslationManager.translate("recipeEditor.profileExists", "Profile Exists")
+        parent: Overlay.overlay
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
-        standardButtons: Dialog.Yes | Dialog.No
+        padding: 0
 
-        contentItem: Text {
-            width: parent.width
-            text: TranslationManager.translate("recipeEditor.overwriteConfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
         }
 
-        onAccepted: {
-            var fullTitle = editorPrefix() + saveAsTitleField.text
-            if (MainController.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
-                root.goBack()
-            } else {
-                saveErrorDialog.open()
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: TranslationManager.translate("recipeEditor.profileExists", "Profile Exists")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
+
+            Text {
+                text: TranslationManager.translate("recipeEditor.overwriteConfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("recipeEditor.no", "No")
+                    accessibleName: TranslationManager.translate("recipeEditor.cancelOverwrite", "Cancel overwrite")
+                    Layout.fillWidth: true
+                    onClicked: overwriteDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("recipeEditor.yes", "Yes")
+                    accessibleName: TranslationManager.translate("recipeEditor.confirmOverwrite", "Confirm overwrite")
+                    destructive: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        overwriteDialog.close()
+                        var fullTitle = editorPrefix() + saveAsTitleField.text
+                        if (MainController.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
+                            root.goBack()
+                        } else {
+                            saveErrorDialog.open()
+                        }
+                    }
+                }
             }
         }
     }
