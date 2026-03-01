@@ -267,11 +267,11 @@ MainController::MainController(Settings* settings, DE1Device* device,
     if (m_settings && m_settings->mqttEnabled() && !m_settings->mqttBrokerHost().isEmpty()) {
         // Deferred call ensures construction completes first.
         // MQTT connects to an external broker over TCP — no BLE dependency.
-        QTimer::singleShot(0, this, [this]() {
+        QMetaObject::invokeMethod(this, [this]() {
             if (m_settings->mqttEnabled()) {
                 m_mqttClient->connectToBroker();
             }
-        });
+        }, Qt::QueuedConnection);
     }
 
     // Initialize location provider and shot reporter for decenza.coffee shot map

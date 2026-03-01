@@ -776,6 +776,7 @@ void DataMigrationClient::onShotsReply()
     QString tempDbPath = QDir::temp().filePath("decenza_migration_shots.db");
     QFile tempFile(tempDbPath);
     if (!tempFile.open(QIODevice::WriteOnly)) {
+        qWarning() << "DataMigrationClient: Failed to create temp file for shots import:" << tempDbPath;
         startNextImport();
         return;
     }

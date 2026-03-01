@@ -580,7 +580,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         return -1;
     }
 
-    // Extract all data from QObject pointers on the main thread into a POD struct
+    // Extract all data from QObject pointers on the main thread into a plain value struct
     ShotSaveData data;
     data.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     data.timestamp = QDateTime::currentSecsSinceEpoch();
@@ -1598,7 +1598,11 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
 
 void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
 {
-    if (!m_ready) return;
+    if (!m_ready) {
+        qWarning() << "ShotHistoryStorage: Cannot delete shot - not ready";
+        emit errorOccurred("Cannot delete shot: database not ready");
+        return;
+    }
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
@@ -1634,6 +1638,9 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
                 invalidateDistinctCache();
                 emit shotDeleted(shotId);
                 qDebug() << "ShotHistoryStorage: Async deleted shot" << shotId;
+            } else {
+                qWarning() << "ShotHistoryStorage: Failed to async delete shot" << shotId;
+                emit errorOccurred(QString("Failed to delete shot %1").arg(shotId));
             }
         }, Qt::QueuedConnection);
     });
@@ -1763,8 +1770,11 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
 
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) return;
-            if (success)
+            if (success) {
                 invalidateDistinctCache();
+            } else {
+                emit errorOccurred(QString("Failed to save metadata for shot %1").arg(shotId));
+            }
             emit shotMetadataUpdated(shotId, success);
             qDebug() << "ShotHistoryStorage: Async updated metadata for shot" << shotId << "success:" << success;
         }, Qt::QueuedConnection);
@@ -2893,6 +2903,8 @@ void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool mer
             if (success) {
                 refreshTotalShots();
                 invalidateDistinctCache();
+            } else {
+                emit errorOccurred("Database import failed. The file may be corrupt or the disk may be full.");
             }
             emit importDatabaseFinished(success);
         }, Qt::QueuedConnection);
