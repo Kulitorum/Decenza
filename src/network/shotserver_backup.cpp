@@ -1106,10 +1106,14 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             bool success = ShotHistoryStorage::importDatabaseStatic(dbPath, shotsTempPath, true);
             QFile::remove(shotsTempPath);
 
+            // Cleanup uploaded backup temp file on background thread (safe even if object is destroyed)
+            if (!tempPathToCleanup.isEmpty() && QFile::exists(tempPathToCleanup)) {
+                QFile::remove(tempPathToCleanup);
+            }
+
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success,
                                               settingsRestored, profilesImported, profilesSkipped,
-                                              mediaImported, mediaSkipped, aiConversationsImported,
-                                              tempPathToCleanup]() {
+                                              mediaImported, mediaSkipped, aiConversationsImported]() {
                 if (*destroyed) return;
 
                 bool shotsRestored = success;
@@ -1135,11 +1139,6 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     result["mediaSkipped"] = mediaSkipped;
                     result["aiConversationsImported"] = aiConversationsImported;
                     sendJson(socketGuard, QJsonDocument(result).toJson(QJsonDocument::Compact));
-                }
-
-                // Cleanup uploaded backup temp file
-                if (!tempPathToCleanup.isEmpty() && QFile::exists(tempPathToCleanup)) {
-                    QFile::remove(tempPathToCleanup);
                 }
             }, Qt::QueuedConnection);
         });

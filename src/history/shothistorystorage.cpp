@@ -576,6 +576,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 {
     if (!m_ready || m_backupInProgress || !shotData) {
         qWarning() << "ShotHistoryStorage: Cannot save shot - not ready, backup in progress, or no data";
+        emit shotSaved(-1);
         return -1;
     }
 
@@ -628,7 +629,14 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     QThread* thread = QThread::create([this, dbPath, data = std::move(data), destroyed]() {
         qint64 shotId = saveShotStatic(dbPath, data);
 
-        QMetaObject::invokeMethod(this, [this, shotId, data, destroyed]() {
+        // Capture only the fields needed for logging (avoid copying the large compressedSamples blob)
+        QString profileName = data.profileName;
+        double duration = data.duration;
+        int sampleCount = data.sampleCount;
+        int compressedSize = data.compressedSamples.size();
+
+        QMetaObject::invokeMethod(this, [this, shotId, destroyed,
+                                         profileName, duration, sampleCount, compressedSize]() {
             if (*destroyed) return;
 
             if (shotId > 0) {
@@ -637,10 +645,10 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                 invalidateDistinctCache();
 
                 qDebug() << "ShotHistoryStorage: Saved shot" << shotId
-                         << "- Profile:" << data.profileName
-                         << "- Duration:" << data.duration << "s"
-                         << "- Samples:" << data.sampleCount
-                         << "- Compressed size:" << data.compressedSamples.size() << "bytes";
+                         << "- Profile:" << profileName
+                         << "- Duration:" << duration << "s"
+                         << "- Samples:" << sampleCount
+                         << "- Compressed size:" << compressedSize << "bytes";
             } else {
                 emit errorOccurred("Failed to save shot to database");
             }
@@ -670,6 +678,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             return -1;
         }
 
+        QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
         db.transaction();
 
         QSqlQuery query(db);
