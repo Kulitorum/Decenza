@@ -10,12 +10,11 @@ Item {
     required property var graph
 
     Layout.fillWidth: true
-    implicitHeight: legendFlow.childrenRect.height
+    implicitHeight: legendRow.height
 
-    Flow {
-        id: legendFlow
+    Row {
+        id: legendRow
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(parent.width, legendFlow.childrenRect.width + spacing)
         spacing: Theme.spacingSmall
 
         Repeater {
