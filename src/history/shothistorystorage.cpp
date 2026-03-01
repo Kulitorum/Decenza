@@ -579,130 +579,190 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         return -1;
     }
 
-    QString uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    qint64 timestamp = QDateTime::currentSecsSinceEpoch();
+    // Extract all data from QObject pointers on the main thread into a POD struct
+    ShotSaveData data;
+    data.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    data.timestamp = QDateTime::currentSecsSinceEpoch();
+    data.profileName = profile ? profile->title() : QStringLiteral("Unknown");
+    data.profileJson = profile ? QString::fromUtf8(profile->toJson().toJson(QJsonDocument::Compact)) : QString();
+    data.beverageType = profile ? profile->beverageType() : QStringLiteral("espresso");
+    data.duration = duration;
+    data.finalWeight = finalWeight;
+    data.doseWeight = doseWeight;
+    data.temperatureOverride = temperatureOverride;
+    data.yieldOverride = yieldOverride;
+    data.beanBrand = metadata.beanBrand;
+    data.beanType = metadata.beanType;
+    data.roastDate = metadata.roastDate;
+    data.roastLevel = metadata.roastLevel;
+    data.grinderModel = metadata.grinderModel;
+    data.grinderSetting = metadata.grinderSetting;
+    data.drinkTds = metadata.drinkTds;
+    data.drinkEy = metadata.drinkEy;
+    data.espressoEnjoyment = metadata.espressoEnjoyment;
+    data.espressoNotes = metadata.espressoNotes;
+    data.barista = metadata.barista;
+    data.profileNotes = profile ? profile->profileNotes() : QString();
+    data.debugLog = debugLog;
 
-    // Serialize profile to JSON
-    QString profileJson;
-    QString profileName = "Unknown";
-    if (profile) {
-        profileName = profile->title();
-        profileJson = QString::fromUtf8(profile->toJson().toJson(QJsonDocument::Compact));
-    }
+    // Compress sample data on main thread (reads QObject data vectors)
+    data.compressedSamples = compressSampleData(shotData);
+    data.sampleCount = shotData->pressureData().size();
 
-    QSqlQuery query(m_db);
-
-    // Begin transaction
-    m_db.transaction();
-
-    // Insert main shot record
-    query.prepare(R"(
-        INSERT INTO shots (
-            uuid, timestamp, profile_name, profile_json, beverage_type,
-            duration_seconds, final_weight, dose_weight,
-            bean_brand, bean_type, roast_date, roast_level,
-            grinder_model, grinder_setting,
-            drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
-            profile_notes, debug_log,
-            temperature_override, yield_override
-        ) VALUES (
-            :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
-            :duration, :final_weight, :dose_weight,
-            :bean_brand, :bean_type, :roast_date, :roast_level,
-            :grinder_model, :grinder_setting,
-            :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
-            :profile_notes, :debug_log,
-            :temperature_override, :yield_override
-        )
-    )");
-
-    query.bindValue(":uuid", uuid);
-    query.bindValue(":timestamp", timestamp);
-    query.bindValue(":profile_name", profileName);
-    query.bindValue(":profile_json", profileJson);
-    query.bindValue(":beverage_type", profile ? profile->beverageType() : QStringLiteral("espresso"));
-    query.bindValue(":duration", duration);
-    query.bindValue(":final_weight", finalWeight);
-    query.bindValue(":dose_weight", doseWeight);
-    query.bindValue(":bean_brand", metadata.beanBrand);
-    query.bindValue(":bean_type", metadata.beanType);
-    query.bindValue(":roast_date", metadata.roastDate);
-    query.bindValue(":roast_level", metadata.roastLevel);
-    query.bindValue(":grinder_model", metadata.grinderModel);
-    query.bindValue(":grinder_setting", metadata.grinderSetting);
-    query.bindValue(":drink_tds", metadata.drinkTds);
-    query.bindValue(":drink_ey", metadata.drinkEy);
-    query.bindValue(":enjoyment", metadata.espressoEnjoyment);
-    query.bindValue(":espresso_notes", metadata.espressoNotes);
-    query.bindValue(":bean_notes", QString());  // Not in ShotMetadata yet
-    query.bindValue(":barista", metadata.barista);
-    query.bindValue(":profile_notes", profile ? profile->profileNotes() : QString());
-    query.bindValue(":debug_log", debugLog);
-
-    // Bind override values (always have values - user override or profile default)
-    query.bindValue(":temperature_override", temperatureOverride);
-    query.bindValue(":yield_override", yieldOverride);
-
-    if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
-        m_db.rollback();
-        emit errorOccurred("Failed to save shot: " + query.lastError().text());
-        return -1;
-    }
-
-    qint64 shotId = query.lastInsertId().toLongLong();
-
-    // Insert compressed sample data
-    QByteArray compressedData = compressSampleData(shotData);
-    int sampleCount = shotData->pressureData().size();
-
-    query.prepare("INSERT INTO shot_samples (shot_id, sample_count, data_blob) VALUES (:id, :count, :blob)");
-    query.bindValue(":id", shotId);
-    query.bindValue(":count", sampleCount);
-    query.bindValue(":blob", compressedData);
-
-    if (!query.exec()) {
-        qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
-        m_db.rollback();
-        emit errorOccurred("Failed to save shot samples");
-        return -1;
-    }
-
-    // Insert phase markers
+    // Extract phase markers on main thread
     QVariantList markers = shotData->phaseMarkersVariant();
     for (const QVariant& markerVar : markers) {
         QVariantMap marker = markerVar.toMap();
-        query.prepare(R"(
-            INSERT INTO shot_phases (shot_id, time_offset, label, frame_number, is_flow_mode, transition_reason)
-            VALUES (:shot_id, :time, :label, :frame, :flow_mode, :reason)
-        )");
-        query.bindValue(":shot_id", shotId);
-        query.bindValue(":time", marker["time"].toDouble());
-        query.bindValue(":label", marker["label"].toString());
-        query.bindValue(":frame", marker["frameNumber"].toInt());
-        query.bindValue(":flow_mode", marker["isFlowMode"].toBool() ? 1 : 0);
-        query.bindValue(":reason", marker["transitionReason"].toString());
-        query.exec();  // Non-critical if markers fail
+        ShotSaveData::PhaseMarker pm;
+        pm.time = marker["time"].toDouble();
+        pm.label = marker["label"].toString();
+        pm.frameNumber = marker["frameNumber"].toInt();
+        pm.isFlowMode = marker["isFlowMode"].toBool();
+        pm.transitionReason = marker["transitionReason"].toString();
+        data.phaseMarkers.append(pm);
     }
 
-    m_db.commit();
+    // Run DB work on background thread
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, data = std::move(data), destroyed]() {
+        qint64 shotId = saveShotStatic(dbPath, data);
 
-    m_lastSavedShotId = shotId;
-    updateTotalShots();
+        QMetaObject::invokeMethod(this, [this, shotId, data, destroyed]() {
+            if (*destroyed) return;
 
-    // Checkpoint WAL to main database file after each shot
-    // This ensures data is persisted to the .db file and not just in .db-wal
-    QSqlQuery walQuery(m_db);
-    walQuery.exec("PRAGMA wal_checkpoint(PASSIVE)");
+            if (shotId > 0) {
+                m_lastSavedShotId = shotId;
+                updateTotalShots();
+                invalidateDistinctCache();
 
-    qDebug() << "ShotHistoryStorage: Saved shot" << shotId
-             << "- Profile:" << profileName
-             << "- Duration:" << duration << "s"
-             << "- Samples:" << sampleCount
-             << "- Compressed size:" << compressedData.size() << "bytes";
+                qDebug() << "ShotHistoryStorage: Saved shot" << shotId
+                         << "- Profile:" << data.profileName
+                         << "- Duration:" << data.duration << "s"
+                         << "- Samples:" << data.sampleCount
+                         << "- Compressed size:" << data.compressedSamples.size() << "bytes";
+            } else {
+                emit errorOccurred("Failed to save shot to database");
+            }
 
-    invalidateDistinctCache();
-    emit shotSaved(shotId);
+            emit shotSaved(shotId);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+
+    return 0;  // Async — actual shotId delivered via shotSaved signal
+}
+
+qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveData& data)
+{
+    const QString connName = QString("shs_save_%1")
+        .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+    qint64 shotId = -1;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+        db.setDatabaseName(dbPath);
+        if (!db.open()) {
+            qWarning() << "ShotHistoryStorage: Failed to open DB for async saveShot";
+            QSqlDatabase::removeDatabase(connName);
+            return -1;
+        }
+
+        db.transaction();
+
+        QSqlQuery query(db);
+        query.prepare(R"(
+            INSERT INTO shots (
+                uuid, timestamp, profile_name, profile_json, beverage_type,
+                duration_seconds, final_weight, dose_weight,
+                bean_brand, bean_type, roast_date, roast_level,
+                grinder_model, grinder_setting,
+                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
+                profile_notes, debug_log,
+                temperature_override, yield_override
+            ) VALUES (
+                :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
+                :duration, :final_weight, :dose_weight,
+                :bean_brand, :bean_type, :roast_date, :roast_level,
+                :grinder_model, :grinder_setting,
+                :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
+                :profile_notes, :debug_log,
+                :temperature_override, :yield_override
+            )
+        )");
+
+        query.bindValue(":uuid", data.uuid);
+        query.bindValue(":timestamp", data.timestamp);
+        query.bindValue(":profile_name", data.profileName);
+        query.bindValue(":profile_json", data.profileJson);
+        query.bindValue(":beverage_type", data.beverageType);
+        query.bindValue(":duration", data.duration);
+        query.bindValue(":final_weight", data.finalWeight);
+        query.bindValue(":dose_weight", data.doseWeight);
+        query.bindValue(":bean_brand", data.beanBrand);
+        query.bindValue(":bean_type", data.beanType);
+        query.bindValue(":roast_date", data.roastDate);
+        query.bindValue(":roast_level", data.roastLevel);
+        query.bindValue(":grinder_model", data.grinderModel);
+        query.bindValue(":grinder_setting", data.grinderSetting);
+        query.bindValue(":drink_tds", data.drinkTds);
+        query.bindValue(":drink_ey", data.drinkEy);
+        query.bindValue(":enjoyment", data.espressoEnjoyment);
+        query.bindValue(":espresso_notes", data.espressoNotes);
+        query.bindValue(":bean_notes", QString());
+        query.bindValue(":barista", data.barista);
+        query.bindValue(":profile_notes", data.profileNotes);
+        query.bindValue(":debug_log", data.debugLog);
+        query.bindValue(":temperature_override", data.temperatureOverride);
+        query.bindValue(":yield_override", data.yieldOverride);
+
+        if (!query.exec()) {
+            qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
+            db.rollback();
+            QSqlDatabase::removeDatabase(connName);
+            return -1;
+        }
+
+        shotId = query.lastInsertId().toLongLong();
+
+        // Insert compressed sample data
+        query.prepare("INSERT INTO shot_samples (shot_id, sample_count, data_blob) VALUES (:id, :count, :blob)");
+        query.bindValue(":id", shotId);
+        query.bindValue(":count", data.sampleCount);
+        query.bindValue(":blob", data.compressedSamples);
+
+        if (!query.exec()) {
+            qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
+            db.rollback();
+            QSqlDatabase::removeDatabase(connName);
+            return -1;
+        }
+
+        // Insert phase markers
+        for (const ShotSaveData::PhaseMarker& pm : data.phaseMarkers) {
+            query.prepare(R"(
+                INSERT INTO shot_phases (shot_id, time_offset, label, frame_number, is_flow_mode, transition_reason)
+                VALUES (:shot_id, :time, :label, :frame, :flow_mode, :reason)
+            )");
+            query.bindValue(":shot_id", shotId);
+            query.bindValue(":time", pm.time);
+            query.bindValue(":label", pm.label);
+            query.bindValue(":frame", pm.frameNumber);
+            query.bindValue(":flow_mode", pm.isFlowMode ? 1 : 0);
+            query.bindValue(":reason", pm.transitionReason);
+            query.exec();  // Non-critical if markers fail
+        }
+
+        db.commit();
+
+        // Checkpoint WAL
+        QSqlQuery walQuery(db);
+        walQuery.exec("PRAGMA wal_checkpoint(PASSIVE)");
+    }
+    QSqlDatabase::removeDatabase(connName);
+
     return shotId;
 }
 
