@@ -184,11 +184,6 @@ ApplicationWindow {
             if (root.sleepCountdownNormal > 0) root.sleepCountdownNormal--
             if (root.sleepCountdownStayAwake > 0) root.sleepCountdownStayAwake--
 
-            // Debug: log countdown status on every tick
-            console.log("[AutoSleep] Tick: normal=" + root.sleepCountdownNormal +
-                       ", stayAwake=" + root.sleepCountdownStayAwake +
-                       ", autoSleepMinutes=" + root.autoSleepMinutes)
-
             // Sleep when BOTH <= 0
             if (root.sleepCountdownNormal <= 0 && root.sleepCountdownStayAwake <= 0) {
                 console.log("[AutoSleep] Both counters expired — triggering sleep")
@@ -365,20 +360,13 @@ ApplicationWindow {
     // This timer resends the steam settings every 60 seconds to maintain target temperature.
     Timer {
         id: steamHeaterTimer
-        property int resendCount: 0
         interval: 60000  // Every 60 seconds
         running: Settings.keepSteamHeaterOn && !Settings.steamDisabled &&
                  DE1Device.connected &&
                  (MachineState.phase === MachineStateType.Phase.Idle ||
                   MachineState.phase === MachineStateType.Phase.Ready)
         repeat: true
-        onRunningChanged: resendCount = 0
-        onTriggered: {
-            if (resendCount === 0)
-                console.log("Resending steam settings to keep heater on")
-            resendCount++
-            MainController.applySteamSettings()
-        }
+        onTriggered: MainController.applySteamSettings()
     }
 
     // Track if we were just steaming (for auto-flush timer)

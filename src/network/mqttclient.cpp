@@ -187,8 +187,10 @@ void MqttClient::connectToBroker()
         m_client = nullptr;
     }
 
-    m_reconnectAttempts = 0;
-    emit reconnectAttemptsChanged();
+    if (!m_isReconnecting) {
+        m_reconnectAttempts = 0;
+        emit reconnectAttemptsChanged();
+    }
 
     // Build server URI
     int port = m_settings->mqttBrokerPort();
@@ -490,7 +492,10 @@ void MqttClient::attemptReconnect()
 
     qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts << "of" << MAX_RECONNECT_ATTEMPTS;
 
+    // Call connectToBroker with flag to preserve reconnect state
+    m_isReconnecting = true;
     connectToBroker();
+    m_isReconnecting = false;
 }
 
 void MqttClient::onSettingsChanged()

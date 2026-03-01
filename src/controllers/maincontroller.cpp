@@ -2115,24 +2115,15 @@ void MainController::sendMachineSettings() {
     // - If keepSteamHeaterOn is false: send 0 (user doesn't want heater on)
     // - Otherwise: send configured temperature
     double steamTemp;
-    QString reason;
     if (m_settings->steamDisabled()) {
         steamTemp = 0.0;
-        reason = "steamDisabled=true";
     } else if (!m_settings->keepSteamHeaterOn()) {
         steamTemp = 0.0;
-        reason = "keepSteamHeaterOn=false";
     } else {
         steamTemp = m_settings->steamTemperature();
-        reason = "keepSteamHeaterOn=true";
     }
 
-    QString phase = m_machineState ? QString::number(static_cast<int>(m_machineState->phase())) : "null";
-    qDebug() << "sendMachineSettings: sending steam" << steamTemp << "°C (reason:" << reason
-             << ", phase:" << phase << ", configuredTemp:" << m_settings->steamTemperature() << ")";
-
     double groupTemp = getGroupTemperature();
-    qDebug() << "sendMachineSettings: sending groupTemp" << groupTemp << "°C";
 
     // Hot water volume: only send actual ml in volume mode (machine auto-stops via flowmeter).
     // In weight mode send 0 so the app controls stop via scale instead.
@@ -2455,13 +2446,8 @@ void MainController::applyHeaterTweaks() {
 
 double MainController::getGroupTemperature() const {
     if (m_settings && m_settings->hasTemperatureOverride()) {
-        double overrideTemp = m_settings->temperatureOverride();
-        qDebug() << "getGroupTemperature: using override" << overrideTemp << "°C"
-                 << "(profile base:" << m_currentProfile.espressoTemperature() << "°C)";
-        return overrideTemp;
+        return m_settings->temperatureOverride();
     }
-    qDebug() << "getGroupTemperature: no override, using profile"
-             << m_currentProfile.espressoTemperature() << "°C";
     return m_currentProfile.espressoTemperature();
 }
 

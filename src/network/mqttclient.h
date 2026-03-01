@@ -110,6 +110,7 @@ private:
     QTimer m_publishTimer;
     QTimer m_reconnectTimer;
     int m_reconnectAttempts = 0;
+    bool m_isReconnecting = false;
     static constexpr int MAX_RECONNECT_ATTEMPTS = 10;
     static constexpr int INITIAL_RECONNECT_DELAY_MS = 5000;
     static constexpr int MAX_RECONNECT_DELAY_MS = 60000;
