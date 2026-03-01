@@ -402,10 +402,13 @@ int main(int argc, char *argv[])
                      &de1Device, &DE1Device::wakeUp);
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
                      &mainController, &MainController::autoWakeTriggered);
-    // Also wake the scale
+    // Also wake the scale and reconnect DE1 if needed
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
-                     [&physicalScale, &bleManager, &settings]() {
-        qDebug() << "AutoWakeManager: Waking scale";
+                     [&physicalScale, &bleManager, &settings, &de1Device]() {
+        qDebug() << "AutoWakeManager: Waking scale and reconnecting DE1 if needed";
+        if (!de1Device.isConnected() && !de1Device.isConnecting()) {
+            QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToDE1);
+        }
         if (physicalScale && physicalScale->isConnected()) {
             physicalScale->wake();
         } else if (!settings.scaleAddress().isEmpty()) {
@@ -454,7 +457,7 @@ int main(int argc, char *argv[])
 
     // Auto-connect when DE1 is discovered via BLE
     QObject::connect(&bleManager, &BLEManager::de1Discovered,
-                     &de1Device, [&de1Device, &bleManager, &physicalScale
+                     &de1Device, [&de1Device, &bleManager, &physicalScale, &settings
 #ifndef Q_OS_IOS
                      , &usbManager
 #endif
@@ -467,6 +470,12 @@ int main(int argc, char *argv[])
 #endif
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
             de1Device.connectToDevice(device);
+
+            // Save DE1 address for direct wake on next startup
+            QString identifier = getDeviceIdentifier(device);
+            settings.setMachineAddress(identifier);
+            bleManager.setSavedDE1Address(identifier, device.name());
+
             // Only stop scan if we're not still looking for a scale
             bool lookingForScale = bleManager.hasSavedScale() || bleManager.isScanningForScales();
             if (!lookingForScale || (physicalScale && physicalScale->isConnected())) {
@@ -747,6 +756,12 @@ int main(int argc, char *argv[])
         bleManager.setSavedScaleAddress(savedScaleAddr, savedScaleType, savedScaleName);
     }
 
+    // Load saved DE1 address for direct wake connection
+    QString savedDE1Addr = settings.machineAddress();
+    if (!savedDE1Addr.isEmpty()) {
+        bleManager.setSavedDE1Address(savedDE1Addr, QString());
+    }
+
     // BLE scanning is now started from QML after first-run dialog is dismissed
     // This allows the user to turn on their scale before we start scanning
 
@@ -982,7 +997,7 @@ int main(int argc, char *argv[])
     // Note: DE1 is NOT put to sleep when backgrounded - users may switch apps while
     // the machine is heating up and expect it to continue (e.g., checking Visualizer)
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
-                     [&physicalScale, &bleManager, &settings, &batteryManager](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         if (state == Qt::ApplicationSuspended) {
@@ -1035,6 +1050,11 @@ int main(int argc, char *argv[])
             // Sync settings from disk to ensure we have latest values
             // (prevents theme colors from falling back to defaults on wake)
             settings.sync();
+
+            // Try to reconnect/wake DE1
+            if (!de1Device.isConnected() && !de1Device.isConnecting()) {
+                QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToDE1);
+            }
 
             // Try to reconnect/wake scale
             if (physicalScale && physicalScale->isConnected()) {

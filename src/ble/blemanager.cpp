@@ -424,6 +424,60 @@ void BLEManager::clearSavedScale() {
     emit scaleConnectionFailedChanged();
 }
 
+void BLEManager::setSavedDE1Address(const QString& address, const QString& name) {
+    m_savedDE1Address = address;
+    m_savedDE1Name = name;
+}
+
+void BLEManager::clearSavedDE1() {
+    m_savedDE1Address.clear();
+    m_savedDE1Name.clear();
+}
+
+void BLEManager::tryDirectConnectToDE1() {
+    if (m_disabled) {
+        qDebug() << "BLEManager: tryDirectConnectToDE1 - disabled (simulator mode)";
+        return;
+    }
+
+    if (m_savedDE1Address.isEmpty()) {
+        qDebug() << "BLEManager: tryDirectConnectToDE1 - no saved DE1 address";
+        return;
+    }
+
+    // Don't attempt if already connected or connecting
+    // (checked by the de1Discovered handler in main.cpp, but guard here too)
+
+    QString deviceName = m_savedDE1Name.isEmpty() ? "DE1" : m_savedDE1Name;
+
+#ifdef Q_OS_IOS
+    // On iOS, we have a UUID, not a MAC address.
+    // Direct connect with just a UUID rarely works - scan and match by UUID.
+    qDebug() << "BLEManager: DE1 direct wake (iOS) - scanning for" << deviceName << "UUID:" << m_savedDE1Address;
+    emit de1LogMessage(QString("Direct wake (iOS): scanning for %1").arg(deviceName));
+
+    if (!m_scanning) {
+        startScan();
+    }
+#else
+    // On Android/desktop, we have a MAC address - try direct connect
+    QString upperAddress = m_savedDE1Address.toUpper();
+    QBluetoothAddress address(upperAddress);
+    QBluetoothDeviceInfo deviceInfo(address, deviceName, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
+
+    qDebug() << "BLEManager: DE1 direct wake - connecting to" << deviceName << "at" << upperAddress;
+    emit de1LogMessage(QString("Direct wake: connecting to %1 at %2").arg(deviceName, upperAddress));
+
+    // Emit de1Discovered so main.cpp's handler connects to the device
+    emit de1Discovered(deviceInfo);
+
+    // Also start scanning in parallel - if the DE1 is advertising, we'll find it
+    if (!m_scanning) {
+        startScan();
+    }
+#endif
+}
+
 void BLEManager::scanForScales() {
     if (m_disabled) {
         qDebug() << "BLEManager: Scale scan request ignored (simulator mode)";

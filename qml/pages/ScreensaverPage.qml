@@ -484,9 +484,11 @@ Page {
     Keys.onPressed: wake()
 
     function wake() {
-        // Wake up the DE1
+        // Wake up the DE1, or try to reconnect if disconnected
         if (DE1Device.connected) {
             DE1Device.wakeUp()
+        } else if (!DE1Device.connecting) {
+            BLEManager.tryDirectConnectToDE1()
         }
 
         // Wake the scale (enable LCD) or try to reconnect
