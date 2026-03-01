@@ -1576,10 +1576,21 @@ KeyboardAwareContainer {
     Dialog {
         id: totpSetupDialog
         parent: Overlay.overlay
-        anchors.centerIn: parent
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round(Math.max(Theme.scaled(20), (parent.height - height) / 2 - totpDialogKbOffset))
         width: Theme.scaled(380)
         padding: 0
         modal: true
+
+        property real totpDialogKbOffset: {
+            if (!totpCodeField.activeFocus) return 0
+            var kbHeight = Qt.inputMethod.keyboardRectangle.height
+            if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
+                kbHeight = parent.height * 0.4
+            return kbHeight > 0 ? kbHeight / 2 : 0
+        }
+
+        Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutQuad } }
 
         property string totpSecret: ""
         property string totpUri: ""
