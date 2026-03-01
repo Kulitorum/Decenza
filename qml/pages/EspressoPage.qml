@@ -253,9 +253,11 @@ Page {
     // Full-screen shot graph
     ShotGraph {
         id: shotGraph
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: graphLegend.top
         anchors.topMargin: Theme.scaled(50)
-        anchors.bottomMargin: Theme.scaled(100)
     }
 
     // Status indicator for preheating
@@ -323,6 +325,7 @@ Page {
 
     // Tappable legend to toggle graph lines
     GraphLegend {
+        id: graphLegend
         graph: shotGraph
         width: parent.width
         anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top

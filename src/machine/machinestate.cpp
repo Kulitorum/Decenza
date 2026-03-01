@@ -11,6 +11,27 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
     : QObject(parent)
     , m_device(device)
 {
+    m_weightEmitTimer.start();
+    m_flowRateEmitTimer.start();
+
+    // Trailing-edge timers: fire once after 100ms to emit the last update that
+    // was suppressed by the 10Hz throttle, so QML never shows a stale value.
+    m_weightTrailingTimer = new QTimer(this);
+    m_weightTrailingTimer->setSingleShot(true);
+    m_weightTrailingTimer->setInterval(100);
+    connect(m_weightTrailingTimer, &QTimer::timeout, this, [this]() {
+        m_weightEmitTimer.restart();
+        emit scaleWeightChanged();
+    });
+
+    m_flowRateTrailingTimer = new QTimer(this);
+    m_flowRateTrailingTimer->setSingleShot(true);
+    m_flowRateTrailingTimer->setInterval(100);
+    connect(m_flowRateTrailingTimer, &QTimer::timeout, this, [this]() {
+        m_flowRateEmitTimer.restart();
+        emit scaleFlowRateChanged();
+    });
+
     m_shotTimer = new QTimer(this);
     m_shotTimer->setInterval(100);  // Update every 100ms
     connect(m_shotTimer, &QTimer::timeout, this, &MachineState::updateShotTimer);
@@ -81,7 +102,10 @@ void MachineState::setScale(ScaleDevice* scale) {
         // Same scale pointer — just refresh QML, don't add duplicate connections.
         // Without this guard, each call adds 2 more signal connections that never
         // get disconnected, causing progressive main-thread congestion over days.
-        if (m_scale) emit scaleWeightChanged();
+        if (m_scale) {
+            emit scaleWeightChanged();
+            emit scaleFlowRateChanged();
+        }
         return;
     }
 
@@ -94,14 +118,21 @@ void MachineState::setScale(ScaleDevice* scale) {
     if (m_scale) {
         connect(m_scale, &ScaleDevice::weightChanged,
                 this, &MachineState::onScaleWeightChanged);
-        // Relay weight changes to QML via scaleWeightChanged signal
+        // Relay weight changes to QML via scaleWeightChanged signal (throttled to 10Hz)
         // LSLR flow rate is computed by WeightProcessor on a worker thread
         // and cached via updateCachedFlowRates()
         connect(m_scale, &ScaleDevice::weightChanged, this, [this](double) {
-            emit scaleWeightChanged();
+            if (m_weightEmitTimer.elapsed() >= 100) {  // 10Hz cap
+                m_weightEmitTimer.restart();
+                m_weightTrailingTimer->stop();
+                emit scaleWeightChanged();
+            } else if (!m_weightTrailingTimer->isActive()) {
+                m_weightTrailingTimer->start();
+            }
         });
         // Emit immediately so QML picks up current weight
         emit scaleWeightChanged();
+        emit scaleFlowRateChanged();
     }
 }
 
@@ -658,9 +689,13 @@ double MachineState::smoothedScaleFlowRate() const {
 void MachineState::updateCachedFlowRates(double flowRate, double flowRateShort) {
     m_cachedFlowRate = flowRate;
     m_cachedFlowRateShort = flowRateShort;
-    // Don't emit scaleWeightChanged here — the next scale weight update will
-    // trigger it, and the QML property read will pick up the new flow rate.
-    // This avoids double-emission on every sample.
+    if (m_flowRateEmitTimer.elapsed() >= 100) {  // 10Hz cap
+        m_flowRateEmitTimer.restart();
+        m_flowRateTrailingTimer->stop();
+        emit scaleFlowRateChanged();
+    } else if (!m_flowRateTrailingTimer->isActive()) {
+        m_flowRateTrailingTimer->start();
+    }
 }
 
 void MachineState::tareScale() {

@@ -128,7 +128,7 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(int rateLimitMinutesRemaining READ rateLimitMinutesRemaining NOTIFY rateLimitedChanged)
 
 public:
-    explicit ScreensaverVideoManager(Settings* settings, ProfileStorage* profileStorage, QObject* parent = nullptr);
+    explicit ScreensaverVideoManager(QNetworkAccessManager* networkManager, Settings* settings, ProfileStorage* profileStorage, QObject* parent = nullptr);
     ~ScreensaverVideoManager();
 
     // Property getters

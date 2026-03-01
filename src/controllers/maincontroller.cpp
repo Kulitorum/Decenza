@@ -67,7 +67,8 @@ static size_t captureBacktrace(void** buffer, size_t maxFrames) {
 #endif
 
 
-MainController::MainController(Settings* settings, DE1Device* device,
+MainController::MainController(QNetworkAccessManager* networkManager,
+                               Settings* settings, DE1Device* device,
                                MachineState* machineState, ShotDataModel* shotDataModel,
                                ProfileStorage* profileStorage,
                                QObject* parent)
@@ -77,6 +78,7 @@ MainController::MainController(Settings* settings, DE1Device* device,
     , m_machineState(machineState)
     , m_shotDataModel(shotDataModel)
     , m_profileStorage(profileStorage)
+    , m_networkManager(networkManager)
 {
     // Set up delayed settings timer (1 second after connection)
     // The initial settings from DE1Device use hardcoded values; we need to send
@@ -148,11 +150,22 @@ MainController::MainController(Settings* settings, DE1Device* device,
                 m_shotDataModel->clearWeightData();
             }
         });
+
+        // Retry pending profile upload when machine reaches a non-active phase
+        connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
+            if (!m_profileUploadPending) return;
+            auto phase = m_machineState->phase();
+            if (phase == MachineState::Phase::Idle || phase == MachineState::Phase::Ready ||
+                phase == MachineState::Phase::Sleep || phase == MachineState::Phase::Heating) {
+                qDebug() << "Retrying pending profile upload now that phase is" << m_machineState->phaseString();
+                uploadCurrentProfile();
+            }
+        });
     }
 
     // Create visualizer uploader and importer
-    m_visualizer = new VisualizerUploader(m_settings, this);
-    m_visualizerImporter = new VisualizerImporter(this, m_settings, this);
+    m_visualizer = new VisualizerUploader(m_networkManager, m_settings, this);
+    m_visualizerImporter = new VisualizerImporter(m_networkManager, this, m_settings, this);
 
     // Create shot history storage and comparison model
     m_shotHistory = new ShotHistoryStorage(this);
@@ -276,8 +289,8 @@ MainController::MainController(Settings* settings, DE1Device* device,
     }
 
     // Initialize location provider and shot reporter for decenza.coffee shot map
-    m_locationProvider = new LocationProvider(this);
-    m_shotReporter = new ShotReporter(m_settings, m_locationProvider, this);
+    m_locationProvider = new LocationProvider(m_networkManager, this);
+    m_shotReporter = new ShotReporter(m_networkManager, m_settings, m_locationProvider, this);
 
     // Request location update if shot reporting is enabled
     if (m_settings && m_settings->value("shotmap/enabled", false).toBool()) {
@@ -285,10 +298,10 @@ MainController::MainController(Settings* settings, DE1Device* device,
     }
 
     // Initialize update checker
-    m_updateChecker = new UpdateChecker(m_settings, this);
+    m_updateChecker = new UpdateChecker(m_networkManager, m_settings, this);
 
     // Create data migration client for importing from other devices
-    m_dataMigration = new DataMigrationClient(this);
+    m_dataMigration = new DataMigrationClient(m_networkManager, this);
     m_dataMigration->setSettings(m_settings);
     m_dataMigration->setProfileStorage(m_profileStorage);
     m_dataMigration->setShotHistoryStorage(m_shotHistory);
@@ -1313,11 +1326,13 @@ void MainController::uploadCurrentProfile() {
                     .arg(m_machineState->phaseString())
                     .arg(stackTrace));
             }
+            m_profileUploadPending = true;
             return;  // Don't upload!
         }
     }
 
     if (m_device && m_device->isConnected()) {
+        m_profileUploadPending = false;
         double groupTemp;
 
         // Apply temperature override as delta offset (preserves per-frame differences)

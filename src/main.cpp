@@ -13,6 +13,7 @@
 #include <QOperatingSystemVersion>
 #include <memory>
 #include <QElapsedTimer>
+#include <QNetworkAccessManager>
 #include "version.h"
 
 #ifdef Q_OS_ANDROID
@@ -150,7 +151,11 @@ int main(int argc, char *argv[])
     Settings settings;
     checkpoint("Settings");
 
-    TranslationManager translationManager(&settings);
+    // Shared QNetworkAccessManager — one I/O thread for all HTTP consumers.
+    // Passed by pointer (dependency injection) to every class that needs HTTP.
+    QNetworkAccessManager sharedNetworkManager;
+
+    TranslationManager translationManager(&sharedNetworkManager, &settings);
     checkpoint("TranslationManager");
     BLEManager bleManager;
 
@@ -175,7 +180,7 @@ int main(int argc, char *argv[])
     UsbScaleManager usbScaleManager;
 #endif
     checkpoint("Core objects");
-    MainController mainController(&settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
+    MainController mainController(&sharedNetworkManager, &settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
     checkpoint("MainController");
 
     // Create and wire ShotTimingController (centralized timing and weight handling)
@@ -355,14 +360,14 @@ int main(int argc, char *argv[])
     checkpoint("WeightProcessor wiring");
 
     // Create and wire AI Manager
-    AIManager aiManager(&settings);
+    AIManager aiManager(&sharedNetworkManager, &settings);
     mainController.setAiManager(&aiManager);
 
     // Connect FlowScale to graph initially (will be disconnected if physical scale found)
     QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                      &mainController, &MainController::onScaleWeightChanged);
 
-    ScreensaverVideoManager screensaverManager(&settings, &profileStorage);
+    ScreensaverVideoManager screensaverManager(&sharedNetworkManager, &settings, &profileStorage);
     checkpoint("ScreensaverVideoManager");
 
     // Connect screensaver manager and AI manager to shot server
@@ -387,7 +392,7 @@ int main(int argc, char *argv[])
     mainController.shotServer()->setLibrarySharing(&librarySharing);
 
     // Weather forecast manager (hourly updates, region-aware API selection)
-    WeatherManager weatherManager;
+    WeatherManager weatherManager(&sharedNetworkManager);
     weatherManager.setLocationProvider(mainController.locationProvider());
 
     // Auto-wake manager for scheduled wake-ups

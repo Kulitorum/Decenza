@@ -30,11 +30,11 @@ const QString ScreensaverVideoManager::DEFAULT_CATALOG_URL =
 
 const QString ScreensaverVideoManager::DEFAULT_CATEGORY_ID = "espresso";
 
-ScreensaverVideoManager::ScreensaverVideoManager(Settings* settings, ProfileStorage* profileStorage, QObject* parent)
+ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkManager, Settings* settings, ProfileStorage* profileStorage, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
     , m_profileStorage(profileStorage)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
     // Initialize cache directory - prefer external storage (Documents/Decenza) if configured
     updateCacheDirectory();

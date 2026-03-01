@@ -26,7 +26,7 @@ class LocationProvider : public QObject {
     Q_PROPERTY(bool useManualCity READ useManualCity NOTIFY locationChanged)
 
 public:
-    explicit LocationProvider(QObject* parent = nullptr);
+    explicit LocationProvider(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
     ~LocationProvider();
 
     bool isAvailable() const { return m_source != nullptr; }

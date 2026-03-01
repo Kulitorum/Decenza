@@ -41,7 +41,7 @@ class DataMigrationClient : public QObject {
     Q_PROPERTY(bool needsAuthentication READ needsAuthentication NOTIFY needsAuthenticationChanged)
 
 public:
-    explicit DataMigrationClient(QObject* parent = nullptr);
+    explicit DataMigrationClient(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
     ~DataMigrationClient();
 
     // Dependencies (set by MainController)

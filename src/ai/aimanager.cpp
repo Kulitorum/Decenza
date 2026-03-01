@@ -19,10 +19,10 @@
 #include <QJsonParseError>
 #include <cmath>
 
-AIManager::AIManager(Settings* settings, QObject* parent)
+AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
     , m_summarizer(std::make_unique<ShotSummarizer>(this))
 {
     createProviders();

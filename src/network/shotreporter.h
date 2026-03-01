@@ -31,8 +31,8 @@ class ShotReporter : public QObject {
     Q_PROPERTY(double longitude READ longitude NOTIFY locationStatusChanged)
 
 public:
-    explicit ShotReporter(Settings* settings, LocationProvider* locationProvider,
-                          QObject* parent = nullptr);
+    explicit ShotReporter(QNetworkAccessManager* networkManager, Settings* settings,
+                          LocationProvider* locationProvider, QObject* parent = nullptr);
 
     bool isEnabled() const { return m_enabled; }
     void setEnabled(bool enabled);

@@ -27,11 +27,11 @@ static QByteArray sanitizeVisualizerJson(const QByteArray& data)
     return jsonStr.toUtf8();
 }
 
-VisualizerImporter::VisualizerImporter(MainController* controller, Settings* settings, QObject* parent)
+VisualizerImporter::VisualizerImporter(QNetworkAccessManager* networkManager, MainController* controller, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_controller(controller)
     , m_settings(settings)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
 }
 

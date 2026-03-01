@@ -16,10 +16,10 @@
 #include <QDir>
 #include <QBuffer>
 
-VisualizerUploader::VisualizerUploader(Settings* settings, QObject* parent)
+VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
 }
 

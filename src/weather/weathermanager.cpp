@@ -40,9 +40,9 @@ QVariantMap HourlyForecast::toVariantMap() const
 
 // ─── WeatherManager ──────────────────────────────────────────────────────────
 
-WeatherManager::WeatherManager(QObject* parent)
+WeatherManager::WeatherManager(QNetworkAccessManager* networkManager, QObject* parent)
     : QObject(parent)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
     // Cache locale's 12-hour preference once (avoids repeated ICU object creation)
     QString fmt = QLocale::system().timeFormat(QLocale::ShortFormat);

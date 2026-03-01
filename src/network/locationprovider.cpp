@@ -18,9 +18,9 @@
 #include <QPermissions>
 #endif
 
-LocationProvider::LocationProvider(QObject* parent)
+LocationProvider::LocationProvider(QNetworkAccessManager* networkManager, QObject* parent)
     : QObject(parent)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
     // Load saved manual city and coordinates
     QSettings settings;

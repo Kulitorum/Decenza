@@ -35,7 +35,7 @@ class VisualizerUploader : public QObject {
     Q_PROPERTY(QString lastShotUrl READ lastShotUrl NOTIFY lastShotUrlChanged)
 
 public:
-    explicit VisualizerUploader(Settings* settings, QObject* parent = nullptr);
+    explicit VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
     bool isUploading() const { return m_uploading; }
     QString lastUploadStatus() const { return m_lastUploadStatus; }

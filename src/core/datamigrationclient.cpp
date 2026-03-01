@@ -23,9 +23,9 @@
 #include <QRegularExpression>
 #include <QThread>
 
-DataMigrationClient::DataMigrationClient(QObject* parent)
+DataMigrationClient::DataMigrationClient(QNetworkAccessManager* networkManager, QObject* parent)
     : QObject(parent)
-    , m_networkManager(new QNetworkAccessManager(this))
+    , m_networkManager(networkManager)
 {
 }
 

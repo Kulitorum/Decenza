@@ -42,7 +42,7 @@ class TranslationManager : public QObject {
     Q_PROPERTY(int translationVersion READ translationVersion NOTIFY translationsChanged)
 
 public:
-    explicit TranslationManager(Settings* settings, QObject* parent = nullptr);
+    explicit TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
     // Properties
     QString currentLanguage() const;

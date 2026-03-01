@@ -30,7 +30,7 @@ class VisualizerImporter : public QObject {
     Q_PROPERTY(QVariantList sharedShots READ sharedShots NOTIFY sharedShotsChanged)
 
 public:
-    explicit VisualizerImporter(MainController* controller, Settings* settings, QObject* parent = nullptr);
+    explicit VisualizerImporter(QNetworkAccessManager* networkManager, MainController* controller, Settings* settings, QObject* parent = nullptr);
 
     bool isImporting() const { return m_importing; }
     bool isFetching() const { return m_fetching; }
