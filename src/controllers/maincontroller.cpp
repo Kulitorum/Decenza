@@ -2802,6 +2802,9 @@ void MainController::onShotEnded() {
         shotYieldOverride = finalWeight;
     }
 
+    // Capture once so both the async callback and synchronous code use the same value
+    bool showPostShot = m_settings->visualizerShowAfterShot();
+
     // Always save shot to local history (async — DB work runs on background thread)
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
              << "isReady:" << (m_shotHistory ? m_shotHistory->isReady() : false);
@@ -2815,7 +2818,7 @@ void MainController::onShotEnded() {
             QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
 
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
-            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight, shotDateTime](qint64 shotId) {
+            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight, shotDateTime, showPostShot](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {
@@ -2841,10 +2844,22 @@ void MainController::onShotEnded() {
 
                     // Force QSettings to sync to disk immediately
                     m_settings->sync();
+
+                    // Now that we have a valid shot ID, show the metadata page
+                    if (showPostShot) {
+                        qDebug() << "[metadata] Showing post-shot review page with shotId:" << shotId;
+                        emit shotEndedShowMetadata();
+                    }
                 } else {
                     qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
                     m_lastSavedShotId = 0;
                     emit lastSavedShotIdChanged();
+
+                    // Still navigate to review page so user isn't stranded on espresso page
+                    if (showPostShot) {
+                        qWarning() << "[metadata] Shot save failed but still showing review page";
+                        emit shotEndedShowMetadata();
+                    }
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
@@ -2855,7 +2870,12 @@ void MainController::onShotEnded() {
                 shotTemperatureOverride, shotYieldOverride);
         }
     } else {
-        qDebug() << "[metadata] WARNING: Could not save shot - history not ready!";
+        qWarning() << "[metadata] Could not save shot - history not ready!";
+
+        // Still navigate to review page so user isn't stranded on espresso page
+        if (showPostShot) {
+            emit shotEndedShowMetadata();
+        }
     }
 
     // Report shot to decenza.coffee shot map
@@ -2874,25 +2894,21 @@ void MainController::onShotEnded() {
              << "Final P:" << QString::number(finalPressure, 'f', 2) << "bar"
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
-    // Check if we should show metadata page after shot (regardless of auto-upload)
-    bool showPostShot = m_settings->visualizerShowAfterShot();
-
     // Auto-upload if enabled (do this first, before showing metadata page)
     if (m_settings->visualizerAutoUpload() && m_visualizer) {
         qDebug() << "  -> Auto-uploading to visualizer";
         m_visualizer->uploadShot(m_shotDataModel, &m_currentProfile, duration, finalWeight, doseWeight, metadata);
     }
 
-    // Show metadata page if enabled (user can edit and re-upload if desired)
+    // Store pending shot data for later upload (user can re-upload with updated metadata)
+    // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
+    // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.
     if (showPostShot) {
-        // Store pending shot data for later upload (user can re-upload with updated metadata)
         m_hasPendingShot = true;
         m_pendingShotDuration = duration;
         m_pendingShotFinalWeight = finalWeight;
         m_pendingShotDoseWeight = doseWeight;
-
-        qDebug() << "  -> Showing metadata page";
-        emit shotEndedShowMetadata();
+        qDebug() << "  -> Will show metadata page after shot is saved";
     }
 
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
