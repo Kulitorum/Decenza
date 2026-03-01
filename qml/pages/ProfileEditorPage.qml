@@ -845,7 +845,7 @@ Page {
                     border.color: saveAsTitleField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                     border.width: 1
                 }
-                onAccepted: saveAsDialog.accepted()
+                onAccepted: saveAsDialog.handleSave()
             }
 
             RowLayout {
@@ -867,23 +867,24 @@ Page {
                     text: TranslationManager.translate("profileEditor.save", "Save")
                     accessibleName: TranslationManager.translate("profileEditor.saveProfile", "Save profile")
                     Layout.fillWidth: true
-                    onClicked: saveAsDialog.accepted()
+                    onClicked: saveAsDialog.handleSave()
                 }
             }
         }
 
-        function accepted() {
+        function handleSave() {
             if (saveAsTitleField.text.length > 0) {
                 var filename = MainController.titleToFilename(saveAsTitleField.text)
                 if (MainController.profileExists(filename) && filename !== originalProfileName) {
                     saveAsDialog.pendingFilename = filename
+                    saveAsDialog.close()
                     overwriteDialog.open()
+                    return
+                }
+                if (saveProfileAs(filename, saveAsTitleField.text)) {
+                    root.goBack()
                 } else {
-                    if (saveProfileAs(filename, saveAsTitleField.text)) {
-                        root.goBack()
-                    } else {
-                        saveErrorDialog.open()
-                    }
+                    saveErrorDialog.open()
                 }
             }
             saveAsDialog.close()
@@ -1401,7 +1402,7 @@ Page {
                     border.color: nameField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                     border.width: 1
                 }
-                onAccepted: profileNameDialog.accepted()
+                onAccepted: profileNameDialog.handleSave()
             }
 
             RowLayout {
@@ -1423,12 +1424,12 @@ Page {
                     text: TranslationManager.translate("profileEditor.ok", "OK")
                     accessibleName: TranslationManager.translate("profileEditor.confirmRename", "Confirm rename")
                     Layout.fillWidth: true
-                    onClicked: profileNameDialog.accepted()
+                    onClicked: profileNameDialog.handleSave()
                 }
             }
         }
 
-        function accepted() {
+        function handleSave() {
             if (profile && nameField.text.length > 0) {
                 profile.title = nameField.text
                 updatePageTitle()

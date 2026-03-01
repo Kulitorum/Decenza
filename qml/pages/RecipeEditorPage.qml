@@ -796,7 +796,7 @@ Page {
                         border.color: saveAsTitleField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
                     }
-                    onAccepted: saveAsDialog.accepted()
+                    onAccepted: saveAsDialog.handleSave()
                 }
             }
 
@@ -819,24 +819,25 @@ Page {
                     text: TranslationManager.translate("recipeEditor.save", "Save")
                     accessibleName: TranslationManager.translate("recipeEditor.saveRecipe", "Save recipe")
                     Layout.fillWidth: true
-                    onClicked: saveAsDialog.accepted()
+                    onClicked: saveAsDialog.handleSave()
                 }
             }
         }
 
-        function accepted() {
+        function handleSave() {
             if (saveAsTitleField.text.length > 0) {
                 var fullTitle = editorPrefix() + saveAsTitleField.text
                 var filename = MainController.titleToFilename(fullTitle)
                 if (MainController.profileExists(filename) && filename !== originalProfileName) {
                     saveAsDialog.pendingFilename = filename
+                    saveAsDialog.close()
                     overwriteDialog.open()
+                    return
+                }
+                if (MainController.saveProfileAs(filename, fullTitle)) {
+                    root.goBack()
                 } else {
-                    if (MainController.saveProfileAs(filename, fullTitle)) {
-                        root.goBack()
-                    } else {
-                        saveErrorDialog.open()
-                    }
+                    saveErrorDialog.open()
                 }
             }
             saveAsDialog.close()

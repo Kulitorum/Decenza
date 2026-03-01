@@ -1587,7 +1587,7 @@ KeyboardAwareContainer {
             var kbHeight = Qt.inputMethod.keyboardRectangle.height
             if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
                 kbHeight = parent.height * 0.4
-            return kbHeight > 0 ? kbHeight / 2 : 0
+            return kbHeight
         }
 
         Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutQuad } }
