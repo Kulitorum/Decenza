@@ -618,6 +618,12 @@ void DatabaseBackupManager::checkFirstRunRestore()
 
             // Check if backups exist (filesystem only, safe on main thread)
             QStringList backups = getAvailableBackups();
+            if (!backups.isEmpty()) {
+                // Refresh the cached list so QML sees backups immediately
+                // (the initial refreshBackupList() at startup ran before
+                // storage permission was granted, so the cache is empty)
+                refreshBackupList();
+            }
             emit firstRunRestoreResult(!backups.isEmpty());
         }, Qt::QueuedConnection);
     });
