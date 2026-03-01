@@ -389,6 +389,159 @@ Page {
                 }
             }
 
+            // === Measurements (Dose, Out, TDS, EY) ===
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: measurementsLabel.height + measurementsRow.height + 4
+
+                Tr {
+                    id: measurementsLabel
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    key: "postshotreview.section.measurements"
+                    fallback: "Measurements"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(11)
+                    Accessible.ignored: true
+                }
+
+                RowLayout {
+                    id: measurementsRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: measurementsLabel.bottom
+                    anchors.topMargin: Theme.scaled(2)
+                    spacing: Theme.scaled(6)
+
+                    // Dose (bean weight)
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "postshotreview.label.dose"
+                            fallback: "Dose"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            Accessible.ignored: true
+                        }
+                        ValueInput {
+                            id: doseInput
+                            Layout.fillWidth: true
+                            height: Theme.scaled(40)
+                            from: 0
+                            to: 40
+                            stepSize: 0.1
+                            decimals: 1
+                            suffix: "g"
+                            valueColor: Theme.dyeDoseColor
+                            value: editDoseWeight
+                            accessibleName: TranslationManager.translate("postshotreview.label.dose", "Dose") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
+                            onValueModified: function(newValue) {
+                                doseInput.value = newValue
+                                editDoseWeight = newValue
+                                calculateEy()
+                            }
+                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                        }
+                    }
+
+                    // Out (drink weight)
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "postshotreview.label.out"
+                            fallback: "Out"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            Accessible.ignored: true
+                        }
+                        ValueInput {
+                            id: outInput
+                            Layout.fillWidth: true
+                            height: Theme.scaled(40)
+                            from: 0
+                            to: 500
+                            stepSize: 0.1
+                            decimals: 1
+                            suffix: "g"
+                            valueColor: Theme.dyeOutputColor
+                            value: editDrinkWeight
+                            accessibleName: TranslationManager.translate("postshotreview.accessible.output", "Output") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
+                            onValueModified: function(newValue) {
+                                outInput.value = newValue
+                                editDrinkWeight = newValue
+                                calculateEy()
+                            }
+                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                        }
+                    }
+
+                    // TDS
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "postshotreview.label.tds"
+                            fallback: "TDS"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            Accessible.ignored: true
+                        }
+                        ValueInput {
+                            id: tdsInput
+                            Layout.fillWidth: true
+                            height: Theme.scaled(40)
+                            from: 0
+                            to: 20
+                            stepSize: 0.01
+                            decimals: 2
+                            suffix: "%"
+                            valueColor: Theme.dyeTdsColor
+                            value: editDrinkTds
+                            accessibleName: TranslationManager.translate("postshotreview.label.tds", "TDS") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
+                            onValueModified: function(newValue) {
+                                tdsInput.value = newValue
+                                editDrinkTds = newValue
+                                calculateEy()
+                            }
+                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                        }
+                    }
+
+                    // EY
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "postshotreview.label.ey"
+                            fallback: "EY"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            Accessible.ignored: true
+                        }
+                        ValueInput {
+                            id: eyInput
+                            Layout.fillWidth: true
+                            height: Theme.scaled(40)
+                            from: 0
+                            to: 30
+                            stepSize: 0.1
+                            decimals: 1
+                            suffix: "%"
+                            valueColor: Theme.dyeEyColor
+                            value: editDrinkEy
+                            accessibleName: TranslationManager.translate("postshotreview.accessible.extractionyield", "Extraction yield") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
+                            onValueModified: function(newValue) {
+                                eyInput.value = newValue
+                                editDrinkEy = newValue
+                            }
+                            onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
+                        }
+                    }
+                }
+            }
+
             // 3-column grid for all fields
             GridLayout {
                 Layout.fillWidth: true
@@ -559,160 +712,6 @@ Page {
 
                         Accessible.role: Accessible.StaticText
                         Accessible.name: TranslationManager.translate("postshotreview.label.shotdate", "Shot date") + ": " + (editShotData.dateTime || "")
-                    }
-                }
-
-                // === ROW 4: Measurements (4 ValueInputs spanning 3 columns) ===
-                Item {
-                    Layout.columnSpan: 3
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: measurementsLabel.height + measurementsRow.height + 4
-
-                    Tr {
-                        id: measurementsLabel
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        key: "postshotreview.section.measurements"
-                        fallback: "Measurements"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Accessible.ignored: true
-                    }
-
-                    RowLayout {
-                        id: measurementsRow
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: measurementsLabel.bottom
-                        anchors.topMargin: Theme.scaled(2)
-                        spacing: Theme.scaled(6)
-
-                        // Dose (bean weight)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Tr {
-                                key: "postshotreview.label.dose"
-                                fallback: "Dose"
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
-                                Accessible.ignored: true
-                            }
-                            ValueInput {
-                                id: doseInput
-                                Layout.fillWidth: true
-                                height: Theme.scaled(40)
-                                from: 0
-                                to: 40
-                                stepSize: 0.1
-                                decimals: 1
-                                suffix: "g"
-                                valueColor: Theme.dyeDoseColor
-                                value: editDoseWeight
-                                accessibleName: TranslationManager.translate("postshotreview.label.dose", "Dose") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
-                                onValueModified: function(newValue) {
-                                    doseInput.value = newValue
-                                    editDoseWeight = newValue
-                                    calculateEy()
-                                }
-                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
-                            }
-                        }
-
-                        // Out (drink weight)
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Tr {
-                                key: "postshotreview.label.out"
-                                fallback: "Out"
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
-                                Accessible.ignored: true
-                            }
-                            ValueInput {
-                                id: outInput
-                                Layout.fillWidth: true
-                                height: Theme.scaled(40)
-                                from: 0
-                                to: 500
-                                stepSize: 0.1
-                                decimals: 1
-                                suffix: "g"
-                                valueColor: Theme.dyeOutputColor
-                                value: editDrinkWeight
-                                accessibleName: TranslationManager.translate("postshotreview.accessible.output", "Output") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
-                                onValueModified: function(newValue) {
-                                    outInput.value = newValue
-                                    editDrinkWeight = newValue
-                                    calculateEy()
-                                }
-                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
-                            }
-                        }
-
-                        // TDS
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Tr {
-                                key: "postshotreview.label.tds"
-                                fallback: "TDS"
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
-                                Accessible.ignored: true
-                            }
-                            ValueInput {
-                                id: tdsInput
-                                Layout.fillWidth: true
-                                height: Theme.scaled(40)
-                                from: 0
-                                to: 20
-                                stepSize: 0.01
-                                decimals: 2
-                                suffix: "%"
-                                valueColor: Theme.dyeTdsColor
-                                value: editDrinkTds
-                                accessibleName: TranslationManager.translate("postshotreview.label.tds", "TDS") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
-                                onValueModified: function(newValue) {
-                                    tdsInput.value = newValue
-                                    editDrinkTds = newValue
-                                    calculateEy()
-                                }
-                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
-                            }
-                        }
-
-                        // EY
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Tr {
-                                key: "postshotreview.label.ey"
-                                fallback: "EY"
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(10)
-                                Accessible.ignored: true
-                            }
-                            ValueInput {
-                                id: eyInput
-                                Layout.fillWidth: true
-                                height: Theme.scaled(40)
-                                from: 0
-                                to: 30
-                                stepSize: 0.1
-                                decimals: 1
-                                suffix: "%"
-                                valueColor: Theme.dyeEyColor
-                                value: editDrinkEy
-                                accessibleName: TranslationManager.translate("postshotreview.accessible.extractionyield", "Extraction yield") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
-                                onValueModified: function(newValue) {
-                                    eyInput.value = newValue
-                                    editDrinkEy = newValue
-                                }
-                                onActiveFocusChanged: if (activeFocus) Qt.inputMethod.hide()
-                            }
-                        }
                     }
                 }
 
