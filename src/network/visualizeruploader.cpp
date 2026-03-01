@@ -21,6 +21,7 @@ VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Se
     , m_settings(settings)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
 }
 
 // Helper: Interpolate goal data to match elapsed timestamps

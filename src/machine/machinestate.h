@@ -170,8 +170,8 @@ private:
 
     // Throttle scaleWeightChanged / scaleFlowRateChanged to QML (10Hz cap).
     // Trailing-edge timers ensure the last update is never dropped.
-    QElapsedTimer m_weightEmitTimer;
-    QTimer* m_weightTrailingTimer = nullptr;
-    QElapsedTimer m_flowRateEmitTimer;
-    QTimer* m_flowRateTrailingTimer = nullptr;
+    QElapsedTimer m_weightEmitTimer;                 // Throttle gate for scaleWeightChanged
+    QTimer* m_weightTrailingTimer = nullptr;          // Trailing-edge for scaleWeightChanged
+    QElapsedTimer m_flowRateEmitTimer;               // Throttle gate for scaleFlowRateChanged
+    QTimer* m_flowRateTrailingTimer = nullptr;        // Trailing-edge for scaleFlowRateChanged
 };

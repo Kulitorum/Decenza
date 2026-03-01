@@ -33,6 +33,7 @@ VisualizerImporter::VisualizerImporter(QNetworkAccessManager* networkManager, Ma
     , m_settings(settings)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
 }
 
 QString VisualizerImporter::authHeader() const {

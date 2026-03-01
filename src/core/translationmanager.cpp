@@ -23,6 +23,7 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
     , m_settings(settings)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
     // Ensure translations directory exists
     QDir dir(translationsDir());
     if (!dir.exists()) {

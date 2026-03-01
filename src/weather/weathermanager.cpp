@@ -44,6 +44,7 @@ WeatherManager::WeatherManager(QNetworkAccessManager* networkManager, QObject* p
     : QObject(parent)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
     // Cache locale's 12-hour preference once (avoids repeated ICU object creation)
     QString fmt = QLocale::system().timeFormat(QLocale::ShortFormat);
     m_use12HourTime = fmt.contains("AP", Qt::CaseInsensitive);

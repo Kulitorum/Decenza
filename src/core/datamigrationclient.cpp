@@ -27,6 +27,7 @@ DataMigrationClient::DataMigrationClient(QNetworkAccessManager* networkManager, 
     : QObject(parent)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
 }
 
 DataMigrationClient::~DataMigrationClient()

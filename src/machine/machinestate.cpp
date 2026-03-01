@@ -14,8 +14,9 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
     m_weightEmitTimer.start();
     m_flowRateEmitTimer.start();
 
-    // Trailing-edge timers: fire once after 100ms to emit the last update that
-    // was suppressed by the 10Hz throttle, so QML never shows a stale value.
+    // Trailing-edge timers: start on the first update suppressed by the 10Hz
+    // throttle. When they fire 100ms later, QML re-reads the property getter,
+    // picking up whatever the latest cached value is at that point.
     m_weightTrailingTimer = new QTimer(this);
     m_weightTrailingTimer->setSingleShot(true);
     m_weightTrailingTimer->setInterval(100);
@@ -111,6 +112,8 @@ void MachineState::setScale(ScaleDevice* scale) {
 
     if (m_scale) {
         disconnect(m_scale, nullptr, this, nullptr);
+        m_weightTrailingTimer->stop();
+        m_flowRateTrailingTimer->stop();
     }
 
     m_scale = scale;

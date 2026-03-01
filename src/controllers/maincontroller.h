@@ -324,7 +324,7 @@ private:
     bool m_profileModified = false;
     QString m_currentFrameName;  // For accessibility announcements
 
-    bool m_profileUploadPending = false;  // Retry profile upload when machine reaches non-active phase
+    bool m_profileUploadPending = false;  // Set when upload blocked during active phase; cleared on successful upload or disconnect
     QTimer m_settingsTimer;  // Delayed settings application after connection
     QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 

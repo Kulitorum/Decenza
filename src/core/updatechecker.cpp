@@ -28,6 +28,7 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
     , m_network(networkManager)
     , m_periodicTimer(new QTimer(this))
 {
+    Q_ASSERT(networkManager);
     // Check every hour
     m_periodicTimer->setInterval(60 * 60 * 1000);  // 1 hour
     connect(m_periodicTimer, &QTimer::timeout, this, &UpdateChecker::onPeriodicCheck);

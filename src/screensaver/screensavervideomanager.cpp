@@ -36,6 +36,7 @@ ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkM
     , m_profileStorage(profileStorage)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
     // Initialize cache directory - prefer external storage (Documents/Decenza) if configured
     updateCacheDirectory();
 

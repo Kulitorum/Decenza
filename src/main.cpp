@@ -151,8 +151,9 @@ int main(int argc, char *argv[])
     Settings settings;
     checkpoint("Settings");
 
-    // Shared QNetworkAccessManager — one I/O thread for all HTTP consumers.
-    // Passed by pointer (dependency injection) to every class that needs HTTP.
+    // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection
+    // pooling, reduced thread count). Passed by pointer to most HTTP consumers.
+    // Exceptions: CrashReporter, LibrarySharing, ShotServer test endpoint keep own NAM.
     QNetworkAccessManager sharedNetworkManager;
 
     TranslationManager translationManager(&sharedNetworkManager, &settings);

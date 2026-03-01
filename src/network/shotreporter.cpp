@@ -18,6 +18,7 @@ ShotReporter::ShotReporter(QNetworkAccessManager* networkManager, Settings* sett
     , m_locationProvider(locationProvider)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
     // Connect to location provider signals
     if (m_locationProvider) {
         connect(m_locationProvider, &LocationProvider::locationChanged,

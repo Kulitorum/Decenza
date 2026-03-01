@@ -151,13 +151,19 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             }
         });
 
-        // Retry pending profile upload when machine reaches a non-active phase
+        // Retry pending profile upload when machine reaches Idle, Ready, Sleep, or
+        // Heating — phases where it's safe to write a new profile to the DE1.
         connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
             if (!m_profileUploadPending) return;
             auto phase = m_machineState->phase();
+            if (phase == MachineState::Phase::Disconnected) {
+                qDebug() << "Clearing pending profile upload: device disconnected";
+                m_profileUploadPending = false;
+                return;
+            }
             if (phase == MachineState::Phase::Idle || phase == MachineState::Phase::Ready ||
                 phase == MachineState::Phase::Sleep || phase == MachineState::Phase::Heating) {
-                qDebug() << "Retrying pending profile upload now that phase is" << m_machineState->phaseString();
+                qWarning() << "Retrying pending profile upload now that phase is" << m_machineState->phaseString();
                 uploadCurrentProfile();
             }
         });
@@ -1368,6 +1374,8 @@ void MainController::uploadCurrentProfile() {
             );
             qDebug() << "Set group temp to" << groupTemp << "°C for profile" << m_currentProfile.title();
         }
+    } else if (m_profileUploadPending) {
+        qDebug() << "uploadCurrentProfile: device not connected, keeping pending flag for later retry";
     }
 }
 

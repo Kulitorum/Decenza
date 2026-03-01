@@ -25,6 +25,7 @@ AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, 
     , m_networkManager(networkManager)
     , m_summarizer(std::make_unique<ShotSummarizer>(this))
 {
+    Q_ASSERT(networkManager);
     createProviders();
 
     // Create conversation handler for multi-turn interactions

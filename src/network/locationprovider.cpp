@@ -22,6 +22,7 @@ LocationProvider::LocationProvider(QNetworkAccessManager* networkManager, QObjec
     : QObject(parent)
     , m_networkManager(networkManager)
 {
+    Q_ASSERT(networkManager);
     // Load saved manual city and coordinates
     QSettings settings;
     m_manualCity = settings.value("shotMap/manualCity", "").toString();
