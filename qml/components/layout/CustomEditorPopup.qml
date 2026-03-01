@@ -175,30 +175,19 @@ Popup {
     }
 
     contentItem: Item {
-        ScrollView {
+        Flickable {
+            id: editorFlickable
             anchors.fill: parent
             anchors.bottomMargin: buttonRow.height + Theme.scaled(4)
-            contentWidth: availableWidth
+            contentWidth: width
+            contentHeight: mainColumn.implicitHeight
             clip: true
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
 
-            // Dismiss keyboard when tapping outside text input
-            MouseArea {
-                anchors.fill: parent
-                z: 100
-                propagateComposedEvents: true
-                onPressed: function(mouse) {
-                    if (contentInput.activeFocus) {
-                        var mapped = mapToItem(inputFlickable, mouse.x, mouse.y)
-                        if (mapped.x >= 0 && mapped.y >= 0 &&
-                            mapped.x <= inputFlickable.width && mapped.y <= inputFlickable.height) {
-                            mouse.accepted = false
-                            return
-                        }
-                        contentInput.focus = false
-                        Qt.inputMethod.hide()
-                    }
-                    mouse.accepted = false
-                }
+            ScrollBar.vertical: ScrollBar {
+                policy: editorFlickable.contentHeight > editorFlickable.height
+                        ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
             }
 
             ColumnLayout {
@@ -356,8 +345,8 @@ Popup {
                             leftPadding: 0
                             rightPadding: 0
 
-                            onSelectionStartChanged: colorPickerPopup.saveSelectionFrom(contentInput)
-                            onSelectionEndChanged: colorPickerPopup.saveSelectionFrom(contentInput)
+                            // Selection is saved by DocumentFormatter.savedSelectionStart/End
+                            onActiveFocusChanged: if (!activeFocus) Qt.inputMethod.hide()
 
                             DocumentFormatter {
                                 id: formatter
@@ -1063,16 +1052,7 @@ Popup {
         id: colorPickerPopup
         property string mode: "text"  // "text" or "bg"
         property color initialColor: "#ffffff"
-        // Eagerly saved from TextArea (updated on every selection change, before focus loss)
-        property int savedSelectionStart: 0
-        property int savedSelectionEnd: 0
-
-        function saveSelectionFrom(ta) {
-            if (ta.selectionStart !== ta.selectionEnd) {
-                savedSelectionStart = ta.selectionStart
-                savedSelectionEnd = ta.selectionEnd
-            }
-        }
+        // Selection is tracked by formatter.savedSelectionStart/End (survives focus loss)
 
         parent: Overlay.overlay
         modal: true
@@ -1152,7 +1132,7 @@ Popup {
                                 onClicked: {
                                     var c = cpEditorInner.color.toString()
                                     if (colorPickerPopup.mode === "text") {
-                                        formatter.setColorOnRange(c, colorPickerPopup.savedSelectionStart, colorPickerPopup.savedSelectionEnd)
+                                        formatter.setColorOnRange(c, formatter.savedSelectionStart, formatter.savedSelectionEnd)
                                     } else {
                                         popup.textBackgroundColor = c
                                     }
@@ -1215,7 +1195,7 @@ Popup {
                                 onClicked: {
                                     var c = parent.modelData.color.toString()
                                     if (colorPickerPopup.mode === "text") {
-                                        formatter.setColorOnRange(c, colorPickerPopup.savedSelectionStart, colorPickerPopup.savedSelectionEnd)
+                                        formatter.setColorOnRange(c, formatter.savedSelectionStart, formatter.savedSelectionEnd)
                                     } else {
                                         popup.textBackgroundColor = c
                                     }

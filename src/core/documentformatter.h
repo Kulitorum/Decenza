@@ -25,6 +25,10 @@ class DocumentFormatter : public QObject
     Q_PROPERTY(QString currentColor READ currentColor NOTIFY formatChanged)
     Q_PROPERTY(int currentFontSize READ currentFontSize NOTIFY formatChanged)
 
+    // Last non-empty selection (survives focus loss)
+    Q_PROPERTY(int savedSelectionStart READ savedSelectionStart NOTIFY savedSelectionChanged)
+    Q_PROPERTY(int savedSelectionEnd READ savedSelectionEnd NOTIFY savedSelectionChanged)
+
 public:
     explicit DocumentFormatter(QObject *parent = nullptr);
 
@@ -42,6 +46,9 @@ public:
     bool italic() const;
     QString currentColor() const;
     int currentFontSize() const;
+
+    int savedSelectionStart() const;
+    int savedSelectionEnd() const;
 
     // Formatting operations — use mergeCharFormat (additive, preserves other formats)
     Q_INVOKABLE void toggleBold();
@@ -64,15 +71,20 @@ signals:
     void selectionEndChanged();
     void cursorPositionChanged();
     void formatChanged();
+    void savedSelectionChanged();
 
 private:
     QTextCursor textCursor() const;
+    QTextCursor textCursorForFormat() const;
     QTextDocument *textDocument() const;
     void mergeFormatOnSelection(const QTextCharFormat &format);
     QTextCharFormat charFormatAtCursor() const;
+    void updateSavedSelection();
 
     QQuickTextDocument *m_document = nullptr;
     int m_selectionStart = 0;
     int m_selectionEnd = 0;
     int m_cursorPosition = 0;
+    int m_savedSelectionStart = 0;
+    int m_savedSelectionEnd = 0;
 };
