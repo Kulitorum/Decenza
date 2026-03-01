@@ -48,7 +48,7 @@ MouseArea {
     // Handle TalkBack/VoiceOver activation via accessibility press action
     // This is the proper way to receive screen reader activations (double-tap in TalkBack)
     Accessible.onPressAction: {
-        console.log("[AccessibleTapHandler] Accessible.onPressAction triggered for:", root.accessibleName)
+        // Screen reader activation = primary action
         // Screen reader activation = primary action
         root.accessibleClicked()
     }
@@ -67,7 +67,6 @@ MouseArea {
         onTriggered: {
             if (root.supportLongPress) {
                 root._longPressTriggered = true
-                console.log("[AccessibleTapHandler] Long press triggered")
                 root.accessibleLongPressed()
             }
         }
@@ -78,13 +77,11 @@ MouseArea {
         id: singleTapTimer
         interval: root.doubleClickInterval
         onTriggered: {
-            console.log("[AccessibleTapHandler] singleTapTimer triggered, emitting accessibleClicked")
             root.accessibleClicked()
         }
     }
 
     onPressed: function(mouse) {
-        console.log("[AccessibleTapHandler] onPressed")
         _longPressTriggered = false
         _isPressed = true
         if (supportLongPress) {
@@ -95,7 +92,6 @@ MouseArea {
     }
 
     onReleased: function(mouse) {
-        console.log("[AccessibleTapHandler] onReleased, longPressTriggered:", _longPressTriggered)
         longPressTimer.stop()
         _isPressed = false
 
@@ -119,36 +115,29 @@ MouseArea {
             // Screen reader users should use long-press for secondary actions instead.
             if (AccessibilityManager.lastAnnouncedItem === accessibleItem) {
                 // Second tap on same item = activate (primary action)
-                console.log("[AccessibleTapHandler] A11y: Second tap on same item, activating")
                 accessibleClicked()
             } else {
                 // First tap = announce only, don't activate
-                console.log("[AccessibleTapHandler] A11y: First tap, announcing:", root.accessibleName)
                 AccessibilityManager.lastAnnouncedItem = accessibleItem
                 AccessibilityManager.announce(root.accessibleName)
             }
         } else {
             // Normal mode
-            console.log("[AccessibleTapHandler] Normal mode, isDoubleTap:", isDoubleTap, "supportDoubleClick:", supportDoubleClick)
             if (isDoubleTap && supportDoubleClick) {
                 // Double-tap = special action
                 singleTapTimer.stop()
-                console.log("[AccessibleTapHandler] Double tap, emitting accessibleDoubleClicked")
                 accessibleDoubleClicked()
             } else if (supportDoubleClick) {
                 // Wait to see if double-tap is coming
-                console.log("[AccessibleTapHandler] Starting singleTapTimer")
                 singleTapTimer.restart()
             } else {
                 // No double-tap support, activate immediately
-                console.log("[AccessibleTapHandler] No double-tap support, emitting accessibleClicked immediately")
                 accessibleClicked()
             }
         }
     }
 
     onCanceled: {
-        console.log("[AccessibleTapHandler] onCanceled")
         longPressTimer.stop()
         singleTapTimer.stop()
         _isPressed = false

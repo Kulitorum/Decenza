@@ -1577,14 +1577,20 @@ KeyboardAwareContainer {
         id: totpSetupDialog
         parent: Overlay.overlay
         x: Math.round((parent.width - width) / 2)
-        y: Math.round(Math.max(Theme.scaled(20), (parent.height - height) / 2 - totpDialogKbOffset))
+        y: {
+            if (totpCodeField.activeFocus) {
+                // Center in the visible area above the keyboard
+                var kbHeight = Qt.inputMethod.keyboardRectangle.height;
+                if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
+                    kbHeight = parent.height * 0.45;
+                var availableHeight = parent.height - kbHeight;
+                return Math.round(Math.max(Theme.scaled(10), (availableHeight - height) / 2));
+            }
+            return Math.round((parent.height - height) / 2);
+        }
         width: Theme.scaled(380)
         padding: 0
         modal: true
-
-        // When the code field has focus, the QR code and instructions are hidden,
-        // making the dialog compact enough to fit above the keyboard without shifting.
-        property real totpDialogKbOffset: 0
 
         Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutQuad } }
 

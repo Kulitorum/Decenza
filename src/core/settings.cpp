@@ -603,10 +603,8 @@ int Settings::findFavoriteIndexByFilename(const QString& filename) const {
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.array();
 
-    qDebug() << "findFavoriteIndexByFilename: looking for" << filename << "in" << arr.size() << "favorites";
     for (int i = 0; i < arr.size(); ++i) {
         QString favFilename = arr[i].toObject()["filename"].toString();
-        qDebug() << "  [" << i << "]" << favFilename << (favFilename == filename ? "MATCH" : "");
         if (favFilename == filename) {
             return i;
         }
