@@ -36,16 +36,19 @@ Page {
         if (shotId > 0)
             MainController.shotHistory.requestShot(shotId)
 
-        groupDetails = MainController.shotHistory.getAutoFavoriteGroupDetails(
+        MainController.shotHistory.requestAutoFavoriteGroupDetails(
             groupBy, beanBrand, beanType, profileName, grinderModel, grinderSetting)
     }
 
-    // Handle async shot data
+    // Handle async shot data and group details
     Connections {
         target: MainController.shotHistory
         function onShotReady(id, shot) {
             if (id !== autoFavoriteInfoPage.shotId) return
             shotData = shot
+        }
+        function onAutoFavoriteGroupDetailsReady(details) {
+            groupDetails = details
         }
     }
 

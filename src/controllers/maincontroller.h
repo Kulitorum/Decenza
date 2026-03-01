@@ -330,7 +330,7 @@ private:
     double m_pendingShotFinalWeight = 0;
     double m_pendingShotDoseWeight = 0;
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
-    bool m_savingShot = false;     // Guard against overlapping async saves (SingleShotConnection race)
+    bool m_savingShot = false;     // Guard against overlapping async saves
 
     // Shot history and comparison
     ShotHistoryStorage* m_shotHistory = nullptr;

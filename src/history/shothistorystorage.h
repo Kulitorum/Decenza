@@ -147,14 +147,7 @@ struct ShotSaveData {
     int sampleCount = 0;
 
     // Phase markers (pre-extracted from QVariantList)
-    struct PhaseMarker {
-        double time = 0;
-        QString label;
-        int frameNumber = 0;
-        bool isFlowMode = false;
-        QString transitionReason;
-    };
-    QList<PhaseMarker> phaseMarkers;
+    QList<HistoryPhaseMarker> phaseMarkers;
 };
 
 class ShotHistoryStorage : public QObject {
@@ -223,8 +216,14 @@ public:
     Q_INVOKABLE bool deleteShot(qint64 shotId);
     Q_INVOKABLE void deleteShots(const QVariantList& shotIds);
 
+    // Async version: runs delete on background thread, emits shotDeleted()
+    Q_INVOKABLE void requestDeleteShot(qint64 shotId);
+
     // Update shot metadata (for editing existing shots)
     Q_INVOKABLE bool updateShotMetadata(qint64 shotId, const QVariantMap& metadata);
+
+    // Async version: runs update on background thread, emits shotMetadataUpdated()
+    Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
 
     // Get filter options (for dropdowns)
     Q_INVOKABLE QStringList getDistinctProfiles();
@@ -251,6 +250,9 @@ public:
     // groupBy: "bean", "profile", "bean_profile", "bean_profile_grinder"
     Q_INVOKABLE QVariantList getAutoFavorites(const QString& groupBy, int maxItems);
 
+    // Async version: runs query on background thread, emits autoFavoritesReady()
+    Q_INVOKABLE void requestAutoFavorites(const QString& groupBy, int maxItems);
+
     // Get aggregated details for a specific auto-favorite group
     // Returns: avgTds, avgEy, avgDuration, avgDose, avgYield, avgTemperature, notes[]
     Q_INVOKABLE QVariantMap getAutoFavoriteGroupDetails(const QString& groupBy,
@@ -260,14 +262,28 @@ public:
                                                          const QString& grinderModel,
                                                          const QString& grinderSetting);
 
+    // Async version: runs query on background thread, emits autoFavoriteGroupDetailsReady()
+    Q_INVOKABLE void requestAutoFavoriteGroupDetails(const QString& groupBy,
+                                                      const QString& beanBrand,
+                                                      const QString& beanType,
+                                                      const QString& profileName,
+                                                      const QString& grinderModel,
+                                                      const QString& grinderSetting);
+
     // Export debug log for bug report
     Q_INVOKABLE QString exportShotData(qint64 shotId);
 
     // Create backup at specified path (for scheduled backups)
     Q_INVOKABLE QString createBackup(const QString& destPath);
 
+    // Async version: runs backup on background thread, emits backupFinished()
+    Q_INVOKABLE void requestCreateBackup(const QString& destPath);
+
     // Import database from file path (merge=true adds new entries, merge=false replaces all)
     Q_INVOKABLE bool importDatabase(const QString& filePath, bool merge);
+
+    // Async version: runs import on background thread, emits importDatabaseFinished()
+    Q_INVOKABLE void requestImportDatabase(const QString& filePath, bool merge);
 
     // Import a shot record directly (for .shot file import)
     // Returns: shot ID on success, 0 if duplicate (skipped), -1 on error
@@ -312,6 +328,11 @@ signals:
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const QVariantMap& shot);
+    void importDatabaseFinished(bool success);
+    void shotMetadataUpdated(qint64 shotId, bool success);
+    void autoFavoritesReady(const QVariantList& results);
+    void autoFavoriteGroupDetailsReady(const QVariantMap& details);
+    void backupFinished(bool success, const QString& resultPath);
 
 private:
     bool createTables();

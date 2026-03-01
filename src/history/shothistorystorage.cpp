@@ -580,7 +580,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         return -1;
     }
 
-    // Extract all data from QObject pointers on the main thread into a POD struct
+    // Extract all data from QObject pointers on the main thread into a plain value struct
     ShotSaveData data;
     data.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     data.timestamp = QDateTime::currentSecsSinceEpoch();
@@ -614,7 +614,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     QVariantList markers = shotData->phaseMarkersVariant();
     for (const QVariant& markerVar : markers) {
         QVariantMap marker = markerVar.toMap();
-        ShotSaveData::PhaseMarker pm;
+        HistoryPhaseMarker pm;
         pm.time = marker["time"].toDouble();
         pm.label = marker["label"].toString();
         pm.frameNumber = marker["frameNumber"].toInt();
@@ -637,7 +637,10 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
         QMetaObject::invokeMethod(this, [this, shotId, destroyed,
                                          profileName, duration, sampleCount, compressedSize]() {
-            if (*destroyed) return;
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: saveShot callback dropped (object destroyed)";
+                return;
+            }
 
             if (shotId > 0) {
                 m_lastSavedShotId = shotId;
@@ -664,6 +667,11 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
 qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveData& data)
 {
+    if (data.uuid.isEmpty() || data.timestamp <= 0) {
+        qWarning() << "ShotHistoryStorage::saveShotStatic: invalid data - uuid empty or timestamp zero";
+        return -1;
+    }
+
     const QString connName = QString("shs_save_%1")
         .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
@@ -681,7 +689,11 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             }
 
             QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
-            db.transaction();
+
+            if (!db.transaction()) {
+                qWarning() << "ShotHistoryStorage: Failed to start transaction:" << db.lastError().text();
+                break;
+            }
 
             QSqlQuery query(db);
             query.prepare(R"(
@@ -751,7 +763,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             }
 
             // Insert phase markers
-            for (const ShotSaveData::PhaseMarker& pm : data.phaseMarkers) {
+            for (const HistoryPhaseMarker& pm : data.phaseMarkers) {
                 query.prepare(R"(
                     INSERT INTO shot_phases (shot_id, time_offset, label, frame_number, is_flow_mode, transition_reason)
                     VALUES (:shot_id, :time, :label, :frame, :flow_mode, :reason)
@@ -1206,7 +1218,10 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             QMetaObject::invokeMethod(
                 this,
                 [this, results = std::move(results), serial, isAppend, totalCount, destroyed]() mutable {
-                    if (*destroyed) return;
+                    if (*destroyed) {
+                        qDebug() << "ShotHistoryStorage: shotsFiltered callback dropped (object destroyed)";
+                        return;
+                    }
                     if (serial != m_filterSerial) return;
                     m_loadingFiltered = false;
                     emit loadingFilteredChanged();
@@ -1262,7 +1277,10 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
 
         // Convert to QVariantMap on main thread (touches QML-visible data)
         QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), destroyed]() {
-            if (*destroyed) return;
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: requestShot callback dropped (object destroyed)";
+                return;
+            }
             emit shotReady(shotId, convertShotRecord(record));
         }, Qt::QueuedConnection);
     });
@@ -1580,7 +1598,10 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
         QSqlDatabase::removeDatabase(connName);
 
         QMetaObject::invokeMethod(this, [this, shotIds, success, destroyed]() {
-            if (*destroyed) return;
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: deleteShots callback dropped (object destroyed)";
+                return;
+            }
             if (success) {
                 updateTotalShots();
                 invalidateDistinctCache();
@@ -1588,6 +1609,62 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
                     emit shotDeleted(id.toLongLong());
                 emit shotsDeleted(shotIds);
                 qDebug() << "ShotHistoryStorage: Batch deleted" << shotIds.size() << "shots";
+            }
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
+{
+    if (!m_ready) {
+        qWarning() << "ShotHistoryStorage: Cannot delete shot - not ready";
+        emit errorOccurred("Cannot delete shot: database not ready");
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+
+    QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
+        const QString connName = QString("shs_rdel_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+        bool success = false;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+                QSqlQuery query(db);
+                query.prepare("DELETE FROM shots WHERE id = ?");
+                query.bindValue(0, shotId);
+                if (query.exec()) {
+                    success = true;
+                } else {
+                    qWarning() << "ShotHistoryStorage: Failed to async delete shot:" << query.lastError().text();
+                }
+            } else {
+                qWarning() << "ShotHistoryStorage: Failed to open DB for async deleteShot";
+            }
+        }
+        QSqlDatabase::removeDatabase(connName);
+
+        QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: deleteShot callback dropped (object destroyed)";
+                return;
+            }
+            if (success) {
+                refreshTotalShots();
+                invalidateDistinctCache();
+                emit shotDeleted(shotId);
+                qDebug() << "ShotHistoryStorage: Async deleted shot" << shotId;
+            } else {
+                qWarning() << "ShotHistoryStorage: Failed to async delete shot" << shotId;
+                emit errorOccurred(QString("Failed to delete shot %1").arg(shotId));
             }
         }, Qt::QueuedConnection);
     });
@@ -1645,6 +1722,93 @@ bool ShotHistoryStorage::updateShotMetadata(qint64 shotId, const QVariantMap& me
     invalidateDistinctCache();
     qDebug() << "ShotHistoryStorage: Updated metadata for shot" << shotId;
     return true;
+}
+
+void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata)
+{
+    if (!m_ready) {
+        emit shotMetadataUpdated(shotId, false);
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+
+    QThread* thread = QThread::create([this, dbPath, shotId, metadata, destroyed]() {
+        const QString connName = QString("shs_rupd_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+        bool success = false;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+                QSqlQuery query(db);
+                query.prepare(R"(
+                    UPDATE shots SET
+                        bean_brand = :bean_brand,
+                        bean_type = :bean_type,
+                        roast_date = :roast_date,
+                        roast_level = :roast_level,
+                        grinder_model = :grinder_model,
+                        grinder_setting = :grinder_setting,
+                        drink_tds = :drink_tds,
+                        drink_ey = :drink_ey,
+                        enjoyment = :enjoyment,
+                        espresso_notes = :espresso_notes,
+                        barista = :barista,
+                        dose_weight = :dose_weight,
+                        final_weight = :final_weight,
+                        beverage_type = :beverage_type,
+                        updated_at = strftime('%s', 'now')
+                    WHERE id = :id
+                )");
+
+                query.bindValue(":bean_brand", metadata.value("beanBrand").toString());
+                query.bindValue(":bean_type", metadata.value("beanType").toString());
+                query.bindValue(":roast_date", metadata.value("roastDate").toString());
+                query.bindValue(":roast_level", metadata.value("roastLevel").toString());
+                query.bindValue(":grinder_model", metadata.value("grinderModel").toString());
+                query.bindValue(":grinder_setting", metadata.value("grinderSetting").toString());
+                query.bindValue(":drink_tds", metadata.value("drinkTds").toDouble());
+                query.bindValue(":drink_ey", metadata.value("drinkEy").toDouble());
+                query.bindValue(":enjoyment", metadata.value("enjoyment").toInt());
+                query.bindValue(":espresso_notes", metadata.value("espressoNotes").toString());
+                query.bindValue(":barista", metadata.value("barista").toString());
+                query.bindValue(":dose_weight", metadata.value("doseWeight").toDouble());
+                query.bindValue(":final_weight", metadata.value("finalWeight").toDouble());
+                query.bindValue(":beverage_type", metadata.value("beverageType", "espresso").toString());
+                query.bindValue(":id", shotId);
+
+                if (query.exec()) {
+                    success = true;
+                } else {
+                    qWarning() << "ShotHistoryStorage: Failed to async update metadata:" << query.lastError().text();
+                }
+            } else {
+                qWarning() << "ShotHistoryStorage: Failed to open DB for async updateShotMetadata";
+            }
+        }
+        QSqlDatabase::removeDatabase(connName);
+
+        QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: updateMetadata callback dropped (object destroyed)";
+                return;
+            }
+            if (success) {
+                invalidateDistinctCache();
+            } else {
+                emit errorOccurred(QString("Failed to save metadata for shot %1").arg(shotId));
+            }
+            emit shotMetadataUpdated(shotId, success);
+            qDebug() << "ShotHistoryStorage: Async updated metadata for shot" << shotId << "success:" << success;
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 // Helper for all getDistinct* methods
@@ -1906,6 +2070,127 @@ QVariantList ShotHistoryStorage::getAutoFavorites(const QString& groupBy, int ma
     return results;
 }
 
+void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxItems)
+{
+    if (!m_ready) {
+        emit autoFavoritesReady(QVariantList());
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+
+    // Build SQL on main thread (pure string manipulation, fast)
+    QString selectColumns;
+    QString groupColumns;
+    QString joinConditions;
+
+    if (groupBy == "bean") {
+        selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
+                        "COALESCE(bean_type, '') AS gb_bean_type";
+        groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, '')";
+        joinConditions = "COALESCE(s.bean_brand, '') = g.gb_bean_brand "
+                         "AND COALESCE(s.bean_type, '') = g.gb_bean_type";
+    } else if (groupBy == "profile") {
+        selectColumns = "COALESCE(profile_name, '') AS gb_profile_name";
+        groupColumns = "COALESCE(profile_name, '')";
+        joinConditions = "COALESCE(s.profile_name, '') = g.gb_profile_name";
+    } else if (groupBy == "bean_profile_grinder") {
+        selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
+                        "COALESCE(bean_type, '') AS gb_bean_type, "
+                        "COALESCE(profile_name, '') AS gb_profile_name, "
+                        "COALESCE(grinder_model, '') AS gb_grinder_model, "
+                        "COALESCE(grinder_setting, '') AS gb_grinder_setting";
+        groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, ''), "
+                       "COALESCE(profile_name, ''), COALESCE(grinder_model, ''), "
+                       "COALESCE(grinder_setting, '')";
+        joinConditions = "COALESCE(s.bean_brand, '') = g.gb_bean_brand "
+                         "AND COALESCE(s.bean_type, '') = g.gb_bean_type "
+                         "AND COALESCE(s.profile_name, '') = g.gb_profile_name "
+                         "AND COALESCE(s.grinder_model, '') = g.gb_grinder_model "
+                         "AND COALESCE(s.grinder_setting, '') = g.gb_grinder_setting";
+    } else {
+        // Default: bean_profile
+        selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
+                        "COALESCE(bean_type, '') AS gb_bean_type, "
+                        "COALESCE(profile_name, '') AS gb_profile_name";
+        groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, ''), COALESCE(profile_name, '')";
+        joinConditions = "COALESCE(s.bean_brand, '') = g.gb_bean_brand "
+                         "AND COALESCE(s.bean_type, '') = g.gb_bean_type "
+                         "AND COALESCE(s.profile_name, '') = g.gb_profile_name";
+    }
+
+    QString sql = QString(
+        "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
+        "s.grinder_model, s.grinder_setting, s.dose_weight, s.final_weight, "
+        "s.timestamp, g.shot_count, g.avg_enjoyment "
+        "FROM shots s "
+        "INNER JOIN ("
+        "  SELECT %1, MAX(timestamp) as max_ts, "
+        "  COUNT(*) as shot_count, "
+        "  AVG(CASE WHEN enjoyment > 0 THEN enjoyment ELSE NULL END) as avg_enjoyment "
+        "  FROM shots "
+        "  WHERE (bean_brand IS NOT NULL AND bean_brand != '') "
+        "     OR (profile_name IS NOT NULL AND profile_name != '') "
+        "  GROUP BY %2"
+        ") g ON s.timestamp = g.max_ts AND %3 "
+        "ORDER BY s.timestamp DESC "
+        "LIMIT %4"
+    ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems);
+
+    QThread* thread = QThread::create([this, dbPath, sql, destroyed]() {
+        const QString connName = QString("shs_raf_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+        QVariantList results;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+                QSqlQuery query(db);
+                if (query.exec(sql)) {
+                    while (query.next()) {
+                        QVariantMap entry;
+                        entry["shotId"] = query.value("id").toLongLong();
+                        entry["profileName"] = query.value("profile_name").toString();
+                        entry["beanBrand"] = query.value("bean_brand").toString();
+                        entry["beanType"] = query.value("bean_type").toString();
+                        entry["grinderModel"] = query.value("grinder_model").toString();
+                        entry["grinderSetting"] = query.value("grinder_setting").toString();
+                        entry["doseWeight"] = query.value("dose_weight").toDouble();
+                        entry["finalWeight"] = query.value("final_weight").toDouble();
+                        entry["lastUsedTimestamp"] = query.value("timestamp").toLongLong();
+                        entry["shotCount"] = query.value("shot_count").toInt();
+                        entry["avgEnjoyment"] = query.value("avg_enjoyment").toInt();
+                        results.append(entry);
+                    }
+                } else {
+                    qWarning() << "ShotHistoryStorage: Async getAutoFavorites query failed:" << query.lastError().text();
+                }
+            } else {
+                qWarning() << "ShotHistoryStorage: Failed to open DB for async getAutoFavorites";
+                QMetaObject::invokeMethod(this, [this, destroyed]() {
+                    if (*destroyed) return;
+                    emit errorOccurred("Failed to open database for auto-favorites");
+                }, Qt::QueuedConnection);
+            }
+        }
+        QSqlDatabase::removeDatabase(connName);
+
+        QMetaObject::invokeMethod(this, [this, results, destroyed]() {
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: autoFavorites callback dropped (object destroyed)";
+                return;
+            }
+            emit autoFavoritesReady(results);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
 QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& groupBy,
                                                             const QString& beanBrand,
                                                             const QString& beanType,
@@ -1949,7 +2234,7 @@ QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& group
     QString statsSql = "SELECT "
         "AVG(CASE WHEN drink_tds > 0 THEN drink_tds ELSE NULL END) as avg_tds, "
         "AVG(CASE WHEN drink_ey > 0 THEN drink_ey ELSE NULL END) as avg_ey, "
-        "AVG(CASE WHEN duration > 0 THEN duration ELSE NULL END) as avg_duration, "
+        "AVG(CASE WHEN duration_seconds > 0 THEN duration_seconds ELSE NULL END) as avg_duration, "
         "AVG(CASE WHEN dose_weight > 0 THEN dose_weight ELSE NULL END) as avg_dose, "
         "AVG(CASE WHEN final_weight > 0 THEN final_weight ELSE NULL END) as avg_yield, "
         "AVG(CASE WHEN temperature_override > 0 THEN temperature_override ELSE NULL END) as avg_temperature "
@@ -1993,6 +2278,129 @@ QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& group
     result["notes"] = notes;
 
     return result;
+}
+
+void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
+                                                          const QString& beanBrand,
+                                                          const QString& beanType,
+                                                          const QString& profileName,
+                                                          const QString& grinderModel,
+                                                          const QString& grinderSetting)
+{
+    if (!m_ready) {
+        emit autoFavoriteGroupDetailsReady(QVariantMap());
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+
+    // Build WHERE clause on main thread (pure computation, fast)
+    QStringList conditions;
+    QVariantList bindValues;
+
+    auto addCondition = [&](const QString& column, const QString& value) {
+        conditions << QString("COALESCE(%1, '') = ?").arg(column);
+        bindValues << value;
+    };
+
+    if (groupBy == "bean") {
+        addCondition("bean_brand", beanBrand);
+        addCondition("bean_type", beanType);
+    } else if (groupBy == "profile") {
+        addCondition("profile_name", profileName);
+    } else if (groupBy == "bean_profile_grinder") {
+        addCondition("bean_brand", beanBrand);
+        addCondition("bean_type", beanType);
+        addCondition("profile_name", profileName);
+        addCondition("grinder_model", grinderModel);
+        addCondition("grinder_setting", grinderSetting);
+    } else {
+        // bean_profile (default)
+        addCondition("bean_brand", beanBrand);
+        addCondition("bean_type", beanType);
+        addCondition("profile_name", profileName);
+    }
+
+    QString whereClause = " WHERE " + conditions.join(" AND ");
+
+    QString statsSql = "SELECT "
+        "AVG(CASE WHEN drink_tds > 0 THEN drink_tds ELSE NULL END) as avg_tds, "
+        "AVG(CASE WHEN drink_ey > 0 THEN drink_ey ELSE NULL END) as avg_ey, "
+        "AVG(CASE WHEN duration_seconds > 0 THEN duration_seconds ELSE NULL END) as avg_duration, "
+        "AVG(CASE WHEN dose_weight > 0 THEN dose_weight ELSE NULL END) as avg_dose, "
+        "AVG(CASE WHEN final_weight > 0 THEN final_weight ELSE NULL END) as avg_yield, "
+        "AVG(CASE WHEN temperature_override > 0 THEN temperature_override ELSE NULL END) as avg_temperature "
+        "FROM shots" + whereClause;
+
+    QString notesSql = "SELECT espresso_notes, timestamp FROM shots" + whereClause +
+        " AND espresso_notes IS NOT NULL AND espresso_notes != '' "
+        "ORDER BY timestamp DESC";
+
+    QThread* thread = QThread::create([this, dbPath, statsSql, notesSql, bindValues, destroyed]() {
+        const QString connName = QString("shs_ragd_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+        QVariantMap result;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+                // Stats query
+                QSqlQuery statsQuery(db);
+                statsQuery.prepare(statsSql);
+                for (int i = 0; i < bindValues.size(); ++i)
+                    statsQuery.bindValue(i, bindValues[i]);
+
+                if (statsQuery.exec() && statsQuery.next()) {
+                    result["avgTds"] = statsQuery.value("avg_tds").toDouble();
+                    result["avgEy"] = statsQuery.value("avg_ey").toDouble();
+                    result["avgDuration"] = statsQuery.value("avg_duration").toDouble();
+                    result["avgDose"] = statsQuery.value("avg_dose").toDouble();
+                    result["avgYield"] = statsQuery.value("avg_yield").toDouble();
+                    result["avgTemperature"] = statsQuery.value("avg_temperature").toDouble();
+                }
+
+                // Notes query
+                QSqlQuery notesQuery(db);
+                notesQuery.prepare(notesSql);
+                for (int i = 0; i < bindValues.size(); ++i)
+                    notesQuery.bindValue(i, bindValues[i]);
+
+                QVariantList notes;
+                if (notesQuery.exec()) {
+                    while (notesQuery.next()) {
+                        QVariantMap note;
+                        note["text"] = notesQuery.value("espresso_notes").toString();
+                        qint64 ts = notesQuery.value("timestamp").toLongLong();
+                        note["timestamp"] = ts;
+                        note["dateTime"] = QDateTime::fromSecsSinceEpoch(ts).toString("yyyy-MM-dd hh:mm");
+                        notes.append(note);
+                    }
+                }
+                result["notes"] = notes;
+            } else {
+                qWarning() << "ShotHistoryStorage: Failed to open DB for async getAutoFavoriteGroupDetails";
+                QMetaObject::invokeMethod(this, [this, destroyed]() {
+                    if (*destroyed) return;
+                    emit errorOccurred("Failed to open database for auto-favorite details");
+                }, Qt::QueuedConnection);
+            }
+        }
+        QSqlDatabase::removeDatabase(connName);
+
+        QMetaObject::invokeMethod(this, [this, result, destroyed]() {
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: autoFavoriteGroupDetails callback dropped (object destroyed)";
+                return;
+            }
+            emit autoFavoriteGroupDetailsReady(result);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 QString ShotHistoryStorage::exportShotData(qint64 shotId)
@@ -2153,6 +2561,42 @@ QString ShotHistoryStorage::createBackup(const QString& destPath)
         emit errorOccurred(error);
         return QString();
     }
+}
+
+void ShotHistoryStorage::requestCreateBackup(const QString& destPath)
+{
+    if (m_backupInProgress) {
+        qWarning() << "ShotHistoryStorage: Backup already in progress";
+        emit backupFinished(false, QString());
+        return;
+    }
+
+    if (m_dbPath.isEmpty()) {
+        emit errorOccurred("Database path not set");
+        emit backupFinished(false, QString());
+        return;
+    }
+
+    m_backupInProgress = true;
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+
+    QThread* thread = QThread::create([this, dbPath, destPath, destroyed]() {
+        QString resultPath = createBackupStatic(dbPath, destPath);
+
+        QMetaObject::invokeMethod(this, [this, resultPath, destroyed]() {
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: backup callback dropped (object destroyed)";
+                return;
+            }
+            m_backupInProgress = false;
+            emit backupFinished(!resultPath.isEmpty(), resultPath);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 void ShotHistoryStorage::checkpoint()
@@ -2459,6 +2903,62 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
 
     qDebug() << "ShotHistoryStorage: Import complete -" << imported << "imported," << skipped << "skipped";
     return true;
+}
+
+void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool merge)
+{
+    if (m_importInProgress) {
+        qWarning() << "ShotHistoryStorage: Import already in progress";
+        emit errorOccurred("Import already in progress");
+        emit importDatabaseFinished(false);
+        return;
+    }
+
+    if (m_dbPath.isEmpty()) {
+        emit errorOccurred("Database not open");
+        emit importDatabaseFinished(false);
+        return;
+    }
+
+    // Clean up file path on main thread (pure string manipulation)
+    QString cleanPath = filePath;
+    if (cleanPath.startsWith("file:///")) {
+        cleanPath = cleanPath.mid(8);  // Remove "file:///"
+#ifdef Q_OS_WIN
+        // On Windows, file:///C:/path becomes C:/path
+#else
+        cleanPath = "/" + cleanPath;  // On Unix, need leading /
+#endif
+    } else if (cleanPath.startsWith("file://")) {
+        cleanPath = cleanPath.mid(7);
+    }
+
+    m_importInProgress = true;
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+
+    QThread* thread = QThread::create([this, dbPath, cleanPath, merge, destroyed]() {
+        bool success = importDatabaseStatic(dbPath, cleanPath, merge);
+
+        QMetaObject::invokeMethod(this, [this, success, destroyed]() {
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: importDatabase callback dropped (object destroyed)";
+                return;
+            }
+            m_importInProgress = false;
+            if (success) {
+                refreshTotalShots();
+                invalidateDistinctCache();
+            } else {
+                emit errorOccurred("Database import failed. The file may be corrupt or the disk may be full.");
+            }
+            emit importDatabaseFinished(success);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 // ============================================================================
@@ -3085,7 +3585,10 @@ void ShotHistoryStorage::refreshTotalShots()
     QThread* thread = QThread::create([this, dbPath, destroyed]() {
         int count = getShotCountStatic(dbPath);
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
-            if (*destroyed) return;
+            if (*destroyed) {
+                qDebug() << "ShotHistoryStorage: refreshTotalShots callback dropped (object destroyed)";
+                return;
+            }
             if (count < 0) return;  // Ignore errors, keep previous count
             if (count != m_totalShots) {
                 m_totalShots = count;

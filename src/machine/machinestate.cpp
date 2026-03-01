@@ -293,10 +293,10 @@ void MachineState::updatePhase() {
 
                 // Auto-tare for Hot Water (espresso tares at cycle start via MainController)
                 if (m_phase == Phase::HotWater) {
-                    QTimer::singleShot(100, this, [this]() {
+                    QMetaObject::invokeMethod(this, [this]() {
                         tareScale();
                         qDebug() << "=== TARE: Hot Water started ===";
-                    });
+                    }, Qt::QueuedConnection);
                 }
             } else {
                 // Mid-espresso: either starting extraction (from preheating) or glitch recovery
