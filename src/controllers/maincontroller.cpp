@@ -2854,6 +2854,12 @@ void MainController::onShotEnded() {
                     qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
                     m_lastSavedShotId = 0;
                     emit lastSavedShotIdChanged();
+
+                    // Still navigate to review page so user isn't stranded on espresso page
+                    if (showPostShot) {
+                        qWarning() << "[metadata] Shot save failed but still showing review page";
+                        emit shotEndedShowMetadata();
+                    }
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
@@ -2864,7 +2870,12 @@ void MainController::onShotEnded() {
                 shotTemperatureOverride, shotYieldOverride);
         }
     } else {
-        qDebug() << "[metadata] WARNING: Could not save shot - history not ready!";
+        qWarning() << "[metadata] Could not save shot - history not ready!";
+
+        // Still navigate to review page so user isn't stranded on espresso page
+        if (showPostShot) {
+            emit shotEndedShowMetadata();
+        }
     }
 
     // Report shot to decenza.coffee shot map
