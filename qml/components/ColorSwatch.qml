@@ -38,6 +38,7 @@ Rectangle {
             color: Theme.textColor
             font.pixelSize: Theme.scaled(14)
             anchors.verticalCenter: parent.verticalCenter
+            Accessible.ignored: true
         }
     }
 
@@ -52,7 +53,13 @@ Rectangle {
         radius: 1.5
     }
 
+    Accessible.role: Accessible.Button
+    Accessible.name: root.displayName + " color" + (root.selected ? ", selected" : "")
+    Accessible.focusable: true
+    Accessible.onPressAction: swatchMa.clicked(null)
+
     MouseArea {
+        id: swatchMa
         anchors.fill: parent
         onClicked: root.clicked()
     }

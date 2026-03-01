@@ -15,9 +15,13 @@ Page {
     property string testResultMessage: ""
     property bool testResultSuccess: false
 
-    Flickable {
+    KeyboardAwareContainer {
         anchors.fill: parent
-        anchors.margins: Theme.standardMargin
+        textFields: [apiKeyField, ollamaEndpointField]
+
+        Flickable {
+            anchors.fill: parent
+            anchors.margins: Theme.standardMargin
         contentHeight: contentColumn.height
         clip: true
 
@@ -342,6 +346,7 @@ Page {
             }
 
             Item { height: Theme.spacingLarge }
+        }
         }
     }
 

@@ -417,21 +417,11 @@ Page {
                 Layout.alignment: Qt.AlignHCenter
             }
 
-            TextField {
+            StyledTextField {
                 id: themeNameInput
                 Layout.fillWidth: true
-                color: Theme.textColor
-                placeholderTextColor: Theme.textSecondaryColor
-                leftPadding: Theme.scaled(12)
-                rightPadding: Theme.scaled(12)
-                topPadding: Theme.scaled(12)
-                bottomPadding: Theme.scaled(12)
-                background: Rectangle {
-                    color: Theme.backgroundColor
-                    radius: Theme.buttonRadius
-                    border.color: themeNameInput.activeFocus ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
-                }
+                placeholder: TranslationManager.translate("settings.themes.themeNamePlaceholder", "Theme name")
+                accessibleName: TranslationManager.translate("settings.themes.themeNamePlaceholder", "Theme name")
                 onTextChanged: saveThemeDialog.themeName = text
                 onAccepted: {
                     if (saveThemeDialog.themeName.trim().length > 0) {

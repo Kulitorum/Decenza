@@ -222,6 +222,11 @@ Popup {
                             : Theme.borderColor
                         border.width: 1
 
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.label + (popup.mapTexture === modelData.value ? ", selected" : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: mapTextureArea.clicked(null)
+
                         Text {
                             anchors.centerIn: parent
                             text: modelData.label
@@ -229,9 +234,11 @@ Popup {
                             color: popup.mapTexture === modelData.value
                                 ? "white"
                                 : Theme.textColor
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: mapTextureArea
                             anchors.fill: parent
                             onClicked: popup.mapTexture = modelData.value
                         }
@@ -341,13 +348,20 @@ Popup {
                 border.color: Theme.borderColor
                 border.width: 1
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "Cancel"
+                Accessible.focusable: true
+                Accessible.onPressAction: cancelArea.clicked(null)
+
                 Text {
                     anchors.centerIn: parent
                     text: "Cancel"
                     font: Theme.bodyFont
                     color: Theme.textColor
+                    Accessible.ignored: true
                 }
                 MouseArea {
+                    id: cancelArea
                     anchors.fill: parent
                     onClicked: popup.close()
                 }
@@ -360,13 +374,20 @@ Popup {
                 color: Theme.primaryColor
                 visible: popup.hasSettings
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "Save"
+                Accessible.focusable: true
+                Accessible.onPressAction: saveArea.clicked(null)
+
                 Text {
                     anchors.centerIn: parent
                     text: "Save"
                     font: Theme.bodyFont
                     color: "white"
+                    Accessible.ignored: true
                 }
                 MouseArea {
+                    id: saveArea
                     anchors.fill: parent
                     onClicked: popup.save()
                 }

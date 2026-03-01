@@ -197,6 +197,11 @@ Item {
                     radius: Theme.scaled(10)
                     color: Theme.successColor
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: (MainController.currentProfileName || "") + " " + TranslationManager.translate("espressoitem.accessible.startespresso", "Start espresso")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: nonFavMouseArea.clicked(null)
+
                     Text {
                         id: nonFavText
                         anchors.centerIn: parent
@@ -204,9 +209,11 @@ Item {
                         color: "white"
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
+                        id: nonFavMouseArea
                         anchors.fill: parent
                         onClicked: {
                             if (MachineState.isReady) {

@@ -58,6 +58,11 @@ Page {
                 radius: Theme.cardRadius
                 clip: true
 
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("comparison.crosshair", "Graph crosshair inspector")
+                Accessible.focusable: true
+                Accessible.onPressAction: graphMouseArea.clicked(null)
+
                 ComparisonGraph {
                     id: comparisonGraph
                     anchors.fill: parent
@@ -71,11 +76,6 @@ Page {
                     id: graphMouseArea
                     anchors.fill: parent
                     anchors.bottomMargin: resizeHandle.height
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("comparison.crosshair", "Graph crosshair inspector")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: graphMouseArea.clicked(null)
 
                     property bool scrubbing: false
                     property real pressX: 0
@@ -197,6 +197,7 @@ Page {
                     anchors.right: parent.right
                     height: Theme.scaled(16)
                     color: "transparent"
+                    Accessible.ignored: true
 
                     // Visual indicator (three lines)
                     Column {

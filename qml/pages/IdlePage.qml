@@ -344,6 +344,11 @@ Page {
                             radius: Theme.scaled(10)
                             color: Theme.successColor
 
+                            Accessible.role: Accessible.Button
+                            Accessible.name: (MainController.currentProfileName || "") + " " + TranslationManager.translate("idle.accessible.startespresso", "Start espresso")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: idleNonFavMouseArea.clicked(null)
+
                             Text {
                                 id: nonFavoriteProfileText
                                 anchors.centerIn: parent
@@ -351,9 +356,11 @@ Page {
                                 color: "white"
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
+                                Accessible.ignored: true
                             }
 
                             MouseArea {
+                                id: idleNonFavMouseArea
                                 anchors.fill: parent
                                 onClicked: {
                                     if (MachineState.isReady) {

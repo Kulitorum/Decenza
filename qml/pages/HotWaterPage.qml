@@ -90,15 +90,23 @@ Page {
                         border.color: index === Settings.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.vessel", "vessel") +
+                                         (index === Settings.selectedWaterVessel ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: liveVesselArea.clicked(null)
+
                         Text {
                             id: liveVesselText
                             anchors.centerIn: parent
                             text: modelData.name
                             color: index === Settings.selectedWaterVessel ? "white" : Theme.textColor
                             font: Theme.bodyFont
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: liveVesselArea
                             anchors.fill: parent
                             onClicked: {
                                 Settings.selectedWaterVessel = index
@@ -429,15 +437,23 @@ Page {
                                 border.color: !isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("hotwater.mode.weight", "Weight (g)") +
+                                                 (!isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: weightModeArea.clicked(null)
+
                                 Text {
                                     id: weightModeText
                                     anchors.centerIn: parent
                                     text: TranslationManager.translate("hotwater.mode.weight", "Weight (g)")
                                     color: !isVolumeMode ? "white" : Theme.textColor
                                     font: Theme.bodyFont
+                                    Accessible.ignored: true
                                 }
 
                                 MouseArea {
+                                    id: weightModeArea
                                     anchors.fill: parent
                                     onClicked: {
                                         Settings.waterVolumeMode = "weight"
@@ -455,15 +471,23 @@ Page {
                                 border.color: isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("hotwater.mode.volume", "Volume (ml)") +
+                                                 (isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: volumeModeArea.clicked(null)
+
                                 Text {
                                     id: volumeModeText
                                     anchors.centerIn: parent
                                     text: TranslationManager.translate("hotwater.mode.volume", "Volume (ml)")
                                     color: isVolumeMode ? "white" : Theme.textColor
                                     font: Theme.bodyFont
+                                    Accessible.ignored: true
                                 }
 
                                 MouseArea {
+                                    id: volumeModeArea
                                     anchors.fill: parent
                                     onClicked: {
                                         Settings.waterVolumeMode = "volume"

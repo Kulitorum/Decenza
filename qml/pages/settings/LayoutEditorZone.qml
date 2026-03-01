@@ -366,44 +366,13 @@ Rectangle {
                     onClicked: addPopup.open()
                 }
 
-                Popup {
+                Dialog {
                     id: addPopup
+                    modal: true
+                    parent: Overlay.overlay
+                    anchors.centerIn: parent
                     padding: Theme.scaled(4)
                     closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
-
-                    // Computed once on open, not live bindings
-                    property bool opensAbove: false
-                    property real maxListHeight: Theme.scaled(300)
-
-                    onAboutToShow: {
-                        var win = addButton.Window.window
-                        if (!win) return
-                        var globalY = addButton.mapToItem(null, 0, 0).y
-                        var spaceBelow = win.height - globalY - addButton.height - Theme.spacingSmall
-                        var spaceAbove = globalY - Theme.spacingSmall
-                        opensAbove = spaceAbove > spaceBelow
-                        var space = opensAbove ? spaceAbove : spaceBelow
-                        maxListHeight = Math.max(Theme.scaled(100), space - 2 * padding)
-                    }
-
-                    y: opensAbove
-                        ? -addListView.height - 2 * padding - Theme.spacingSmall
-                        : addButton.height + Theme.spacingSmall
-
-                    x: {
-                        var win = addButton.Window.window
-                        var popupW = addListView.implicitWidth + 2 * padding
-                        if (win) {
-                            var globalX = addButton.mapToItem(null, 0, 0).x
-                            var candidateX = 0
-                            if (globalX + popupW > win.width)
-                                candidateX = addButton.width - popupW
-                            if (globalX + candidateX < 0)
-                                candidateX = -globalX
-                            return candidateX
-                        }
-                        return 0
-                    }
 
                     background: Rectangle {
                         color: Theme.surfaceColor
@@ -414,8 +383,8 @@ Rectangle {
 
                     contentItem: ListView {
                         id: addListView
-                        implicitWidth: Theme.scaled(160)
-                        implicitHeight: Math.min(contentHeight, addPopup.maxListHeight)
+                        implicitWidth: Theme.scaled(200)
+                        implicitHeight: Math.min(contentHeight, Theme.scaled(400))
                         boundsBehavior: Flickable.StopAtBounds
                         clip: true
 

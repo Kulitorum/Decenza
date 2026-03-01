@@ -225,6 +225,7 @@ Page {
                 Accessible.role: Accessible.Graphic
                 Accessible.name: "Shot graph. Tap to inspect values"
                 Accessible.focusable: true
+                Accessible.onPressAction: reviewGraphMouseArea.clicked(null)
 
                 HistoryShotGraph {
                     id: reviewGraph
@@ -243,6 +244,7 @@ Page {
 
                 // Tap/drag-to-inspect overlay (shows crosshair, values shown above graph)
                 MouseArea {
+                    id: reviewGraphMouseArea
                     anchors.fill: reviewGraph
                     onClicked: function(mouse) {
                         if (mouse.x > reviewGraph.plotArea.x + reviewGraph.plotArea.width) {

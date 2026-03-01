@@ -273,6 +273,11 @@ Page {
                 radius: Theme.cardRadius
                 visible: isEditMode && editShotData.pressure && editShotData.pressure.length > 0
 
+                Accessible.role: Accessible.Graphic
+                Accessible.name: TranslationManager.translate("beaninfo.graph.accessible", "Shot graph. Tap to inspect values")
+                Accessible.focusable: true
+                Accessible.onPressAction: beanGraphMouseArea.clicked(null)
+
                 HistoryShotGraph {
                     id: beanGraph
                     anchors.fill: parent
@@ -290,6 +295,7 @@ Page {
 
                 // Tap-to-announce overlay (reads out curve values at tapped position)
                 MouseArea {
+                    id: beanGraphMouseArea
                     anchors.fill: beanGraph
                     onClicked: function(mouse) {
                         beanGraph.announceAtPosition(mouse.x, mouse.y)
@@ -304,6 +310,7 @@ Page {
                     anchors.right: parent.right
                     height: Theme.scaled(16)
                     color: "transparent"
+                    Accessible.ignored: true
 
                     // Visual indicator (three lines)
                     Column {

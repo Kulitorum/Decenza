@@ -64,6 +64,11 @@ Item {
 
                 property bool copied: false
 
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("settings.bluetooth.copyemail", "Copy email address") + " decenzalogs@kulitorum.com"
+                Accessible.focusable: true
+                Accessible.onPressAction: emailMouseArea.clicked(null)
+
                 RowLayout {
                     anchors.centerIn: parent
                     spacing: Theme.scaled(8)
@@ -73,6 +78,7 @@ Item {
                         color: Theme.accentColor
                         font.pixelSize: Theme.scaled(15)
                         font.bold: true
+                        Accessible.ignored: true
                     }
 
                     Text {
@@ -80,6 +86,7 @@ Item {
                         color: Theme.accentColor
                         font.pixelSize: Theme.scaled(16)
                         visible: !emailBox.copied
+                        Accessible.ignored: true
                     }
                 }
 
@@ -154,15 +161,22 @@ Item {
                     color: Theme.accentColor
                     radius: Theme.scaled(6)
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("settings.bluetooth.shareNow", "Share Log File")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: shareLogArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("settings.bluetooth.shareNow", "Share Log File")
                         color: "white"
                         font.pixelSize: Theme.scaled(13)
                         font.bold: true
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
+                        id: shareLogArea
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {

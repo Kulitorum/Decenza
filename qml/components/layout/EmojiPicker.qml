@@ -91,15 +91,22 @@ Item {
                         border.color: Theme.borderColor
                         border.width: 1
 
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.name + " category" + (root._activeCategory === index ? ", selected" : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: emojiTabMa.clicked(null)
+
                         Text {
                             id: tabLabel
                             anchors.centerIn: parent
                             text: modelData.name
                             color: root._activeCategory === index ? "white" : Theme.textColor
                             font: Theme.captionFont
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: emojiTabMa
                             anchors.fill: parent
                             onClicked: root._activeCategory = index
                         }
@@ -115,12 +122,18 @@ Item {
                     border.color: Theme.errorColor
                     border.width: 1
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Clear emoji"
+                    Accessible.focusable: true
+                    Accessible.onPressAction: clearMa.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "\u00D7"
                         color: clearMa.pressed ? "white" : Theme.errorColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
+                        Accessible.ignored: true
                     }
 
                     MouseArea {

@@ -14,44 +14,44 @@ Page {
 
     // ISO 639-1 common languages (sorted by English name)
     property var isoLanguages: [
-        { code: "ar", name: "Arabic", native: "العربية" },
-        { code: "bg", name: "Bulgarian", native: "Български" },
-        { code: "ca", name: "Catalan", native: "Català" },
-        { code: "zh", name: "Chinese", native: "中文" },
-        { code: "hr", name: "Croatian", native: "Hrvatski" },
-        { code: "cs", name: "Czech", native: "Čeština" },
-        { code: "da", name: "Danish", native: "Dansk" },
-        { code: "nl", name: "Dutch", native: "Nederlands" },
-        { code: "et", name: "Estonian", native: "Eesti" },
-        { code: "fi", name: "Finnish", native: "Suomi" },
-        { code: "fr", name: "French", native: "Français" },
-        { code: "de", name: "German", native: "Deutsch" },
-        { code: "el", name: "Greek", native: "Ελληνικά" },
-        { code: "he", name: "Hebrew", native: "עברית" },
-        { code: "hi", name: "Hindi", native: "हिन्दी" },
-        { code: "hu", name: "Hungarian", native: "Magyar" },
-        { code: "id", name: "Indonesian", native: "Bahasa Indonesia" },
-        { code: "it", name: "Italian", native: "Italiano" },
-        { code: "ja", name: "Japanese", native: "日本語" },
-        { code: "ko", name: "Korean", native: "한국어" },
-        { code: "lv", name: "Latvian", native: "Latviešu" },
-        { code: "lt", name: "Lithuanian", native: "Lietuvių" },
-        { code: "ms", name: "Malay", native: "Bahasa Melayu" },
-        { code: "nb", name: "Norwegian", native: "Norsk bokmål" },
-        { code: "fa", name: "Persian", native: "فارسی" },
-        { code: "pl", name: "Polish", native: "Polski" },
-        { code: "pt", name: "Portuguese", native: "Português" },
-        { code: "ro", name: "Romanian", native: "Română" },
-        { code: "ru", name: "Russian", native: "Русский" },
-        { code: "sr", name: "Serbian", native: "Српски" },
-        { code: "sk", name: "Slovak", native: "Slovenčina" },
-        { code: "sl", name: "Slovenian", native: "Slovenščina" },
-        { code: "es", name: "Spanish", native: "Español" },
-        { code: "sv", name: "Swedish", native: "Svenska" },
-        { code: "th", name: "Thai", native: "ไทย" },
-        { code: "tr", name: "Turkish", native: "Türkçe" },
-        { code: "uk", name: "Ukrainian", native: "Українська" },
-        { code: "vi", name: "Vietnamese", native: "Tiếng Việt" }
+        { code: "ar", name: "Arabic", nativeName: "العربية" },
+        { code: "bg", name: "Bulgarian", nativeName: "Български" },
+        { code: "ca", name: "Catalan", nativeName: "Català" },
+        { code: "zh", name: "Chinese", nativeName: "中文" },
+        { code: "hr", name: "Croatian", nativeName: "Hrvatski" },
+        { code: "cs", name: "Czech", nativeName: "Čeština" },
+        { code: "da", name: "Danish", nativeName: "Dansk" },
+        { code: "nl", name: "Dutch", nativeName: "Nederlands" },
+        { code: "et", name: "Estonian", nativeName: "Eesti" },
+        { code: "fi", name: "Finnish", nativeName: "Suomi" },
+        { code: "fr", name: "French", nativeName: "Français" },
+        { code: "de", name: "German", nativeName: "Deutsch" },
+        { code: "el", name: "Greek", nativeName: "Ελληνικά" },
+        { code: "he", name: "Hebrew", nativeName: "עברית" },
+        { code: "hi", name: "Hindi", nativeName: "हिन्दी" },
+        { code: "hu", name: "Hungarian", nativeName: "Magyar" },
+        { code: "id", name: "Indonesian", nativeName: "Bahasa Indonesia" },
+        { code: "it", name: "Italian", nativeName: "Italiano" },
+        { code: "ja", name: "Japanese", nativeName: "日本語" },
+        { code: "ko", name: "Korean", nativeName: "한국어" },
+        { code: "lv", name: "Latvian", nativeName: "Latviešu" },
+        { code: "lt", name: "Lithuanian", nativeName: "Lietuvių" },
+        { code: "ms", name: "Malay", nativeName: "Bahasa Melayu" },
+        { code: "nb", name: "Norwegian", nativeName: "Norsk bokmål" },
+        { code: "fa", name: "Persian", nativeName: "فارسی" },
+        { code: "pl", name: "Polish", nativeName: "Polski" },
+        { code: "pt", name: "Portuguese", nativeName: "Português" },
+        { code: "ro", name: "Romanian", nativeName: "Română" },
+        { code: "ru", name: "Russian", nativeName: "Русский" },
+        { code: "sr", name: "Serbian", nativeName: "Српски" },
+        { code: "sk", name: "Slovak", nativeName: "Slovenčina" },
+        { code: "sl", name: "Slovenian", nativeName: "Slovenščina" },
+        { code: "es", name: "Spanish", nativeName: "Español" },
+        { code: "sv", name: "Swedish", nativeName: "Svenska" },
+        { code: "th", name: "Thai", nativeName: "ไทย" },
+        { code: "tr", name: "Turkish", nativeName: "Türkçe" },
+        { code: "uk", name: "Ukrainian", nativeName: "Українська" },
+        { code: "vi", name: "Vietnamese", nativeName: "Tiếng Việt" }
     ]
 
     function getAvailableLanguages() {
@@ -106,8 +106,9 @@ Page {
                     border.color: Qt.rgba(1, 1, 1, 0.3)
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: modelData.name + ", " + modelData.native
+                    Accessible.name: modelData.name + ", " + modelData.nativeName
                     Accessible.description: TranslationManager.translate("addlanguage.accessible.add", "Add") + " " + modelData.name + " " + TranslationManager.translate("language.accessible.language", "language")
+                    Accessible.focusable: true
                     Accessible.onPressAction: langMouseArea.clicked(null)
 
                     RowLayout {
@@ -137,7 +138,7 @@ Page {
                             }
 
                             Text {
-                                text: modelData.native
+                                text: modelData.nativeName
                                 font: Theme.labelFont
                                 color: langMouseArea.pressed ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
                                 elide: Text.ElideRight
@@ -150,7 +151,7 @@ Page {
                         id: langMouseArea
                         anchors.fill: parent
                         onClicked: {
-                            TranslationManager.addLanguage(modelData.code, modelData.name, modelData.native)
+                            TranslationManager.addLanguage(modelData.code, modelData.name, modelData.nativeName)
                             addLanguagePage.StackView.view.pop()
                         }
                     }

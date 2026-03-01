@@ -168,11 +168,17 @@ Page {
                         color: clearAiArea.pressed ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
                         radius: Theme.buttonRadius
 
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Clear all AI translations"
+                        Accessible.focusable: true
+                        Accessible.onPressAction: clearAiArea.clicked(null)
+
                         Text {
                             anchors.centerIn: parent
                             text: "Clear AI"
                             font: Theme.bodyFont
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
@@ -196,12 +202,14 @@ Page {
                         Accessible.name: TranslationManager.autoTranslating ? "AI translation in progress" : "AI Translate all missing strings"
                         Accessible.description: "Use artificial intelligence to automatically translate all untranslated strings"
                         Accessible.focusable: true
+                        Accessible.onPressAction: aiButtonArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
                             text: TranslationManager.autoTranslating ? "Translating..." : "AI Translate"
                             font: Theme.bodyFont
                             color: "white"
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
@@ -326,15 +334,18 @@ Page {
                             Accessible.description: modelData.description
                             Accessible.checked: stringModel.filterMode === modelData.mode
                             Accessible.focusable: true
+                            Accessible.onPressAction: filterMa.clicked(null)
 
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData.text
                                 font: Theme.labelFont
                                 color: stringModel.filterMode === modelData.mode ? "white" : Theme.textColor
+                                Accessible.ignored: true
                             }
 
                             MouseArea {
+                                id: filterMa
                                 anchors.fill: parent
                                 onClicked: stringModel.filterMode = modelData.mode
                             }
@@ -603,6 +614,7 @@ Page {
                         Accessible.role: Accessible.Button
                         Accessible.name: model.aiTranslation ? "AI suggestion: " + model.aiTranslation + ". Tap to use this translation." : "No AI translation available"
                         Accessible.focusable: model.aiTranslation ? true : false
+                        Accessible.onPressAction: aiCopyArea.clicked(null)
 
                         Text {
                             anchors.left: parent.left
@@ -634,6 +646,7 @@ Page {
                             Accessible.role: Accessible.Button
                             Accessible.name: "Clear AI translation"
                             Accessible.focusable: true
+                            Accessible.onPressAction: aiClearArea.clicked(null)
 
                             MouseArea {
                                 id: aiClearArea
@@ -869,11 +882,17 @@ Page {
                     color: cancelArea.pressed ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
                     radius: Theme.buttonRadius
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Cancel AI translation"
+                    Accessible.focusable: true
+                    Accessible.onPressAction: cancelArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "Cancel"
                         font: Theme.bodyFont
                         color: "white"
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
@@ -935,11 +954,17 @@ Page {
                     border.width: 1
                     border.color: Theme.borderColor
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Cancel"
+                    Accessible.focusable: true
+                    Accessible.onPressAction: cancelApiArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "Cancel"
                         font: Theme.bodyFont
                         color: Theme.textColor
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
@@ -955,11 +980,17 @@ Page {
                     color: goAiArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     radius: Theme.buttonRadius
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Go to AI Settings"
+                    Accessible.focusable: true
+                    Accessible.onPressAction: goAiArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "Go to AI Settings"
                         font: Theme.bodyFont
                         color: "white"
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
@@ -1021,11 +1052,17 @@ Page {
                 color: okArea.pressed ? Qt.darker(Theme.successColor, 1.2) : Theme.successColor
                 radius: Theme.buttonRadius
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "OK"
+                Accessible.focusable: true
+                Accessible.onPressAction: okArea.clicked(null)
+
                 Text {
                     anchors.centerIn: parent
                     text: "OK"
                     font: Theme.bodyFont
                     color: "white"
+                    Accessible.ignored: true
                 }
 
                 MouseArea {
@@ -1086,11 +1123,17 @@ Page {
                     border.width: 1
                     border.color: Theme.borderColor
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Cancel"
+                    Accessible.focusable: true
+                    Accessible.onPressAction: cancelClearArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "Cancel"
                         font: Theme.bodyFont
                         color: Theme.textColor
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
@@ -1106,11 +1149,17 @@ Page {
                     color: confirmClearArea.pressed ? Qt.darker(Theme.warningColor, 1.2) : Theme.warningColor
                     radius: Theme.buttonRadius
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Clear all AI translations"
+                    Accessible.focusable: true
+                    Accessible.onPressAction: confirmClearArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "Clear All"
                         font: Theme.bodyFont
                         color: "white"
+                        Accessible.ignored: true
                     }
 
                     MouseArea {

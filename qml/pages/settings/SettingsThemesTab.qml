@@ -4,8 +4,9 @@ import QtQuick.Layouts
 import DecenzaDE1
 import "../../components"
 
-Item {
+KeyboardAwareContainer {
     id: themesTab
+    textFields: [hexField]
 
     // Signal to request opening save theme dialog (handled by parent)
     signal openSaveThemeDialog()
@@ -301,12 +302,18 @@ Item {
                                         anchors.rightMargin: Theme.scaled(6)
                                         anchors.verticalCenter: parent.verticalCenter
 
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: TranslationManager.translate("settings.themes.delete", "Delete theme") + " " + modelData.name
+                                        Accessible.focusable: true
+                                        Accessible.onPressAction: deleteArea.clicked(null)
+
                                         Text {
                                             text: "x"
                                             color: "white"
                                             font.pixelSize: Theme.scaled(12)
                                             font.bold: true
                                             anchors.centerIn: parent
+                                            Accessible.ignored: true
                                         }
 
                                         MouseArea {
@@ -330,15 +337,22 @@ Item {
                                 border.color: Theme.borderColor
                                 border.width: 1
 
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("settings.themes.save", "Save") + " " + TranslationManager.translate("settings.themes.accessible.currenttheme", "current theme")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: saveThemeArea.clicked(null)
+
                                 Text {
                                     id: saveText
                                     text: "+ " + TranslationManager.translate("settings.themes.save", "Save")
                                     color: Theme.textColor
                                     font: Theme.labelFont
                                     anchors.centerIn: parent
+                                    Accessible.ignored: true
                                 }
 
                                 MouseArea {
+                                    id: saveThemeArea
                                     anchors.fill: parent
                                     onClicked: themesTab.openSaveThemeDialog()
                                 }
