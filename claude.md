@@ -755,11 +755,12 @@ git tag -d vX.Y.Z
 git push origin :refs/tags/vX.Y.Z
 git tag vX.Y.Z
 git push origin vX.Y.Z
-```
-**Note:** Do NOT delete the GitHub Release — only the tag. The release persists and CI will upload new artifacts to it. If the release was accidentally deleted or created as a draft, fix it with:
-```bash
+
+# IMPORTANT: Deleting the remote tag automatically converts the release to a draft.
+# You MUST run this after pushing the new tag to restore it as a visible pre-release:
 gh release edit vX.Y.Z --draft=false --prerelease
 ```
+**Note:** Do NOT delete the GitHub Release — only the tag. The release persists and CI will upload new artifacts to it. Draft releases are invisible to users and the auto-update system, so the `--draft=false` step is mandatory.
 
 ### Updating Release Notes
 ```bash
