@@ -2802,6 +2802,9 @@ void MainController::onShotEnded() {
         shotYieldOverride = finalWeight;
     }
 
+    // Capture once so both the async callback and synchronous code use the same value
+    bool showPostShot = m_settings->visualizerShowAfterShot();
+
     // Always save shot to local history (async — DB work runs on background thread)
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
              << "isReady:" << (m_shotHistory ? m_shotHistory->isReady() : false);
@@ -2813,10 +2816,6 @@ void MainController::onShotEnded() {
 
             // Capture timestamp now (before async save) so it reflects shot end time
             QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
-
-            // Capture showPostShot now so the async callback can emit shotEndedShowMetadata
-            // after m_lastSavedShotId is set (fixes post-shot review page showing no graph)
-            bool showPostShot = m_settings->visualizerShowAfterShot();
 
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
             connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight, shotDateTime, showPostShot](qint64 shotId) {
@@ -2893,7 +2892,7 @@ void MainController::onShotEnded() {
     // Store pending shot data for later upload (user can re-upload with updated metadata)
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.
-    if (m_settings->visualizerShowAfterShot()) {
+    if (showPostShot) {
         m_hasPendingShot = true;
         m_pendingShotDuration = duration;
         m_pendingShotFinalWeight = finalWeight;
