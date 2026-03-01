@@ -672,7 +672,7 @@ QStringList DatabaseBackupManager::getAvailableBackups() const
     // Get all backup files (.zip on all platforms, .db for old backup compatibility)
     QStringList filters;
     filters << "shots_backup_*.zip" << "shots_backup_*.db";
-    QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time | QDir::Reversed);
+    QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time);
 
     QStringList result;
     for (const QFileInfo& fileInfo : backups) {

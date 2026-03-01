@@ -322,7 +322,7 @@ Item {
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 30
-        text: Qt.formatTime(new Date(), "HH:mm")
+        text: Qt.formatTime(new Date(), WeatherManager.use12HourTime ? "h:mmap" : "HH:mm")
         color: mapTexture === "bright" ? "#ffffff" : "#aabbcc"
         font.pixelSize: 48
         font.bold: true
@@ -334,7 +334,7 @@ Item {
             interval: 1000
             running: showClock && root.visible
             repeat: true
-            onTriggered: parent.text = Qt.formatTime(new Date(), "HH:mm")
+            onTriggered: parent.text = Qt.formatTime(new Date(), WeatherManager.use12HourTime ? "h:mmap" : "HH:mm")
         }
     }
 

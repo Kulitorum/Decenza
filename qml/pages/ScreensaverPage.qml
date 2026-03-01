@@ -387,7 +387,7 @@ Page {
         anchors.right: parent.right
         anchors.margins: Theme.scaled(50)
         anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20)  // Above credits bar
-        text: Qt.formatTime(currentTime, "hh:mm")
+        text: Qt.formatTime(currentTime, WeatherManager.use12HourTime ? "h:mmap" : "hh:mm")
         color: "white"
         opacity: 0.8
         font.pixelSize: Theme.scaled(80)

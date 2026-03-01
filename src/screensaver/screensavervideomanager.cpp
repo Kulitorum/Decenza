@@ -10,7 +10,6 @@
 #include <QDebug>
 #include <QRandomGenerator>
 #include <QFileInfo>
-#include <QLocale>
 #include <utility>
 
 #ifdef Q_OS_ANDROID
@@ -64,9 +63,6 @@ ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkM
     m_screensaverType = m_settings->value("screensaver/type", "videos").toString();
     m_pipesSpeed = m_settings->value("screensaver/pipesSpeed", 0.5).toDouble();
     m_pipesCameraSpeed = m_settings->value("screensaver/pipesCameraSpeed", 60.0).toDouble();
-    // Default to locale: 24h unless system locale uses AM/PM
-    bool localeDefault = !QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
-    m_flipClockUse24Hour = m_settings->value("screensaver/flipClockUse24Hour", localeDefault).toBool();
     m_flipClockUse3D = m_settings->value("screensaver/flipClockUse3D", true).toBool();
     m_videosShowClock = m_settings->value("screensaver/videosShowClock", true).toBool();
     m_pipesShowClock = m_settings->value("screensaver/pipesShowClock", true).toBool();
@@ -331,15 +327,6 @@ void ScreensaverVideoManager::setPipesCameraSpeed(double speed)
         m_pipesCameraSpeed = speed;
         m_settings->setValue("screensaver/pipesCameraSpeed", speed);
         emit pipesCameraSpeedChanged();
-    }
-}
-
-void ScreensaverVideoManager::setFlipClockUse24Hour(bool use24Hour)
-{
-    if (m_flipClockUse24Hour != use24Hour) {
-        m_flipClockUse24Hour = use24Hour;
-        m_settings->setValue("screensaver/flipClockUse24Hour", use24Hour);
-        emit flipClockUse24HourChanged();
     }
 }
 

@@ -556,23 +556,6 @@ Item {
                         spacing: Theme.scaled(10)
 
                         Tr {
-                            key: "settings.screensaver.flipclock24Hour"
-                            fallback: "24-hour format"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.flipClockUse24Hour
-                            accessibleName: TranslationManager.translate("settings.screensaver.flipclock24Hour", "24-hour format")
-                            onCheckedChanged: ScreensaverManager.flipClockUse24Hour = checked
-                        }
-                    }
-
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
                             key: "settings.screensaver.flipclock3D"
                             fallback: "3D perspective"
                             color: Theme.textColor
