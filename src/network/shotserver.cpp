@@ -263,6 +263,7 @@ ShotServer::ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* 
 
 ShotServer::~ShotServer()
 {
+    *m_destroyed = true;
     stop();
     // Cleanup any pending requests
     for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {

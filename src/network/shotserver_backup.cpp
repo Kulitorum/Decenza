@@ -34,6 +34,9 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QThread>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -380,94 +383,41 @@ void ShotServer::handleBackupAIConversations(QTcpSocket* socket)
 
 void ShotServer::handleBackupFull(QTcpSocket* socket)
 {
+    if (m_backupFullInProgress) {
+        sendResponse(socket, 429, "text/plain", "Backup already in progress");
+        return;
+    }
+    m_backupFullInProgress = true;
+
     struct Entry {
         QByteArray name;
         QByteArray data;
     };
-    QList<Entry> entries;
 
-    // 1. Settings
+    // Phase 1: Collect data that requires QObject access on the main thread
+    QList<Entry> mainThreadEntries;
+
+    // 1. Settings (requires m_settings QObject)
     if (m_settings) {
         QJsonObject settingsJson = SettingsSerializer::exportToJson(m_settings, true);
         QByteArray settingsData = QJsonDocument(settingsJson).toJson(QJsonDocument::Indented);
-        entries.append({"settings.json", settingsData});
+        mainThreadEntries.append({"settings.json", settingsData});
     }
 
-    // 2. Shots database
-    if (m_storage) {
-        m_storage->checkpoint();
-        QString dbPath = m_storage->databasePath();
-        QFile dbFile(dbPath);
-        if (dbFile.open(QIODevice::ReadOnly)) {
-            entries.append({"shots.db", dbFile.readAll()});
-        }
-    }
-
-    // 3. Profiles (from both external and fallback paths, including user/ and downloaded/ subdirs)
-    if (m_profileStorage) {
-        QSet<QString> seenFiles;  // Keyed by subdir/filename to avoid duplicates
-        auto addProfilesFrom = [&](const QString& basePath, const QString& subdir) {
-            if (basePath.isEmpty()) return;
-            QString dirPath = subdir.isEmpty() ? basePath : basePath + "/" + subdir;
-            QDir dir(dirPath);
-            if (!dir.exists()) return;
-            QFileInfoList files = dir.entryInfoList(QStringList() << "*.json", QDir::Files);
-            for (const QFileInfo& fi : files) {
-                if (fi.fileName().startsWith("_")) continue;
-                QString key = (subdir.isEmpty() ? "" : subdir + "/") + fi.fileName();
-                if (seenFiles.contains(key)) continue;
-                seenFiles.insert(key);
-                QFile f(fi.absoluteFilePath());
-                if (f.open(QIODevice::ReadOnly)) {
-                    QByteArray name = ("profiles/" + key).toUtf8();
-                    entries.append({name, f.readAll()});
-                }
-            }
-        };
-        // Scan root, user/, downloaded/ in both external and fallback paths
-        QString extPath = m_profileStorage->externalProfilesPath();
-        if (!extPath.isEmpty()) {
-            addProfilesFrom(extPath, "");
-            addProfilesFrom(extPath, "user");
-            addProfilesFrom(extPath, "downloaded");
-        }
-        addProfilesFrom(m_profileStorage->fallbackPath(), "");
-        addProfilesFrom(m_profileStorage->fallbackPath(), "user");
-        addProfilesFrom(m_profileStorage->fallbackPath(), "downloaded");
-    }
-
-    // 4. Media files
-    if (m_screensaverManager) {
-        QString mediaDir = m_screensaverManager->personalMediaDirectory();
-        QDir dir(mediaDir);
-        if (dir.exists()) {
-            QFileInfoList files = dir.entryInfoList(QDir::Files);
-            for (const QFileInfo& fi : files) {
-                if (fi.fileName() == "index.json") continue;
-                QFile f(fi.absoluteFilePath());
-                if (f.open(QIODevice::ReadOnly)) {
-                    QByteArray name = ("media/" + fi.fileName()).toUtf8();
-                    entries.append({name, f.readAll()});
-                }
-            }
-        }
-    }
-
-    // 5. AI conversations
+    // 2. AI conversations (requires m_aiManager QObject)
     {
         QJsonArray conversations = serializeAIConversations();
         if (!conversations.isEmpty()) {
             QByteArray convData = QJsonDocument(conversations).toJson(QJsonDocument::Compact);
-            entries.append({"ai_conversations.json", convData});
+            mainThreadEntries.append({"ai_conversations.json", convData});
         }
     }
 
-    // 6. Extra QSettings data (not in Settings class)
+    // 3. Extra QSettings data (not in Settings class)
     {
         QSettings settings;
         QJsonObject extra;
 
-        // Shot map location
         QJsonObject shotMap;
         shotMap["manualCity"] = settings.value("shotMap/manualCity", "").toString();
         shotMap["manualLat"] = settings.value("shotMap/manualLat", 0.0).toDouble();
@@ -476,7 +426,6 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         shotMap["manualGeocoded"] = settings.value("shotMap/manualGeocoded", false).toBool();
         extra["shotMap"] = shotMap;
 
-        // Accessibility settings
         QJsonObject accessibility;
         accessibility["enabled"] = settings.value("accessibility/enabled", false).toBool();
         accessibility["ttsEnabled"] = settings.value("accessibility/ttsEnabled", true).toBool();
@@ -488,49 +437,143 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         accessibility["extractionAnnouncementMode"] = settings.value("accessibility/extractionAnnouncementMode", "both").toString();
         extra["accessibility"] = accessibility;
 
-        // Language
         extra["language"] = settings.value("localization/language", "en").toString();
 
         QByteArray extraData = QJsonDocument(extra).toJson(QJsonDocument::Compact);
-        entries.append({"extra_settings.json", extraData});
+        mainThreadEntries.append({"extra_settings.json", extraData});
     }
 
-    // Build binary archive
-    QByteArray archiveData;
-    QBuffer buffer(&archiveData);
-    buffer.open(QIODevice::WriteOnly);
-
-    // Magic "DCBK"
-    buffer.write("DCBK", 4);
-
-    // Version (uint32 LE)
-    quint32 version = 1;
-    buffer.write(reinterpret_cast<const char*>(&version), 4);
-
-    // Entry count (uint32 LE)
-    quint32 count = static_cast<quint32>(entries.size());
-    buffer.write(reinterpret_cast<const char*>(&count), 4);
-
-    // Each entry
-    for (const Entry& e : entries) {
-        quint32 nameLen = static_cast<quint32>(e.name.size());
-        buffer.write(reinterpret_cast<const char*>(&nameLen), 4);
-        buffer.write(e.name);
-        quint64 dataLen = static_cast<quint64>(e.data.size());
-        buffer.write(reinterpret_cast<const char*>(&dataLen), 8);
-        buffer.write(e.data);
+    // Capture file paths for background-thread I/O
+    QString dbPath = m_storage ? m_storage->databasePath() : QString();
+    QStringList profileDirs;
+    if (m_profileStorage) {
+        QString extPath = m_profileStorage->externalProfilesPath();
+        if (!extPath.isEmpty()) {
+            profileDirs << extPath << extPath + "/user" << extPath + "/downloaded";
+        }
+        QString fbPath = m_profileStorage->fallbackPath();
+        profileDirs << fbPath << fbPath + "/user" << fbPath + "/downloaded";
     }
+    QString mediaDir = m_screensaverManager ? m_screensaverManager->personalMediaDirectory() : QString();
+    QString backupDate = QDateTime::currentDateTime().toString("yyyy-MM-dd");
 
-    buffer.close();
+    // Phase 2: Run file I/O and archive building on background thread
+    QPointer<QTcpSocket> socketGuard(socket);
+    auto destroyed = m_destroyed;
 
-    qDebug() << "ShotServer: Created backup archive with" << entries.size() << "entries,"
-             << archiveData.size() << "bytes";
+    QThread* thread = QThread::create([this, mainThreadEntries = std::move(mainThreadEntries),
+                                       dbPath, profileDirs, mediaDir, backupDate,
+                                       socketGuard, destroyed]() {
+        QList<Entry> entries = mainThreadEntries;
 
-    // Send as download
-    QString filename = QString("decenza_backup_%1.dcbackup")
-        .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd"));
-    QByteArray extraHeaders = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
-    sendResponse(socket, 200, "application/octet-stream", archiveData, extraHeaders);
+        // 2. Shots database (checkpoint via temporary connection, then read file)
+        if (!dbPath.isEmpty()) {
+            const QString connName = QString("shs_backup_%1")
+                .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+            {
+                QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+                db.setDatabaseName(dbPath);
+                if (db.open()) {
+                    QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+                    QSqlQuery walQuery(db);
+                    walQuery.exec("PRAGMA wal_checkpoint(FULL)");
+                }
+            }
+            QSqlDatabase::removeDatabase(connName);
+
+            QFile dbFile(dbPath);
+            if (dbFile.open(QIODevice::ReadOnly)) {
+                entries.append({"shots.db", dbFile.readAll()});
+            }
+        }
+
+        // 3. Profiles
+        {
+            QSet<QString> seenFiles;
+            for (const QString& dirPath : profileDirs) {
+                QDir dir(dirPath);
+                if (!dir.exists()) continue;
+                // Determine subdir relative to base (e.g., "user", "downloaded", or "")
+                QString subdir;
+                if (dirPath.endsWith("/user")) subdir = "user";
+                else if (dirPath.endsWith("/downloaded")) subdir = "downloaded";
+
+                QFileInfoList files = dir.entryInfoList(QStringList() << "*.json", QDir::Files);
+                for (const QFileInfo& fi : files) {
+                    if (fi.fileName().startsWith("_")) continue;
+                    QString key = (subdir.isEmpty() ? "" : subdir + "/") + fi.fileName();
+                    if (seenFiles.contains(key)) continue;
+                    seenFiles.insert(key);
+                    QFile f(fi.absoluteFilePath());
+                    if (f.open(QIODevice::ReadOnly)) {
+                        QByteArray name = ("profiles/" + key).toUtf8();
+                        entries.append({name, f.readAll()});
+                    }
+                }
+            }
+        }
+
+        // 4. Media files
+        if (!mediaDir.isEmpty()) {
+            QDir dir(mediaDir);
+            if (dir.exists()) {
+                QFileInfoList files = dir.entryInfoList(QDir::Files);
+                for (const QFileInfo& fi : files) {
+                    if (fi.fileName() == "index.json") continue;
+                    QFile f(fi.absoluteFilePath());
+                    if (f.open(QIODevice::ReadOnly)) {
+                        QByteArray name = ("media/" + fi.fileName()).toUtf8();
+                        entries.append({name, f.readAll()});
+                    }
+                }
+            }
+        }
+
+        // Build binary archive
+        QByteArray archiveData;
+        QBuffer buffer(&archiveData);
+        buffer.open(QIODevice::WriteOnly);
+
+        buffer.write("DCBK", 4);
+        quint32 version = 1;
+        buffer.write(reinterpret_cast<const char*>(&version), 4);
+        quint32 count = static_cast<quint32>(entries.size());
+        buffer.write(reinterpret_cast<const char*>(&count), 4);
+
+        for (const Entry& e : entries) {
+            quint32 nameLen = static_cast<quint32>(e.name.size());
+            buffer.write(reinterpret_cast<const char*>(&nameLen), 4);
+            buffer.write(e.name);
+            quint64 dataLen = static_cast<quint64>(e.data.size());
+            buffer.write(reinterpret_cast<const char*>(&dataLen), 8);
+            buffer.write(e.data);
+        }
+        buffer.close();
+
+        qDebug() << "ShotServer: Created backup archive with" << entries.size() << "entries,"
+                 << archiveData.size() << "bytes";
+
+        // Send response on main thread
+        QMetaObject::invokeMethod(this, [this, socketGuard, destroyed,
+                                         archiveData = std::move(archiveData), backupDate]() {
+            if (*destroyed) {
+                qDebug() << "ShotServer: Backup response dropped (server destroyed)";
+                return;
+            }
+            m_backupFullInProgress = false;
+            if (!socketGuard) {
+                qDebug() << "ShotServer: Backup response dropped (socket disconnected)";
+                return;
+            }
+
+            QString filename = QString("decenza_backup_%1.dcbackup").arg(backupDate);
+            QByteArray extraHeaders = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
+            sendResponse(socketGuard, 200, "application/octet-stream", archiveData, extraHeaders);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 QString ShotServer::generateRestorePage() const
@@ -864,6 +907,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
     qint64 offset = 12;
     bool settingsRestored = false;
     bool shotsRestored = false;
+    bool hasShotsDb = false;
+    QString shotsTempPath;
     int profilesImported = 0;
     int profilesSkipped = 0;
     int mediaImported = 0;
@@ -916,23 +961,18 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         }
         else if (name == "shots.db") {
             if (m_storage) {
+                // Save shots.db to temp file for async import after loop
                 QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-                QString dbTempPath = tempDir + "/restore_shots_" +
+                shotsTempPath = tempDir + "/restore_shots_" +
                     QString::number(QDateTime::currentMSecsSinceEpoch()) + ".db";
-                QFile dbFile(dbTempPath);
+                QFile dbFile(shotsTempPath);
                 if (dbFile.open(QIODevice::WriteOnly)) {
                     dbFile.write(entryData);
                     dbFile.close();
-                    int beforeCount = m_storage->totalShots();
-                    bool success = m_storage->importDatabase(dbTempPath, true);
-                    if (success) {
-                        m_storage->refreshTotalShots();
-                        int imported = m_storage->totalShots() - beforeCount;
-                        qDebug() << "ShotServer: Imported" << imported << "new shots";
-                        shotsRestored = true;
-                    }
+                    hasShotsDb = true;
+                } else {
+                    shotsTempPath.clear();
                 }
-                QFile::remove(dbTempPath);
             }
         }
         else if (name.startsWith("profiles/")) {
@@ -1066,6 +1106,66 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 }
             }
         }
+    }
+
+    // If we found a shots.db, import it on a background thread
+    if (hasShotsDb && m_storage) {
+        QString dbPath = m_storage->databasePath();
+        QPointer<QTcpSocket> socketGuard(socket);
+        auto destroyed = m_destroyed;
+
+        QThread* thread = QThread::create([this, dbPath, shotsTempPath, socketGuard, destroyed,
+                                           settingsRestored, profilesImported, profilesSkipped,
+                                           mediaImported, mediaSkipped, aiConversationsImported,
+                                           tempPathToCleanup]() {
+            bool success = ShotHistoryStorage::importDatabaseStatic(dbPath, shotsTempPath, true);
+            QFile::remove(shotsTempPath);
+
+            // Cleanup uploaded backup temp file on background thread (safe even if object is destroyed)
+            if (!tempPathToCleanup.isEmpty() && QFile::exists(tempPathToCleanup)) {
+                QFile::remove(tempPathToCleanup);
+            }
+
+            QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success,
+                                              settingsRestored, profilesImported, profilesSkipped,
+                                              mediaImported, mediaSkipped, aiConversationsImported]() {
+                if (*destroyed) {
+                    qDebug() << "ShotServer: Restore response dropped (server destroyed)";
+                    return;
+                }
+
+                bool shotsRestored = success;
+                if (success && m_storage) {
+                    m_storage->refreshTotalShots();
+                    qDebug() << "ShotServer: Imported shots from backup (async)";
+                }
+
+                qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored
+                         << "shots:" << shotsRestored
+                         << "profiles:" << profilesImported << "(skipped:" << profilesSkipped << ")"
+                         << "media:" << mediaImported << "(skipped:" << mediaSkipped << ")"
+                         << "aiConversations:" << aiConversationsImported;
+
+                if (socketGuard) {
+                    QJsonObject result;
+                    result["success"] = true;
+                    result["settings"] = settingsRestored;
+                    result["shotsImported"] = shotsRestored;
+                    result["profilesImported"] = profilesImported;
+                    result["profilesSkipped"] = profilesSkipped;
+                    result["mediaImported"] = mediaImported;
+                    result["mediaSkipped"] = mediaSkipped;
+                    result["aiConversationsImported"] = aiConversationsImported;
+                    sendJson(socketGuard, QJsonDocument(result).toJson(QJsonDocument::Compact));
+                } else {
+                    qDebug() << "ShotServer: Restore response dropped (socket disconnected)";
+                }
+            }, Qt::QueuedConnection);
+        });
+
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        thread->start();
+        return;
     }
 
     qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored

@@ -68,4 +68,5 @@ private:
     bool m_discharging = false;  // Track charge/discharge cycle
     bool m_isSamsungTablet = false;
     bool m_samsungCheckDone = false;
+    bool m_batteryOptimizationPending = false;
 };

@@ -901,9 +901,16 @@ int main(int argc, char *argv[])
         QObject::connect(&simulatedScale, &ScaleDevice::weightChanged,
                          &mainController, &MainController::onScaleWeightChanged);
 
-        // Set SimulatedScale as the active scale for MachineState
+        // Set SimulatedScale as the active scale (matching physical scale pattern)
         machineState.setScale(&simulatedScale);
+        timingController.setScale(&simulatedScale);
         context->setContextProperty("ScaleDevice", &simulatedScale);
+
+        // Reconnect WeightProcessor from FlowScale to SimulatedScale for espresso SOW
+        QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+                            &weightProcessor, &WeightProcessor::processWeight);
+        QObject::connect(&simulatedScale, &ScaleDevice::weightChanged,
+                         &weightProcessor, &WeightProcessor::processWeight);
 
         // Connect simulator scale weight to SimulatedScale
         QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,

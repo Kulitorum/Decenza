@@ -114,6 +114,49 @@ struct ShotFilter {
     QString sortDirection = "DESC";
 };
 
+// Pre-extracted data for async shot saving (no QObject pointers, thread-safe by value)
+struct ShotSaveData {
+    QString uuid;
+    qint64 timestamp = 0;
+    QString profileName;
+    QString profileJson;
+    QString beverageType;
+    double duration = 0;
+    double finalWeight = 0;
+    double doseWeight = 0;
+    double temperatureOverride = 0;
+    double yieldOverride = 0;
+
+    // Metadata
+    QString beanBrand;
+    QString beanType;
+    QString roastDate;
+    QString roastLevel;
+    QString grinderModel;
+    QString grinderSetting;
+    double drinkTds = 0;
+    double drinkEy = 0;
+    int espressoEnjoyment = 0;
+    QString espressoNotes;
+    QString barista;
+    QString profileNotes;
+    QString debugLog;
+
+    // Pre-compressed sample data blob
+    QByteArray compressedSamples;
+    int sampleCount = 0;
+
+    // Phase markers (pre-extracted from QVariantList)
+    struct PhaseMarker {
+        double time = 0;
+        QString label;
+        int frameNumber = 0;
+        bool isFlowMode = false;
+        QString transitionReason;
+    };
+    QList<PhaseMarker> phaseMarkers;
+};
+
 class ShotHistoryStorage : public QObject {
     Q_OBJECT
 
@@ -131,7 +174,9 @@ public:
     int totalShots() const { return m_totalShots; }
     bool loadingFiltered() const { return m_loadingFiltered; }
 
-    // Save a completed shot
+    // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
+    // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
+    // Actual shot ID delivered via shotSaved() signal.
     qint64 saveShot(ShotDataModel* shotData,
                     const Profile* profile,
                     double duration,
@@ -169,6 +214,10 @@ public:
 
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
+
+    // Thread-safe shot save: opens a temporary connection, does all INSERTs + WAL checkpoint.
+    // Safe to call from any thread (does not use m_db). Returns shotId or -1 on failure.
+    static qint64 saveShotStatic(const QString& dbPath, const ShotSaveData& data);
 
     // Delete shot(s)
     Q_INVOKABLE bool deleteShot(qint64 shotId);

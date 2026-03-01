@@ -202,6 +202,9 @@ private:
     };
     QHash<QString, SessionInfo> m_sessions;
 
+    // Shared flag for destructor safety in background thread lambdas
+    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
+
     QTcpServer* m_server = nullptr;
     QUdpSocket* m_discoverySocket = nullptr;
     ShotHistoryStorage* m_storage = nullptr;
@@ -240,6 +243,7 @@ private:
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
     int m_activeMediaUploads = 0;
+    bool m_backupFullInProgress = false;
     QHash<QTcpSocket*, PendingRequest> m_pendingRequests;
     QHash<QTcpSocket*, qint64> m_uploadProgressLog;  // Track last-logged byte offset per socket (cleaned up on disconnect)
     QSet<QTcpSocket*> m_sseLayoutClients;  // SSE connections for layout change notifications

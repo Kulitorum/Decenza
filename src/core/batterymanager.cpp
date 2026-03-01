@@ -6,6 +6,7 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #endif
 
 #ifdef Q_OS_IOS
@@ -22,6 +23,16 @@ BatteryManager::BatteryManager(QObject* parent)
 
     // Check if this is a Samsung tablet (must disable smart charging)
     checkSamsungTablet();
+
+#ifdef Q_OS_ANDROID
+    // Re-check battery optimization when app returns to foreground (event-based guard).
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive && m_batteryOptimizationPending) {
+            m_batteryOptimizationPending = false;
+            emit batteryOptimizationChanged();
+        }
+    });
+#endif
 
     // Do an initial check
     checkBattery();
@@ -311,11 +322,8 @@ void BatteryManager::requestIgnoreBatteryOptimization() {
         "(Landroid/content/Intent;)V",
         intent.object());
 
-    // Emit signal after user potentially changes setting
-    // (Note: we can't know if user accepted, so we just emit after a delay)
-    QTimer::singleShot(1000, this, [this]() {
-        emit batteryOptimizationChanged();
-    });
+    // Flag checked when app resumes from Android Settings (applicationStateChanged)
+    m_batteryOptimizationPending = true;
 #endif
 }
 
