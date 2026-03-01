@@ -1582,13 +1582,9 @@ KeyboardAwareContainer {
         padding: 0
         modal: true
 
-        property real totpDialogKbOffset: {
-            if (!totpCodeField.activeFocus) return 0
-            var kbHeight = Qt.inputMethod.keyboardRectangle.height
-            if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
-                kbHeight = parent.height * 0.4
-            return kbHeight
-        }
+        // When the code field has focus, the QR code and instructions are hidden,
+        // making the dialog compact enough to fit above the keyboard without shifting.
+        property real totpDialogKbOffset: 0
 
         Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutQuad } }
 
@@ -1644,6 +1640,7 @@ KeyboardAwareContainer {
 
                 Text {
                     Layout.fillWidth: true
+                    visible: !totpCodeField.activeFocus
                     text: TranslationManager.translate("settings.data.totpsetupinstructions",
                         "Scan this QR code with your authenticator app (Apple Passwords, Google Authenticator, Microsoft Authenticator, or similar).")
                     color: Theme.textSecondaryColor
@@ -1651,11 +1648,12 @@ KeyboardAwareContainer {
                     wrapMode: Text.WordWrap
                 }
 
-                // QR code
+                // QR code — hidden when keyboard is open (user already scanned it)
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     width: Theme.scaled(200)
                     height: Theme.scaled(200)
+                    visible: !totpCodeField.activeFocus
                     color: "#ffffff"
                     radius: Theme.scaled(8)
                     Accessible.role: Accessible.Graphic
@@ -1670,9 +1668,10 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Manual entry secret
+                // Manual entry secret — hidden when keyboard is open
                 ColumnLayout {
                     Layout.fillWidth: true
+                    visible: !totpCodeField.activeFocus
                     spacing: Theme.scaled(4)
 
                     Text {
