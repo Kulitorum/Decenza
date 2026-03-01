@@ -1630,7 +1630,7 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) return;
             if (success) {
-                updateTotalShots();
+                refreshTotalShots();
                 invalidateDistinctCache();
                 emit shotDeleted(shotId);
                 qDebug() << "ShotHistoryStorage: Async deleted shot" << shotId;
@@ -2110,6 +2110,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
             QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
             db.setDatabaseName(dbPath);
             if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
                 QSqlQuery query(db);
                 if (query.exec(sql)) {
                     while (query.next()) {
@@ -2189,7 +2190,7 @@ QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& group
     QString statsSql = "SELECT "
         "AVG(CASE WHEN drink_tds > 0 THEN drink_tds ELSE NULL END) as avg_tds, "
         "AVG(CASE WHEN drink_ey > 0 THEN drink_ey ELSE NULL END) as avg_ey, "
-        "AVG(CASE WHEN duration > 0 THEN duration ELSE NULL END) as avg_duration, "
+        "AVG(CASE WHEN duration_seconds > 0 THEN duration_seconds ELSE NULL END) as avg_duration, "
         "AVG(CASE WHEN dose_weight > 0 THEN dose_weight ELSE NULL END) as avg_dose, "
         "AVG(CASE WHEN final_weight > 0 THEN final_weight ELSE NULL END) as avg_yield, "
         "AVG(CASE WHEN temperature_override > 0 THEN temperature_override ELSE NULL END) as avg_temperature "
@@ -2282,7 +2283,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
     QString statsSql = "SELECT "
         "AVG(CASE WHEN drink_tds > 0 THEN drink_tds ELSE NULL END) as avg_tds, "
         "AVG(CASE WHEN drink_ey > 0 THEN drink_ey ELSE NULL END) as avg_ey, "
-        "AVG(CASE WHEN duration > 0 THEN duration ELSE NULL END) as avg_duration, "
+        "AVG(CASE WHEN duration_seconds > 0 THEN duration_seconds ELSE NULL END) as avg_duration, "
         "AVG(CASE WHEN dose_weight > 0 THEN dose_weight ELSE NULL END) as avg_dose, "
         "AVG(CASE WHEN final_weight > 0 THEN final_weight ELSE NULL END) as avg_yield, "
         "AVG(CASE WHEN temperature_override > 0 THEN temperature_override ELSE NULL END) as avg_temperature "
@@ -2301,6 +2302,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
             QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
             db.setDatabaseName(dbPath);
             if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
                 // Stats query
                 QSqlQuery statsQuery(db);
                 statsQuery.prepare(statsSql);
