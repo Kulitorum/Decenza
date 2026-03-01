@@ -338,7 +338,7 @@ void MqttClient::onInternalDisconnected()
     m_publishTimer.stop();
     emit connectedChanged();
 
-    // Attempt reconnection if MQTT is still enabled
+    // Attempt reconnection with exponential backoff if MQTT is still enabled
     if (m_settings && m_settings->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         m_status = QString("Disconnected - reconnecting (%1/%2)...")
             .arg(m_reconnectAttempts + 1)

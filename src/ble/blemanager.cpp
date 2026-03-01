@@ -446,7 +446,7 @@ void BLEManager::tryDirectConnectToDE1() {
     }
 
     // Don't attempt if already connected or connecting
-    // (checked by the de1Discovered handler in main.cpp, but guard here too)
+    // (the de1Discovered handler in main.cpp checks this before connecting)
 
     QString deviceName = m_savedDE1Name.isEmpty() ? "DE1" : m_savedDE1Name;
 
@@ -463,6 +463,12 @@ void BLEManager::tryDirectConnectToDE1() {
     // On Android/desktop, we have a MAC address - try direct connect
     QString upperAddress = m_savedDE1Address.toUpper();
     QBluetoothAddress address(upperAddress);
+    if (address.isNull()) {
+        qWarning() << "BLEManager: tryDirectConnectToDE1 - invalid saved address:" << m_savedDE1Address;
+        emit de1LogMessage(QString("Direct wake failed: invalid saved address"));
+        if (!m_scanning) startScan();
+        return;
+    }
     QBluetoothDeviceInfo deviceInfo(address, deviceName, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
 
     qDebug() << "BLEManager: DE1 direct wake - connecting to" << deviceName << "at" << upperAddress;

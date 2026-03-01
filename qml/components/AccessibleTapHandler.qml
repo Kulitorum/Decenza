@@ -49,7 +49,6 @@ MouseArea {
     // This is the proper way to receive screen reader activations (double-tap in TalkBack)
     Accessible.onPressAction: {
         // Screen reader activation = primary action
-        // Screen reader activation = primary action
         root.accessibleClicked()
     }
 

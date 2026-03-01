@@ -407,6 +407,7 @@ int main(int argc, char *argv[])
                      [&physicalScale, &bleManager, &settings, &de1Device]() {
         qDebug() << "AutoWakeManager: Waking scale and reconnecting DE1 if needed";
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
+            // Delay slightly to let BLE stack initialize after wake
             QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToDE1);
         }
         if (physicalScale && physicalScale->isConnected()) {
@@ -1051,7 +1052,7 @@ int main(int argc, char *argv[])
             // (prevents theme colors from falling back to defaults on wake)
             settings.sync();
 
-            // Try to reconnect/wake DE1
+            // Try to reconnect/wake DE1 (delay to let BLE stack initialize after resume)
             if (!de1Device.isConnected() && !de1Device.isConnecting()) {
                 QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToDE1);
             }

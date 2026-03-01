@@ -114,7 +114,8 @@ private:
     static constexpr int MAX_RECONNECT_ATTEMPTS = 10;
     static constexpr int INITIAL_RECONNECT_DELAY_MS = 5000;
     static constexpr int MAX_RECONNECT_DELAY_MS = 60000;
-    int reconnectDelayMs() const { return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << m_reconnectAttempts), MAX_RECONNECT_DELAY_MS); }
+    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s, ... (capped at 60s)
+    int reconnectDelayMs() const { return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << std::min(m_reconnectAttempts, 20)), MAX_RECONNECT_DELAY_MS); }
 
     QString m_status;
     bool m_connected = false;

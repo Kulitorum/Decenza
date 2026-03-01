@@ -665,7 +665,7 @@ QStringList DatabaseBackupManager::getAvailableBackups() const
         return QStringList();
     }
 
-    // Get all backup files (.zip on all platforms, .db for old backup compatibility)
+    // Get all backup files, sorted newest first (QDir::Time default)
     QStringList filters;
     filters << "shots_backup_*.zip" << "shots_backup_*.db";
     QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time);
