@@ -81,15 +81,12 @@ void UsbScaleManager::pollPortsAndroid()
 {
     bool devicePresent = AndroidUsbScaleHelper::hasDevice();
 
-    if (!m_hasLoggedInitialPorts) {
+    // Log when a scale first appears
+    if (!m_hasLoggedInitialPorts && devicePresent) {
         m_hasLoggedInitialPorts = true;
-        if (devicePresent) {
-            QString info = AndroidUsbScaleHelper::deviceInfo();
-            qDebug() << "[USB Scale] Device found:" << info;
-            emit logMessage(QStringLiteral("[USB Scale] Device found: %1").arg(info));
-        } else {
-            qDebug() << "[USB Scale] No USB scale detected";
-        }
+        QString info = AndroidUsbScaleHelper::deviceInfo();
+        qDebug() << "[USB Scale] Device found:" << info;
+        emit logMessage(QStringLiteral("[USB Scale] Device found: %1").arg(info));
     }
 
     // Check if connected scale disappeared

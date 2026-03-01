@@ -109,7 +109,6 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(int dimDelayMinutes READ dimDelayMinutes WRITE setDimDelayMinutes NOTIFY dimDelayMinutesChanged)
 
     // Flip clock settings
-    Q_PROPERTY(bool flipClockUse24Hour READ flipClockUse24Hour WRITE setFlipClockUse24Hour NOTIFY flipClockUse24HourChanged)
     Q_PROPERTY(bool flipClockUse3D READ flipClockUse3D WRITE setFlipClockUse3D NOTIFY flipClockUse3DChanged)
 
     // Shot map settings
@@ -172,7 +171,6 @@ public:
     int dimDelayMinutes() const { return m_dimDelayMinutes; }
     double pipesSpeed() const { return m_pipesSpeed; }
     double pipesCameraSpeed() const { return m_pipesCameraSpeed; }
-    bool flipClockUse24Hour() const { return m_flipClockUse24Hour; }
     bool flipClockUse3D() const { return m_flipClockUse3D; }
     bool videosShowClock() const { return m_videosShowClock; }
     bool pipesShowClock() const { return m_pipesShowClock; }
@@ -199,7 +197,6 @@ public:
     void setScreensaverType(const QString& type);
     void setPipesSpeed(double speed);
     void setPipesCameraSpeed(double speed);
-    void setFlipClockUse24Hour(bool use24Hour);
     void setFlipClockUse3D(bool use3D);
     void setVideosShowClock(bool show);
     void setPipesShowClock(bool show);
@@ -271,7 +268,6 @@ signals:
     void screensaverTypeChanged();
     void pipesSpeedChanged();
     void pipesCameraSpeedChanged();
-    void flipClockUse24HourChanged();
     void flipClockUse3DChanged();
     void videosShowClockChanged();
     void pipesShowClockChanged();
@@ -386,7 +382,6 @@ private:
     QString m_screensaverType = "videos";
     double m_pipesSpeed = 0.5;  // Default to slower speed
     double m_pipesCameraSpeed = 60.0;  // Seconds for full rotation (default 60s)
-    bool m_flipClockUse24Hour = true;  // Default to 24-hour format
     bool m_flipClockUse3D = true;  // Default to 3D (perspective) mode
     bool m_videosShowClock = true;  // Default to showing clock on videos
     bool m_pipesShowClock = true;  // Default to showing clock on pipes

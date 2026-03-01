@@ -38,7 +38,9 @@ class BLEManager : public QObject {
     Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList discoveredScales READ discoveredScales NOTIFY scalesChanged)
     Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY scaleConnectionFailedChanged)
+    // CONSTANT because QML only checks these at startup before BLE discovery runs
     Q_PROPERTY(bool hasSavedScale READ hasSavedScale CONSTANT)
+    Q_PROPERTY(bool hasSavedDE1 READ hasSavedDE1 CONSTANT)
     Q_PROPERTY(bool disabled READ isDisabled WRITE setDisabled NOTIFY disabledChanged)
 
 public:
@@ -53,6 +55,7 @@ public:
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
+    bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
@@ -64,6 +67,11 @@ public:
     // Scale address management
     void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void clearSavedScale();
+
+    // DE1 address management
+    void setSavedDE1Address(const QString& address, const QString& name);
+    Q_INVOKABLE void clearSavedDE1();
+
     Q_INVOKABLE void openLocationSettings();
     Q_INVOKABLE void openBluetoothSettings();
 
@@ -74,6 +82,7 @@ public:
     void appendScaleLog(const QString& message);  // For use by scale implementations
 
 public slots:
+    Q_INVOKABLE void tryDirectConnectToDE1();
     Q_INVOKABLE void tryDirectConnectToScale();
     Q_INVOKABLE void scanForScales();  // User-initiated scale scan
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
@@ -125,6 +134,10 @@ private:
     QString m_savedScaleAddress;
     QString m_savedScaleType;
     QString m_savedScaleName;
+
+    // Saved DE1 for direct wake connection
+    QString m_savedDE1Address;
+    QString m_savedDE1Name;
 
     // Prevents showing "No Scale Found" dialog more than once per session
     bool m_flowScaleFallbackEmitted = false;

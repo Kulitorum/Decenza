@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QMutex>
+#include <algorithm>
 
 extern "C" {
 #include <MQTTAsync.h>
@@ -109,8 +110,12 @@ private:
     QTimer m_publishTimer;
     QTimer m_reconnectTimer;
     int m_reconnectAttempts = 0;
+    bool m_isReconnecting = false;
     static constexpr int MAX_RECONNECT_ATTEMPTS = 10;
-    static constexpr int RECONNECT_DELAY_MS = 5000;
+    static constexpr int INITIAL_RECONNECT_DELAY_MS = 5000;
+    static constexpr int MAX_RECONNECT_DELAY_MS = 60000;
+    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s, ... (capped at 60s)
+    int reconnectDelayMs() const { return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << std::min(m_reconnectAttempts, 20)), MAX_RECONNECT_DELAY_MS); }
 
     QString m_status;
     bool m_connected = false;

@@ -701,64 +701,137 @@ Page {
     // Debug log dialog
     Dialog {
         id: debugLogDialog
-        title: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
+        parent: Overlay.overlay
         anchors.centerIn: parent
         width: parent.width * 0.9
         height: parent.height * 0.8
         modal: true
+        padding: 0
 
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
         }
 
-        ScrollView {
-            anchors.fill: parent
-            contentWidth: availableWidth
+        contentItem: ColumnLayout {
+            spacing: 0
 
-            TextArea {
-                text: shotData.debugLog || TranslationManager.translate("shotdetail.nodebuglog", "No debug log available")
-                font.family: "monospace"
-                font.pixelSize: Theme.scaled(12)
+            Text {
+                text: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
+                font: Theme.titleFont
                 color: Theme.textColor
-                readOnly: true
-                selectByMouse: true
-                wrapMode: Text.Wrap
-                background: Rectangle { color: "transparent" }
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
 
-                Accessible.role: Accessible.EditableText
-                Accessible.name: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
-                Accessible.description: text.substring(0, 200)
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.margins: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(10)
+                contentWidth: availableWidth
+
+                TextArea {
+                    text: shotData.debugLog || TranslationManager.translate("shotdetail.nodebuglog", "No debug log available")
+                    font.family: "monospace"
+                    font.pixelSize: Theme.scaled(12)
+                    color: Theme.textColor
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: Text.Wrap
+                    background: Rectangle { color: "transparent" }
+
+                    Accessible.role: Accessible.EditableText
+                    Accessible.name: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
+                    Accessible.description: text.substring(0, 200)
+                }
+            }
+
+            AccessibleButton {
+                text: TranslationManager.translate("shotdetail.close", "Close")
+                accessibleName: TranslationManager.translate("shotdetail.closeDebugLog", "Close debug log")
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+                onClicked: debugLogDialog.close()
             }
         }
-
-        standardButtons: Dialog.Close
     }
 
     // Delete confirmation dialog
     Dialog {
         id: deleteConfirmDialog
-        title: TranslationManager.translate("shotdetail.deleteconfirmtitle", "Delete Shot?")
+        parent: Overlay.overlay
         anchors.centerIn: parent
+        width: Theme.scaled(360)
         modal: true
+        padding: 0
 
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
         }
 
-        Tr {
-            key: "shotdetail.deleteconfirmmessage"
-            fallback: "This will permanently delete this shot from history."
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
-        }
+        contentItem: ColumnLayout {
+            spacing: 0
 
-        standardButtons: Dialog.Cancel | Dialog.Ok
+            Text {
+                text: TranslationManager.translate("shotdetail.deleteconfirmtitle", "Delete Shot?")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
 
-        onAccepted: {
-            MainController.shotHistory.requestDeleteShot(shotId)
+            Text {
+                text: TranslationManager.translate("shotdetail.deleteconfirmmessage", "This will permanently delete this shot from history.")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shotdetail.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("shotdetail.cancelDelete", "Cancel delete")
+                    Layout.fillWidth: true
+                    onClicked: deleteConfirmDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shotdetail.delete", "Delete")
+                    accessibleName: TranslationManager.translate("shotdetail.confirmDelete", "Confirm delete shot")
+                    destructive: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        deleteConfirmDialog.close()
+                        MainController.shotHistory.requestDeleteShot(shotId)
+                    }
+                }
+            }
         }
     }
 

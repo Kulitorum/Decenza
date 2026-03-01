@@ -132,7 +132,6 @@ QString DatabaseBackupManager::getBackupDirectory() const
 
     if (javaPath.isValid()) {
         backupDir = javaPath.toString();
-        qDebug() << "DatabaseBackupManager: Got backup path from Java:" << backupDir;
     } else {
         qWarning() << "DatabaseBackupManager: Failed to get backup path from Java";
         return QString();
@@ -169,7 +168,6 @@ QString DatabaseBackupManager::getBackupDirectory() const
 #endif
     }
 
-    qDebug() << "DatabaseBackupManager: Using backup directory:" << backupDir;
     return backupDir;
 }
 
@@ -337,8 +335,7 @@ bool DatabaseBackupManager::createBackup(bool force)
     QFileInfo existingZip(zipPath);
     if (!force && existingZip.exists() && existingZip.size() > 0) {
         // Automatic backup - skip if valid backup exists
-        qDebug() << "DatabaseBackupManager: Valid backup already exists for today:" << zipPath;
-        qDebug() << "DatabaseBackupManager: Existing backup size:" << existingZip.size() << "bytes";
+        qDebug() << "DatabaseBackupManager: Valid backup already exists for today";
         m_lastBackupDate = QDate::currentDate();
 
 #ifdef Q_OS_ANDROID
@@ -348,7 +345,6 @@ bool DatabaseBackupManager::createBackup(bool force)
             "scanFile",
             "(Ljava/lang/String;)V",
             QJniObject::fromString(zipPath).object<jstring>());
-        qDebug() << "DatabaseBackupManager: Triggered media scan for existing backup:" << zipPath;
 #endif
 
         m_backupInProgress = false;
@@ -669,10 +665,10 @@ QStringList DatabaseBackupManager::getAvailableBackups() const
         return QStringList();
     }
 
-    // Get all backup files (.zip on all platforms, .db for old backup compatibility)
+    // Get all backup files, sorted newest first (QDir::Time default)
     QStringList filters;
     filters << "shots_backup_*.zip" << "shots_backup_*.db";
-    QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time | QDir::Reversed);
+    QFileInfoList backups = dir.entryInfoList(filters, QDir::Files, QDir::Time);
 
     QStringList result;
     for (const QFileInfo& fileInfo : backups) {

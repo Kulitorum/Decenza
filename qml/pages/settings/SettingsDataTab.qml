@@ -1576,10 +1576,23 @@ KeyboardAwareContainer {
     Dialog {
         id: totpSetupDialog
         parent: Overlay.overlay
-        anchors.centerIn: parent
+        x: Math.round((parent.width - width) / 2)
+        y: {
+            if (totpCodeField.activeFocus) {
+                // Center in the visible area above the keyboard
+                var kbHeight = Qt.inputMethod.keyboardRectangle.height;
+                if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
+                    kbHeight = parent.height * 0.45;
+                var availableHeight = parent.height - kbHeight;
+                return Math.round(Math.max(Theme.scaled(10), (availableHeight - height) / 2));
+            }
+            return Math.round((parent.height - height) / 2);
+        }
         width: Theme.scaled(380)
         padding: 0
         modal: true
+
+        Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutQuad } }
 
         property string totpSecret: ""
         property string totpUri: ""
@@ -1633,6 +1646,7 @@ KeyboardAwareContainer {
 
                 Text {
                     Layout.fillWidth: true
+                    visible: !totpCodeField.activeFocus
                     text: TranslationManager.translate("settings.data.totpsetupinstructions",
                         "Scan this QR code with your authenticator app (Apple Passwords, Google Authenticator, Microsoft Authenticator, or similar).")
                     color: Theme.textSecondaryColor
@@ -1640,11 +1654,12 @@ KeyboardAwareContainer {
                     wrapMode: Text.WordWrap
                 }
 
-                // QR code
+                // QR code — hidden when keyboard is open (user already scanned it)
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     width: Theme.scaled(200)
                     height: Theme.scaled(200)
+                    visible: !totpCodeField.activeFocus
                     color: "#ffffff"
                     radius: Theme.scaled(8)
                     Accessible.role: Accessible.Graphic
@@ -1659,9 +1674,10 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Manual entry secret
+                // Manual entry secret — hidden when keyboard is open
                 ColumnLayout {
                     Layout.fillWidth: true
+                    visible: !totpCodeField.activeFocus
                     spacing: Theme.scaled(4)
 
                     Text {

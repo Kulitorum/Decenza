@@ -187,8 +187,10 @@ void MqttClient::connectToBroker()
         m_client = nullptr;
     }
 
-    m_reconnectAttempts = 0;
-    emit reconnectAttemptsChanged();
+    if (!m_isReconnecting) {
+        m_reconnectAttempts = 0;
+        emit reconnectAttemptsChanged();
+    }
 
     // Build server URI
     int port = m_settings->mqttBrokerPort();
@@ -336,13 +338,13 @@ void MqttClient::onInternalDisconnected()
     m_publishTimer.stop();
     emit connectedChanged();
 
-    // Attempt reconnection if MQTT is still enabled
+    // Attempt reconnection with exponential backoff if MQTT is still enabled
     if (m_settings && m_settings->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         m_status = QString("Disconnected - reconnecting (%1/%2)...")
             .arg(m_reconnectAttempts + 1)
             .arg(MAX_RECONNECT_ATTEMPTS);
         emit statusChanged();
-        m_reconnectTimer.start(RECONNECT_DELAY_MS);
+        m_reconnectTimer.start(reconnectDelayMs());
     } else if (m_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         m_status = "Disconnected - max retries reached";
         emit statusChanged();
@@ -365,9 +367,11 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
     emit statusChanged();
     emit connectedChanged();
 
-    // Attempt reconnection
+    // Attempt reconnection with exponential backoff
     if (m_settings && m_settings->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        m_reconnectTimer.start(RECONNECT_DELAY_MS);
+        int delay = reconnectDelayMs();
+        qDebug() << "MqttClient: Retrying in" << delay / 1000 << "seconds";
+        m_reconnectTimer.start(delay);
     }
 }
 
@@ -488,7 +492,10 @@ void MqttClient::attemptReconnect()
 
     qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts << "of" << MAX_RECONNECT_ATTEMPTS;
 
+    // Call connectToBroker with flag to preserve reconnect state
+    m_isReconnecting = true;
     connectToBroker();
+    m_isReconnecting = false;
 }
 
 void MqttClient::onSettingsChanged()

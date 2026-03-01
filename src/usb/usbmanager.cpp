@@ -118,17 +118,12 @@ void USBManager::pollPortsAndroid()
 {
     bool devicePresent = AndroidUsbHelper::hasDevice();
 
-    // Log device presence on first poll
-    if (!m_hasLoggedInitialPorts) {
+    // Log when a device first appears
+    if (!m_hasLoggedInitialPorts && devicePresent) {
         m_hasLoggedInitialPorts = true;
-        if (devicePresent) {
-            QString info = AndroidUsbHelper::deviceInfo();
-            qDebug() << "[USB] Android USB device found:" << info;
-            emit logMessage(QStringLiteral("[USB] Device found: %1").arg(info));
-        } else {
-            qDebug() << "[USB] No WCH USB device detected via Android USB Host API";
-            emit logMessage(QStringLiteral("[USB] No USB device detected"));
-        }
+        QString info = AndroidUsbHelper::deviceInfo();
+        qDebug() << "[USB] Android USB device found:" << info;
+        emit logMessage(QStringLiteral("[USB] Device found: %1").arg(info));
     }
 
     // Check if connected device disappeared
@@ -173,9 +168,8 @@ void USBManager::pollPortsAndroid()
 
     // No device — nothing to do
     if (!devicePresent) {
-        // Reset permission flag so we can re-request if device is reconnected
+        // Reset flags so we can re-request/re-log when a device appears
         m_androidPermissionRequested = false;
-        // Reset initial log flag so we log again when a device appears
         m_hasLoggedInitialPorts = false;
         return;
     }

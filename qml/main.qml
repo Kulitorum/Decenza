@@ -145,7 +145,7 @@ ApplicationWindow {
         if (autoSleepMinutes > 0 && sleepCountdownNormal < 0) {
             sleepCountdownNormal = autoSleepMinutes
             sleepCountdownStayAwake = 0
-            console.log("[AutoSleep] Setting changed: initialized normal=" + sleepCountdownNormal + ", stayAwake=0")
+            console.log("[AutoSleep] Setting changed: normal=" + sleepCountdownNormal)
         }
     }
     property int sleepCountdownNormal: -1      // Minutes remaining (-1 = not started)
@@ -171,23 +171,10 @@ ApplicationWindow {
         interval: 60 * 1000  // 1 minute
         running: !screensaverActive && !root.operationActive && root.autoSleepMinutes > 0
         repeat: true
-        onRunningChanged: {
-            console.log("[AutoSleep] Timer running=" + running +
-                       " (screensaverActive=" + screensaverActive +
-                       ", operationActive=" + root.operationActive +
-                       ", autoSleepMinutes=" + root.autoSleepMinutes +
-                       ", normal=" + root.sleepCountdownNormal +
-                       ", stayAwake=" + root.sleepCountdownStayAwake + ")")
-        }
         onTriggered: {
             // Decrement both counters (only if > 0)
             if (root.sleepCountdownNormal > 0) root.sleepCountdownNormal--
             if (root.sleepCountdownStayAwake > 0) root.sleepCountdownStayAwake--
-
-            // Debug: log countdown status on every tick
-            console.log("[AutoSleep] Tick: normal=" + root.sleepCountdownNormal +
-                       ", stayAwake=" + root.sleepCountdownStayAwake +
-                       ", autoSleepMinutes=" + root.autoSleepMinutes)
 
             // Sleep when BOTH <= 0
             if (root.sleepCountdownNormal <= 0 && root.sleepCountdownStayAwake <= 0) {
@@ -365,20 +352,13 @@ ApplicationWindow {
     // This timer resends the steam settings every 60 seconds to maintain target temperature.
     Timer {
         id: steamHeaterTimer
-        property int resendCount: 0
         interval: 60000  // Every 60 seconds
         running: Settings.keepSteamHeaterOn && !Settings.steamDisabled &&
                  DE1Device.connected &&
                  (MachineState.phase === MachineStateType.Phase.Idle ||
                   MachineState.phase === MachineStateType.Phase.Ready)
         repeat: true
-        onRunningChanged: resendCount = 0
-        onTriggered: {
-            if (resendCount === 0)
-                console.log("Resending steam settings to keep heater on")
-            resendCount++
-            MainController.applySteamSettings()
-        }
+        onTriggered: MainController.applySteamSettings()
     }
 
     // Track if we were just steaming (for auto-flush timer)
@@ -444,10 +424,8 @@ ApplicationWindow {
 
         // Initialize per-page scale settings
         var configVal = Settings.value("ui/configurePageScale", false)
-        console.log("Init configurePageScale:", configVal, "type:", typeof configVal)
         // Handle both boolean and string values from QSettings
         Theme.configurePageScaleEnabled = (configVal === true || configVal === "true")
-        console.log("Init configurePageScaleEnabled:", Theme.configurePageScaleEnabled)
 
         updateScale()
 
@@ -487,10 +465,7 @@ ApplicationWindow {
         if (root.autoSleepMinutes > 0) {
             root.sleepCountdownNormal = root.autoSleepMinutes
             root.sleepCountdownStayAwake = 0  // Already satisfied on fresh start
-            console.log("[AutoSleep] Init: autoSleepMinutes=" + root.autoSleepMinutes +
-                       ", normal=" + root.sleepCountdownNormal + ", stayAwake=0")
         } else {
-            console.log("[AutoSleep] Init: auto-sleep DISABLED (autoSleepMinutes=" + root.autoSleepMinutes + ")")
         }
 
         // Auto-match current bean data to a preset so the bean button
@@ -737,23 +712,24 @@ ApplicationWindow {
         return true
     }
 
-    // Android system back button / Escape key → go back.
-    // Pages that need custom back handling (e.g. BeanInfoPage's unsaved-changes
-    // dialog) intercept Key_Back first and set event.accepted = true.
-    Keys.onReleased: function(event) {
-        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
-            if (pageStack.depth > 1) {
-                event.accepted = true
-                goBack()
-            }
-        }
-    }
-
     // Page stack for navigation
     StackView {
         id: pageStack
         anchors.fill: parent
+        focus: true
         initialItem: idlePage
+
+        // Android system back button / Escape key → go back.
+        // Pages that need custom back handling (e.g. BeanInfoPage's unsaved-changes
+        // dialog) intercept Key_Back first and set event.accepted = true.
+        Keys.onReleased: function(event) {
+            if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+                if (pageStack.depth > 1) {
+                    event.accepted = true
+                    goBack()
+                }
+            }
+        }
 
         // CRT shader: render to FBO and process through GPU shader
         layer.enabled: Settings.activeShader === "crt"
@@ -937,16 +913,12 @@ ApplicationWindow {
 
     function updateCurrentPageScale() {
         var pageName = pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
-        console.log("updateCurrentPageScale: pageName =", pageName)
         Theme.currentPageObjectName = pageName
         if (pageName) {
             Theme.pageScaleMultiplier = parseFloat(Settings.value("pageScale/" + pageName, 1.0)) || 1.0
         } else {
             Theme.pageScaleMultiplier = 1.0
         }
-        console.log("Scale config: enabled =", Theme.configurePageScaleEnabled,
-                    "page =", Theme.currentPageObjectName,
-                    "scale =", Theme.pageScaleMultiplier)
     }
 
     // Detect which Theme colors are used on the current page
@@ -1004,7 +976,6 @@ ApplicationWindow {
         id: initPageScaleTimer
         interval: 100
         onTriggered: {
-            console.log("initPageScaleTimer triggered")
             updateCurrentPageScale()
         }
         Component.onCompleted: start()
@@ -1988,6 +1959,11 @@ ApplicationWindow {
 
     // Start BLE scanning (called after first-run dialog or on subsequent launches)
     function startBluetoothScan() {
+        // Try direct connect to DE1 if we have a saved address (this also starts scanning)
+        if (BLEManager.hasSavedDE1) {
+            BLEManager.tryDirectConnectToDE1()
+        }
+
         if (BLEManager.hasSavedScale) {
             // Try direct connect if we have a saved scale (this also starts scanning)
             BLEManager.tryDirectConnectToScale()
@@ -2773,11 +2749,6 @@ ApplicationWindow {
         visible: root.appInitialized && Theme.configurePageScaleEnabled && !screensaverActive && Theme.currentPageObjectName !== ""
         z: 800  // Above most content, below dialogs
 
-        onVisibleChanged: console.log("pageScaleOverlay visible:", visible,
-            "appInit:", root.appInitialized,
-            "enabled:", Theme.configurePageScaleEnabled,
-            "screensaver:", screensaverActive,
-            "page:", Theme.currentPageObjectName)
 
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
