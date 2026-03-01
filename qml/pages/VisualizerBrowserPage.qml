@@ -125,28 +125,17 @@ Page {
                     }
 
                     // Share code input field
-                    TextField {
+                    StyledTextField {
                         id: shareCodeInput
                         width: parent.width
                         height: Theme.scaled(60)
-                        color: Theme.textColor
                         font.pixelSize: Theme.scaled(24)
                         font.family: Theme.bodyFont.family
                         horizontalAlignment: Text.AlignHCenter
                         maximumLength: 4
-                        placeholderTextColor: Theme.textSecondaryColor
+                        placeholder: "CODE"
+                        accessibleName: "Share code"
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                        leftPadding: Theme.scaled(12)
-                        rightPadding: Theme.scaled(12)
-                        topPadding: Theme.scaled(12)
-                        bottomPadding: Theme.scaled(12)
-
-                        background: Rectangle {
-                            color: Theme.surfaceColor
-                            border.color: shareCodeInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 2
-                            radius: Theme.scaled(8)
-                        }
 
                         // Auto-uppercase
                         onTextChanged: {
@@ -384,28 +373,15 @@ Page {
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
 
-                    TextField {
+                    StyledTextField {
                         id: newNameInput
                         width: parent.width
                         height: Theme.scaled(50)
-                        color: Theme.textColor
-                        font: Theme.bodyFont
                         selectByMouse: true
                         focus: true
                         inputMethodHints: Qt.ImhNoAutoUppercase
-                        leftPadding: Theme.scaled(12)
-                        rightPadding: Theme.scaled(12)
-                        topPadding: Theme.scaled(12)
-                        bottomPadding: Theme.scaled(12)
-                        background: Rectangle {
-                            color: Theme.surfaceColor
-                            border.color: newNameInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 2
-                            radius: Theme.scaled(4)
-                        }
-
-                        Keys.onReturnPressed: { focus = false; Qt.inputMethod.hide() }
-                        Keys.onEnterPressed: { focus = false; Qt.inputMethod.hide() }
+                        placeholder: TranslationManager.translate("visualizer.newName.placeholder", "Profile name")
+                        accessibleName: TranslationManager.translate("visualizer.newName.placeholder", "Profile name")
                     }
 
                     Row {

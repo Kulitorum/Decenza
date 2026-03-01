@@ -346,10 +346,10 @@ Page {
                     }
                 }
 
-                // Clear button
+                // Clear button (inline, hidden in accessibility mode to avoid overlapping elements)
                 Text {
                     id: searchClearButton
-                    visible: searchField.text.length > 0
+                    visible: searchField.text.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(10)
                     anchors.verticalCenter: parent.verticalCenter
@@ -365,6 +365,17 @@ Page {
                             searchField.focus = false
                         }
                     }
+                }
+            }
+
+            // Accessible clear button (outside TextField bounds for TalkBack discoverability)
+            AccessibleButton {
+                visible: searchField.text.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                text: "\u2715"
+                accessibleName: TranslationManager.translate("shothistory.clearsearch", "Clear search")
+                onClicked: {
+                    searchField.text = ""
+                    searchField.focus = false
                 }
             }
 

@@ -245,6 +245,11 @@ Item {
             radius: Theme.scaled(20)
             color: downloadEnabled ? "white" : Qt.rgba(1, 1, 1, 0.15)
 
+            Accessible.role: Accessible.Button
+            Accessible.name: LibrarySharing.downloading ? "Downloading" : "Add to Library"
+            Accessible.focusable: true
+            Accessible.onPressAction: downloadArea.clicked(null)
+
             Text {
                 id: downloadLabel
                 anchors.centerIn: parent
@@ -253,9 +258,11 @@ Item {
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.bodyFont.pixelSize
                 font.bold: true
+                Accessible.ignored: true
             }
 
             MouseArea {
+                id: downloadArea
                 anchors.fill: parent
                 enabled: parent.downloadEnabled
                 onClicked: LibrarySharing.downloadEntry(selectedEntryId)

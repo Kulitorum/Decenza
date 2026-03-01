@@ -5,8 +5,9 @@ import QtQuick.Dialogs
 import DecenzaDE1
 import "../../components"
 
-Item {
+KeyboardAwareContainer {
     id: historyTab
+    textFields: [portField]
 
     RowLayout {
         anchors.fill: parent
@@ -430,22 +431,16 @@ Item {
 
                     Item { Layout.fillWidth: true }
 
-                    TextField {
+                    StyledTextField {
                         id: portField
                         text: Settings.shotServerPort.toString()
                         inputMethodHints: Qt.ImhDigitsOnly
-                        color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                         enabled: !serverSwitch.checked
                         horizontalAlignment: Text.AlignHCenter
                         Layout.preferredWidth: Theme.scaled(80)
-
-                        background: Rectangle {
-                            color: Theme.backgroundColor
-                            radius: Theme.scaled(4)
-                            border.color: portField.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
-                        }
+                        placeholder: "8888"
+                        accessibleName: "Server port"
 
                         onEditingFinished: {
                             var port = parseInt(text)
@@ -528,11 +523,17 @@ Item {
                                     border.color: Theme.primaryColor
                                     border.width: 1
 
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: TranslationManager.translate("settings.history.copy", "Copy") + " URL"
+                                    Accessible.focusable: true
+                                    Accessible.onPressAction: copyArea.clicked(null)
+
                                     Text {
                                         anchors.centerIn: parent
                                         text: copyFeedback.visible ? TranslationManager.translate("settings.history.copied", "Copied") : TranslationManager.translate("settings.history.copy", "Copy")
                                         color: copyArea.pressed ? "white" : Theme.primaryColor
                                         font.pixelSize: Theme.scaled(12)
+                                        Accessible.ignored: true
                                     }
 
                                     MouseArea {

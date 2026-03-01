@@ -366,13 +366,23 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(8)
                         spacing: Theme.scaled(4)
 
-                        Text {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.data.permissionneeded",
-                                "⚠ Storage permission required")
-                            color: Theme.warningColor
-                            font.pixelSize: Theme.scaled(11)
-                            font.bold: true
+                            spacing: Theme.scaled(4)
+
+                            Image {
+                                source: Theme.emojiToImage("\u26A0")
+                                sourceSize.width: Theme.scaled(11)
+                                sourceSize.height: Theme.scaled(11)
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("settings.data.permissionneeded",
+                                    "Storage permission required")
+                                color: Theme.warningColor
+                                font.pixelSize: Theme.scaled(11)
+                                font.bold: true
+                            }
                         }
 
                         Text {

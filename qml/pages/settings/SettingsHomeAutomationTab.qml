@@ -4,8 +4,9 @@ import QtQuick.Layouts
 import DecenzaDE1
 import "../../components"
 
-Item {
+KeyboardAwareContainer {
     id: homeAutomationTab
+    textFields: [hostField, portField, usernameField, passwordField, baseTopicField]
 
     RowLayout {
         anchors.fill: parent
@@ -91,6 +92,7 @@ Item {
                     }
 
                     StyledTextField {
+                        id: portField
                         Layout.fillWidth: true
                         text: Settings.mqttBrokerPort
                         inputMethodHints: Qt.ImhDigitsOnly
@@ -110,6 +112,7 @@ Item {
                     }
 
                     StyledTextField {
+                        id: usernameField
                         Layout.fillWidth: true
                         text: Settings.mqttUsername
                         onEditingFinished: Settings.mqttUsername = text
@@ -123,6 +126,7 @@ Item {
                     }
 
                     StyledTextField {
+                        id: passwordField
                         Layout.fillWidth: true
                         text: Settings.mqttPassword
                         echoMode: TextInput.Password
@@ -137,6 +141,7 @@ Item {
                     }
 
                     StyledTextField {
+                        id: baseTopicField
                         Layout.fillWidth: true
                         text: Settings.mqttBaseTopic
                         onEditingFinished: Settings.mqttBaseTopic = text

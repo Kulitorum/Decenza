@@ -467,15 +467,22 @@ Item {
                         return scrollBar && scrollBar.size < 1.0 && scrollBar.position + scrollBar.size < 0.95
                     }
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("accessibility.scrolldown", "Scroll down")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: scrollDownArea.clicked(null)
+
                     Text {
                         anchors.centerIn: parent
                         text: "↓"
                         color: "white"
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
+                        id: scrollDownArea
                         anchors.fill: parent
                         onClicked: {
                             // Scroll down a bit

@@ -928,14 +928,24 @@ KeyboardAwareContainer {
                                 }
 
                                 // Warning for low water with active refill kit
-                                Text {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: TranslationManager.translate("settings.options.refillKitMalfunction",
-                                        "⚠ Water critically low despite refill kit - check kit connection")
-                                    color: Theme.errorColor
-                                    font.pixelSize: Theme.scaled(12)
-                                    wrapMode: Text.WordWrap
+                                    spacing: Theme.scaled(4)
                                     visible: waterLevelCard.refillKitActive && DE1Device.waterLevelMm < 10
+
+                                    Image {
+                                        source: Theme.emojiToImage("\u26A0")
+                                        sourceSize.width: Theme.scaled(12)
+                                        sourceSize.height: Theme.scaled(12)
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: TranslationManager.translate("settings.options.refillKitMalfunction",
+                                            "Water critically low despite refill kit - check kit connection")
+                                        color: Theme.errorColor
+                                        font.pixelSize: Theme.scaled(12)
+                                        wrapMode: Text.WordWrap
+                                    }
                                 }
                             }
                         }
@@ -1269,15 +1279,26 @@ KeyboardAwareContainer {
                                                   isEnabled ? Theme.primaryColor : Theme.borderColor
                                     border.width: isSelected ? 2 : 1
 
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: {
+                                        var dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                                        return dayNames[index] + (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
+                                               (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                    }
+                                    Accessible.focusable: true
+                                    Accessible.onPressAction: dayArea.clicked(null)
+
                                     Text {
                                         anchors.centerIn: parent
                                         text: modelData
                                         color: parent.isSelected || parent.isEnabled ? "white" : Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(14)
                                         font.bold: parent.isSelected || parent.isEnabled
+                                        Accessible.ignored: true
                                     }
 
                                     MouseArea {
+                                        id: dayArea
                                         anchors.fill: parent
                                         onClicked: autoWakeContent.selectedDay = index
                                     }
@@ -1538,15 +1559,22 @@ KeyboardAwareContainer {
         visible: contentFlickable.contentHeight > contentFlickable.height &&
                  contentFlickable.contentY + contentFlickable.height < contentFlickable.contentHeight - 10
 
+        Accessible.role: Accessible.Button
+        Accessible.name: TranslationManager.translate("accessibility.scrolldown", "Scroll down")
+        Accessible.focusable: true
+        Accessible.onPressAction: scrollDownArea.clicked(null)
+
         Text {
             anchors.centerIn: parent
             text: "\u2193"
             color: "white"
             font.pixelSize: Theme.scaled(16)
             font.bold: true
+            Accessible.ignored: true
         }
 
         MouseArea {
+            id: scrollDownArea
             anchors.fill: parent
             onClicked: {
                 contentFlickable.contentY = Math.min(

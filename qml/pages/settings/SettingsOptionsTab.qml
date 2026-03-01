@@ -502,14 +502,24 @@ KeyboardAwareContainer {
                             }
 
                             // Warning for low water with active refill kit
-                            Text {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: TranslationManager.translate("settings.options.refillKitMalfunction",
-                                    "⚠ Water critically low despite refill kit - check kit connection")
-                                color: Theme.errorColor
-                                font.pixelSize: Theme.scaled(12)
-                                wrapMode: Text.WordWrap
+                                spacing: Theme.scaled(4)
                                 visible: parent.parent.parent.parent.refillKitActive && DE1Device.waterLevelMm < 10
+
+                                Image {
+                                    source: Theme.emojiToImage("\u26A0")
+                                    sourceSize.width: Theme.scaled(12)
+                                    sourceSize.height: Theme.scaled(12)
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: TranslationManager.translate("settings.options.refillKitMalfunction",
+                                        "Water critically low despite refill kit - check kit connection")
+                                    color: Theme.errorColor
+                                    font.pixelSize: Theme.scaled(12)
+                                    wrapMode: Text.WordWrap
+                                }
                             }
                         }
                     }
@@ -698,7 +708,6 @@ KeyboardAwareContainer {
                                     var sched = Settings.autoWakeSchedule
                                     return sched[index] ? sched[index].enabled : false
                                 }
-
                                 // Selected: lighter primary, Enabled: primary, Neither: background
                                 color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
                                        isEnabled ? Theme.primaryColor :
@@ -707,15 +716,26 @@ KeyboardAwareContainer {
                                               isEnabled ? Theme.primaryColor : Theme.borderColor
                                 border.width: isSelected ? 2 : 1
 
+                                Accessible.role: Accessible.Button
+                                Accessible.name: {
+                                    var dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                                    return dayNames[index] + (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
+                                           (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                }
+                                Accessible.focusable: true
+                                Accessible.onPressAction: dayMa.clicked(null)
+
                                 Text {
                                     anchors.centerIn: parent
                                     text: modelData
                                     color: parent.isSelected || parent.isEnabled ? "white" : Theme.textSecondaryColor
                                     font.pixelSize: Theme.scaled(14)
                                     font.bold: parent.isSelected || parent.isEnabled
+                                    Accessible.ignored: true
                                 }
 
                                 MouseArea {
+                                    id: dayMa
                                     anchors.fill: parent
                                     onClicked: autoWakeContent.selectedDay = index
                                 }

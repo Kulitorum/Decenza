@@ -321,6 +321,11 @@ Page {
                     radius: Theme.cardRadius
                     color: doneArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("descaling.button.done", "Done")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: doneArea.clicked(null)
+
                     Tr {
                         anchors.centerIn: parent
                         key: "descaling.button.done"
@@ -328,6 +333,7 @@ Page {
                         color: "white"
                         font.pixelSize: Theme.scaled(18)
                         font.weight: Font.Bold
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
@@ -551,6 +557,13 @@ Page {
                                     ? Qt.darker(Settings.steamDisabled ? Theme.primaryColor : Theme.errorColor, 1.2)
                                     : (Settings.steamDisabled ? Theme.primaryColor : Theme.errorColor)
 
+                                Accessible.role: Accessible.Button
+                                Accessible.name: Settings.steamDisabled
+                                    ? TranslationManager.translate("descaling.steam.enable", "Enable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
+                                    : TranslationManager.translate("descaling.steam.disable", "Disable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: steamToggleArea.clicked(null)
+
                                 Text {
                                     anchors.centerIn: parent
                                     text: Settings.steamDisabled
@@ -559,6 +572,7 @@ Page {
                                     color: "white"
                                     font.pixelSize: Theme.scaled(14)
                                     font.weight: Font.Bold
+                                    Accessible.ignored: true
                                 }
 
                                 MouseArea {
@@ -671,6 +685,11 @@ Page {
                     radius: Theme.cardRadius
                     color: startArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("descaling.button.start", "Start Descaling")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: startArea.clicked(null)
+
                     RowLayout {
                         anchors.centerIn: parent
                         spacing: Theme.scaled(8)
@@ -681,6 +700,7 @@ Page {
                             color: "white"
                             font.pixelSize: Theme.scaled(20)
                             font.weight: Font.Bold
+                            Accessible.ignored: true
                         }
                     }
 

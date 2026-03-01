@@ -102,7 +102,13 @@ Item {
                             radius: Theme.buttonRadius
                             color: "#0070BA"  // PayPal blue
 
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Donate via PayPal"
+                            Accessible.focusable: true
+                            Accessible.onPressAction: donateArea.clicked(null)
+
                             MouseArea {
+                                id: donateArea
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: Qt.openUrlExternally("https://www.paypal.com/donate?business=paypal@kulitorum.com")
@@ -114,6 +120,7 @@ Item {
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
                                 color: "white"
+                                Accessible.ignored: true
                             }
                         }
 

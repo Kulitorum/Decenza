@@ -85,14 +85,21 @@ Rectangle {
                 border.color: displayMode === 0 ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "Grid view" + (displayMode === 0 ? ", selected" : "")
+                Accessible.focusable: true
+                Accessible.onPressAction: gridMa.clicked(null)
+
                 Text {
                     anchors.centerIn: parent
                     text: "\u25A3"  // Grid icon
                     color: displayMode === 0 ? "white" : Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(14)
+                    Accessible.ignored: true
                 }
 
                 MouseArea {
+                    id: gridMa
                     anchors.fill: parent
                     onClicked: displayMode = 0
                 }
@@ -107,6 +114,11 @@ Rectangle {
                 border.color: displayMode === 1 ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "List view" + (displayMode === 1 ? ", selected" : "")
+                Accessible.focusable: true
+                Accessible.onPressAction: listMa.clicked(null)
+
                 Image {
                     anchors.centerIn: parent
                     source: "qrc:/icons/list.svg"
@@ -116,6 +128,7 @@ Rectangle {
                 }
 
                 MouseArea {
+                    id: listMa
                     anchors.fill: parent
                     onClicked: displayMode = 1
                 }
@@ -172,6 +185,11 @@ Rectangle {
                             }
                         }
 
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.label + " tab" + (activeTab === modelData.key ? ", selected" : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: tabMa.clicked(null)
+
                         Text {
                             anchors.centerIn: parent
                             text: modelData.label
@@ -179,9 +197,11 @@ Rectangle {
                             font.family: Theme.captionFont.family
                             font.pixelSize: Theme.scaled(11)
                             font.bold: activeTab === modelData.key
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: tabMa
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: activeTab = modelData.key
@@ -205,6 +225,11 @@ Rectangle {
                 border.color: Theme.primaryColor
                 border.width: 1
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "Add to library"
+                Accessible.focusable: true
+                Accessible.onPressAction: addMa.clicked(null)
+
                 Image {
                     anchors.centerIn: parent
                     source: "qrc:/icons/plus.svg"
@@ -218,9 +243,11 @@ Rectangle {
                     onClicked: addMenu.open()
                 }
 
-                Popup {
+                Dialog {
                     id: addMenu
-                    y: parent.height + Theme.scaled(4)
+                    modal: true
+                    parent: Overlay.overlay
+                    anchors.centerIn: parent
                     padding: Theme.scaled(4)
                     closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
 
@@ -251,6 +278,11 @@ Rectangle {
                                     : "transparent"
                                 opacity: modelData.enabled ? 1.0 : 0.4
 
+                                Accessible.role: Accessible.Button
+                                Accessible.name: modelData.label
+                                Accessible.focusable: true
+                                Accessible.onPressAction: menuItemMa.clicked(null)
+
                                 Text {
                                     anchors.left: parent.left
                                     anchors.leftMargin: Theme.scaled(10)
@@ -258,6 +290,7 @@ Rectangle {
                                     text: modelData.label
                                     color: Theme.textColor
                                     font: Theme.bodyFont
+                                    Accessible.ignored: true
                                 }
 
                                 MouseArea {
@@ -299,6 +332,11 @@ Rectangle {
 
                 property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && (selectedEntryType === "layout" || selectedEntryType === "theme" || selectedZoneName !== "")
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "Apply selected entry"
+                Accessible.focusable: true
+                Accessible.onPressAction: applyMa.clicked(null)
+
                 Image {
                     anchors.centerIn: parent
                     source: "qrc:/icons/ArrowLeft.svg"
@@ -323,6 +361,11 @@ Rectangle {
                 border.color: canDeleteSelected ? Theme.errorColor : Theme.borderColor
                 border.width: 1
                 opacity: canDeleteSelected ? 1.0 : 0.4
+
+                Accessible.role: Accessible.Button
+                Accessible.name: "Delete selected entry"
+                Accessible.focusable: true
+                Accessible.onPressAction: delMa.clicked(null)
 
                 Image {
                     anchors.centerIn: parent
@@ -350,6 +393,11 @@ Rectangle {
                 border.width: 1
                 opacity: WidgetLibrary.selectedEntryId !== "" ? 1.0 : 0.4
 
+                Accessible.role: Accessible.Button
+                Accessible.name: "Share to community"
+                Accessible.focusable: true
+                Accessible.onPressAction: shareMa.clicked(null)
+
                 Image {
                     anchors.centerIn: parent
                     source: "qrc:/icons/Upload.svg"
@@ -374,13 +422,18 @@ Rectangle {
                 color: showItems ? Theme.primaryColor : "transparent"
                 border.color: showItems ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
+                Accessible.role: Accessible.Button
+                Accessible.name: "Filter items" + (showItems ? ", on" : ", off")
+                Accessible.focusable: true
+                Accessible.onPressAction: filterItemsMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "I"
                     color: showItems ? "white" : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
+                    Accessible.ignored: true
                 }
-                MouseArea { anchors.fill: parent; onClicked: showItems = !showItems }
+                MouseArea { id: filterItemsMa; anchors.fill: parent; onClicked: showItems = !showItems }
             }
 
             // Type filter: Zones
@@ -390,13 +443,18 @@ Rectangle {
                 color: showZones ? Theme.primaryColor : "transparent"
                 border.color: showZones ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
+                Accessible.role: Accessible.Button
+                Accessible.name: "Filter zones" + (showZones ? ", on" : ", off")
+                Accessible.focusable: true
+                Accessible.onPressAction: filterZonesMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "Z"
                     color: showZones ? "white" : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
+                    Accessible.ignored: true
                 }
-                MouseArea { anchors.fill: parent; onClicked: showZones = !showZones }
+                MouseArea { id: filterZonesMa; anchors.fill: parent; onClicked: showZones = !showZones }
             }
 
             // Type filter: Layouts
@@ -406,13 +464,18 @@ Rectangle {
                 color: showLayouts ? Theme.primaryColor : "transparent"
                 border.color: showLayouts ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
+                Accessible.role: Accessible.Button
+                Accessible.name: "Filter layouts" + (showLayouts ? ", on" : ", off")
+                Accessible.focusable: true
+                Accessible.onPressAction: filterLayoutsMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "L"
                     color: showLayouts ? "white" : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
+                    Accessible.ignored: true
                 }
-                MouseArea { anchors.fill: parent; onClicked: showLayouts = !showLayouts }
+                MouseArea { id: filterLayoutsMa; anchors.fill: parent; onClicked: showLayouts = !showLayouts }
             }
 
             // Type filter: Themes
@@ -422,13 +485,18 @@ Rectangle {
                 color: showThemes ? Theme.primaryColor : "transparent"
                 border.color: showThemes ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
+                Accessible.role: Accessible.Button
+                Accessible.name: "Filter themes" + (showThemes ? ", on" : ", off")
+                Accessible.focusable: true
+                Accessible.onPressAction: filterThemesMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "T"
                     color: showThemes ? "white" : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
+                    Accessible.ignored: true
                 }
-                MouseArea { anchors.fill: parent; onClicked: showThemes = !showThemes }
+                MouseArea { id: filterThemesMa; anchors.fill: parent; onClicked: showThemes = !showThemes }
             }
         }
 

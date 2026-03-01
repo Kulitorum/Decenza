@@ -549,6 +549,11 @@ ApplicationWindow {
         radius: height / 2
         color: Theme.primaryColor
 
+        Accessible.role: Accessible.Button
+        Accessible.name: TranslationManager.translate("main.doneediting", "Done Editing")
+        Accessible.focusable: true
+        Accessible.onPressAction: doneEditingArea.clicked(null)
+
         RowLayout {
             id: doneEditingRow
             anchors.centerIn: parent
@@ -558,6 +563,7 @@ ApplicationWindow {
                 text: "✓"
                 font.pixelSize: Theme.scaled(16)
                 color: "white"
+                Accessible.ignored: true
             }
 
             Tr {
@@ -565,6 +571,7 @@ ApplicationWindow {
                 fallback: "Done Editing"
                 font: Theme.bodyFont
                 color: "white"
+                Accessible.ignored: true
             }
 
             // Show count of untranslated strings
@@ -582,11 +589,13 @@ ApplicationWindow {
                     font.pixelSize: Theme.scaled(12)
                     font.bold: true
                     color: "white"
+                    Accessible.ignored: true
                 }
             }
         }
 
         MouseArea {
+            id: doneEditingArea
             anchors.fill: parent
             onClicked: TranslationManager.editModeEnabled = false
         }
@@ -2814,6 +2823,11 @@ ApplicationWindow {
         color: Theme.primaryColor
         z: 9999  // Above everything
 
+        Accessible.role: Accessible.Button
+        Accessible.name: TranslationManager.translate("main.hidekeyboard", "Hide keyboard")
+        Accessible.focusable: true
+        Accessible.onPressAction: hideKeyboardArea.clicked(null)
+
         Image {
             anchors.centerIn: parent
             width: Theme.scaled(20)
@@ -2823,6 +2837,7 @@ ApplicationWindow {
         }
 
         MouseArea {
+            id: hideKeyboardArea
             anchors.fill: parent
             onClicked: {
                 // Must clear focus BEFORE hiding keyboard, otherwise

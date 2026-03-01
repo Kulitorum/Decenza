@@ -83,15 +83,23 @@ Page {
                         border.color: index === Settings.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
+                                         (index === Settings.selectedFlushPreset ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: livePresetArea.clicked(null)
+
                         Text {
                             id: livePresetText
                             anchors.centerIn: parent
                             text: modelData.name
                             color: index === Settings.selectedFlushPreset ? "white" : Theme.textColor
                             font: Theme.bodyFont
+                            Accessible.ignored: true
                         }
 
                         MouseArea {
+                            id: livePresetArea
                             anchors.fill: parent
                             onClicked: {
                                 Settings.selectedFlushPreset = index
@@ -238,6 +246,14 @@ Page {
                                                      (presetDelegate.presetIndex === Settings.selectedFlushPreset ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.focusable: true
+                                    Accessible.onPressAction: {
+                                        Settings.selectedFlushPreset = presetDelegate.presetIndex
+                                        flowInput.value = modelData.flow
+                                        secondsInput.value = modelData.seconds
+                                        Settings.flushFlow = modelData.flow
+                                        Settings.flushSeconds = modelData.seconds
+                                        MainController.applyFlushSettings()
+                                    }
 
                                     Drag.active: dragArea.drag.active
                                     Drag.source: presetDelegate

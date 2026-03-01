@@ -263,24 +263,16 @@ Page {
                     spacing: Theme.spacingSmall
                     visible: showCodeInput
 
-                    TextField {
+                    StyledTextField {
                         id: codeInput
                         width: Theme.scaled(80)
                         height: Theme.scaled(40)
-                        color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                         horizontalAlignment: Text.AlignHCenter
                         maximumLength: 4
-                        placeholderText: "CODE"
-                        placeholderTextColor: Theme.textSecondaryColor
+                        placeholder: "CODE"
+                        accessibleName: "Share code"
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-
-                        background: Rectangle {
-                            color: Theme.surfaceColor
-                            border.color: codeInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
-                            radius: Theme.scaled(4)
-                        }
 
                         onTextChanged: {
                             var upper = text.toUpperCase()
@@ -416,6 +408,15 @@ Page {
                                             return true  // New or different = can import
                                         }
 
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: {
+                                            if (isInvalid) return TranslationManager.translate("visualizer.import.invalid", "Invalid profile")
+                                            if (!canImport) return TranslationManager.translate("visualizer.import.alreadyimported", "Already imported")
+                                            return TranslationManager.translate("visualizer.import.importprofile", "Import profile")
+                                        }
+                                        Accessible.focusable: true
+                                        Accessible.onPressAction: importStarArea.clicked(null)
+
                                         // Red X for invalid profiles
                                         Rectangle {
                                             anchors.centerIn: parent
@@ -463,6 +464,7 @@ Page {
                                         }
 
                                         MouseArea {
+                                            id: importStarArea
                                             anchors.fill: parent
                                             enabled: parent.canImport && !MainController.visualizerImporter.importing
                                             onClicked: {
@@ -543,8 +545,14 @@ Page {
                     color: Theme.surfaceColor
                     radius: Theme.scaled(8)
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("visualizer.import.deselect", "Deselect shot")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: detailsDeselectArea.clicked(null)
+
                     // Click anywhere in details panel to deselect and show legend
                     MouseArea {
+                        id: detailsDeselectArea
                         anchors.fill: parent
                         onClicked: selectedShot = null
                     }
@@ -837,21 +845,14 @@ Page {
                 font: Theme.bodyFont
             }
 
-            TextField {
+            StyledTextField {
                 id: renameInput
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(44)
-                color: Theme.textColor
-                font: Theme.bodyFont
                 selectByMouse: true
                 inputMethodHints: Qt.ImhNoAutoUppercase
-
-                background: Rectangle {
-                    color: Theme.backgroundColor
-                    border.color: renameInput.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                    border.width: 2
-                    radius: Theme.scaled(4)
-                }
+                placeholder: "Profile name"
+                accessibleName: "Profile name"
 
                 Keys.onReturnPressed: {
                     if (text.trim().length > 0) {

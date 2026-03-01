@@ -554,6 +554,11 @@ Page {
                     border.color: Theme.successColor
                     border.width: 2
 
+                    Accessible.role: Accessible.Button
+                    Accessible.name: (MainController.currentProfileName || "Loaded Profile") + ", " + TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: nonFavPillMouseArea.clicked(null)
+
                     RowLayout {
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(10)
@@ -568,6 +573,7 @@ Page {
                             font.pixelSize: Theme.bodyFont.pixelSize
                             font.bold: true
                             elide: Text.ElideRight
+                            Accessible.ignored: true
                         }
 
                         // Edit button - opens in profile editor
@@ -588,6 +594,7 @@ Page {
                     }
 
                     MouseArea {
+                        id: nonFavPillMouseArea
                         anchors.fill: parent
                         z: -1
                         onClicked: {

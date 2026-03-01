@@ -604,7 +604,19 @@ Rectangle {
         }
     }
 
+    Accessible.role: Accessible.Button
+    Accessible.name: {
+        if (entryType === "theme") return entryThemeName || "Theme"
+        if (entryType === "zone") return entryZoneName + " zone"
+        if (entryType === "layout") return "Layout"
+        if (entryType === "item") return itemContent || getItemDisplayName(entryItemData.type || "") || "Item"
+        return "Library entry"
+    }
+    Accessible.focusable: true
+    Accessible.onPressAction: cardMouseArea.clicked(null)
+
     MouseArea {
+        id: cardMouseArea
         anchors.fill: parent
         onClicked: card.clicked()
         onDoubleClicked: card.doubleClicked()

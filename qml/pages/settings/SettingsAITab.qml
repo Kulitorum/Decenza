@@ -379,7 +379,13 @@ KeyboardAwareContainer {
         color: Qt.rgba(0, 0, 0, 0.7)
         z: 200
 
+        Accessible.role: Accessible.Button
+        Accessible.name: TranslationManager.translate("conversation.close.accessible", "Close conversation overlay")
+        Accessible.focusable: true
+        Accessible.onPressAction: conversationDismissArea.clicked(null)
+
         MouseArea {
+            id: conversationDismissArea
             anchors.fill: parent
             onClicked: {
                 MainController.aiManager?.conversation?.saveToStorage()
