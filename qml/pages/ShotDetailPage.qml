@@ -738,27 +738,71 @@ Page {
     // Delete confirmation dialog
     Dialog {
         id: deleteConfirmDialog
-        title: TranslationManager.translate("shotdetail.deleteconfirmtitle", "Delete Shot?")
+        parent: Overlay.overlay
         anchors.centerIn: parent
+        width: Theme.scaled(360)
         modal: true
+        padding: 0
 
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
         }
 
-        Tr {
-            key: "shotdetail.deleteconfirmmessage"
-            fallback: "This will permanently delete this shot from history."
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.Wrap
-        }
+        contentItem: ColumnLayout {
+            spacing: 0
 
-        standardButtons: Dialog.Cancel | Dialog.Ok
+            Text {
+                text: TranslationManager.translate("shotdetail.deleteconfirmtitle", "Delete Shot?")
+                font: Theme.titleFont
+                color: Theme.textColor
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(20)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+            }
 
-        onAccepted: {
-            MainController.shotHistory.requestDeleteShot(shotId)
+            Text {
+                text: TranslationManager.translate("shotdetail.deleteconfirmmessage", "This will permanently delete this shot from history.")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(10)
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+            }
+
+            RowLayout {
+                spacing: Theme.scaled(10)
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.bottomMargin: Theme.scaled(20)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shotdetail.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("shotdetail.cancelDelete", "Cancel delete")
+                    Layout.fillWidth: true
+                    onClicked: deleteConfirmDialog.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("shotdetail.delete", "Delete")
+                    accessibleName: TranslationManager.translate("shotdetail.confirmDelete", "Confirm delete shot")
+                    destructive: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        deleteConfirmDialog.close()
+                        MainController.shotHistory.requestDeleteShot(shotId)
+                    }
+                }
+            }
         }
     }
 
