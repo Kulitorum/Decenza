@@ -469,7 +469,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
                 db.setDatabaseName(dbPath);
                 if (db.open()) {
                     QSqlQuery walQuery(db);
-                    walQuery.exec("PRAGMA wal_checkpoint(PASSIVE)");
+                    walQuery.exec("PRAGMA wal_checkpoint(FULL)");
                 }
             }
             QSqlDatabase::removeDatabase(connName);
@@ -549,7 +549,14 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
         // Send response on main thread
         QMetaObject::invokeMethod(this, [this, socketGuard, destroyed,
                                          archiveData = std::move(archiveData), backupDate]() {
-            if (*destroyed || !socketGuard) return;
+            if (*destroyed) {
+                qDebug() << "ShotServer: Backup response dropped (server destroyed)";
+                return;
+            }
+            if (!socketGuard) {
+                qDebug() << "ShotServer: Backup response dropped (socket disconnected)";
+                return;
+            }
 
             QString filename = QString("decenza_backup_%1.dcbackup").arg(backupDate);
             QByteArray extraHeaders = QString("Content-Disposition: attachment; filename=\"%1\"\r\n").arg(filename).toUtf8();
@@ -1114,7 +1121,10 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             QMetaObject::invokeMethod(this, [this, socketGuard, destroyed, success,
                                               settingsRestored, profilesImported, profilesSkipped,
                                               mediaImported, mediaSkipped, aiConversationsImported]() {
-                if (*destroyed) return;
+                if (*destroyed) {
+                    qDebug() << "ShotServer: Restore response dropped (server destroyed)";
+                    return;
+                }
 
                 bool shotsRestored = success;
                 if (success && m_storage) {
@@ -1139,6 +1149,8 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     result["mediaSkipped"] = mediaSkipped;
                     result["aiConversationsImported"] = aiConversationsImported;
                     sendJson(socketGuard, QJsonDocument(result).toJson(QJsonDocument::Compact));
+                } else {
+                    qDebug() << "ShotServer: Restore response dropped (socket disconnected)";
                 }
             }, Qt::QueuedConnection);
         });

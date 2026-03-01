@@ -2793,44 +2793,54 @@ void MainController::onShotEnded() {
     qDebug() << "[metadata] Saving shot - shotHistory:" << (m_shotHistory ? "exists" : "null")
              << "isReady:" << (m_shotHistory ? m_shotHistory->isReady() : false);
     if (m_shotHistory && m_shotHistory->isReady()) {
-        // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
-        connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight](qint64 shotId) {
-            if (shotId > 0) {
-                qDebug() << "[metadata] Shot saved to history with ID:" << shotId;
+        if (m_savingShot) {
+            qWarning() << "[metadata] Shot save already in progress, skipping";
+        } else {
+            m_savingShot = true;
 
-                // Store shot ID for post-shot review page (so it can edit the saved shot)
-                m_lastSavedShotId = shotId;
-                emit lastSavedShotIdChanged();
+            // Capture timestamp now (before async save) so it reflects shot end time
+            QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
 
-                // Set shot date/time for display on metadata page
-                QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
-                m_settings->setDyeShotDateTime(shotDateTime);
-                qDebug() << "[metadata] Set dyeShotDateTime to:" << shotDateTime;
+            // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
+            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight, shotDateTime](qint64 shotId) {
+                m_savingShot = false;
 
-                // Update the drink weight with actual final weight from this shot
-                m_settings->setDyeDrinkWeight(finalWeight);
-                qDebug() << "[metadata] Set dyeDrinkWeight to:" << finalWeight;
+                if (shotId > 0) {
+                    qDebug() << "[metadata] Shot saved to history with ID:" << shotId;
 
-                // Reset shot-specific metadata (enjoyment and notes) for the next shot
-                // Bean/grinder info persists (sticky), but rating resets to default
-                m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
-                m_settings->setDyeShotNotes("");
-                qDebug() << "[metadata] Reset enjoyment to" << m_settings->defaultShotRating() << "and notes for next shot";
+                    // Store shot ID for post-shot review page (so it can edit the saved shot)
+                    m_lastSavedShotId = shotId;
+                    emit lastSavedShotIdChanged();
 
-                // Force QSettings to sync to disk immediately
-                m_settings->sync();
-            } else {
-                qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
-                m_lastSavedShotId = 0;
-                emit lastSavedShotIdChanged();
-            }
-        }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+                    // Set shot date/time for display on metadata page
+                    m_settings->setDyeShotDateTime(shotDateTime);
+                    qDebug() << "[metadata] Set dyeShotDateTime to:" << shotDateTime;
 
-        m_shotHistory->saveShot(
-            m_shotDataModel, &m_currentProfile,
-            duration, finalWeight, doseWeight,
-            metadata, debugLog,
-            shotTemperatureOverride, shotYieldOverride);
+                    // Update the drink weight with actual final weight from this shot
+                    m_settings->setDyeDrinkWeight(finalWeight);
+                    qDebug() << "[metadata] Set dyeDrinkWeight to:" << finalWeight;
+
+                    // Reset shot-specific metadata (enjoyment and notes) for the next shot
+                    // Bean/grinder info persists (sticky), but rating resets to default
+                    m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
+                    m_settings->setDyeShotNotes("");
+                    qDebug() << "[metadata] Reset enjoyment to" << m_settings->defaultShotRating() << "and notes for next shot";
+
+                    // Force QSettings to sync to disk immediately
+                    m_settings->sync();
+                } else {
+                    qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
+                    m_lastSavedShotId = 0;
+                    emit lastSavedShotIdChanged();
+                }
+            }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+            m_shotHistory->saveShot(
+                m_shotDataModel, &m_currentProfile,
+                duration, finalWeight, doseWeight,
+                metadata, debugLog,
+                shotTemperatureOverride, shotYieldOverride);
+        }
     } else {
         qDebug() << "[metadata] WARNING: Could not save shot - history not ready!";
     }
@@ -3022,49 +3032,57 @@ void MainController::generateFakeShotData() {
 
     // Save simulated shot to history (like a real shot, async)
     if (m_shotHistory && m_shotHistory->isReady() && m_settings) {
-        ShotMetadata metadata;
-        metadata.beanBrand = m_settings->dyeBeanBrand();
-        metadata.beanType = m_settings->dyeBeanType();
-        metadata.roastDate = m_settings->dyeRoastDate();
-        metadata.roastLevel = m_settings->dyeRoastLevel();
-        metadata.grinderModel = m_settings->dyeGrinderModel();
-        metadata.grinderSetting = m_settings->dyeGrinderSetting();
-        metadata.beanWeight = m_pendingShotDoseWeight;
-        metadata.drinkWeight = m_settings->dyeDrinkWeight();
-        metadata.drinkTds = m_settings->dyeDrinkTds();
-        metadata.drinkEy = m_settings->dyeDrinkEy();
-        metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
-        metadata.espressoNotes = m_settings->dyeShotNotes();
-        metadata.barista = m_settings->dyeBarista();
+        if (m_savingShot) {
+            qWarning() << "DEV: Shot save already in progress, skipping simulated shot";
+        } else {
+            m_savingShot = true;
 
-        // Use current profile's temperature and target weight as overrides
-        double temperatureOverride = m_currentProfile.espressoTemperature();
-        double yieldOverride = m_currentProfile.targetWeight();
+            ShotMetadata metadata;
+            metadata.beanBrand = m_settings->dyeBeanBrand();
+            metadata.beanType = m_settings->dyeBeanType();
+            metadata.roastDate = m_settings->dyeRoastDate();
+            metadata.roastLevel = m_settings->dyeRoastLevel();
+            metadata.grinderModel = m_settings->dyeGrinderModel();
+            metadata.grinderSetting = m_settings->dyeGrinderSetting();
+            metadata.beanWeight = m_pendingShotDoseWeight;
+            metadata.drinkWeight = m_settings->dyeDrinkWeight();
+            metadata.drinkTds = m_settings->dyeDrinkTds();
+            metadata.drinkEy = m_settings->dyeDrinkEy();
+            metadata.espressoEnjoyment = m_settings->dyeEspressoEnjoyment();
+            metadata.espressoNotes = m_settings->dyeShotNotes();
+            metadata.barista = m_settings->dyeBarista();
 
-        double pendingFinalWeight = m_pendingShotFinalWeight;
-        connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, pendingFinalWeight](qint64 shotId) {
-            if (shotId > 0) {
-                qDebug() << "DEV: Simulated shot saved to history with ID:" << shotId;
-                m_lastSavedShotId = shotId;
-                emit lastSavedShotIdChanged();
+            // Use current profile's temperature and target weight as overrides
+            double temperatureOverride = m_currentProfile.espressoTemperature();
+            double yieldOverride = m_currentProfile.targetWeight();
 
-                // Update drink weight
-                m_settings->setDyeDrinkWeight(pendingFinalWeight);
+            double pendingFinalWeight = m_pendingShotFinalWeight;
+            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, pendingFinalWeight](qint64 shotId) {
+                m_savingShot = false;
 
-                // Reset shot-specific metadata for next shot
-                m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
-                m_settings->setDyeShotNotes("");
-                m_settings->sync();
-            } else {
-                qDebug() << "DEV: WARNING: Failed to save simulated shot to history";
-            }
-        }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+                if (shotId > 0) {
+                    qDebug() << "DEV: Simulated shot saved to history with ID:" << shotId;
+                    m_lastSavedShotId = shotId;
+                    emit lastSavedShotIdChanged();
 
-        m_shotHistory->saveShot(
-            m_shotDataModel, &m_currentProfile,
-            totalDuration, m_pendingShotFinalWeight, m_pendingShotDoseWeight,
-            metadata, "[Simulated shot]",
-            temperatureOverride, yieldOverride);
+                    // Update drink weight
+                    m_settings->setDyeDrinkWeight(pendingFinalWeight);
+
+                    // Reset shot-specific metadata for next shot
+                    m_settings->setDyeEspressoEnjoyment(m_settings->defaultShotRating());
+                    m_settings->setDyeShotNotes("");
+                    m_settings->sync();
+                } else {
+                    qDebug() << "DEV: WARNING: Failed to save simulated shot to history";
+                }
+            }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
+
+            m_shotHistory->saveShot(
+                m_shotDataModel, &m_currentProfile,
+                totalDuration, m_pendingShotFinalWeight, m_pendingShotDoseWeight,
+                metadata, "[Simulated shot]",
+                temperatureOverride, yieldOverride);
+        }
     }
 }
 

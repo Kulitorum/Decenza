@@ -771,11 +771,9 @@ void DataMigrationClient::onShotsReply()
     reply->deleteLater();
     m_currentReply = nullptr;
 
-    // Save to temp file
-    delete m_tempDir;
-    m_tempDir = new QTemporaryDir();
-
-    QString tempDbPath = m_tempDir->path() + "/shots.db";
+    // Save to standalone temp file (not m_tempDir) so the background thread
+    // can safely read it even if DataMigrationClient is destroyed mid-import.
+    QString tempDbPath = QDir::temp().filePath("decenza_migration_shots.db");
     QFile tempFile(tempDbPath);
     if (!tempFile.open(QIODevice::WriteOnly)) {
         startNextImport();
@@ -791,6 +789,9 @@ void DataMigrationClient::onShotsReply()
 
     QThread* thread = QThread::create([this, destDbPath, tempDbPath, beforeCount, destroyed]() {
         bool success = ShotHistoryStorage::importDatabaseStatic(destDbPath, tempDbPath, true);
+
+        // Clean up temp file on background thread (safe even if object is destroyed)
+        QFile::remove(tempDbPath);
 
         QMetaObject::invokeMethod(this, [this, success, beforeCount, destroyed]() {
             if (*destroyed) return;
