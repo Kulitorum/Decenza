@@ -80,29 +80,20 @@ int DocumentFormatter::savedSelectionEnd() const
 
 void DocumentFormatter::updateSavedSelection()
 {
-    if (m_selectionStart != m_selectionEnd) {
-        m_savedSelectionStart = m_selectionStart;
-        m_savedSelectionEnd = m_selectionEnd;
-        emit savedSelectionChanged();
-    }
+    if (m_selectionStart == m_selectionEnd)
+        return;
+    if (m_savedSelectionStart == m_selectionStart && m_savedSelectionEnd == m_selectionEnd)
+        return;
+    m_savedSelectionStart = m_selectionStart;
+    m_savedSelectionEnd = m_selectionEnd;
+    emit savedSelectionChanged();
 }
 
 // --- Format queries (for toolbar button state) ---
 
 QTextCharFormat DocumentFormatter::charFormatAtCursor() const
 {
-    QTextDocument *doc = textDocument();
-    if (!doc)
-        return {};
-    const int maxPos = doc->characterCount() - 1;
-    QTextCursor cursor(doc);
-    if (m_selectionStart != m_selectionEnd) {
-        cursor.setPosition(qBound(0, m_selectionStart, maxPos));
-        cursor.setPosition(qBound(0, m_selectionEnd, maxPos), QTextCursor::KeepAnchor);
-    } else {
-        cursor.setPosition(qBound(0, m_cursorPosition, maxPos));
-    }
-    return cursor.charFormat();
+    return textCursor().charFormat();
 }
 
 bool DocumentFormatter::bold() const
@@ -162,7 +153,8 @@ QTextCursor DocumentFormatter::textCursor() const
 }
 
 // Returns a cursor with a selection for formatting. Uses live selection if available,
-// falls back to saved selection (survives focus loss), then selects all as last resort.
+// falls back to saved selection (survives focus loss), then selects entire document
+// content if non-empty. Returns a cursor without selection if the document is empty.
 QTextCursor DocumentFormatter::textCursorForFormat() const
 {
     QTextDocument *doc = textDocument();
@@ -180,12 +172,17 @@ QTextCursor DocumentFormatter::textCursorForFormat() const
 
     // 2. Saved selection (from before focus was lost)
     if (m_savedSelectionStart != m_savedSelectionEnd) {
-        cursor.setPosition(qBound(0, m_savedSelectionStart, maxPos));
-        cursor.setPosition(qBound(0, m_savedSelectionEnd, maxPos), QTextCursor::KeepAnchor);
-        return cursor;
+        int clampedStart = qBound(0, m_savedSelectionStart, maxPos);
+        int clampedEnd = qBound(0, m_savedSelectionEnd, maxPos);
+        if (clampedStart != clampedEnd) {
+            cursor.setPosition(clampedStart);
+            cursor.setPosition(clampedEnd, QTextCursor::KeepAnchor);
+            return cursor;
+        }
+        // Saved selection collapsed after clamping (document shrank), fall through
     }
 
-    // 3. Select all
+    // 3. Select all (characterCount includes trailing paragraph separator, so >1 means non-empty)
     if (doc->characterCount() > 1) {
         cursor.select(QTextCursor::Document);
     }
@@ -195,8 +192,10 @@ QTextCursor DocumentFormatter::textCursorForFormat() const
 void DocumentFormatter::mergeFormatOnSelection(const QTextCharFormat &format)
 {
     QTextCursor cursor = textCursorForFormat();
-    if (!cursor.hasSelection())
+    if (!cursor.hasSelection()) {
+        qDebug() << "DocumentFormatter: no selection after fallback chain, skipping format";
         return;
+    }
     cursor.mergeCharFormat(format);
     emit formatChanged();
 }
@@ -227,8 +226,10 @@ void DocumentFormatter::setColor(const QString &color)
 void DocumentFormatter::setColorOnRange(const QString &color, int selStart, int selEnd)
 {
     QTextDocument *doc = textDocument();
-    if (!doc || selStart == selEnd)
+    if (!doc || selStart == selEnd) {
+        qDebug() << "DocumentFormatter::setColorOnRange: no document or empty range";
         return;
+    }
     const int maxPos = doc->characterCount() - 1;
     QTextCursor cursor(doc);
     cursor.setPosition(qBound(0, selStart, maxPos));
@@ -249,8 +250,10 @@ void DocumentFormatter::setFontSize(int pixelSize)
 void DocumentFormatter::clearFormatting()
 {
     QTextCursor cursor = textCursorForFormat();
-    if (!cursor.hasSelection())
+    if (!cursor.hasSelection()) {
+        qDebug() << "DocumentFormatter::clearFormatting: no selection after fallback chain";
         return;
+    }
     QTextCharFormat fmt; // default format — clears all
     cursor.setCharFormat(fmt);
     emit formatChanged();

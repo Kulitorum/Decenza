@@ -25,7 +25,9 @@ class DocumentFormatter : public QObject
     Q_PROPERTY(QString currentColor READ currentColor NOTIFY formatChanged)
     Q_PROPERTY(int currentFontSize READ currentFontSize NOTIFY formatChanged)
 
-    // Last non-empty selection (survives focus loss)
+    // Last non-empty selection range, saved when selectionStart/End change and differ.
+    // Survives focus loss (QML TextArea resets selection when focus is lost) so deferred
+    // formatting operations (e.g., color picker) can still target the original range.
     Q_PROPERTY(int savedSelectionStart READ savedSelectionStart NOTIFY savedSelectionChanged)
     Q_PROPERTY(int savedSelectionEnd READ savedSelectionEnd NOTIFY savedSelectionChanged)
 

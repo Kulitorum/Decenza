@@ -77,10 +77,13 @@ Verify the warning icon renders as an SVG image (not text), aligned inline with 
 Open Settings → Layout → tap a zone → Edit widget.
 
 - [ ] Color picker buttons respond to tap
+- [ ] Select text → open color picker → choose color → verify color applied to originally selected text
 - [ ] Bold/Italic toggle buttons respond to tap
 - [ ] Font size buttons (in Repeater) respond to tap
 - [ ] Text alignment buttons respond to tap
 - [ ] Action selector buttons respond to tap
+- [ ] Tap outside text input dismisses keyboard but does NOT close popup
+- [ ] Tapping inside text input to reposition cursor does NOT dismiss keyboard
 - [ ] Cancel and Save buttons work
 - [ ] **TalkBack**: Swipe through all controls — each is announced with a name, double-tap activates
 

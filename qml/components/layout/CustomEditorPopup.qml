@@ -185,10 +185,16 @@ Popup {
             flickableDirection: Flickable.VerticalFlick
             boundsBehavior: Flickable.StopAtBounds
 
-            // Dismiss keyboard when tapping outside the text input
+            // Dismiss keyboard when tapping outside the text input area
             TapHandler {
-                onTapped: {
+                onTapped: function(eventPoint) {
                     if (contentInput.activeFocus) {
+                        var pos = eventPoint.position
+                        var mapped = editorFlickable.mapToItem(inputFlickable, pos.x, pos.y)
+                        if (mapped.x >= 0 && mapped.y >= 0 &&
+                            mapped.x <= inputFlickable.width && mapped.y <= inputFlickable.height) {
+                            return  // Tap inside text input, don't dismiss
+                        }
                         contentInput.focus = false
                         Qt.inputMethod.hide()
                     }

@@ -708,8 +708,6 @@ KeyboardAwareContainer {
                                     var sched = Settings.autoWakeSchedule
                                     return sched[index] ? sched[index].enabled : false
                                 }
-                                property string dayName: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][index]
-
                                 // Selected: lighter primary, Enabled: primary, Neither: background
                                 color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
                                        isEnabled ? Theme.primaryColor :
@@ -719,7 +717,11 @@ KeyboardAwareContainer {
                                 border.width: isSelected ? 2 : 1
 
                                 Accessible.role: Accessible.Button
-                                Accessible.name: dayName + (isEnabled ? ", enabled" : ", disabled")
+                                Accessible.name: {
+                                    var dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                                    return dayNames[index] + (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
+                                           (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                }
                                 Accessible.focusable: true
                                 Accessible.onPressAction: dayMa.clicked(null)
 
