@@ -135,7 +135,7 @@ Page {
             "espressoNotes": editNotes,
             "beverageType": editBeverageType
         }
-        MainController.shotHistory.updateShotMetadata(editShotId, metadata)
+        MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
         // Sync sticky metadata back to Settings (bean/grinder info) for the next shot
         // but NOT enjoyment/notes which are shot-specific

@@ -55,7 +55,7 @@ void ShotImporter::importFromZip(const QString& zipPath, bool overwriteExisting)
     emit isExtractingChanged();
 
     // Defer extraction to allow UI to render the popup first
-    QTimer::singleShot(100, this, &ShotImporter::performZipExtraction);
+    QMetaObject::invokeMethod(this, &ShotImporter::performZipExtraction, Qt::QueuedConnection);
 }
 
 void ShotImporter::performZipExtraction()

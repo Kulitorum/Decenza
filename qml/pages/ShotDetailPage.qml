@@ -754,7 +754,7 @@ Page {
         standardButtons: Dialog.Cancel | Dialog.Ok
 
         onAccepted: {
-            MainController.shotHistory.deleteShot(shotId)
+            MainController.shotHistory.requestDeleteShot(shotId)
             pageStack.pop()
         }
     }

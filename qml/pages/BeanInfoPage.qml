@@ -136,7 +136,7 @@ Page {
             "enjoyment": editEnjoyment,
             "espressoNotes": editNotes
         }
-        MainController.shotHistory.updateShotMetadata(editShotId, metadata)
+        MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
         root.goBack()
     }
 

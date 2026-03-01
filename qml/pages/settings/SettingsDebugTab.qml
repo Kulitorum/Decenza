@@ -414,16 +414,22 @@ Item {
 
                 onAccepted: {
                     if (MainController.shotHistory) {
-                        var success = MainController.shotHistory.importDatabase(selectedFile, mergeMode)
-                        if (success) {
-                            console.log("Database import successful")
-                            importResultDialog.title = "Import Successful"
-                            importResultDialog.message = "Database imported successfully.\nTotal shots: " + MainController.shotHistory.totalShots
-                            importResultDialog.isError = false
-                            importResultDialog.open()
-                        }
-                        // Errors are handled via errorOccurred signal
+                        MainController.shotHistory.requestImportDatabase(selectedFile, mergeMode)
                     }
+                }
+            }
+
+            Connections {
+                target: MainController.shotHistory
+                function onImportDatabaseFinished(success) {
+                    if (success) {
+                        console.log("Database import successful")
+                        importResultDialog.title = "Import Successful"
+                        importResultDialog.message = "Database imported successfully.\nTotal shots: " + MainController.shotHistory.totalShots
+                        importResultDialog.isError = false
+                        importResultDialog.open()
+                    }
+                    // Errors are handled via errorOccurred signal
                 }
             }
 

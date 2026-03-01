@@ -21,14 +21,21 @@ Page {
 
     function loadFavorites() {
         favoritesModel.clear()
-        var favorites = MainController.shotHistory.getAutoFavorites(
+        MainController.shotHistory.requestAutoFavorites(
             Settings.autoFavoritesGroupBy,
             Settings.autoFavoritesMaxItems
         )
-        for (var i = 0; i < favorites.length; i++) {
-            if (Settings.autoFavoritesHideUnrated && favorites[i].avgEnjoyment <= 0)
-                continue
-            favoritesModel.append(favorites[i])
+    }
+
+    Connections {
+        target: MainController.shotHistory
+        function onAutoFavoritesReady(results) {
+            favoritesModel.clear()
+            for (var i = 0; i < results.length; i++) {
+                if (Settings.autoFavoritesHideUnrated && results[i].avgEnjoyment <= 0)
+                    continue
+                favoritesModel.append(results[i])
+            }
         }
     }
 
