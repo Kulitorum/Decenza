@@ -2814,8 +2814,12 @@ void MainController::onShotEnded() {
             // Capture timestamp now (before async save) so it reflects shot end time
             QString shotDateTime = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm");
 
+            // Capture showPostShot now so the async callback can emit shotEndedShowMetadata
+            // after m_lastSavedShotId is set (fixes post-shot review page showing no graph)
+            bool showPostShot = m_settings->visualizerShowAfterShot();
+
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
-            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight, shotDateTime](qint64 shotId) {
+            connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this, finalWeight, shotDateTime, showPostShot](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {
@@ -2841,6 +2845,12 @@ void MainController::onShotEnded() {
 
                     // Force QSettings to sync to disk immediately
                     m_settings->sync();
+
+                    // Now that we have a valid shot ID, show the metadata page
+                    if (showPostShot) {
+                        qDebug() << "[metadata] Showing post-shot review page with shotId:" << shotId;
+                        emit shotEndedShowMetadata();
+                    }
                 } else {
                     qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
                     m_lastSavedShotId = 0;
@@ -2874,25 +2884,21 @@ void MainController::onShotEnded() {
              << "Final P:" << QString::number(finalPressure, 'f', 2) << "bar"
              << "Final F:" << QString::number(finalFlow, 'f', 2) << "ml/s";
 
-    // Check if we should show metadata page after shot (regardless of auto-upload)
-    bool showPostShot = m_settings->visualizerShowAfterShot();
-
     // Auto-upload if enabled (do this first, before showing metadata page)
     if (m_settings->visualizerAutoUpload() && m_visualizer) {
         qDebug() << "  -> Auto-uploading to visualizer";
         m_visualizer->uploadShot(m_shotDataModel, &m_currentProfile, duration, finalWeight, doseWeight, metadata);
     }
 
-    // Show metadata page if enabled (user can edit and re-upload if desired)
-    if (showPostShot) {
-        // Store pending shot data for later upload (user can re-upload with updated metadata)
+    // Store pending shot data for later upload (user can re-upload with updated metadata)
+    // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
+    // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.
+    if (m_settings->visualizerShowAfterShot()) {
         m_hasPendingShot = true;
         m_pendingShotDuration = duration;
         m_pendingShotFinalWeight = finalWeight;
         m_pendingShotDoseWeight = doseWeight;
-
-        qDebug() << "  -> Showing metadata page";
-        emit shotEndedShowMetadata();
+        qDebug() << "  -> Will show metadata page after shot is saved";
     }
 
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
