@@ -3,7 +3,9 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonDocument>
+#include <QQmlApplicationEngine>
 #include <QRegularExpression>
+#include <QSet>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -106,10 +108,36 @@ quint64 MemoryMonitor::readRss() const
 
 int MemoryMonitor::countQObjects() const
 {
+    // Walk both QApplication and QML engine trees to get a meaningful count.
+    // Most QObjects are parented under the engine (QML items), not the app.
+    QSet<QObject*> seen;
+
     auto* app = QCoreApplication::instance();
-    if (!app)
-        return 0;
-    return app->findChildren<QObject*>().size();
+    if (app) {
+        const auto appChildren = app->findChildren<QObject*>();
+        for (auto* obj : appChildren)
+            seen.insert(obj);
+        seen.insert(app);
+    }
+
+    if (m_engine) {
+        const auto engineChildren = m_engine->findChildren<QObject*>();
+        for (auto* obj : engineChildren)
+            seen.insert(obj);
+        seen.insert(m_engine);
+
+        // Also walk root objects and their trees
+        const auto roots = m_engine->rootObjects();
+        for (auto* root : roots) {
+            if (!root) continue;
+            seen.insert(root);
+            const auto rootChildren = root->findChildren<QObject*>();
+            for (auto* obj : rootChildren)
+                seen.insert(obj);
+        }
+    }
+
+    return seen.size();
 }
 
 double MemoryMonitor::currentRssMB() const

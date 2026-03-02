@@ -840,6 +840,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("ScreensaverManager", &screensaverManager);
     context->setContextProperty("BatteryManager", &batteryManager);
     context->setContextProperty("MemoryMonitor", &memoryMonitor);
+    memoryMonitor.setEngine(&engine);
     context->setContextProperty("AccessibilityManager", &accessibilityManager);
     context->setContextProperty("ProfileStorage", &profileStorage);
     context->setContextProperty("WeatherManager", &weatherManager);

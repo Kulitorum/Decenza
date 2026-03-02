@@ -7,6 +7,8 @@
 #include <QJsonArray>
 #include <QElapsedTimer>
 
+class QQmlApplicationEngine;
+
 struct MemorySample {
     qint64 timestampMs;
     quint64 rssBytes;
@@ -22,6 +24,8 @@ class MemoryMonitor : public QObject {
 
 public:
     explicit MemoryMonitor(QObject* parent = nullptr);
+
+    void setEngine(QQmlApplicationEngine* engine) { m_engine = engine; }
 
     double currentRssMB() const;
     double peakRssMB() const;
@@ -43,6 +47,7 @@ private:
     quint64 readRss() const;
     int countQObjects() const;
 
+    QQmlApplicationEngine* m_engine = nullptr;
     QTimer m_timer;
     QElapsedTimer m_uptime;
 
