@@ -407,8 +407,17 @@ Twemoji by Twitter/X (CC-BY 4.0): https://github.com/twitter/twemoji
 
 - **FrameBased mode**: Upload to machine, executes autonomously
 - **DirectControl mode**: App sends setpoints frame-by-frame
-- Formats: JSON (native), TCL (de1app import)
+- Formats: JSON (unified with de1app v2), TCL (de1app import)
 - Tare happens when frame 0 starts (after machine preheat)
+
+### JSON Format (unified with de1app)
+
+Decenza and de1app share the same JSON profile format. The writer (`toJson()`) outputs de1app v2 format with JSON numbers (not strings): nested `exit`/`limiter` objects, `version`, `legacy_profile_type`, `notes`, `number_of_preinfuse_frames`. The reader (`fromJson()`) accepts both de1app nested and legacy Decenza flat fields (for old profiles in shot history), with `jsonToDouble()` handling de1app's string-encoded numbers.
+
+- **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
+- **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots
+- **Decenza extensions**: `is_recipe_mode`, `recipe`, `mode`, `stop_at_type`, `has_recommended_dose`, `temperature_presets`, simple profile params — de1app ignores these
+- **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
 
 ### Exit Conditions
 
@@ -419,10 +428,10 @@ There are two types of exit conditions:
    - Machine autonomously checks and advances frames
    - Types: `pressure_over`, `pressure_under`, `flow_over`, `flow_under`
 
-2. **App-side exits** (weight): Controlled by `exit_weight` field INDEPENDENTLY
+2. **App-side exits** (weight): Controlled by `weight` field INDEPENDENTLY (legacy `exit_weight` also accepted when reading)
    - App monitors scale weight and sends `SkipToNext` (0x0E) command
    - **CRITICAL**: Weight exit is independent of `exit_if` flag!
-   - A frame can have `exit_if: false` (no machine exit) with `exit_weight: 3.6` (app exit)
+   - A frame can have no `exit` object (no machine exit) with `"weight": 3.6` (app exit)
    - Both can coexist: machine checks pressure/flow, app checks weight
 
 ### Weight Exit Implementation
@@ -514,10 +523,10 @@ Supported metadata fields:
 - Duplicate handling: `saveOverwrite()`, `saveAsNew()`, `saveWithNewName(newTitle)`
 - Keyboard handling for Android: FocusScope + keyboardOffset pattern for text input
 
-### Visualizer Profile Format Conversion
-- Visualizer stores values as strings (we convert to doubles)
-- Exit conditions: `{type, value, condition}` → `exitType`, `exitPressureOver`, etc.
-- Limiter: `{value, range}` → `maxFlowOrPressure`, `maxFlowOrPressureRange`
+### Visualizer Profile Format
+- Visualizer and de1app use the same JSON format with string-encoded numbers (Tcl huddle serialization)
+- The unified `jsonToDouble()` helper and `ProfileFrame::fromJson()` handle string-to-double conversion and nested-to-flat field mapping transparently
+- The Visualizer uploader (`buildVisualizerProfileJson()`) string-encodes numbers to match de1app convention
 
 ## BLE Protocol Notes
 

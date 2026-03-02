@@ -279,6 +279,7 @@ private slots:
 private:
     void loadDefaultProfile();
     void migrateProfileFolders();
+    void migrateProfileFormat();
     void createNewProfileWithEditorType(EditorType type, const QString& title);
     QString profilesPath() const;
     QString userProfilesPath() const;

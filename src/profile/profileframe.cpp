@@ -2,6 +2,19 @@
 #include "../ble/protocol/de1characteristics.h"
 #include <QRegularExpression>
 
+// Convert a JSON value that may be string or number to double (de1app encodes numbers as strings)
+static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
+    if (val.isString()) {
+        bool ok;
+        double d = val.toString().toDouble(&ok);
+        if (!ok) {
+            qWarning() << "jsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+        }
+        return ok ? d : defaultVal;
+    }
+    return val.toDouble(defaultVal);
+}
+
 QJsonObject ProfileFrame::toJson() const {
     QJsonObject obj;
     obj["name"] = name;
@@ -14,22 +27,43 @@ QJsonObject ProfileFrame::toJson() const {
     obj["seconds"] = seconds;
     obj["volume"] = volume;
 
-    // Always include exit condition fields - they may be used even without exit_if
-    // (e.g., weight can trigger exit independently via scale system)
-    obj["exit_if"] = exitIf;
-    if (!exitType.isEmpty()) {
-        obj["exit_type"] = exitType;
+    // Exit condition (de1app nested format)
+    // Note: weight-only exits (exitType == "weight") are NOT written to the exit object —
+    // weight is app-side only, serialized separately as the standalone "weight" key below
+    if (exitIf && !exitType.isEmpty()) {
+        QJsonObject exitObj;
+        if (exitType == "pressure_over") {
+            exitObj["type"] = QStringLiteral("pressure");
+            exitObj["condition"] = QStringLiteral("over");
+            exitObj["value"] = exitPressureOver;
+        } else if (exitType == "pressure_under") {
+            exitObj["type"] = QStringLiteral("pressure");
+            exitObj["condition"] = QStringLiteral("under");
+            exitObj["value"] = exitPressureUnder;
+        } else if (exitType == "flow_over") {
+            exitObj["type"] = QStringLiteral("flow");
+            exitObj["condition"] = QStringLiteral("over");
+            exitObj["value"] = exitFlowOver;
+        } else if (exitType == "flow_under") {
+            exitObj["type"] = QStringLiteral("flow");
+            exitObj["condition"] = QStringLiteral("under");
+            exitObj["value"] = exitFlowUnder;
+        } else if (exitType != "weight") {
+            qWarning() << "ProfileFrame::toJson: unrecognized exitType" << exitType;
+        }
+        if (!exitObj.isEmpty()) obj["exit"] = exitObj;
     }
-    if (exitPressureOver > 0) obj["exit_pressure_over"] = exitPressureOver;
-    if (exitPressureUnder > 0) obj["exit_pressure_under"] = exitPressureUnder;
-    if (exitFlowOver > 0) obj["exit_flow_over"] = exitFlowOver;
-    if (exitFlowUnder > 0) obj["exit_flow_under"] = exitFlowUnder;
-    if (exitWeight > 0) obj["exit_weight"] = exitWeight;
 
-    // Limiter - always save both fields for round-trip fidelity
+    // Weight exit (independent of exit object — app-side via scale)
+    if (exitWeight > 0) obj["weight"] = exitWeight;
+
+    // Limiter (de1app nested format)
+    // Always save the limiter object for round-trip fidelity
     // (D-Flow profiles set range to 0.2 even when limiter value is 0)
-    obj["max_flow_or_pressure"] = maxFlowOrPressure;
-    obj["max_flow_or_pressure_range"] = maxFlowOrPressureRange;
+    QJsonObject limiterObj;
+    limiterObj["value"] = maxFlowOrPressure;
+    limiterObj["range"] = maxFlowOrPressureRange;
+    obj["limiter"] = limiterObj;
 
     // User notification popup
     if (!popup.isEmpty()) {
@@ -42,25 +76,96 @@ QJsonObject ProfileFrame::toJson() const {
 ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     ProfileFrame frame;
     frame.name = json["name"].toString();
-    frame.temperature = json["temperature"].toDouble(93.0);
+    frame.temperature = jsonToDouble(json["temperature"], 93.0);
     frame.sensor = json["sensor"].toString("coffee");
     frame.pump = json["pump"].toString("pressure");
     frame.transition = json["transition"].toString("fast");
-    frame.pressure = json["pressure"].toDouble(9.0);
-    frame.flow = json["flow"].toDouble(2.0);
-    frame.seconds = json["seconds"].toDouble(30.0);
-    frame.volume = json["volume"].toDouble(0.0);
+    frame.pressure = jsonToDouble(json["pressure"], 9.0);
+    frame.flow = jsonToDouble(json["flow"], 2.0);
+    frame.seconds = jsonToDouble(json["seconds"], 30.0);
+    frame.volume = jsonToDouble(json["volume"], 0.0);
 
-    frame.exitIf = json["exit_if"].toBool(false);
-    frame.exitType = json["exit_type"].toString();
-    frame.exitPressureOver = json["exit_pressure_over"].toDouble(0.0);
-    frame.exitPressureUnder = json["exit_pressure_under"].toDouble(0.0);
-    frame.exitFlowOver = json["exit_flow_over"].toDouble(0.0);
-    frame.exitFlowUnder = json["exit_flow_under"].toDouble(0.0);
-    frame.exitWeight = json["exit_weight"].toDouble(0.0);
+    // Exit conditions: try de1app nested object first, fall back to flat fields
+    QJsonObject exitObj = json["exit"].toObject();
+    if (!exitObj.isEmpty()) {
+        frame.exitIf = true;
+        QString exitType = exitObj["type"].toString();
+        double exitValue = jsonToDouble(exitObj["value"]);
+        QString exitCondition = exitObj["condition"].toString("over");
 
-    frame.maxFlowOrPressure = json["max_flow_or_pressure"].toDouble(0.0);
-    frame.maxFlowOrPressureRange = json["max_flow_or_pressure_range"].toDouble(0.6);
+        if (exitType == "pressure") {
+            if (exitCondition == "over") {
+                frame.exitType = "pressure_over";
+                frame.exitPressureOver = exitValue;
+            } else if (exitCondition == "under") {
+                frame.exitType = "pressure_under";
+                frame.exitPressureUnder = exitValue;
+            } else {
+                qWarning() << "ProfileFrame::fromJson: unrecognized exit condition"
+                           << exitCondition << "for type" << exitType << "- defaulting to over";
+                frame.exitType = "pressure_over";
+                frame.exitPressureOver = exitValue;
+            }
+        } else if (exitType == "flow") {
+            if (exitCondition == "over") {
+                frame.exitType = "flow_over";
+                frame.exitFlowOver = exitValue;
+            } else if (exitCondition == "under") {
+                frame.exitType = "flow_under";
+                frame.exitFlowUnder = exitValue;
+            } else {
+                qWarning() << "ProfileFrame::fromJson: unrecognized exit condition"
+                           << exitCondition << "for type" << exitType << "- defaulting to over";
+                frame.exitType = "flow_over";
+                frame.exitFlowOver = exitValue;
+            }
+        } else if (exitType == "weight") {
+            frame.exitType = "weight";
+            frame.exitWeight = exitValue;
+        } else {
+            qWarning() << "ProfileFrame::fromJson: unrecognized exit type" << exitType << "- ignoring exit condition";
+            frame.exitIf = false;
+        }
+    } else {
+        // Flat fields (legacy Decenza format, pre-migration)
+        frame.exitIf = json["exit_if"].toBool(false);
+        frame.exitType = json["exit_type"].toString();
+        if (frame.exitIf && !frame.exitType.isEmpty()
+            && frame.exitType != "pressure_over" && frame.exitType != "pressure_under"
+            && frame.exitType != "flow_over" && frame.exitType != "flow_under"
+            && frame.exitType != "weight") {
+            qWarning() << "ProfileFrame::fromJson: unrecognized legacy exit_type"
+                       << frame.exitType << "- disabling exit condition";
+            frame.exitIf = false;
+            frame.exitType.clear();
+        }
+        frame.exitPressureOver = jsonToDouble(json["exit_pressure_over"], 0.0);
+        frame.exitPressureUnder = jsonToDouble(json["exit_pressure_under"], 0.0);
+        frame.exitFlowOver = jsonToDouble(json["exit_flow_over"], 0.0);
+        frame.exitFlowUnder = jsonToDouble(json["exit_flow_under"], 0.0);
+    }
+
+    // Weight exit: check de1app "weight" field first, then Decenza "exit_weight"
+    // Weight exit is INDEPENDENT of exitIf — both can coexist on the same frame
+    double weightExit = jsonToDouble(json["weight"], 0.0);
+    if (weightExit <= 0) weightExit = jsonToDouble(json["exit_weight"], 0.0);
+    if (weightExit > 0) {
+        frame.exitWeight = weightExit;
+        if (frame.exitType.isEmpty()) {
+            frame.exitIf = true;
+            frame.exitType = "weight";
+        }
+    }
+
+    // Limiter: try de1app nested object first, fall back to flat fields
+    QJsonObject limiterObj = json["limiter"].toObject();
+    if (!limiterObj.isEmpty()) {
+        frame.maxFlowOrPressure = jsonToDouble(limiterObj["value"], 0.0);
+        frame.maxFlowOrPressureRange = jsonToDouble(limiterObj["range"], 0.6);
+    } else {
+        frame.maxFlowOrPressure = jsonToDouble(json["max_flow_or_pressure"], 0.0);
+        frame.maxFlowOrPressureRange = jsonToDouble(json["max_flow_or_pressure_range"], 0.6);
+    }
 
     frame.popup = json["popup"].toString();
 

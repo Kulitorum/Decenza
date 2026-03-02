@@ -93,7 +93,7 @@ private slots:
 private:
     void setStatus(const QString& message);
     QVariantMap checkProfileStatus(const QString& profileTitle, const Profile* incomingProfile);
-    bool compareProfileFrames(const Profile& a, const Profile& b) const;
+    bool compareProfiles(const Profile& a, const Profile& b) const;
     Profile loadLocalProfile(const QString& filename) const;
     QString generateFilename(const QString& title) const;
     int saveProfile(const Profile& profile, const QString& filename);

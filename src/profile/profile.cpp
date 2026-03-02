@@ -9,6 +9,19 @@
 #include <QRegularExpression>
 #include <QDebug>
 
+// Convert a JSON value that may be string or number to double (de1app encodes numbers as strings)
+static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
+    if (val.isString()) {
+        bool ok;
+        double d = val.toString().toDouble(&ok);
+        if (!ok) {
+            qWarning() << "jsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+        }
+        return ok ? d : defaultVal;
+    }
+    return val.toDouble(defaultVal);
+}
+
 // Generate frames for simple pressure profile (settings_2a)
 // Based on de1app's pressure_to_advanced_list()
 static QVector<ProfileFrame> generatePressureProfileFrames(
@@ -332,9 +345,10 @@ QJsonDocument Profile::toJson() const {
     QJsonObject obj;
     obj["title"] = m_title;
     obj["author"] = m_author;
-    obj["profile_notes"] = m_profileNotes;
+    obj["notes"] = m_profileNotes;
     obj["beverage_type"] = m_beverageType;
-    obj["profile_type"] = m_profileType;
+    obj["version"] = QStringLiteral("2");
+    obj["legacy_profile_type"] = m_profileType;
     obj["target_weight"] = m_targetWeight;
     obj["target_volume"] = m_targetVolume;
     obj["stop_at_type"] = (m_stopAtType == StopAtType::Volume) ? "volume" : "weight";
@@ -345,7 +359,7 @@ QJsonDocument Profile::toJson() const {
     obj["tank_desired_water_temperature"] = m_tankDesiredWaterTemperature;
     obj["maximum_flow_range_advanced"] = m_maximumFlowRangeAdvanced;
     obj["maximum_pressure_range_advanced"] = m_maximumPressureRangeAdvanced;
-    obj["preinfuse_frame_count"] = m_preinfuseFrameCount;
+    obj["number_of_preinfuse_frames"] = m_preinfuseFrameCount;
     obj["has_recommended_dose"] = m_hasRecommendedDose;
     obj["recommended_dose"] = m_recommendedDose;
     obj["mode"] = (m_mode == Mode::DirectControl) ? "direct" : "frame_based";
@@ -393,40 +407,52 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     profile.setTitle(obj["title"].toString("Default"));
     profile.m_author = obj["author"].toString();
-    // Support both new "profile_notes" and legacy "notes" keys
-    profile.m_profileNotes = obj["profile_notes"].toString();
+    // Support both legacy "profile_notes" (old Decenza) and current "notes" (de1app) keys
+    profile.m_profileNotes = obj["notes"].toString();
     if (profile.m_profileNotes.isEmpty()) {
-        profile.m_profileNotes = obj["notes"].toString();
+        profile.m_profileNotes = obj["profile_notes"].toString();
     }
     profile.m_beverageType = obj["beverage_type"].toString("espresso");
-    profile.m_profileType = obj["profile_type"].toString("settings_2c");
-    profile.m_targetWeight = obj["target_weight"].toDouble(36.0);
-    profile.m_targetVolume = obj["target_volume"].toDouble(36.0);
+
+    // Read profile type: prefer legacy_profile_type (de1app), fall back to profile_type (Decenza)
+    QString profileType = obj["legacy_profile_type"].toString();
+    if (profileType.isEmpty()) profileType = obj["profile_type"].toString("settings_2c");
+    profile.m_profileType = profileType;
+
+    profile.m_targetWeight = jsonToDouble(obj["target_weight"], 36.0);
+    profile.m_targetVolume = jsonToDouble(obj["target_volume"], 0.0);
     QString stopAtStr = obj["stop_at_type"].toString("weight");
     profile.m_stopAtType = (stopAtStr == "volume") ? StopAtType::Volume : StopAtType::Weight;
-    profile.m_espressoTemperature = obj["espresso_temperature"].toDouble(93.0);
-    profile.m_maximumPressure = obj["maximum_pressure"].toDouble(12.0);
-    profile.m_maximumFlow = obj["maximum_flow"].toDouble(6.0);
-    profile.m_minimumPressure = obj["minimum_pressure"].toDouble(0.0);
-    profile.m_tankDesiredWaterTemperature = obj["tank_desired_water_temperature"].toDouble(0.0);
-    profile.m_maximumFlowRangeAdvanced = obj["maximum_flow_range_advanced"].toDouble(0.6);
-    profile.m_maximumPressureRangeAdvanced = obj["maximum_pressure_range_advanced"].toDouble(0.6);
-    profile.m_preinfuseFrameCount = obj["preinfuse_frame_count"].toInt(0);
+    profile.m_espressoTemperature = jsonToDouble(obj["espresso_temperature"], 93.0);
+    profile.m_maximumPressure = jsonToDouble(obj["maximum_pressure"], 12.0);
+    profile.m_maximumFlow = jsonToDouble(obj["maximum_flow"], 6.0);
+    profile.m_minimumPressure = jsonToDouble(obj["minimum_pressure"], 0.0);
+    profile.m_tankDesiredWaterTemperature = jsonToDouble(obj["tank_desired_water_temperature"], 0.0);
+    profile.m_maximumFlowRangeAdvanced = jsonToDouble(obj["maximum_flow_range_advanced"], 0.6);
+    profile.m_maximumPressureRangeAdvanced = jsonToDouble(obj["maximum_pressure_range_advanced"], 0.6);
+
+    // Preinfuse frame count: prefer de1app key, fall back to Decenza key
+    if (obj.contains("number_of_preinfuse_frames")) {
+        profile.m_preinfuseFrameCount = static_cast<int>(jsonToDouble(obj["number_of_preinfuse_frames"], 0));
+    } else {
+        profile.m_preinfuseFrameCount = obj["preinfuse_frame_count"].toInt(0);
+    }
+
     profile.m_hasRecommendedDose = obj["has_recommended_dose"].toBool(false);
-    profile.m_recommendedDose = obj["recommended_dose"].toDouble(18.0);
+    profile.m_recommendedDose = jsonToDouble(obj["recommended_dose"], 18.0);
 
     // Simple profile parameters (settings_2a/2b)
-    profile.m_preinfusionTime = obj["preinfusion_time"].toDouble(5.0);
-    profile.m_preinfusionFlowRate = obj["preinfusion_flow_rate"].toDouble(4.0);
-    profile.m_preinfusionStopPressure = obj["preinfusion_stop_pressure"].toDouble(4.0);
-    profile.m_espressoPressure = obj["espresso_pressure"].toDouble(9.2);
-    profile.m_espressoHoldTime = obj["espresso_hold_time"].toDouble(10.0);
-    profile.m_espressoDeclineTime = obj["espresso_decline_time"].toDouble(25.0);
-    profile.m_pressureEnd = obj["pressure_end"].toDouble(4.0);
-    profile.m_flowProfileHold = obj["flow_profile_hold"].toDouble(2.0);
-    profile.m_flowProfileDecline = obj["flow_profile_decline"].toDouble(1.2);
-    profile.m_maximumFlowRangeDefault = obj["maximum_flow_range_default"].toDouble(1.0);
-    profile.m_maximumPressureRangeDefault = obj["maximum_pressure_range_default"].toDouble(0.9);
+    profile.m_preinfusionTime = jsonToDouble(obj["preinfusion_time"], 5.0);
+    profile.m_preinfusionFlowRate = jsonToDouble(obj["preinfusion_flow_rate"], 4.0);
+    profile.m_preinfusionStopPressure = jsonToDouble(obj["preinfusion_stop_pressure"], 4.0);
+    profile.m_espressoPressure = jsonToDouble(obj["espresso_pressure"], 9.2);
+    profile.m_espressoHoldTime = jsonToDouble(obj["espresso_hold_time"], 10.0);
+    profile.m_espressoDeclineTime = jsonToDouble(obj["espresso_decline_time"], 25.0);
+    profile.m_pressureEnd = jsonToDouble(obj["pressure_end"], 4.0);
+    profile.m_flowProfileHold = jsonToDouble(obj["flow_profile_hold"], 2.0);
+    profile.m_flowProfileDecline = jsonToDouble(obj["flow_profile_decline"], 1.2);
+    profile.m_maximumFlowRangeDefault = jsonToDouble(obj["maximum_flow_range_default"], 1.0);
+    profile.m_maximumPressureRangeDefault = jsonToDouble(obj["maximum_pressure_range_default"], 0.9);
     profile.m_tempStepsEnabled = obj["temp_steps_enabled"].toBool(false);
 
     QString modeStr = obj["mode"].toString("frame_based");
@@ -435,7 +461,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     QJsonArray tempsArray = obj["temperature_presets"].toArray();
     profile.m_temperaturePresets.clear();
     for (const auto& temp : tempsArray) {
-        profile.m_temperaturePresets.append(temp.toDouble());
+        profile.m_temperaturePresets.append(jsonToDouble(temp));
     }
     if (profile.m_temperaturePresets.isEmpty()) {
         profile.m_temperaturePresets = {88.0, 90.0, 93.0, 96.0};
@@ -495,14 +521,25 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         }
     }
 
-    // Sync espresso_temperature with first frame temperature (matches de1app behavior)
-    if (!profile.m_steps.isEmpty()) {
+    // Sync espresso_temperature from first frame if not explicitly in JSON
+    // (de1app profiles may omit espresso_temperature, deriving it from the first step)
+    if (!obj.contains("espresso_temperature") && !profile.m_steps.isEmpty()) {
+        profile.m_espressoTemperature = profile.m_steps.first().temperature;
+    } else if (!profile.m_steps.isEmpty()) {
+        // Even when present, sync if they diverge (matches de1app behavior)
         double firstFrameTemp = profile.m_steps.first().temperature;
         if (qAbs(profile.m_espressoTemperature - firstFrameTemp) > 0.1) {
             qDebug() << "Syncing espresso_temperature from" << profile.m_espressoTemperature
                      << "to first frame temp" << firstFrameTemp;
             profile.m_espressoTemperature = firstFrameTemp;
         }
+    }
+
+    // If preinfuse frame count wasn't in JSON and wasn't set by simple profile generation,
+    // count consecutive leading frames with exit conditions
+    if (!obj.contains("number_of_preinfuse_frames") && !obj.contains("preinfuse_frame_count")
+        && profile.m_preinfuseFrameCount == 0 && !profile.m_steps.isEmpty()) {
+        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
     }
 
     return profile;
@@ -528,16 +565,6 @@ Profile Profile::loadFromFile(const QString& filePath) {
         qWarning() << "Profile::loadFromFile: JSON parse error:" << parseError.errorString()
                    << "at offset" << parseError.offset << "in file:" << filePath;
         return Profile();
-    }
-
-    // Detect de1app v2 JSON format by checking for v2-specific fields.
-    // The de1app v2 format uses "version", "legacy_profile_type", and/or "type"
-    // (with values "advanced"/"pressure"/"flow") which our native format doesn't have.
-    // It also encodes numbers as strings (Tcl huddle behavior) and uses nested
-    // "exit"/"limiter" objects instead of our flat field names.
-    QJsonObject obj = doc.object();
-    if (obj.contains("version") || obj.contains("legacy_profile_type")) {
-        return loadFromDE1AppJson(QString::fromUtf8(data));
     }
 
     return fromJson(doc);
@@ -826,171 +853,6 @@ Profile Profile::loadFromTclString(const QString& content) {
 
     // Keep all imported profiles as frame-based to preserve exact frame structure and timing
     // Converting to recipe mode would regenerate frames with different timing via RecipeGenerator
-
-    return profile;
-}
-
-Profile Profile::loadFromDE1AppJson(const QString& jsonContent) {
-    // Parse DE1 app / Visualizer JSON format
-    // This format uses different field names and structures than our native format
-    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
-    if (doc.isNull() || !doc.isObject()) {
-        qWarning() << "loadFromDE1AppJson: Invalid JSON";
-        return Profile();
-    }
-
-    QJsonObject json = doc.object();
-    Profile profile;
-
-    // Helper to convert value that may be string or number
-    auto toDouble = [](const QJsonValue& val, double defaultVal = 0.0) -> double {
-        if (val.isString()) {
-            return val.toString().toDouble();
-        }
-        return val.toDouble(defaultVal);
-    };
-
-    // Extract metadata
-    profile.setTitle(json["title"].toString("Imported Profile"));
-    profile.m_author = json["author"].toString();
-    // Support both "profile_notes" and "notes" keys
-    profile.m_profileNotes = json["profile_notes"].toString();
-    if (profile.m_profileNotes.isEmpty()) {
-        profile.m_profileNotes = json["notes"].toString();
-    }
-    profile.m_beverageType = json["beverage_type"].toString("espresso");
-
-    QString profileType = json["legacy_profile_type"].toString();
-    if (profileType.isEmpty()) {
-        profileType = json["profile_type"].toString("settings_2c");
-    }
-    profile.m_profileType = profileType;
-
-    profile.m_targetWeight = toDouble(json["target_weight"], 36.0);
-    profile.m_targetVolume = toDouble(json["target_volume"], 0.0);
-
-    // Extract temperature
-    if (json.contains("espresso_temperature")) {
-        profile.m_espressoTemperature = toDouble(json["espresso_temperature"], 93.0);
-    }
-
-    // Extract limit fields
-    if (json.contains("tank_desired_water_temperature")) {
-        profile.m_tankDesiredWaterTemperature = toDouble(json["tank_desired_water_temperature"], 0.0);
-    }
-    if (json.contains("maximum_flow_range_advanced")) {
-        profile.m_maximumFlowRangeAdvanced = toDouble(json["maximum_flow_range_advanced"], 0.6);
-    }
-    if (json.contains("maximum_pressure_range_advanced")) {
-        profile.m_maximumPressureRangeAdvanced = toDouble(json["maximum_pressure_range_advanced"], 0.6);
-    }
-    if (json.contains("maximum_pressure")) {
-        profile.m_maximumPressure = toDouble(json["maximum_pressure"], 12.0);
-    }
-    if (json.contains("maximum_flow")) {
-        profile.m_maximumFlow = toDouble(json["maximum_flow"], 6.0);
-    }
-    if (json.contains("minimum_pressure")) {
-        profile.m_minimumPressure = toDouble(json["minimum_pressure"], 0.0);
-    }
-
-    // Parse steps array
-    QJsonArray stepsArray = json["steps"].toArray();
-    for (const auto& stepVal : stepsArray) {
-        QJsonObject stepJson = stepVal.toObject();
-        ProfileFrame frame;
-
-        frame.name = stepJson["name"].toString();
-        frame.temperature = toDouble(stepJson["temperature"], 93.0);
-        frame.sensor = stepJson["sensor"].toString("coffee");
-        frame.pump = stepJson["pump"].toString("flow");
-        frame.transition = stepJson["transition"].toString("fast");
-        frame.pressure = toDouble(stepJson["pressure"], 0.0);
-        frame.flow = toDouble(stepJson["flow"], 0.0);
-        frame.seconds = toDouble(stepJson["seconds"], 0.0);
-        frame.volume = toDouble(stepJson["volume"], 0.0);
-
-        // Parse exit condition
-        QJsonObject exitObj = stepJson["exit"].toObject();
-        if (!exitObj.isEmpty()) {
-            frame.exitIf = true;
-            QString exitType = exitObj["type"].toString();
-            double exitValue = toDouble(exitObj["value"]);
-            QString exitCondition = exitObj["condition"].toString("over");
-
-            // Handle specific exit types
-            if (exitType == "pressure") {
-                if (exitCondition == "over") {
-                    frame.exitType = "pressure_over";
-                    frame.exitPressureOver = exitValue;
-                } else {
-                    frame.exitType = "pressure_under";
-                    frame.exitPressureUnder = exitValue;
-                }
-            } else if (exitType == "flow") {
-                if (exitCondition == "over") {
-                    frame.exitType = "flow_over";
-                    frame.exitFlowOver = exitValue;
-                } else {
-                    frame.exitType = "flow_under";
-                    frame.exitFlowUnder = exitValue;
-                }
-            } else if (exitType == "weight") {
-                frame.exitType = "weight";
-                frame.exitWeight = exitValue;
-            }
-        }
-
-        // Also check for standalone weight and exit_weight fields
-        // NOTE: Weight exit is INDEPENDENT of exitIf - a frame can have machine-side
-        // exit (pressure/flow) via exit_if + exit_type, AND app-side weight exit via
-        // the standalone "weight" or "exit_weight" property. Both can coexist on the same frame.
-        double weightExit = toDouble(stepJson["weight"], 0.0);
-        if (weightExit <= 0) {
-            // Also check exit_weight (our native format field name)
-            weightExit = toDouble(stepJson["exit_weight"], 0.0);
-        }
-        if (weightExit > 0) {
-            frame.exitWeight = weightExit;
-            // Only set exitIf/exitType if no machine-side exit is defined
-            if (frame.exitType.isEmpty()) {
-                frame.exitIf = true;
-                frame.exitType = "weight";
-            }
-        }
-
-        // Parse limiter
-        QJsonObject limiterObj = stepJson["limiter"].toObject();
-        if (!limiterObj.isEmpty()) {
-            frame.maxFlowOrPressure = toDouble(limiterObj["value"]);
-            frame.maxFlowOrPressureRange = toDouble(limiterObj["range"], 0.6);
-        }
-
-        profile.m_steps.append(frame);
-    }
-
-    // Set espresso temperature from first step
-    if (!profile.m_steps.isEmpty()) {
-        profile.m_espressoTemperature = profile.m_steps.first().temperature;
-    }
-
-    // Read preinfuse frame count from JSON (Visualizer stores this explicitly)
-    if (json.contains("number_of_preinfuse_frames")) {
-        profile.m_preinfuseFrameCount = static_cast<int>(toDouble(json["number_of_preinfuse_frames"], 0));
-    } else {
-        // Fallback: count consecutive leading steps with exit conditions
-        profile.m_preinfuseFrameCount = 0;
-        for (const auto& step : profile.m_steps) {
-            if (step.exitIf) {
-                profile.m_preinfuseFrameCount++;
-            } else {
-                break;
-            }
-        }
-    }
-
-    qDebug() << "Loaded DE1 app profile:" << profile.m_title
-             << "with" << profile.m_steps.size() << "steps";
 
     return profile;
 }

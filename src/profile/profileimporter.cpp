@@ -261,7 +261,7 @@ QVariantMap ProfileImporter::checkProfileStatus(const QString& profileTitle, con
     if (result["exists"].toBool() && incomingProfile && incomingProfile->isValid()) {
         Profile localProfile = loadLocalProfile(filename);
         if (localProfile.isValid()) {
-            bool identical = compareProfileFrames(*incomingProfile, localProfile);
+            bool identical = compareProfiles(*incomingProfile, localProfile);
             result["identical"] = identical;
         }
     }
@@ -269,8 +269,16 @@ QVariantMap ProfileImporter::checkProfileStatus(const QString& profileTitle, con
     return result;
 }
 
-bool ProfileImporter::compareProfileFrames(const Profile& a, const Profile& b) const
+bool ProfileImporter::compareProfiles(const Profile& a, const Profile& b) const
 {
+    // Compare profile-level fields (these were missing from old imports)
+    if (qAbs(a.maximumPressure() - b.maximumPressure()) > 0.1) return false;
+    if (qAbs(a.maximumFlow() - b.maximumFlow()) > 0.1) return false;
+    if (qAbs(a.minimumPressure() - b.minimumPressure()) > 0.1) return false;
+    if (qAbs(a.tankDesiredWaterTemperature() - b.tankDesiredWaterTemperature()) > 0.1) return false;
+    if (qAbs(a.maximumFlowRangeAdvanced() - b.maximumFlowRangeAdvanced()) > 0.1) return false;
+    if (qAbs(a.maximumPressureRangeAdvanced() - b.maximumPressureRangeAdvanced()) > 0.1) return false;
+
     const auto& stepsA = a.steps();
     const auto& stepsB = b.steps();
 
@@ -308,6 +316,9 @@ bool ProfileImporter::compareProfileFrames(const Profile& a, const Profile& b) c
         // Limiter
         if (qAbs(fa.maxFlowOrPressure - fb.maxFlowOrPressure) > 0.1) return false;
         if (qAbs(fa.maxFlowOrPressureRange - fb.maxFlowOrPressureRange) > 0.1) return false;
+
+        // Popup notification
+        if (fa.popup != fb.popup) return false;
     }
 
     return true;

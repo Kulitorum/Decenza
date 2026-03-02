@@ -78,7 +78,6 @@ private slots:
 private:
     // Convert Visualizer JSON format to our Profile format
     Profile parseVisualizerProfile(const QJsonObject& json);
-    ProfileFrame parseVisualizerStep(const QJsonObject& stepJson);
 
     // Save profile to disk and refresh profile list
     // Returns: 1 = saved, 0 = waiting for user (duplicate), -1 = failed

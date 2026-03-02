@@ -16,7 +16,7 @@
  * 2. Direct Setpoint Control: App sends live setpoints frame-by-frame during extraction
  *
  * Profile File Formats:
- * - .json: Native format (our own JSON schema)
+ * - .json: Unified format (compatible with de1app v2)
  * - .tcl: de1app format (Tcl list syntax, importable)
  */
 class Profile {
@@ -187,9 +187,6 @@ public:
 
     // Import from de1app TCL format string (used by Visualizer API)
     static Profile loadFromTclString(const QString& tclContent);
-
-    // Import from DE1 app / Visualizer JSON format (different field names than native format)
-    static Profile loadFromDE1AppJson(const QString& jsonContent);
 
     // === BLE Data Generation ===
     // Generate profile header for upload (5 bytes)
