@@ -2119,9 +2119,7 @@ ApplicationWindow {
                 // Sleep before the wake command takes effect)
                 if (!screensaverActive && !root.startupGracePeriod && !root.shuttingDown) {
                     console.log("Machine entered Sleep - showing screensaver")
-                    if (ScaleDevice && ScaleDevice.connected) {
-                        ScaleDevice.disableLcd()
-                    }
+                    // Scale LCD disable is handled by C++ phaseChanged handler in main.cpp
                     goToScreensaver()
                 }
             } else if (phase === MachineStateType.Phase.Idle || phase === MachineStateType.Phase.Ready) {

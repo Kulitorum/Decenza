@@ -356,6 +356,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     } else {
         loadDefaultProfile();
     }
+    m_profileJsonCache.clear();  // Free cached JSON after startup profile load
 
     // Keep MachineState in sync when yield override changes in Settings
     if (m_settings) {
@@ -901,7 +902,11 @@ void MainController::loadProfile(const QString& profileName) {
 
     // 1. Check ProfileStorage first (SAF folder on Android)
     if (m_profileStorage && m_profileStorage->isConfigured()) {
-        QString jsonContent = m_profileStorage->readProfile(resolvedName);
+        // Use cached JSON from refreshProfiles() if available (avoids double-read at startup)
+        QString jsonContent = m_profileJsonCache.take(resolvedName);
+        if (jsonContent.isEmpty()) {
+            jsonContent = m_profileStorage->readProfile(resolvedName);
+        }
         if (!jsonContent.isEmpty()) {
             m_currentProfile = Profile::loadFromJsonString(jsonContent);
             found = true;
@@ -1159,6 +1164,7 @@ void MainController::refreshProfiles() {
     m_availableProfiles.clear();
     m_profileTitles.clear();
     m_allProfiles.clear();
+    m_profileJsonCache.clear();
 
     // Helper to load profile metadata from file path
     auto loadProfileMeta = [](const QString& path) -> std::tuple<QString, QString, bool> {
@@ -1210,6 +1216,9 @@ void MainController::refreshProfiles() {
             if (jsonContent.isEmpty()) {
                 continue;
             }
+
+            // Cache for loadProfile() to avoid re-reading from storage
+            m_profileJsonCache[name] = jsonContent;
 
             auto [title, beverageType, isRecipeMode] = loadProfileMetaFromJson(jsonContent);
 
