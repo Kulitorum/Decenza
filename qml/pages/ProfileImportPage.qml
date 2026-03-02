@@ -11,9 +11,17 @@ Page {
     background: Rectangle { color: Theme.backgroundColor }
 
     readonly property bool isIOS: Qt.platform.os === "ios"
+    property url customScanPath: ""
     readonly property string pageTitle: isIOS ?
         TranslationManager.translate("profileimport.title_ios", "Import Profile") :
         TranslationManager.translate("profileimport.title", "Import from Tablet")
+
+    function rescan() {
+        if (customScanPath != "")
+            MainController.profileImporter.scanProfilesFromUrl(customScanPath)
+        else
+            MainController.profileImporter.scanProfiles()
+    }
 
     Component.onCompleted: {
         root.currentPageTitle = pageTitle
@@ -108,10 +116,20 @@ Page {
                 }
 
                 AccessibleButton {
+                    text: TranslationManager.translate("profileimport.button.browse", "Browse...")
+                    accessibleName: TranslationManager.translate("profileImport.browseFolder", "Browse for de1plus folder")
+                    // Android FolderDialog returns SAF content:// URIs which QDir can't iterate;
+                    // folder browsing only works on desktop platforms.
+                    visible: Qt.platform.os !== "android"
+                    enabled: !MainController.profileImporter.isScanning
+                    onClicked: folderPickerDialog.open()
+                }
+
+                AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.rescan", "Rescan")
                     accessibleName: TranslationManager.translate("profileImport.rescanProfiles", "Rescan for profiles from Decent tablet")
                     enabled: !MainController.profileImporter.isScanning
-                    onClicked: MainController.profileImporter.scanProfiles()
+                    onClicked: profileImportPage.rescan()
                 }
 
                 AccessibleButton {
@@ -302,7 +320,7 @@ Page {
                     visible: profileList.count === 0 && !MainController.profileImporter.isScanning
                     text: MainController.profileImporter.detectedPath ?
                           TranslationManager.translate("profileimport.empty", "No profiles found in DE1 app folders") :
-                          TranslationManager.translate("profileimport.not_installed", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles.")
+                          TranslationManager.translate("profileimport.not_installed", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Browse to select the folder manually.")
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
@@ -315,6 +333,16 @@ Page {
                     running: visible
                 }
             }
+        }
+    }
+
+    // Folder picker dialog (desktop: browse to de1plus folder manually)
+    FolderDialog {
+        id: folderPickerDialog
+        title: TranslationManager.translate("profileimport.folder_dialog_title", "Select de1plus Folder")
+        onAccepted: {
+            profileImportPage.customScanPath = selectedFolder
+            MainController.profileImporter.scanProfilesFromUrl(selectedFolder)
         }
     }
 
@@ -474,7 +502,7 @@ Page {
         function onImportSuccess(profileTitle) {
             if (!profileImportPage.isIOS) {
                 // Refresh the profile status in the list
-                MainController.profileImporter.scanProfiles()
+                profileImportPage.rescan()
             }
         }
 

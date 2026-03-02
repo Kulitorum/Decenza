@@ -92,11 +92,20 @@ void ProfileImporter::scanProfiles()
     scanProfilesFromPath(de1plusPath);
 }
 
+void ProfileImporter::scanProfilesFromUrl(const QUrl& folderUrl)
+{
+    scanProfilesFromPath(folderUrl.toLocalFile());
+}
+
 void ProfileImporter::scanProfilesFromPath(const QString& path)
 {
     if (m_scanning) {
         return;
     }
+
+    // Update detectedPath so the header shows the folder being scanned
+    m_detectedPath = path;
+    emit detectedPathChanged();
 
     m_scanning = true;
     emit isScanningChanged();

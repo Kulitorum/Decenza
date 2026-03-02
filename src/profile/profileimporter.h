@@ -52,6 +52,7 @@ public:
     // Scan for available profiles (both TCL and JSON)
     Q_INVOKABLE void scanProfiles();
     Q_INVOKABLE void scanProfilesFromPath(const QString& path);
+    Q_INVOKABLE void scanProfilesFromUrl(const QUrl& folderUrl);
 
     // Import a single profile
     Q_INVOKABLE void importProfile(const QString& sourcePath);
