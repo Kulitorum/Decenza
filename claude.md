@@ -407,8 +407,17 @@ Twemoji by Twitter/X (CC-BY 4.0): https://github.com/twitter/twemoji
 
 - **FrameBased mode**: Upload to machine, executes autonomously
 - **DirectControl mode**: App sends setpoints frame-by-frame
-- Formats: JSON (native), TCL (de1app import)
+- Formats: JSON (unified with de1app v2), TCL (de1app import)
 - Tare happens when frame 0 starts (after machine preheat)
+
+### JSON Format (unified with de1app)
+
+Decenza and de1app share the same JSON profile format. The writer (`toJson()`) outputs de1app v2 format: nested `exit`/`limiter` objects, `version`, `legacy_profile_type`, `notes`, `number_of_preinfuse_frames`. The reader (`fromJson()`) accepts both de1app nested and legacy Decenza flat fields (for old profiles in shot history), with `jsonToDouble()` handling string-encoded numbers.
+
+- **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
+- **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots
+- **Decenza extensions**: `is_recipe_mode`, `recipe`, `mode`, `stop_at_type`, `has_recommended_dose`, `temperature_presets`, simple profile params — de1app ignores these
+- **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
 
 ### Exit Conditions
 

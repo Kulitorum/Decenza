@@ -24,19 +24,7 @@ QJsonObject ProfileFrame::toJson() const {
     obj["seconds"] = seconds;
     obj["volume"] = volume;
 
-    // Always include exit condition fields - they may be used even without exit_if
-    // (e.g., weight can trigger exit independently via scale system)
-    obj["exit_if"] = exitIf;
-    if (!exitType.isEmpty()) {
-        obj["exit_type"] = exitType;
-    }
-    if (exitPressureOver > 0) obj["exit_pressure_over"] = exitPressureOver;
-    if (exitPressureUnder > 0) obj["exit_pressure_under"] = exitPressureUnder;
-    if (exitFlowOver > 0) obj["exit_flow_over"] = exitFlowOver;
-    if (exitFlowUnder > 0) obj["exit_flow_under"] = exitFlowUnder;
-    if (exitWeight > 0) obj["exit_weight"] = exitWeight;
-
-    // de1app nested exit object (for cross-app compatibility)
+    // Exit condition (de1app nested format)
     if (exitIf && !exitType.isEmpty()) {
         QJsonObject exitObj;
         if (exitType == "pressure_over") {
@@ -59,15 +47,12 @@ QJsonObject ProfileFrame::toJson() const {
         if (!exitObj.isEmpty()) obj["exit"] = exitObj;
     }
 
-    // de1app standalone weight field (alongside exit_weight for backward compat)
+    // Weight exit (independent of exit object — app-side via scale)
     if (exitWeight > 0) obj["weight"] = exitWeight;
 
-    // Limiter - always save both fields for round-trip fidelity
+    // Limiter (de1app nested format)
+    // Always save both fields for round-trip fidelity
     // (D-Flow profiles set range to 0.2 even when limiter value is 0)
-    obj["max_flow_or_pressure"] = maxFlowOrPressure;
-    obj["max_flow_or_pressure_range"] = maxFlowOrPressureRange;
-
-    // de1app nested limiter object (for cross-app compatibility)
     QJsonObject limiterObj;
     limiterObj["value"] = maxFlowOrPressure;
     limiterObj["range"] = maxFlowOrPressureRange;

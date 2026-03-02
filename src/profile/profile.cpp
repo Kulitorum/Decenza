@@ -342,12 +342,10 @@ QJsonDocument Profile::toJson() const {
     QJsonObject obj;
     obj["title"] = m_title;
     obj["author"] = m_author;
-    obj["profile_notes"] = m_profileNotes;
-    obj["notes"] = m_profileNotes;  // de1app compatibility
+    obj["notes"] = m_profileNotes;
     obj["beverage_type"] = m_beverageType;
-    obj["profile_type"] = m_profileType;
-    obj["version"] = QStringLiteral("2");  // de1app v2 format marker
-    obj["legacy_profile_type"] = m_profileType;  // de1app compatibility
+    obj["version"] = QStringLiteral("2");
+    obj["legacy_profile_type"] = m_profileType;
     obj["target_weight"] = m_targetWeight;
     obj["target_volume"] = m_targetVolume;
     obj["stop_at_type"] = (m_stopAtType == StopAtType::Volume) ? "volume" : "weight";
@@ -358,8 +356,7 @@ QJsonDocument Profile::toJson() const {
     obj["tank_desired_water_temperature"] = m_tankDesiredWaterTemperature;
     obj["maximum_flow_range_advanced"] = m_maximumFlowRangeAdvanced;
     obj["maximum_pressure_range_advanced"] = m_maximumPressureRangeAdvanced;
-    obj["preinfuse_frame_count"] = m_preinfuseFrameCount;
-    obj["number_of_preinfuse_frames"] = m_preinfuseFrameCount;  // de1app compatibility
+    obj["number_of_preinfuse_frames"] = m_preinfuseFrameCount;
     obj["has_recommended_dose"] = m_hasRecommendedDose;
     obj["recommended_dose"] = m_recommendedDose;
     obj["mode"] = (m_mode == Mode::DirectControl) ? "direct" : "frame_based";
