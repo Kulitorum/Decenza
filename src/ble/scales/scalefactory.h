@@ -41,6 +41,9 @@ public:
     // Get human-readable name for scale type
     static QString scaleTypeName(ScaleType type);
 
+    // Resolve any type string (type() lowercase or scaleTypeName() display name) to ScaleType enum
+    static ScaleType resolveScaleType(const QString& name);
+
 private:
     // Device name patterns for detection
     static bool isDecentScale(const QString& name);

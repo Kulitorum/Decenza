@@ -75,6 +75,9 @@ public:
     Q_INVOKABLE void openLocationSettings();
     Q_INVOKABLE void openBluetoothSettings();
 
+    // Reset connection state flags so retry attempts can proceed
+    void resetScaleConnectionState();
+
     // Scale debug logging
     Q_INVOKABLE void clearScaleLog();
     Q_INVOKABLE void shareScaleLog();

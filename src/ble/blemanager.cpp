@@ -414,6 +414,17 @@ void BLEManager::setSavedScaleAddress(const QString& address, const QString& typ
     m_savedScaleName = name;
 }
 
+void BLEManager::resetScaleConnectionState() {
+    // Only reset direct-connect state so a fresh attempt can proceed.
+    // Do NOT reset m_scaleConnectionFailed or m_flowScaleFallbackEmitted here:
+    // - m_scaleConnectionFailed: keeps UI showing "Not found" during retries (no flicker)
+    // - m_flowScaleFallbackEmitted: prevents re-showing FlowScale dialog on each retry
+    // Both are reset when the scale actually connects (onScaleConnectedChanged).
+    m_directConnectInProgress = false;
+    m_directConnectAddress.clear();
+    m_scaleConnectionTimer->stop();
+}
+
 void BLEManager::clearSavedScale() {
     m_savedScaleAddress.clear();
     m_savedScaleType.clear();
@@ -422,6 +433,8 @@ void BLEManager::clearSavedScale() {
     m_scaleConnectionTimer->stop();
     m_flowScaleFallbackEmitted = false;
     emit scaleConnectionFailedChanged();
+    // Stop any pending auto-reconnect timer in main.cpp
+    emit disconnectScaleRequested();
 }
 
 void BLEManager::setSavedDE1Address(const QString& address, const QString& name) {

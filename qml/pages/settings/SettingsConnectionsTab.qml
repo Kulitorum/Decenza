@@ -618,10 +618,12 @@ Item {
                         }
 
                         Tr {
-                            property bool isFlowScale: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
+                            property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
                             property bool isSimulated: ScaleDevice && ScaleDevice.name === "Simulated Scale"
+                            // FlowScale fallback after physical disconnect — treat as disconnected
+                            property bool isDisconnectedFallback: ScaleDevice && ScaleDevice.isFlowScale && !Settings.useFlowScale
                             key: {
-                                if (ScaleDevice && ScaleDevice.connected) {
+                                if (ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback) {
                                     if (isFlowScale) return "settings.bluetooth.virtualScale"
                                     if (isSimulated) return "settings.bluetooth.simulated"
                                     return "settings.bluetooth.connected"
@@ -629,7 +631,7 @@ Item {
                                 return BLEManager.scaleConnectionFailed ? "settings.bluetooth.notFound" : "settings.bluetooth.disconnected"
                             }
                             fallback: {
-                                if (ScaleDevice && ScaleDevice.connected) {
+                                if (ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback) {
                                     if (isFlowScale) return "Virtual Scale"
                                     if (isSimulated) return "Simulated"
                                     return "Connected"
@@ -637,7 +639,7 @@ Item {
                                 return BLEManager.scaleConnectionFailed ? "Not found" : "Disconnected"
                             }
                             color: {
-                                if (ScaleDevice && ScaleDevice.connected) {
+                                if (ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback) {
                                     return (isFlowScale || isSimulated) ? Theme.warningColor : Theme.successColor
                                 }
                                 return BLEManager.scaleConnectionFailed ? Theme.errorColor : Theme.textSecondaryColor
@@ -657,7 +659,7 @@ Item {
                     // Connected BLE scale name
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: ScaleDevice && ScaleDevice.connected && ScaleDevice.name !== "Flow Scale"
+                        visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
 
                         Tr {
                             key: "settings.bluetooth.connectedScale"
@@ -679,7 +681,7 @@ Item {
                         color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
                         border.color: Theme.primaryColor
                         border.width: 1
-                        visible: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
+                        visible: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
 
                         Text {
                             id: flowScaleNotice
