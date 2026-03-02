@@ -618,10 +618,10 @@ Item {
                         }
 
                         Tr {
-                            property bool isFlowScale: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
+                            property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
                             property bool isSimulated: ScaleDevice && ScaleDevice.name === "Simulated Scale"
                             // FlowScale fallback after physical disconnect — treat as disconnected
-                            property bool isDisconnectedFallback: ScaleDevice && ScaleDevice.name === "Flow Scale" && !Settings.useFlowScale
+                            property bool isDisconnectedFallback: ScaleDevice && ScaleDevice.isFlowScale && !Settings.useFlowScale
                             key: {
                                 if (ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback) {
                                     if (isFlowScale) return "settings.bluetooth.virtualScale"
@@ -659,7 +659,7 @@ Item {
                     // Connected BLE scale name
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: ScaleDevice && ScaleDevice.connected && ScaleDevice.name !== "Flow Scale"
+                        visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
 
                         Tr {
                             key: "settings.bluetooth.connectedScale"
@@ -681,7 +681,7 @@ Item {
                         color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
                         border.color: Theme.primaryColor
                         border.width: 1
-                        visible: ScaleDevice && ScaleDevice.name === "Flow Scale" && Settings.useFlowScale
+                        visible: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
 
                         Text {
                             id: flowScaleNotice

@@ -133,7 +133,7 @@ Item {
         // Connection status
         var machineOn = typeof DE1Device !== "undefined" && DE1Device.connected
         var scaleOn = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected
-        var flowScale = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.name === "Flow Scale"
+        var flowScale = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.isFlowScale
         result = result.replace(/%CONNECTED%/g, machineOn ? "Online" : "Offline")
         if (result.indexOf("%CONNECTED_COLOR%") >= 0)
             result = result.replace(/%CONNECTED_COLOR%/g, machineOn ? Theme.successColor : Theme.errorColor)

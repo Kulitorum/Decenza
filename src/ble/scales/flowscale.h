@@ -31,6 +31,7 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     QString name() const override { return "Flow Scale"; }
     QString type() const override { return "flow"; }
+    bool isFlowScale() const override { return true; }
 
     // Settings injection (for useFlowScale toggle)
     void setSettings(Settings* settings);

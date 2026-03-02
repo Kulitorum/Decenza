@@ -2073,7 +2073,7 @@ ApplicationWindow {
                     root.scaleDialogDeferred = false
                     // If a real physical scale connected during warmup, discard queued scale popups
                     // (FlowScale is always "connected" so don't let it suppress dialogs)
-                    if (ScaleDevice && ScaleDevice.connected && ScaleDevice.name !== "Flow Scale") {
+                    if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
                         removeQueuedScalePopups()
                     } else if (BLEManager.hasSavedScale) {
                         showNextPendingPopup()  // Show deferred dialog now
@@ -2745,7 +2745,7 @@ ApplicationWindow {
         enabled: ScaleDevice !== null
 
         function onConnectedChanged() {
-            if (ScaleDevice && ScaleDevice.connected && ScaleDevice.name !== "Flow Scale") {
+            if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
                 removeQueuedScalePopups()
             }
         }

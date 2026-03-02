@@ -16,7 +16,7 @@ Item {
     Accessible.name: {
         var status = DE1Device.connected ? "Machine connected" : "Machine disconnected"
         if (ScaleDevice && ScaleDevice.connected) {
-            if (ScaleDevice.name === "Flow Scale")
+            if (ScaleDevice.isFlowScale)
                 status += ". Using simulated scale"
             else
                 status += ". Scale: " + ScaleDevice.name
@@ -69,7 +69,7 @@ Item {
             anchors.centerIn: parent
             machineConnected: DE1Device.connected
             scaleConnected: ScaleDevice && ScaleDevice.connected
-            isFlowScale: ScaleDevice && ScaleDevice.name === "Flow Scale"
+            isFlowScale: ScaleDevice && ScaleDevice.isFlowScale
         }
 
         MouseArea {
@@ -78,7 +78,7 @@ Item {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                     var status = DE1Device.connected ? "Machine connected" : "Machine disconnected"
                     if (ScaleDevice && ScaleDevice.connected) {
-                        if (ScaleDevice.name === "Flow Scale") {
+                        if (ScaleDevice.isFlowScale) {
                             status += ". Using simulated scale from flow sensor"
                         } else {
                             status += ". Scale connected: " + ScaleDevice.name

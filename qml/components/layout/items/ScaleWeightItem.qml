@@ -8,7 +8,7 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
-    property bool isFlowScale: ScaleDevice && ScaleDevice.name === "Flow Scale"
+    property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
     property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 

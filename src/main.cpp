@@ -532,6 +532,9 @@ int main(int argc, char *argv[])
             return;
         }
         qDebug() << "Scale reconnect: attempt" << (scaleReconnectAttempt + 1) << "of" << reconnectDelays.size();
+        bleManager.appendScaleLog(QString("Auto-reconnect attempt %1 of %2")
+                                  .arg(scaleReconnectAttempt + 1)
+                                  .arg(reconnectDelays.size()));
         bleManager.resetScaleConnectionState();
         bleManager.tryDirectConnectToScale();
         scaleReconnectAttempt++;
@@ -539,6 +542,7 @@ int main(int argc, char *argv[])
             scaleReconnectTimer.start(reconnectDelays[scaleReconnectAttempt]);
         } else {
             qDebug() << "Scale reconnect: retries exhausted, waiting for manual reconnect or app resume";
+            bleManager.appendScaleLog("Auto-reconnect exhausted - tap Scan to retry");
         }
     });
 
