@@ -9,6 +9,7 @@
 #include "profile.h"
 
 class MainController;
+class ProfileSaveHelper;
 class Settings;
 
 /**
@@ -20,7 +21,7 @@ class Settings;
  * Features:
  * - Auto-detects DE1 app profile folders
  * - Supports both TCL (legacy) and JSON (v2) profile formats
- * - Duplicate detection with frame-by-frame comparison
+ * - Duplicate detection with frame-by-frame comparison (via ProfileSaveHelper)
  * - Batch import with overwrite/skip options
  */
 class ProfileImporter : public QObject {
@@ -92,15 +93,10 @@ private slots:
 
 private:
     void setStatus(const QString& message);
-    QVariantMap checkProfileStatus(const QString& profileTitle, const Profile* incomingProfile);
-    bool compareProfiles(const Profile& a, const Profile& b) const;
-    Profile loadLocalProfile(const QString& filename) const;
-    QString generateFilename(const QString& title) const;
-    int saveProfile(const Profile& profile, const QString& filename);
-    QString downloadedProfilesPath() const;
 
     MainController* m_controller = nullptr;
     Settings* m_settings = nullptr;
+    ProfileSaveHelper* m_saveHelper = nullptr;
 
     bool m_scanning = false;
     bool m_importing = false;
@@ -119,8 +115,4 @@ private:
     int m_batchImported = 0;
     int m_batchSkipped = 0;
     int m_batchFailed = 0;
-
-    // Pending profile for duplicate resolution
-    Profile m_pendingProfile;
-    QString m_pendingSourcePath;
 };

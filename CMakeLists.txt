@@ -210,6 +210,7 @@ set(SOURCES
     src/profile/profileframe.cpp
     src/profile/profileconverter.cpp
     src/profile/profileimporter.cpp
+    src/profile/profilesavehelper.cpp
     src/profile/recipeparams.cpp
     src/profile/recipegenerator.cpp
     src/profile/recipeanalyzer.cpp
@@ -323,6 +324,7 @@ set(HEADERS
     src/profile/profileframe.h
     src/profile/profileconverter.h
     src/profile/profileimporter.h
+    src/profile/profilesavehelper.h
     src/profile/recipeparams.h
     src/profile/recipegenerator.h
     src/profile/recipeanalyzer.h

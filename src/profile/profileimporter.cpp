@@ -1,4 +1,5 @@
 #include "profileimporter.h"
+#include "profilesavehelper.h"
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
@@ -19,7 +20,12 @@ ProfileImporter::ProfileImporter(MainController* controller, Settings* settings,
     : QObject(parent)
     , m_controller(controller)
     , m_settings(settings)
+    , m_saveHelper(new ProfileSaveHelper(controller, this))
 {
+    // Forward helper signals to our own signals
+    connect(m_saveHelper, &ProfileSaveHelper::importSuccess, this, &ProfileImporter::importSuccess);
+    connect(m_saveHelper, &ProfileSaveHelper::importFailed, this, &ProfileImporter::importFailed);
+    connect(m_saveHelper, &ProfileSaveHelper::duplicateFound, this, &ProfileImporter::duplicateFound);
 }
 
 QString ProfileImporter::detectDE1AppPath() const
@@ -188,7 +194,7 @@ void ProfileImporter::processNextScan()
         entry["beverageType"] = profile.beverageType();
 
         // Check local status
-        QVariantMap status = checkProfileStatus(profile.title(), &profile);
+        QVariantMap status = m_saveHelper->checkProfileStatus(profile.title(), &profile);
         entry["exists"] = status["exists"];
         entry["identical"] = status["identical"];
         entry["source"] = status["source"];
@@ -218,184 +224,6 @@ void ProfileImporter::processNextScan()
     QTimer::singleShot(0, this, &ProfileImporter::processNextScan);
 }
 
-QVariantMap ProfileImporter::checkProfileStatus(const QString& profileTitle, const Profile* incomingProfile)
-{
-    QVariantMap result;
-    result["exists"] = false;
-    result["identical"] = false;
-    result["source"] = "";
-    result["filename"] = "";
-
-    if (!m_controller) {
-        return result;
-    }
-
-    // Generate expected filename
-    QString filename = generateFilename(profileTitle);
-    result["filename"] = filename;
-
-    // Check if profile exists in any location
-    ProfileStorage* storage = m_controller->profileStorage();
-
-    // Check external/downloaded storage first
-    if (storage && storage->isConfigured() && storage->profileExists(filename)) {
-        result["exists"] = true;
-        result["source"] = "D";  // Downloaded
-    }
-
-    // Check local downloaded folder
-    QString downloadedPath = downloadedProfilesPath() + "/" + filename + ".json";
-    if (QFile::exists(downloadedPath)) {
-        result["exists"] = true;
-        result["source"] = "D";
-    }
-
-    // Check built-in profiles
-    QString builtinPath = ":/profiles/" + filename + ".json";
-    if (QFile::exists(builtinPath)) {
-        result["exists"] = true;
-        result["source"] = "B";  // Built-in
-    }
-
-    // If exists and we have incoming profile, compare frames
-    if (result["exists"].toBool() && incomingProfile && incomingProfile->isValid()) {
-        Profile localProfile = loadLocalProfile(filename);
-        if (localProfile.isValid()) {
-            bool identical = compareProfiles(*incomingProfile, localProfile);
-            result["identical"] = identical;
-        }
-    }
-
-    return result;
-}
-
-bool ProfileImporter::compareProfiles(const Profile& a, const Profile& b) const
-{
-    // Compare profile-level fields (these were missing from old imports)
-    if (qAbs(a.maximumPressure() - b.maximumPressure()) > 0.1) return false;
-    if (qAbs(a.maximumFlow() - b.maximumFlow()) > 0.1) return false;
-    if (qAbs(a.minimumPressure() - b.minimumPressure()) > 0.1) return false;
-    if (qAbs(a.tankDesiredWaterTemperature() - b.tankDesiredWaterTemperature()) > 0.1) return false;
-    if (qAbs(a.maximumFlowRangeAdvanced() - b.maximumFlowRangeAdvanced()) > 0.1) return false;
-    if (qAbs(a.maximumPressureRangeAdvanced() - b.maximumPressureRangeAdvanced()) > 0.1) return false;
-
-    const auto& stepsA = a.steps();
-    const auto& stepsB = b.steps();
-
-    if (stepsA.size() != stepsB.size()) {
-        return false;
-    }
-
-    for (int i = 0; i < stepsA.size(); i++) {
-        const ProfileFrame& fa = stepsA[i];
-        const ProfileFrame& fb = stepsB[i];
-
-        // Compare all frame parameters that affect extraction
-        if (qAbs(fa.temperature - fb.temperature) > 0.1) return false;
-        if (fa.sensor != fb.sensor) return false;
-        if (fa.pump != fb.pump) return false;
-        if (fa.transition != fb.transition) return false;
-        if (qAbs(fa.pressure - fb.pressure) > 0.1) return false;
-        if (qAbs(fa.flow - fb.flow) > 0.1) return false;
-        if (qAbs(fa.seconds - fb.seconds) > 0.1) return false;
-        if (qAbs(fa.volume - fb.volume) > 0.1) return false;
-
-        // Exit conditions
-        if (fa.exitIf != fb.exitIf) return false;
-        if (fa.exitIf) {
-            if (fa.exitType != fb.exitType) return false;
-            if (qAbs(fa.exitPressureOver - fb.exitPressureOver) > 0.1) return false;
-            if (qAbs(fa.exitPressureUnder - fb.exitPressureUnder) > 0.1) return false;
-            if (qAbs(fa.exitFlowOver - fb.exitFlowOver) > 0.1) return false;
-            if (qAbs(fa.exitFlowUnder - fb.exitFlowUnder) > 0.1) return false;
-        }
-
-        // Weight exit (independent of exitIf)
-        if (qAbs(fa.exitWeight - fb.exitWeight) > 0.1) return false;
-
-        // Limiter
-        if (qAbs(fa.maxFlowOrPressure - fb.maxFlowOrPressure) > 0.1) return false;
-        if (qAbs(fa.maxFlowOrPressureRange - fb.maxFlowOrPressureRange) > 0.1) return false;
-
-        // Popup notification
-        if (fa.popup != fb.popup) return false;
-    }
-
-    return true;
-}
-
-Profile ProfileImporter::loadLocalProfile(const QString& filename) const
-{
-    ProfileStorage* storage = m_controller ? m_controller->profileStorage() : nullptr;
-
-    // Try profile storage first
-    if (storage && storage->isConfigured() && storage->profileExists(filename)) {
-        QString content = storage->readProfile(filename);
-        if (!content.isEmpty()) {
-            return Profile::loadFromJsonString(content);
-        }
-    }
-
-    // Try local downloaded folder
-    QString localPath = downloadedProfilesPath() + "/" + filename + ".json";
-    if (QFile::exists(localPath)) {
-        return Profile::loadFromFile(localPath);
-    }
-
-    // Try built-in profiles
-    QString builtinPath = ":/profiles/" + filename + ".json";
-    if (QFile::exists(builtinPath)) {
-        return Profile::loadFromFile(builtinPath);
-    }
-
-    return Profile();  // Empty/invalid profile
-}
-
-QString ProfileImporter::generateFilename(const QString& title) const
-{
-    if (title.isEmpty()) {
-        return "unnamed_profile";
-    }
-
-    QString filename = title.toLower();
-
-    // Replace special characters and spaces with underscores
-    filename.replace(QRegularExpression("[^a-z0-9]+"), "_");
-
-    // Remove leading/trailing underscores
-    filename.replace(QRegularExpression("^_+|_+$"), "");
-
-    // Collapse multiple underscores
-    filename.replace(QRegularExpression("_+"), "_");
-
-    // Limit length
-    if (filename.length() > 50) {
-        filename = filename.left(50);
-    }
-
-    if (filename.isEmpty()) {
-        filename = "profile";
-    }
-
-    return filename;
-}
-
-QString ProfileImporter::downloadedProfilesPath() const
-{
-    QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    path += "/profiles/downloaded";
-
-    // Ensure directory exists
-    QDir dir(path);
-    if (!dir.exists()) {
-        if (!dir.mkpath(".")) {
-            qWarning() << "ProfileImporter: Failed to create directory:" << path;
-        }
-    }
-
-    return path;
-}
-
 void ProfileImporter::importProfile(const QString& sourcePath)
 {
     if (m_importing) {
@@ -422,8 +250,8 @@ void ProfileImporter::importProfile(const QString& sourcePath)
         return;
     }
 
-    QString filename = generateFilename(profile.title());
-    int result = saveProfile(profile, filename);
+    QString filename = m_saveHelper->titleToFilename(profile.title());
+    int result = m_saveHelper->saveProfile(profile, filename);
 
     if (result == 1) {
         // Saved successfully
@@ -431,14 +259,8 @@ void ProfileImporter::importProfile(const QString& sourcePath)
         m_importing = false;
         emit isImportingChanged();
         emit importSuccess(profile.title());
-        if (m_controller) {
-            m_controller->refreshProfiles();
-        }
     } else if (result == 0) {
-        // Duplicate found - waiting for user decision
-        m_pendingProfile = profile;
-        m_pendingSourcePath = sourcePath;
-        emit duplicateFound(profile.title(), filename);
+        // Duplicate found - waiting for user decision (signal already emitted by helper)
     } else {
         // Failed
         m_importing = false;
@@ -514,8 +336,8 @@ void ProfileImporter::forceImportProfile(const QString& sourcePath)
         return;
     }
 
-    QString filename = generateFilename(profile.title());
-    QString fullPath = downloadedProfilesPath() + "/" + filename + ".json";
+    QString filename = m_saveHelper->titleToFilename(profile.title());
+    QString fullPath = ProfileSaveHelper::downloadedProfilesPath() + "/" + filename + ".json";
 
     // Force overwrite - don't check for duplicates
     if (profile.saveToFile(fullPath)) {
@@ -561,9 +383,9 @@ void ProfileImporter::importProfileWithName(const QString& sourcePath, const QSt
 
     // Set new name
     profile.setTitle(newName);
-    QString filename = generateFilename(newName);
+    QString filename = m_saveHelper->titleToFilename(newName);
 
-    QString fullPath = downloadedProfilesPath() + "/" + filename + ".json";
+    QString fullPath = ProfileSaveHelper::downloadedProfilesPath() + "/" + filename + ".json";
     if (profile.saveToFile(fullPath)) {
         setStatus("Imported: " + newName);
         m_importing = false;
@@ -579,193 +401,30 @@ void ProfileImporter::importProfileWithName(const QString& sourcePath, const QSt
     }
 }
 
-int ProfileImporter::saveProfile(const Profile& profile, const QString& filename)
-{
-    QString fullPath = downloadedProfilesPath() + "/" + filename + ".json";
-
-    // Check for duplicates
-    if (QFile::exists(fullPath)) {
-        qDebug() << "ProfileImporter: Duplicate found for" << profile.title();
-        return 0;  // Waiting for user decision
-    }
-
-    // Also check built-in profiles
-    QString builtinPath = ":/profiles/" + filename + ".json";
-    if (QFile::exists(builtinPath)) {
-        qDebug() << "ProfileImporter: Matches built-in profile" << profile.title();
-        return 0;  // Waiting for user decision
-    }
-
-    if (profile.saveToFile(fullPath)) {
-        qDebug() << "ProfileImporter: Saved" << profile.title() << "to" << fullPath;
-        return 1;  // Success
-    }
-
-    qWarning() << "ProfileImporter: Failed to save" << profile.title();
-    return -1;  // Failed
-}
-
 void ProfileImporter::saveOverwrite()
 {
-    if (!m_pendingProfile.isValid()) {
-        qWarning() << "ProfileImporter::saveOverwrite: Pending profile is not valid";
-        m_importing = false;
-        emit isImportingChanged();
-        return;
-    }
-
-    QString filename = generateFilename(m_pendingProfile.title());
-    QString destDir = downloadedProfilesPath();
-    QString fullPath = destDir + "/" + filename + ".json";
-
-    // Verify directory exists
-    QDir dir(destDir);
-    if (!dir.exists()) {
-        qWarning() << "ProfileImporter::saveOverwrite: Directory does not exist:" << destDir;
-        emit importFailed("Failed to overwrite: destination folder does not exist");
-        m_pendingProfile = Profile();
-        m_pendingSourcePath.clear();
-        m_importing = false;
-        emit isImportingChanged();
-        return;
-    }
-
-    qDebug() << "ProfileImporter::saveOverwrite: Saving to" << fullPath;
-
-    if (m_pendingProfile.saveToFile(fullPath)) {
-        setStatus("Overwritten: " + m_pendingProfile.title());
-        emit importSuccess(m_pendingProfile.title());
-        if (m_controller) {
-            m_controller->refreshProfiles();
-        }
-    } else {
-        qWarning() << "ProfileImporter::saveOverwrite: saveToFile() failed for" << fullPath;
-        emit importFailed("Failed to overwrite: " + m_pendingProfile.title() + " (check app permissions)");
-    }
-
-    m_pendingProfile = Profile();
-    m_pendingSourcePath.clear();
+    m_saveHelper->saveOverwrite();
     m_importing = false;
     emit isImportingChanged();
 }
 
 void ProfileImporter::saveAsNew()
 {
-    if (!m_pendingProfile.isValid()) {
-        m_importing = false;
-        emit isImportingChanged();
-        return;
-    }
-
-    QString baseTitle = m_pendingProfile.title();
-    QString baseFilename = generateFilename(baseTitle);
-    QString duplicatePath = downloadedProfilesPath() + "/" + baseFilename + ".json";
-
-    // Check if there's a duplicate
-    if (QFile::exists(duplicatePath) || QFile::exists(":/profiles/" + baseFilename + ".json")) {
-        // Try descriptive naming first
-        Profile existingProfile = Profile::loadFromFile(duplicatePath);
-        if (!existingProfile.isValid() && QFile::exists(":/profiles/" + baseFilename + ".json")) {
-            existingProfile = Profile::loadFromFile(":/profiles/" + baseFilename + ".json");
-        }
-
-        QString newTitle;
-        QString newFilename;
-
-        // Strategy 1: Different author
-        if (existingProfile.isValid() &&
-            !m_pendingProfile.author().isEmpty() &&
-            !existingProfile.author().isEmpty() &&
-            m_pendingProfile.author() != existingProfile.author()) {
-            newTitle = baseTitle + " (by " + m_pendingProfile.author() + ")";
-            newFilename = generateFilename(newTitle);
-        }
-        // Strategy 2: Different step count
-        else if (existingProfile.isValid() &&
-                 m_pendingProfile.steps().size() != existingProfile.steps().size()) {
-            newTitle = baseTitle + " (" + QString::number(m_pendingProfile.steps().size()) + " steps)";
-            newFilename = generateFilename(newTitle);
-        }
-        // Fallback: Numbered suffix
-        else {
-            int counter = 2;
-            do {
-                newTitle = baseTitle + " (" + QString::number(counter) + ")";
-                newFilename = generateFilename(newTitle);
-                counter++;
-            } while (QFile::exists(downloadedProfilesPath() + "/" + newFilename + ".json") ||
-                     QFile::exists(":/profiles/" + newFilename + ".json"));
-        }
-
-        // Check if the descriptive name is already taken
-        if (QFile::exists(downloadedProfilesPath() + "/" + newFilename + ".json") ||
-            QFile::exists(":/profiles/" + newFilename + ".json")) {
-            // Fall back to numbered suffix
-            int counter = 2;
-            do {
-                newTitle = baseTitle + " (" + QString::number(counter) + ")";
-                newFilename = generateFilename(newTitle);
-                counter++;
-            } while (QFile::exists(downloadedProfilesPath() + "/" + newFilename + ".json") ||
-                     QFile::exists(":/profiles/" + newFilename + ".json"));
-        }
-
-        m_pendingProfile.setTitle(newTitle);
-        baseFilename = newFilename;
-    }
-
-    // At this point baseFilename is unique
-    QString newTitle = m_pendingProfile.title();
-
-    QString fullPath = downloadedProfilesPath() + "/" + baseFilename + ".json";
-    if (m_pendingProfile.saveToFile(fullPath)) {
-        setStatus("Saved as: " + newTitle);
-        emit importSuccess(newTitle);
-        if (m_controller) {
-            m_controller->refreshProfiles();
-        }
-    } else {
-        emit importFailed("Failed to save: " + newTitle);
-    }
-
-    m_pendingProfile = Profile();
-    m_pendingSourcePath.clear();
+    m_saveHelper->saveAsNew();
     m_importing = false;
     emit isImportingChanged();
 }
 
 void ProfileImporter::saveWithNewName(const QString& newName)
 {
-    if (!m_pendingProfile.isValid() || newName.isEmpty()) {
-        m_importing = false;
-        emit isImportingChanged();
-        return;
-    }
-
-    m_pendingProfile.setTitle(newName);
-    QString filename = generateFilename(newName);
-    QString fullPath = downloadedProfilesPath() + "/" + filename + ".json";
-
-    if (m_pendingProfile.saveToFile(fullPath)) {
-        setStatus("Saved as: " + newName);
-        emit importSuccess(newName);
-        if (m_controller) {
-            m_controller->refreshProfiles();
-        }
-    } else {
-        emit importFailed("Failed to save: " + newName);
-    }
-
-    m_pendingProfile = Profile();
-    m_pendingSourcePath.clear();
+    m_saveHelper->saveWithNewName(newName);
     m_importing = false;
     emit isImportingChanged();
 }
 
 void ProfileImporter::cancelImport()
 {
-    m_pendingProfile = Profile();
-    m_pendingSourcePath.clear();
+    m_saveHelper->cancelPending();
     m_importing = false;
     emit isImportingChanged();
     setStatus("Import cancelled");
@@ -904,8 +563,8 @@ void ProfileImporter::processNextImport()
         return;
     }
 
-    QString filename = generateFilename(profile.title());
-    QString fullPath = downloadedProfilesPath() + "/" + filename + ".json";
+    QString filename = m_saveHelper->titleToFilename(profile.title());
+    QString fullPath = ProfileSaveHelper::downloadedProfilesPath() + "/" + filename + ".json";
 
     // Handle existing files
     if (QFile::exists(fullPath)) {
@@ -955,7 +614,7 @@ void ProfileImporter::refreshProfileStatus(int index)
     }
 
     if (profile.isValid()) {
-        QVariantMap status = checkProfileStatus(profile.title(), &profile);
+        QVariantMap status = m_saveHelper->checkProfileStatus(profile.title(), &profile);
         entry["exists"] = status["exists"];
         entry["identical"] = status["identical"];
         entry["source"] = status["source"];

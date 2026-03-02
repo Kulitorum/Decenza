@@ -7,19 +7,8 @@
 #include "../profile/profile.h"
 
 class MainController;
+class ProfileSaveHelper;
 class Settings;
-
-// Status of a shared profile relative to local profiles
-struct SharedProfileStatus {
-    Q_GADGET
-public:
-    enum Status {
-        New,        // Profile doesn't exist locally
-        Identical,  // Exists and has same parameters
-        Different   // Exists but has different parameters
-    };
-    Q_ENUM(Status)
-};
 
 class VisualizerImporter : public QObject {
     Q_OBJECT
@@ -58,8 +47,8 @@ public:
 
     // Called after duplicate dialog - save with overwrite or new name
     Q_INVOKABLE void saveOverwrite();
-    Q_INVOKABLE void saveAsNew();  // Auto-generate unique name with _1, _2 suffix
-    Q_INVOKABLE void saveWithNewName(const QString& newTitle);  // User-provided name
+    Q_INVOKABLE void saveAsNew();
+    Q_INVOKABLE void saveWithNewName(const QString& newTitle);
 
 signals:
     void importingChanged();
@@ -79,19 +68,6 @@ private:
     // Convert Visualizer JSON format to our Profile format
     Profile parseVisualizerProfile(const QJsonObject& json);
 
-    // Save profile to disk and refresh profile list
-    // Returns: 1 = saved, 0 = waiting for user (duplicate), -1 = failed
-    int saveImportedProfile(const Profile& profile);
-
-    // Check profile status against local profiles
-    QVariantMap checkProfileStatus(const QString& profileTitle, const Profile* incomingProfile = nullptr);
-
-    // Compare two profiles' frames (returns true if identical)
-    bool compareProfileFrames(const Profile& a, const Profile& b) const;
-
-    // Load a local profile by filename
-    Profile loadLocalProfile(const QString& filename) const;
-
     // Auth header for API requests
     QString authHeader() const;
 
@@ -102,16 +78,13 @@ private:
     MainController* m_controller;
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
+    ProfileSaveHelper* m_saveHelper;
     bool m_importing = false;
     bool m_fetching = false;
     QString m_lastError;
 
     // Shared shots list for multi-import
     QVariantList m_sharedShots;
-
-    // Pending profile for duplicate handling
-    Profile m_pendingProfile;
-    QString m_pendingPath;
 
     // Track request type for response handling
     enum class RequestType {
