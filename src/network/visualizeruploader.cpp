@@ -915,7 +915,7 @@ QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profil
         stepObj["flow"] = QString::number(step.flow, 'f', 2);
         stepObj["seconds"] = QString::number(step.seconds, 'f', 2);
         stepObj["volume"] = QString::number(step.volume, 'f', 0);
-        stepObj["weight"] = "0";  // Per-step weight not used
+        stepObj["weight"] = QString::number(step.exitWeight, 'f', 1);
 
         // Exit condition (Visualizer format: {type, value, condition})
         if (step.exitIf && !step.exitType.isEmpty()) {
@@ -952,13 +952,29 @@ QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profil
     }
     obj["steps"] = stepsArray;
 
-    // Additional Visualizer metadata
-    obj["tank_temperature"] = "0";
+    // Profile-level settings (needed for correct profile download from visualizer)
+    obj["espresso_temperature"] = QString::number(profile->espressoTemperature(), 'f', 2);
+    obj["maximum_pressure"] = QString::number(profile->maximumPressure(), 'f', 1);
+    obj["maximum_flow"] = QString::number(profile->maximumFlow(), 'f', 1);
+    obj["minimum_pressure"] = QString::number(profile->minimumPressure(), 'f', 1);
+    obj["maximum_flow_range_advanced"] = QString::number(profile->maximumFlowRangeAdvanced(), 'f', 1);
+    obj["maximum_pressure_range_advanced"] = QString::number(profile->maximumPressureRangeAdvanced(), 'f', 1);
+    obj["tank_temperature"] = QString::number(profile->tankDesiredWaterTemperature(), 'f', 1);
     obj["target_weight"] = QString::number(profile->targetWeight(), 'f', 0);
     obj["target_volume"] = QString::number(profile->targetVolume(), 'f', 0);
     obj["target_volume_count_start"] = QString::number(profile->preinfuseFrameCount());
     obj["legacy_profile_type"] = profile->profileType();
-    obj["type"] = "advanced";
+
+    // Derive type from profile_type (matches de1app convention)
+    QString profileType = profile->profileType();
+    if (profileType == "settings_2a") {
+        obj["type"] = "pressure";
+    } else if (profileType == "settings_2b") {
+        obj["type"] = "flow";
+    } else {
+        obj["type"] = "advanced";
+    }
+
     obj["lang"] = "en";
     obj["hidden"] = "0";
     obj["reference_file"] = profile->title();
