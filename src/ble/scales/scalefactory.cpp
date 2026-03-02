@@ -93,8 +93,8 @@ bool ScaleFactory::isKnownScale(const QBluetoothDeviceInfo& device) {
 ScaleType ScaleFactory::resolveScaleType(const QString& name) {
     QString lower = name.toLower();
     if (lower.contains("decent")) return ScaleType::DecentScale;
-    if (lower.contains("pyxis")) return ScaleType::AcaiaPyxis;
-    if (lower.contains("acaia")) return ScaleType::Acaia;
+    // Consolidate Pyxis into Acaia, matching detectScaleType behavior (unified AcaiaScale)
+    if (lower.contains("pyxis") || lower.contains("acaia")) return ScaleType::Acaia;
     if (lower.contains("felicita")) return ScaleType::Felicita;
     if (lower.contains("skale")) return ScaleType::Skale;
     if (lower.contains("hiroia") || lower.contains("jimmy")) return ScaleType::HiroiaJimmy;

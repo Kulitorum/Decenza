@@ -521,7 +521,8 @@ int main(int argc, char *argv[])
     int scaleReconnectAttempt = 0;
     QTimer scaleReconnectTimer;
     scaleReconnectTimer.setSingleShot(true);
-    const std::vector<int> reconnectDelays = {5000, 15000, 30000};
+    // Delays must be > BLE's 20s internal connection timeout to avoid overlapping attempts
+    const std::vector<int> reconnectDelays = {5000, 30000, 60000};
 
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer, &reconnectDelays]() {
@@ -672,7 +673,10 @@ int main(int argc, char *argv[])
 
     // Handle disconnect request when starting a new scan
     QObject::connect(&bleManager, &BLEManager::disconnectScaleRequested,
-                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor]() {
+                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt]() {
+        // Stop any pending auto-reconnect (user is deliberately scanning for a different scale)
+        scaleReconnectTimer.stop();
+        scaleReconnectAttempt = 0;
         if (physicalScale) {
             qDebug() << "Disconnecting scale before scan";
             // Switch to FlowScale first
@@ -1033,7 +1037,7 @@ int main(int argc, char *argv[])
     // Note: DE1 is NOT put to sleep when backgrounded - users may switch apps while
     // the machine is heating up and expect it to continue (e.g., checking Visualizer)
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
-                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         if (state == Qt::ApplicationSuspended) {
@@ -1095,9 +1099,11 @@ int main(int argc, char *argv[])
             // Try to reconnect/wake scale
             if (physicalScale && physicalScale->isConnected()) {
                 physicalScale->wake();
-            } else if (!settings.scaleAddress().isEmpty()) {
-                // Scale disconnected while suspended - try to reconnect
-                QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToScale);
+            } else if (!settings.scaleAddress().isEmpty() && !scaleReconnectTimer.isActive()) {
+                // Scale disconnected while suspended - restart reconnect sequence
+                scaleReconnectAttempt = 0;
+                scaleReconnectTimer.start(reconnectDelays[0]);
+                qDebug() << "App resumed - starting scale reconnect sequence";
             }
 
             // Resume smart charging check now that app is active again

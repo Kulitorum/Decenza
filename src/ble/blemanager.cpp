@@ -417,6 +417,9 @@ void BLEManager::setSavedScaleAddress(const QString& address, const QString& typ
 void BLEManager::resetScaleConnectionState() {
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;
+    m_directConnectInProgress = false;
+    m_directConnectAddress.clear();
+    m_scaleConnectionTimer->stop();
     emit scaleConnectionFailedChanged();
 }
 
