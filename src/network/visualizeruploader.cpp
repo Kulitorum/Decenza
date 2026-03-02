@@ -107,99 +107,12 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
         return;
     }
 
-    // Skip maintenance profiles (cleaning, calibration, descaling)
-    if (profile) {
-        QString bevType = profile->beverageType();
-        if (bevType == "cleaning" || bevType == "calibrate" || bevType == "descale") {
-            m_lastUploadStatus = QString("Skipped: maintenance profile (%1)").arg(bevType);
-            emit lastUploadStatusChanged();
-            qDebug() << "Visualizer: Skipping upload for maintenance profile:" << bevType;
-            return;
-        }
-    }
-
-    // Check credentials
-    QString username = m_settings->value("visualizer/username", "").toString();
-    QString password = m_settings->value("visualizer/password", "").toString();
-
-    if (username.isEmpty() || password.isEmpty()) {
-        m_lastUploadStatus = "No credentials configured";
-        emit lastUploadStatusChanged();
-        emit uploadFailed("Visualizer credentials not configured");
+    QString beverageType = profile ? profile->beverageType() : QString();
+    if (!validateUpload(beverageType, duration))
         return;
-    }
 
-    // Check minimum duration
-    double minDuration = m_settings->value("visualizer/minDuration", 6.0).toDouble();
-    if (duration < minDuration) {
-        m_lastUploadStatus = QString("Shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
-        emit lastUploadStatusChanged();
-        emit uploadFailed(m_lastUploadStatus);
-        qDebug() << "Visualizer: Shot too short, not uploading";
-        return;
-    }
-
-    m_uploading = true;
-    emit uploadingChanged();
-    m_lastUploadStatus = "Uploading...";
-    emit lastUploadStatusChanged();
-
-    // Build JSON payload
     QByteArray jsonData = buildShotJson(shotData, profile, finalWeight, doseWeight, metadata);
-
-    // Save JSON to file for debugging
-    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (debugPath.isEmpty()) {
-        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    }
-    QDir().mkpath(debugPath);
-    QString debugFile = debugPath + "/last_upload.json";
-    QFile file(debugFile);
-    if (file.open(QIODevice::WriteOnly)) {
-        // Pretty print for readability
-        QJsonDocument doc = QJsonDocument::fromJson(jsonData);
-        file.write(doc.toJson(QJsonDocument::Indented));
-        file.close();
-        qDebug() << "Visualizer: Saved debug JSON to" << debugFile;
-    } else {
-        qDebug() << "Visualizer: Failed to save debug JSON to" << debugFile;
-    }
-
-    // Build multipart form data
-    QString boundary = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QByteArray multipartData = buildMultipartData(jsonData, boundary);
-
-    // Create request
-    QUrl url(VISUALIZER_API_URL);
-    QNetworkRequest request(url);
-
-    QString authHeaderValue = authHeader();
-    request.setRawHeader("Authorization", authHeaderValue.toUtf8());
-    request.setRawHeader("Content-Type", QString("multipart/form-data; boundary=%1").arg(boundary).toUtf8());
-
-    // Prevent Qt from following redirects (which can lose auth headers)
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-
-    // Save debug info to file
-    QString authDebugFile = debugPath + "/last_upload_debug.txt";
-    QFile dbgFile(authDebugFile);
-    if (dbgFile.open(QIODevice::WriteOnly)) {
-        QString username = m_settings->value("visualizer/username", "").toString();
-        dbgFile.write(QString("Username: %1\n").arg(username).toUtf8());
-        dbgFile.write(QString("Auth header: %1\n").arg(authHeaderValue.left(30) + "...").toUtf8());
-        dbgFile.write(QString("URL: %1\n").arg(url.toString()).toUtf8());
-        dbgFile.write(QString("Content-Length: %1\n").arg(multipartData.size()).toUtf8());
-        dbgFile.close();
-    }
-
-    // Send request
-    QNetworkReply* reply = m_networkManager->post(request, multipartData);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onUploadFinished(reply);
-    });
-
-    qDebug() << "Visualizer: Uploading shot...";
+    sendUpload(jsonData);
 }
 
 void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
@@ -209,240 +122,22 @@ void VisualizerUploader::uploadShotFromHistory(const QVariantMap& shotData)
         return;
     }
 
-    // Skip maintenance profiles (cleaning, calibration, descaling)
-    {
-        QString profileJson = shotData["profileJson"].toString();
-        if (!profileJson.isEmpty()) {
-            QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
-            if (!profileDoc.isNull()) {
-                QJsonObject profileObj = profileDoc.object();
-                QString bevType = profileObj["beverage_type"].toString();
-                if (bevType == "cleaning" || bevType == "calibrate" || bevType == "descale") {
-                    m_lastUploadStatus = QString("Skipped: maintenance profile (%1)").arg(bevType);
-                    emit lastUploadStatusChanged();
-                    qDebug() << "Visualizer: Skipping upload for maintenance profile:" << bevType;
-                    return;
-                }
-            }
-        }
-    }
-
-    // Check credentials
-    QString username = m_settings->value("visualizer/username", "").toString();
-    QString password = m_settings->value("visualizer/password", "").toString();
-
-    if (username.isEmpty() || password.isEmpty()) {
-        m_lastUploadStatus = "No credentials configured";
-        emit lastUploadStatusChanged();
-        emit uploadFailed("Visualizer credentials not configured");
-        return;
-    }
-
-    double duration = shotData["duration"].toDouble();
-    double minDuration = m_settings->value("visualizer/minDuration", 6.0).toDouble();
-    if (duration < minDuration) {
-        m_lastUploadStatus = QString("Shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
-        emit lastUploadStatusChanged();
-        emit uploadFailed(m_lastUploadStatus);
-        qDebug() << "Visualizer: Shot too short, not uploading";
-        return;
-    }
-
-    m_uploading = true;
-    emit uploadingChanged();
-    m_lastUploadStatus = "Uploading...";
-    emit lastUploadStatusChanged();
-
-    // Build JSON from history data
-    QJsonObject root;
-    root["version"] = 2;
-
-    // Use original timestamp from the shot
-    qint64 timestamp = shotData["timestamp"].toLongLong();
-    root["clock"] = timestamp;
-    root["timestamp"] = timestamp;
-    root["date"] = QDateTime::fromSecsSinceEpoch(timestamp).toString(Qt::ISODate);
-
-    // Helper to convert QVariantList of {x,y} points to QVector<QPointF>
-    auto toPointVector = [](const QVariantList& points) -> QVector<QPointF> {
-        QVector<QPointF> result;
-        result.reserve(points.size());
-        for (const auto& pt : points) {
-            QVariantMap p = pt.toMap();
-            result.append(QPointF(p["x"].toDouble(), p["y"].toDouble()));
-        }
-        return result;
-    };
-
-    // Helper to extract just the values from a point vector (for data aligned with elapsed)
-    auto extractValues = [](const QVector<QPointF>& points) -> QJsonArray {
-        QJsonArray values;
-        for (const auto& pt : points) {
-            values.append(pt.y());
-        }
-        return values;
-    };
-
-    // Helper to extract elapsed times
-    auto extractTimes = [](const QVector<QPointF>& points) -> QJsonArray {
-        QJsonArray times;
-        for (const auto& pt : points) {
-            times.append(pt.x());
-        }
-        return times;
-    };
-
-    // Convert to point vectors for interpolation
-    QVector<QPointF> pressureData = toPointVector(shotData["pressure"].toList());
-    QVector<QPointF> flowData = toPointVector(shotData["flow"].toList());
-    QVector<QPointF> tempData = toPointVector(shotData["temperature"].toList());
-    QVector<QPointF> pressureGoalData = toPointVector(shotData["pressureGoal"].toList());
-    QVector<QPointF> flowGoalData = toPointVector(shotData["flowGoal"].toList());
-    QVector<QPointF> tempGoalData = toPointVector(shotData["temperatureGoal"].toList());
-    QVector<QPointF> weightData = toPointVector(shotData["weight"].toList());
-    QVector<QPointF> weightFlowRateData = toPointVector(shotData["weightFlowRate"].toList());
-
-    // Elapsed time array (from pressure data - the master timeline)
-    root["elapsed"] = extractTimes(pressureData);
-
-    // Pressure object - interpolate goal to match elapsed timestamps
-    QJsonObject pressure;
-    pressure["pressure"] = extractValues(pressureData);
-    pressure["goal"] = interpolateGoalData(pressureGoalData, pressureData);
-    root["pressure"] = pressure;
-
-    // Flow object - interpolate goal to match elapsed timestamps
-    QJsonObject flow;
-    flow["flow"] = extractValues(flowData);
-    flow["goal"] = interpolateGoalData(flowGoalData, pressureData);
-    // Weight-based flow rate (g/s from scale) - interpolate to match elapsed timestamps
-    if (!weightFlowRateData.isEmpty()) {
-        flow["by_weight"] = interpolateGoalData(weightFlowRateData, pressureData);
-    }
-    root["flow"] = flow;
-
-    // Temperature object - interpolate goal to match elapsed timestamps
-    QJsonObject temperature;
-    temperature["basket"] = extractValues(tempData);
-    temperature["goal"] = interpolateGoalData(tempGoalData, pressureData);
-    root["temperature"] = temperature;
-
-    // Totals object (weight) - interpolate to match elapsed timestamps
-    QJsonObject totals;
-    if (!weightData.isEmpty()) {
-        totals["weight"] = interpolateGoalData(weightData, pressureData);
-    }
-    root["totals"] = totals;
-
-    // Meta object
-    QJsonObject meta;
-
-    // Bean info
-    QJsonObject bean;
-    QString beanBrand = shotData["beanBrand"].toString();
-    QString beanType = shotData["beanType"].toString();
-    QString roastDate = shotData["roastDate"].toString();
-    QString roastLevel = shotData["roastLevel"].toString();
-    if (!beanBrand.isEmpty()) bean["brand"] = beanBrand;
-    if (!beanType.isEmpty()) bean["type"] = beanType;
-    if (!roastDate.isEmpty()) bean["roast_date"] = roastDate;
-    if (!roastLevel.isEmpty()) bean["roast_level"] = roastLevel;
-    meta["bean"] = bean;
-
-    // Shot info
-    QJsonObject shot;
-    int enjoyment = shotData["enjoyment"].toInt();
-    QString notes = shotData["espressoNotes"].toString();
-    double tds = shotData["drinkTds"].toDouble();
-    double ey = shotData["drinkEy"].toDouble();
-    if (enjoyment > 0) shot["enjoyment"] = enjoyment;
-    if (!notes.isEmpty()) shot["notes"] = notes;
-    if (tds > 0) shot["tds"] = tds;
-    if (ey > 0) shot["ey"] = ey;
-    meta["shot"] = shot;
-
-    // Grinder info
-    QJsonObject grinder;
-    QString grinderModel = shotData["grinderModel"].toString();
-    QString grinderSetting = shotData["grinderSetting"].toString();
-    if (!grinderModel.isEmpty()) grinder["model"] = grinderModel;
-    if (!grinderSetting.isEmpty()) grinder["setting"] = grinderSetting;
-    meta["grinder"] = grinder;
-
-    // Weights
-    double doseWeight = shotData["doseWeight"].toDouble();
-    double finalWeight = shotData["finalWeight"].toDouble();
-    if (doseWeight > 0) meta["in"] = doseWeight;
-    if (finalWeight > 0) meta["out"] = finalWeight;
-    meta["time"] = duration;
-
-    root["meta"] = meta;
-
-    // App info
-    QJsonObject app;
-#if defined(Q_OS_IOS)
-    app["app_name"] = "Decenza DE1 iOS";
-#elif defined(Q_OS_ANDROID)
-    app["app_name"] = "Decenza DE1 Android";
-#elif defined(Q_OS_WIN)
-    app["app_name"] = "Decenza DE1 Windows";
-#elif defined(Q_OS_MACOS)
-    app["app_name"] = "Decenza DE1 macOS";
-#else
-    app["app_name"] = "Decenza DE1";
-#endif
-    app["app_version"] = VERSION_STRING;
-    root["app"] = app;
-
-    // Profile
+    // Extract beverage type from profile JSON
+    QString beverageType;
     QString profileJson = shotData["profileJson"].toString();
     if (!profileJson.isEmpty()) {
         QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
         if (!profileDoc.isNull()) {
-            root["profile"] = profileDoc.object();
+            beverageType = profileDoc.object()["beverage_type"].toString();
         }
     }
 
-    // Convert to JSON bytes
-    QJsonDocument doc(root);
-    QByteArray jsonData = doc.toJson(QJsonDocument::Compact);
+    double duration = shotData["duration"].toDouble();
+    if (!validateUpload(beverageType, duration))
+        return;
 
-    // Save JSON to file for debugging
-    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (debugPath.isEmpty()) {
-        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    }
-    QDir().mkpath(debugPath);
-    QString debugFile = debugPath + "/last_upload.json";
-    QFile file(debugFile);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(doc.toJson(QJsonDocument::Indented));
-        file.close();
-    }
-
-    // Create multipart form data
-    QString boundary = "----DecenzaBoundary" + QString::number(QDateTime::currentMSecsSinceEpoch());
-    QByteArray multipartData;
-    multipartData.append("--" + boundary.toUtf8() + "\r\n");
-    multipartData.append("Content-Disposition: form-data; name=\"file\"; filename=\"shot.json\"\r\n");
-    multipartData.append("Content-Type: application/json\r\n\r\n");
-    multipartData.append(jsonData);
-    multipartData.append("\r\n--" + boundary.toUtf8() + "--\r\n");
-
-    // Send request
-    QUrl url(VISUALIZER_API_URL);
-    QNetworkRequest request(url);
-    request.setRawHeader("Authorization", authHeader().toUtf8());
-    request.setRawHeader("Content-Type", QString("multipart/form-data; boundary=%1").arg(boundary).toUtf8());
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-
-    QNetworkReply* reply = m_networkManager->post(request, multipartData);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onUploadFinished(reply);
-    });
-
-    qDebug() << "Visualizer: Uploading shot from history...";
+    QByteArray jsonData = buildHistoryShotJson(shotData);
+    sendUpload(jsonData);
 }
 
 void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const QVariantMap& shotData)
@@ -822,21 +517,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     root["meta"] = meta;
 
     // App info with settings (Visualizer extracts metadata from app.data.settings)
-    QJsonObject app;
-#if defined(Q_OS_IOS)
-    app["app_name"] = "Decenza DE1 iOS";
-#elif defined(Q_OS_ANDROID)
-    app["app_name"] = "Decenza DE1 Android";
-#elif defined(Q_OS_WIN)
-    app["app_name"] = "Decenza DE1 Windows";
-#elif defined(Q_OS_MACOS)
-    app["app_name"] = "Decenza DE1 macOS";
-#elif defined(Q_OS_LINUX)
-    app["app_name"] = "Decenza DE1 Linux";
-#else
-    app["app_name"] = "Decenza DE1";
-#endif
-    app["app_version"] = VERSION_STRING;
+    QJsonObject app = buildAppInfoJson();
 
     // Build settings object with all metadata (de1app field names)
     QJsonObject settings;
@@ -883,6 +564,14 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     }
 
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
+QJsonObject VisualizerUploader::buildAppInfoJson()
+{
+    QJsonObject app;
+    app["app_name"] = "Decenza DE1";
+    app["app_version"] = VERSION_STRING;
+    return app;
 }
 
 QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profile)
@@ -1010,4 +699,265 @@ QString VisualizerUploader::authHeader() const
     QString credentials = username + ":" + password;
     QByteArray base64 = credentials.toUtf8().toBase64();
     return "Basic " + QString::fromLatin1(base64);
+}
+
+bool VisualizerUploader::validateUpload(const QString& beverageType, double duration)
+{
+    // Skip maintenance profiles
+    if (beverageType == "cleaning" || beverageType == "calibrate" || beverageType == "descale") {
+        m_lastUploadStatus = QString("Skipped: maintenance profile (%1)").arg(beverageType);
+        emit lastUploadStatusChanged();
+        qDebug() << "Visualizer: Skipping upload for maintenance profile:" << beverageType;
+        return false;
+    }
+
+    // Check credentials
+    QString username = m_settings->value("visualizer/username", "").toString();
+    QString password = m_settings->value("visualizer/password", "").toString();
+    if (username.isEmpty() || password.isEmpty()) {
+        m_lastUploadStatus = "No credentials configured";
+        emit lastUploadStatusChanged();
+        emit uploadFailed("Visualizer credentials not configured");
+        return false;
+    }
+
+    // Check minimum duration
+    double minDuration = m_settings->value("visualizer/minDuration", 6.0).toDouble();
+    if (duration < minDuration) {
+        m_lastUploadStatus = QString("Shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
+        emit lastUploadStatusChanged();
+        emit uploadFailed(m_lastUploadStatus);
+        qDebug() << "Visualizer: Shot too short, not uploading";
+        return false;
+    }
+
+    m_uploading = true;
+    emit uploadingChanged();
+    m_lastUploadStatus = "Uploading...";
+    emit lastUploadStatusChanged();
+    return true;
+}
+
+void VisualizerUploader::sendUpload(const QByteArray& jsonData)
+{
+    // Save JSON to file for debugging
+    QString debugPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (debugPath.isEmpty()) {
+        debugPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    }
+    QDir().mkpath(debugPath);
+
+    QString debugFile = debugPath + "/last_upload.json";
+    QFile file(debugFile);
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc = QJsonDocument::fromJson(jsonData);
+        file.write(doc.toJson(QJsonDocument::Indented));
+        file.close();
+        qDebug() << "Visualizer: Saved debug JSON to" << debugFile;
+    } else {
+        qDebug() << "Visualizer: Failed to save debug JSON to" << debugFile;
+    }
+
+    // Build multipart form data
+    QString boundary = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QByteArray multipartData = buildMultipartData(jsonData, boundary);
+
+    // Create request
+    QUrl url(VISUALIZER_API_URL);
+    QNetworkRequest request(url);
+
+    QString authHeaderValue = authHeader();
+    request.setRawHeader("Authorization", authHeaderValue.toUtf8());
+    request.setRawHeader("Content-Type", QString("multipart/form-data; boundary=%1").arg(boundary).toUtf8());
+    // Prevent Qt from following redirects (which can lose auth headers)
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    // Save debug auth info to file
+    QString authDebugFile = debugPath + "/last_upload_debug.txt";
+    QFile dbgFile(authDebugFile);
+    if (dbgFile.open(QIODevice::WriteOnly)) {
+        QString username = m_settings->value("visualizer/username", "").toString();
+        dbgFile.write(QString("Username: %1\n").arg(username).toUtf8());
+        dbgFile.write(QString("Auth header: %1\n").arg(authHeaderValue.left(30) + "...").toUtf8());
+        dbgFile.write(QString("URL: %1\n").arg(url.toString()).toUtf8());
+        dbgFile.write(QString("Content-Length: %1\n").arg(multipartData.size()).toUtf8());
+        dbgFile.close();
+    }
+
+    // Send request
+    QNetworkReply* reply = m_networkManager->post(request, multipartData);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onUploadFinished(reply);
+    });
+
+    qDebug() << "Visualizer: Uploading shot...";
+}
+
+QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
+{
+    QJsonObject root;
+    root["version"] = 2;
+
+    // Use original timestamp from the shot
+    qint64 timestamp = shotData["timestamp"].toLongLong();
+    root["clock"] = timestamp;
+    root["timestamp"] = timestamp;
+    root["date"] = QDateTime::fromSecsSinceEpoch(timestamp).toString(Qt::ISODate);
+
+    // Helper to convert QVariantList of {x,y} points to QVector<QPointF>
+    auto toPointVector = [](const QVariantList& points) -> QVector<QPointF> {
+        QVector<QPointF> result;
+        result.reserve(points.size());
+        for (const auto& pt : points) {
+            QVariantMap p = pt.toMap();
+            result.append(QPointF(p["x"].toDouble(), p["y"].toDouble()));
+        }
+        return result;
+    };
+
+    // Helper to extract just the values from a point vector
+    auto extractValues = [](const QVector<QPointF>& points) -> QJsonArray {
+        QJsonArray values;
+        for (const auto& pt : points) {
+            values.append(pt.y());
+        }
+        return values;
+    };
+
+    // Helper to extract elapsed times
+    auto extractTimes = [](const QVector<QPointF>& points) -> QJsonArray {
+        QJsonArray times;
+        for (const auto& pt : points) {
+            times.append(pt.x());
+        }
+        return times;
+    };
+
+    // Convert to point vectors for interpolation
+    QVector<QPointF> pressureData = toPointVector(shotData["pressure"].toList());
+    QVector<QPointF> flowData = toPointVector(shotData["flow"].toList());
+    QVector<QPointF> tempData = toPointVector(shotData["temperature"].toList());
+    QVector<QPointF> pressureGoalData = toPointVector(shotData["pressureGoal"].toList());
+    QVector<QPointF> flowGoalData = toPointVector(shotData["flowGoal"].toList());
+    QVector<QPointF> tempGoalData = toPointVector(shotData["temperatureGoal"].toList());
+    QVector<QPointF> weightData = toPointVector(shotData["weight"].toList());
+    QVector<QPointF> weightFlowRateData = toPointVector(shotData["weightFlowRate"].toList());
+
+    // Elapsed time array (from pressure data - the master timeline)
+    root["elapsed"] = extractTimes(pressureData);
+
+    // Pressure object
+    QJsonObject pressure;
+    pressure["pressure"] = extractValues(pressureData);
+    pressure["goal"] = interpolateGoalData(pressureGoalData, pressureData);
+    root["pressure"] = pressure;
+
+    // Flow object
+    QJsonObject flow;
+    flow["flow"] = extractValues(flowData);
+    flow["goal"] = interpolateGoalData(flowGoalData, pressureData);
+    // Weight-based flow rate (g/s from scale)
+    if (!weightFlowRateData.isEmpty()) {
+        flow["by_weight"] = interpolateGoalData(weightFlowRateData, pressureData);
+    }
+    root["flow"] = flow;
+
+    // Temperature object
+    QJsonObject temperature;
+    temperature["basket"] = extractValues(tempData);
+    temperature["goal"] = interpolateGoalData(tempGoalData, pressureData);
+    root["temperature"] = temperature;
+
+    // Totals object (weight)
+    QJsonObject totals;
+    if (!weightData.isEmpty()) {
+        totals["weight"] = interpolateGoalData(weightData, pressureData);
+    }
+    root["totals"] = totals;
+
+    // Meta object
+    QJsonObject meta;
+
+    // Bean info
+    QJsonObject bean;
+    QString beanBrand = shotData["beanBrand"].toString();
+    QString beanType = shotData["beanType"].toString();
+    QString roastDate = shotData["roastDate"].toString();
+    QString roastLevel = shotData["roastLevel"].toString();
+    if (!beanBrand.isEmpty()) bean["brand"] = beanBrand;
+    if (!beanType.isEmpty()) bean["type"] = beanType;
+    if (!roastDate.isEmpty()) bean["roast_date"] = roastDate;
+    if (!roastLevel.isEmpty()) bean["roast_level"] = roastLevel;
+    meta["bean"] = bean;
+
+    // Shot info
+    QJsonObject shot;
+    int enjoyment = shotData["enjoyment"].toInt();
+    QString notes = shotData["espressoNotes"].toString();
+    double tds = shotData["drinkTds"].toDouble();
+    double ey = shotData["drinkEy"].toDouble();
+    if (enjoyment > 0) shot["enjoyment"] = enjoyment;
+    if (!notes.isEmpty()) shot["notes"] = notes;
+    if (tds > 0) shot["tds"] = tds;
+    if (ey > 0) shot["ey"] = ey;
+    meta["shot"] = shot;
+
+    // Grinder info
+    QJsonObject grinder;
+    QString grinderModel = shotData["grinderModel"].toString();
+    QString grinderSetting = shotData["grinderSetting"].toString();
+    if (!grinderModel.isEmpty()) grinder["model"] = grinderModel;
+    if (!grinderSetting.isEmpty()) grinder["setting"] = grinderSetting;
+    meta["grinder"] = grinder;
+
+    // Weights
+    double doseWeight = shotData["doseWeight"].toDouble();
+    double finalWeight = shotData["finalWeight"].toDouble();
+    if (doseWeight > 0) meta["in"] = doseWeight;
+    if (finalWeight > 0) meta["out"] = finalWeight;
+    meta["time"] = shotData["duration"].toDouble();
+
+    root["meta"] = meta;
+
+    // App info (with settings sub-object for Visualizer metadata extraction)
+    QJsonObject app = buildAppInfoJson();
+
+    QJsonObject settings;
+    if (!beanBrand.isEmpty()) settings["bean_brand"] = beanBrand;
+    if (!beanType.isEmpty()) settings["bean_type"] = beanType;
+    if (!roastDate.isEmpty()) settings["roast_date"] = roastDate;
+    if (!roastLevel.isEmpty()) settings["roast_level"] = roastLevel;
+    if (!grinderModel.isEmpty()) settings["grinder_model"] = grinderModel;
+    if (!grinderSetting.isEmpty()) settings["grinder_setting"] = grinderSetting;
+    if (doseWeight > 0) settings["grinder_dose_weight"] = doseWeight;
+    if (finalWeight > 0) settings["drink_weight"] = finalWeight;
+    if (tds > 0) settings["drink_tds"] = tds;
+    if (ey > 0) settings["drink_ey"] = ey;
+    if (enjoyment > 0) settings["espresso_enjoyment"] = enjoyment;
+    if (!notes.isEmpty()) settings["espresso_notes"] = notes;
+
+    QString barista = shotData["barista"].toString();
+    if (!barista.isEmpty()) settings["barista"] = barista;
+
+    QJsonObject data;
+    data["settings"] = settings;
+    app["data"] = data;
+
+    root["app"] = app;
+
+    // Barista at root level (Visualizer may extract from here)
+    if (!barista.isEmpty())
+        root["barista"] = barista;
+
+    // Profile
+    QString profileJson = shotData["profileJson"].toString();
+    if (!profileJson.isEmpty()) {
+        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+        if (!profileDoc.isNull()) {
+            root["profile"] = profileDoc.object();
+        }
+    }
+
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }

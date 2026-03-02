@@ -83,6 +83,11 @@ private:
     QByteArray buildMultipartData(const QByteArray& jsonData, const QString& boundary);
     QString authHeader() const;
 
+    static QJsonObject buildAppInfoJson();
+    bool validateUpload(const QString& beverageType, double duration);
+    void sendUpload(const QByteArray& jsonData);
+    QByteArray buildHistoryShotJson(const QVariantMap& shotData);
+
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
     bool m_uploading = false;
