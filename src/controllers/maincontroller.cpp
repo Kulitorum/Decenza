@@ -2253,6 +2253,18 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
+    // Reject shots where settled weight dropped significantly below the weight at SAW stop.
+    // This indicates stream impact force was inflating scale readings during extraction,
+    // which would produce an unreliable (too high) calibration multiplier.
+    double weightAtStop = m_shotDataModel->weightAtStop();
+    double finalWeight = m_shotDataModel->finalWeight();
+    if (weightAtStop > 5.0 && finalWeight > 0 && finalWeight < weightAtStop - 3.0) {
+        qDebug() << "Auto flow cal: skipped (weight dropped after stop:"
+                 << weightAtStop << "g ->" << finalWeight << "g,"
+                 << "delta:" << (weightAtStop - finalWeight) << "g — likely stream force artifact)";
+        return;
+    }
+
     const auto& flowData = m_shotDataModel->flowData();
     const auto& pressureData = m_shotDataModel->pressureData();
     if (flowData.size() < 10 || pressureData.size() < 10) {
@@ -2267,7 +2279,7 @@ void MainController::computeAutoFlowCalibration() {
     constexpr double kMinWeightFlow = 0.5;           // g/s - excludes dripping/dead time
     constexpr double kMinMachineFlow = 0.1;          // ml/s - excludes stalled flow
     constexpr double kMaxScaleDataGap = 1.0;         // seconds - max distance to nearest weight flow point
-    constexpr double kMinWindowDuration = 5.0;       // seconds
+    constexpr double kMinWindowDuration = 4.0;       // seconds (4s is enough for ~20 samples at 5Hz)
     constexpr int    kMinWindowSamples = 5;
     constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
     constexpr double kCalibrationMin = 0.5;          // sanity lower bound
