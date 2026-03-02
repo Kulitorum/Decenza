@@ -3,8 +3,25 @@
 #include <QObject>
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothUuid>
+#include <QEvent>
 
 #include "protocol/de1characteristics.h"
+
+// High-priority custom event posted by WeightProcessor to bypass the normal
+// QueuedConnection queue on slow devices. Delivered via Qt::HighEventPriority
+// so it jumps ahead of pending D-Flow setpoint events on the main thread.
+class SawStopEvent : public QEvent {
+public:
+    static QEvent::Type eventType() {
+        static int type = QEvent::registerEventType();
+        return static_cast<QEvent::Type>(type);
+    }
+    explicit SawStopEvent(qint64 sawTriggerMs)
+        : QEvent(eventType()), m_sawTriggerMs(sawTriggerMs) {}
+    qint64 sawTriggerMs() const { return m_sawTriggerMs; }
+private:
+    qint64 m_sawTriggerMs;
+};
 
 class Profile;
 class Settings;
@@ -169,6 +186,9 @@ signals:
     void isHeadlessChanged();
     void refillKitDetectedChanged();
     void logMessage(const QString& message);
+
+protected:
+    void customEvent(QEvent* event) override;
 
 private:
     // Transport signal handlers

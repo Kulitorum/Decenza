@@ -239,16 +239,24 @@ int main(int argc, char *argv[])
     QThread weightThread;
     weightThread.setObjectName(QStringLiteral("WeightProcessor"));
     weightProcessor.moveToThread(&weightThread);
-    weightThread.start(QThread::HighPriority);
+    weightThread.start();
 
     // Scale → WeightProcessor (main → worker, auto QueuedConnection)
     // Initially connected to FlowScale; reconnected when physical scale is found
     QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                      &weightProcessor, &WeightProcessor::processWeight);
 
-    // WeightProcessor → DE1Device: stop-at-weight (auto QueuedConnection back to main thread)
+    // WeightProcessor → DE1Device: stop-at-weight.
+    // Use DirectConnection so the lambda runs immediately on the WeightProcessor's HighPriority
+    // thread, then post a Qt::HighEventPriority event to DE1Device. This makes the SAW stop
+    // jump ahead of any normal-priority events already queued on the main thread (e.g. D-Flow
+    // setpoint writes), preventing the 4+ second delivery delay seen on slow devices.
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
-                     &de1Device, qOverload<qint64>(&DE1Device::stopOperationUrgent));
+                     &weightProcessor, [&de1Device](qint64 sawTriggerMs) {
+                         QCoreApplication::postEvent(&de1Device,
+                             new SawStopEvent(sawTriggerMs),
+                             Qt::HighEventPriority);
+                     }, Qt::DirectConnection);
 
     // WeightProcessor → MachineState: forward SAW trigger for QML "Target reached" display
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,

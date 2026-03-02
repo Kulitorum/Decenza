@@ -564,6 +564,13 @@ void DE1Device::stopOperationUrgent() {
     stopOperationUrgent(0);
 }
 
+void DE1Device::customEvent(QEvent* event) {
+    if (event->type() == SawStopEvent::eventType()) {
+        auto* e = static_cast<SawStopEvent*>(event);
+        stopOperationUrgent(e->sawTriggerMs());
+    }
+}
+
 void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     if (m_simulationMode && m_simulator) {
