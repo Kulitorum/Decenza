@@ -469,6 +469,11 @@ Page {
             }
         }
 
+        function onImportFailed(error) {
+            // error is also surfaced via statusMessage (set by C++ setStatus(error))
+            console.warn("ProfileImporter: import failed:", error)
+        }
+
         function onBatchImportComplete(imported, skipped, failed) {
             // Could show a summary dialog here if desired
         }

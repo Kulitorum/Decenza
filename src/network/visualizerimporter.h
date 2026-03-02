@@ -49,6 +49,7 @@ public:
     Q_INVOKABLE void saveOverwrite();
     Q_INVOKABLE void saveAsNew();
     Q_INVOKABLE void saveWithNewName(const QString& newTitle);
+    Q_INVOKABLE void cancelPending();
 
 signals:
     void importingChanged();
@@ -58,7 +59,7 @@ signals:
     void importSuccess(const QString& profileTitle);
     void importFailed(const QString& error);
     void duplicateFound(const QString& profileTitle, const QString& existingPath);
-    void batchImportComplete(int imported, int skipped);
+    void batchImportComplete(int imported, int skipped, int failed);
 
 private slots:
     void onFetchFinished(QNetworkReply* reply);
@@ -105,6 +106,7 @@ private:
     bool m_batchOverwrite = false;
     int m_batchImported = 0;
     int m_batchSkipped = 0;
+    int m_batchFailed = 0;
 
     // Pending shots while fetching profile details
     QVariantList m_pendingShots;

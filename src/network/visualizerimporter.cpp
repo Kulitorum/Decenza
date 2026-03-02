@@ -191,7 +191,7 @@ void VisualizerImporter::fetchSharedShots() {
 
 void VisualizerImporter::importSelectedShots(const QStringList& shotIds, bool overwriteExisting) {
     if (shotIds.isEmpty()) {
-        emit batchImportComplete(0, 0);
+        emit batchImportComplete(0, 0, 0);
         return;
     }
 
@@ -205,6 +205,7 @@ void VisualizerImporter::importSelectedShots(const QStringList& shotIds, bool ov
     m_batchOverwrite = overwriteExisting;
     m_batchImported = 0;
     m_batchSkipped = 0;
+    m_batchFailed = 0;
     emit importingChanged();
 
     qDebug() << "Starting batch import of" << shotIds.size() << "profiles";
@@ -277,16 +278,16 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
 
         // Save the TCL profile
         QString filename = m_saveHelper->titleToFilename(profile.title());
-        int result = m_saveHelper->saveProfile(profile, filename);
-        if (result == 1) {
+        ProfileSaveHelper::SaveResult result = m_saveHelper->saveProfile(profile, filename);
+        if (result == ProfileSaveHelper::SaveResult::Saved) {
             qDebug() << "Successfully imported TCL profile:" << profile.title();
             emit importSuccess(profile.title());
-        } else if (result == -1) {
+        } else if (result == ProfileSaveHelper::SaveResult::Failed) {
             m_lastError = "Failed to save profile";
             emit lastErrorChanged();
             emit importFailed(m_lastError);
         }
-        // result == 0 means duplicate dialog shown, waiting for user
+        // PendingResolution means duplicate dialog shown, waiting for user
         return;
     }
 
@@ -480,13 +481,13 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
     }
 
     QString filename = m_saveHelper->titleToFilename(profile.title());
-    int result = m_saveHelper->saveProfile(profile, filename);
-    if (result == 1) {
+    ProfileSaveHelper::SaveResult result = m_saveHelper->saveProfile(profile, filename);
+    if (result == ProfileSaveHelper::SaveResult::Saved) {
         qDebug() << "Successfully imported profile:" << profile.title();
         emit importSuccess(profile.title());
         // Refresh shared shots list to update status
         fetchSharedShots();
-    } else if (result == -1) {
+    } else if (result == ProfileSaveHelper::SaveResult::Failed) {
         m_lastError = "Failed to save profile";
         emit lastErrorChanged();
         emit importFailed(m_lastError);
@@ -515,8 +516,10 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
             m_importing = false;
             m_requestType = RequestType::None;
             emit importingChanged();
-            emit batchImportComplete(m_batchImported, m_batchSkipped);
-            m_controller->refreshProfiles();
+            emit batchImportComplete(m_batchImported, m_batchSkipped, m_batchFailed);
+            if (m_controller) {
+                m_controller->refreshProfiles();
+            }
         }
         return;
     }
@@ -530,8 +533,15 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
         profile = Profile::loadFromTclString(dataStr);
     } else {
         QByteArray data = sanitizeVisualizerJson(rawData);
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (doc.isObject()) {
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "VisualizerImporter: JSON parse error in batch import:"
+                       << parseError.errorString();
+        } else if (!doc.isObject()) {
+            qWarning() << "VisualizerImporter: Expected JSON object in batch import, got"
+                       << (doc.isArray() ? "array" : "null");
+        } else {
             profile = parseVisualizerProfile(doc.object());
         }
     }
@@ -540,7 +550,7 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
         m_batchSkipped++;
     } else {
         QString filename = m_saveHelper->titleToFilename(profile.title());
-        ProfileStorage* storage = m_controller->profileStorage();
+        ProfileStorage* storage = m_controller ? m_controller->profileStorage() : nullptr;
 
         bool exists = false;
         if (storage && storage->isConfigured()) {
@@ -562,14 +572,17 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
             }
             if (!saved) {
                 QString localPath = ProfileSaveHelper::downloadedProfilesPath();
-                saved = profile.saveToFile(localPath + "/" + filename + ".json");
+                if (!localPath.isEmpty()) {
+                    saved = profile.saveToFile(localPath + "/" + filename + ".json");
+                }
             }
 
             if (saved) {
                 qDebug() << "Imported profile:" << profile.title();
                 m_batchImported++;
             } else {
-                m_batchSkipped++;
+                qWarning() << "VisualizerImporter: Failed to save profile:" << profile.title();
+                m_batchFailed++;
             }
         }
     }
@@ -588,8 +601,10 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
         m_importing = false;
         m_requestType = RequestType::None;
         emit importingChanged();
-        emit batchImportComplete(m_batchImported, m_batchSkipped);
-        m_controller->refreshProfiles();
+        emit batchImportComplete(m_batchImported, m_batchSkipped, m_batchFailed);
+        if (m_controller) {
+            m_controller->refreshProfiles();
+        }
     }
 }
 
@@ -649,8 +664,15 @@ void VisualizerImporter::onProfileDetailsFetched(QNetworkReply* reply, int shotI
                 profile = Profile::loadFromTclString(dataStr);
             } else {
                 QByteArray data = sanitizeVisualizerJson(rawData);
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (doc.isObject()) {
+                QJsonParseError parseError;
+                QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+                if (parseError.error != QJsonParseError::NoError) {
+                    qWarning() << "VisualizerImporter: JSON parse error fetching profile details for shot"
+                               << shotIndex << ":" << parseError.errorString();
+                } else if (!doc.isObject()) {
+                    qWarning() << "VisualizerImporter: Expected JSON object for profile details at shot"
+                               << shotIndex << ", got" << (doc.isArray() ? "array" : "null");
+                } else {
                     profile = parseVisualizerProfile(doc.object());
                 }
             }
@@ -679,7 +701,9 @@ void VisualizerImporter::onProfileDetailsFetched(QNetworkReply* reply, int shotI
                 }
             }
         } else {
-            qDebug() << "Failed to fetch profile details for shot" << shotIndex << ":" << reply->errorString();
+            qWarning() << "VisualizerImporter: Failed to fetch profile details for shot index"
+                       << shotIndex << "- Error:" << reply->errorString()
+                       << "(shot will be marked invalid in shared list)";
             shot["invalid"] = true;
             shot["invalidReason"] = "Failed to fetch profile";
             m_pendingShots[shotIndex] = shot;
@@ -706,4 +730,8 @@ void VisualizerImporter::saveAsNew() {
 
 void VisualizerImporter::saveWithNewName(const QString& newTitle) {
     m_saveHelper->saveWithNewName(newTitle);
+}
+
+void VisualizerImporter::cancelPending() {
+    m_saveHelper->cancelPending();
 }

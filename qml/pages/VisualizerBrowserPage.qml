@@ -317,7 +317,10 @@ Page {
                             id: cancelButton
                             text: TranslationManager.translate("visualizer.button.cancel", "Cancel")
                             accessibleName: TranslationManager.translate("visualizerBrowser.cancelImport", "Cancel import")
-                            onClicked: hideDuplicateDialog()
+                            onClicked: {
+                                MainController.visualizerImporter.cancelPending()
+                                hideDuplicateDialog()
+                            }
                         }
                     }
                 }

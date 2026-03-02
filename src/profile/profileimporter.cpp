@@ -24,7 +24,10 @@ ProfileImporter::ProfileImporter(MainController* controller, Settings* settings,
 {
     // Forward helper signals to our own signals
     connect(m_saveHelper, &ProfileSaveHelper::importSuccess, this, &ProfileImporter::importSuccess);
-    connect(m_saveHelper, &ProfileSaveHelper::importFailed, this, &ProfileImporter::importFailed);
+    connect(m_saveHelper, &ProfileSaveHelper::importFailed, this, [this](const QString& error) {
+        setStatus(error);  // Show error in the page's status bar
+        emit importFailed(error);
+    });
     connect(m_saveHelper, &ProfileSaveHelper::duplicateFound, this, &ProfileImporter::duplicateFound);
 }
 
@@ -251,15 +254,15 @@ void ProfileImporter::importProfile(const QString& sourcePath)
     }
 
     QString filename = m_saveHelper->titleToFilename(profile.title());
-    int result = m_saveHelper->saveProfile(profile, filename);
+    ProfileSaveHelper::SaveResult result = m_saveHelper->saveProfile(profile, filename);
 
-    if (result == 1) {
+    if (result == ProfileSaveHelper::SaveResult::Saved) {
         // Saved successfully
         setStatus("Imported: " + profile.title());
         m_importing = false;
         emit isImportingChanged();
         emit importSuccess(profile.title());
-    } else if (result == 0) {
+    } else if (result == ProfileSaveHelper::SaveResult::PendingResolution) {
         // Duplicate found - waiting for user decision (signal already emitted by helper)
     } else {
         // Failed
@@ -403,23 +406,25 @@ void ProfileImporter::importProfileWithName(const QString& sourcePath, const QSt
 
 void ProfileImporter::saveOverwrite()
 {
-    m_saveHelper->saveOverwrite();
+    // Reset importing state before the helper emits its signal so QML sees
+    // isImporting == false at the moment onImportSuccess/onImportFailed fires.
     m_importing = false;
     emit isImportingChanged();
+    m_saveHelper->saveOverwrite();
 }
 
 void ProfileImporter::saveAsNew()
 {
-    m_saveHelper->saveAsNew();
     m_importing = false;
     emit isImportingChanged();
+    m_saveHelper->saveAsNew();
 }
 
 void ProfileImporter::saveWithNewName(const QString& newName)
 {
-    m_saveHelper->saveWithNewName(newName);
     m_importing = false;
     emit isImportingChanged();
+    m_saveHelper->saveWithNewName(newName);
 }
 
 void ProfileImporter::cancelImport()
@@ -558,7 +563,7 @@ void ProfileImporter::processNextImport()
 
     if (!profile.isValid() || profile.title().isEmpty()) {
         m_batchFailed++;
-        qDebug() << "ProfileImporter: Failed to load" << sourcePath;
+        qWarning() << "ProfileImporter: Failed to load profile from" << sourcePath << "(invalid or empty)";
         QTimer::singleShot(0, this, &ProfileImporter::processNextImport);
         return;
     }
@@ -613,24 +618,30 @@ void ProfileImporter::refreshProfileStatus(int index)
         profile = Profile::loadFromFile(sourcePath);
     }
 
-    if (profile.isValid()) {
-        QVariantMap status = m_saveHelper->checkProfileStatus(profile.title(), &profile);
-        entry["exists"] = status["exists"];
-        entry["identical"] = status["identical"];
-        entry["source"] = status["source"];
-        entry["localFilename"] = status["filename"];
-
-        if (!status["exists"].toBool()) {
-            entry["status"] = "new";
-        } else if (status["identical"].toBool()) {
-            entry["status"] = "identical";
-        } else {
-            entry["status"] = "different";
-        }
-
+    if (!profile.isValid()) {
+        qWarning() << "ProfileImporter::refreshProfileStatus: Cannot reload profile from" << sourcePath;
+        entry["status"] = "error";
         m_availableProfiles[index] = entry;
         emit availableProfilesChanged();
+        return;
     }
+
+    QVariantMap status = m_saveHelper->checkProfileStatus(profile.title(), &profile);
+    entry["exists"] = status["exists"];
+    entry["identical"] = status["identical"];
+    entry["source"] = status["source"];
+    entry["localFilename"] = status["filename"];
+
+    if (!status["exists"].toBool()) {
+        entry["status"] = "new";
+    } else if (status["identical"].toBool()) {
+        entry["status"] = "identical";
+    } else {
+        entry["status"] = "different";
+    }
+
+    m_availableProfiles[index] = entry;
+    emit availableProfilesChanged();
 }
 
 void ProfileImporter::setStatus(const QString& message)

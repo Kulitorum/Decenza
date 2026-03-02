@@ -1,8 +1,10 @@
 #pragma once
 
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QVariantMap>
+#include <optional>
 #include "profile.h"
 
 class MainController;
@@ -13,14 +15,27 @@ class MainController;
  * Extracted from ProfileImporter and VisualizerImporter to unify the
  * duplicate detection, comparison, and saving behavior. Both importers
  * delegate to this helper for all save-related operations.
+ *
+ * State model: the helper is either idle (no pending profile) or awaiting
+ * duplicate resolution (has pending profile). Resolution methods
+ * (saveOverwrite, saveAsNew, saveWithNewName) are only valid after
+ * saveProfile() returns SaveResult::PendingResolution. Check hasPending()
+ * before calling them. cancelPending() returns the helper to idle state.
  */
 class ProfileSaveHelper : public QObject {
     Q_OBJECT
 
 public:
+    enum class SaveResult {
+        Saved,             // Profile saved successfully
+        PendingResolution, // Duplicate found — awaiting user decision
+        Failed             // Save failed (check importFailed signal)
+    };
+
     explicit ProfileSaveHelper(MainController* controller, QObject* parent = nullptr);
 
-    // Compare two profiles for equality (profile-level fields + all frames)
+    // Compare two profiles for equality (profile-level fields + all frames).
+    // Returns false if either profile has no steps.
     bool compareProfiles(const Profile& a, const Profile& b) const;
 
     // Check if a profile exists locally and whether it's identical
@@ -30,11 +45,12 @@ public:
     // Load a local profile by filename (cascade: ProfileStorage -> downloaded -> built-in)
     Profile loadLocalProfile(const QString& filename) const;
 
-    // Save profile to downloaded folder with duplicate detection
-    // Returns: 1 = saved, 0 = waiting for user (duplicate), -1 = failed
-    int saveProfile(const Profile& profile, const QString& filename);
+    // Save profile to downloaded folder with duplicate detection.
+    // On PendingResolution, a duplicateFound signal is emitted — caller must
+    // wait for the user and then call saveOverwrite/saveAsNew/saveWithNewName.
+    [[nodiscard]] SaveResult saveProfile(const Profile& profile, const QString& filename);
 
-    // Duplicate resolution actions (operate on m_pendingProfile)
+    // Duplicate resolution actions — only valid when hasPending() is true
     void saveOverwrite();
     void saveAsNew();
     void saveWithNewName(const QString& newName);
@@ -43,7 +59,8 @@ public:
     // Whether there is a pending profile awaiting duplicate resolution
     bool hasPending() const;
 
-    // Path to the downloaded profiles folder (ensures directory exists)
+    // Path to the downloaded profiles folder.
+    // Returns empty string if the directory does not exist and cannot be created.
     static QString downloadedProfilesPath();
 
     // Convert profile title to filename using MainController::titleToFilename()
@@ -55,9 +72,11 @@ signals:
     void duplicateFound(const QString& profileTitle, const QString& existingPath);
 
 private:
-    MainController* m_controller = nullptr;
+    struct PendingResolution {
+        Profile profile;
+        QString filename;
+    };
 
-    // Pending profile for duplicate resolution
-    Profile m_pendingProfile;
-    QString m_pendingFilename;
+    QPointer<MainController> m_controller;
+    std::optional<PendingResolution> m_pending;
 };
