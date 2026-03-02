@@ -308,6 +308,7 @@ private:
     Profile m_currentProfile;
     QStringList m_availableProfiles;
     QMap<QString, QString> m_profileTitles;  // filename -> display title
+    QMap<QString, QString> m_profileJsonCache;  // filename -> JSON (populated by refreshProfiles, consumed by loadProfile)
     QList<ProfileInfo> m_allProfiles;  // Complete list with metadata
     double m_shotStartTime = 0;
     double m_lastSampleTime = 0;  // For delta time calculation (DE1's raw timer)

@@ -391,6 +391,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(60)
                         clip: true
+                        visible: !DE1Device.connected
                         model: BLEManager.discoveredDevices
 
                         delegate: ItemDelegate {
