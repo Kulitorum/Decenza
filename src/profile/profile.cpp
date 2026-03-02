@@ -571,6 +571,12 @@ Profile Profile::loadFromJsonString(const QString& jsonContent) {
                    << "at offset" << parseError.offset;
         return Profile();
     }
+    // Detect de1app v2 JSON format (same check as loadFromFile)
+    QJsonObject obj = doc.object();
+    if (obj.contains("version") || obj.contains("legacy_profile_type")) {
+        return loadFromDE1AppJson(jsonContent);
+    }
+
     return fromJson(doc);
 }
 
