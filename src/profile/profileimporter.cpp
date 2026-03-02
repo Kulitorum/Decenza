@@ -553,8 +553,12 @@ void ProfileImporter::processNextImport()
             m_controller->refreshProfiles();
         }
 
-        // Re-scan to update statuses
-        scanProfiles();
+        // Re-scan to update statuses, using the same path as the original scan
+        if (!m_detectedPath.isEmpty()) {
+            scanProfilesFromPath(m_detectedPath);
+        } else {
+            scanProfiles();
+        }
 
         emit batchImportComplete(m_batchImported, m_batchSkipped, m_batchFailed);
         return;
@@ -581,27 +585,42 @@ void ProfileImporter::processNextImport()
     }
 
     QString filename = m_saveHelper->titleToFilename(profile.title());
-    QString fullPath = ProfileSaveHelper::downloadedProfilesPath() + "/" + filename + ".json";
+    QString downloadedPath = ProfileSaveHelper::downloadedProfilesPath() + "/" + filename + ".json";
+
+    ProfileStorage* storage = m_controller ? m_controller->profileStorage() : nullptr;
+    bool inStorage = storage && storage->isConfigured() && storage->profileExists(filename);
+    bool inDownloaded = QFile::exists(downloadedPath);
+
+    qDebug() << "ProfileImporter: batch processing" << profile.title()
+             << "- inStorage:" << inStorage << "inDownloaded:" << inDownloaded;
 
     // Handle existing files
-    if (QFile::exists(fullPath)) {
+    if (inStorage || inDownloaded) {
         if (m_batchOverwrite) {
-            // Overwrite
-            if (profile.saveToFile(fullPath)) {
+            bool saved = false;
+            if (inStorage) {
+                // Write to the same location loadLocalProfile() reads from, so re-scan sees the update
+                saved = storage->writeProfile(filename, profile.toJsonString());
+                qDebug() << "ProfileImporter: overwrote in ProfileStorage:" << filename << "ok:" << saved;
+            } else {
+                saved = profile.saveToFile(downloadedPath);
+                qDebug() << "ProfileImporter: overwrote in downloaded:" << downloadedPath << "ok:" << saved;
+            }
+            if (saved) {
                 m_batchImported++;
             } else {
-                qWarning() << "ProfileImporter: Failed to overwrite" << profile.title() << "at" << fullPath;
+                qWarning() << "ProfileImporter: Failed to overwrite" << profile.title();
                 m_batchFailed++;
             }
         } else {
             m_batchSkipped++;
         }
     } else {
-        // New file
-        if (profile.saveToFile(fullPath)) {
+        // New file - save to downloaded folder
+        if (profile.saveToFile(downloadedPath)) {
             m_batchImported++;
         } else {
-            qWarning() << "ProfileImporter: Failed to save" << profile.title() << "to" << fullPath;
+            qWarning() << "ProfileImporter: Failed to save" << profile.title() << "to" << downloadedPath;
             m_batchFailed++;
         }
     }

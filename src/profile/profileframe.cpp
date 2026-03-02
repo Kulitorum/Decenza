@@ -146,15 +146,14 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     }
 
     // Weight exit: check de1app "weight" field first, then Decenza "exit_weight"
-    // Weight exit is INDEPENDENT of exitIf — both can coexist on the same frame
+    // Weight exit is INDEPENDENT of exitIf — both can coexist on the same frame.
+    // Never set exitIf/exitType here; weight is app-side only and must not override
+    // the machine-side exit flag (e.g. exit_if=0 frames with weight exit would
+    // otherwise round-trip as exitIf=true, causing perpetual "different" status).
     double weightExit = jsonToDouble(json["weight"], 0.0);
     if (weightExit <= 0) weightExit = jsonToDouble(json["exit_weight"], 0.0);
     if (weightExit > 0) {
         frame.exitWeight = weightExit;
-        if (frame.exitType.isEmpty()) {
-            frame.exitIf = true;
-            frame.exitType = "weight";
-        }
     }
 
     // Limiter: try de1app nested object first, fall back to flat fields
