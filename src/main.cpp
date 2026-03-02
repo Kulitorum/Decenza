@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
     // Set Qt Quick Controls style (must be before QML engine creation)
     QQuickStyle::setStyle("Material");
 
-    qDebug() << "App started - version" << VERSION_STRING;
+    qDebug() << "App started - version" << VERSION_STRING << "build" << versionCode();
 
     // Startup timing - always on, lightweight. Helps diagnose ANRs on slow devices.
     // Wall clock comes from WebDebugLogger's [LOG HH:mm:ss.zzz] prefix automatically.
