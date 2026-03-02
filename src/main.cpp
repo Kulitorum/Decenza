@@ -28,6 +28,7 @@
 #include "core/settings.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
+#include "core/memorymonitor.h"
 #include "core/accessibilitymanager.h"
 #include "core/autowakemanager.h"
 #include "core/databasebackupmanager.h"
@@ -382,6 +383,9 @@ int main(int argc, char *argv[])
     BatteryManager batteryManager;
     batteryManager.setDE1Device(&de1Device);
     batteryManager.setSettings(&settings);
+
+    MemoryMonitor memoryMonitor;
+    mainController.shotServer()->setMemoryMonitor(&memoryMonitor);
 
     // Widget library for saving/sharing layout items, zones, and layouts
     WidgetLibrary widgetLibrary(&settings);
@@ -835,6 +839,8 @@ int main(int argc, char *argv[])
     context->setContextProperty("MainController", &mainController);
     context->setContextProperty("ScreensaverManager", &screensaverManager);
     context->setContextProperty("BatteryManager", &batteryManager);
+    context->setContextProperty("MemoryMonitor", &memoryMonitor);
+    memoryMonitor.setEngine(&engine);
     context->setContextProperty("AccessibilityManager", &accessibilityManager);
     context->setContextProperty("ProfileStorage", &profileStorage);
     context->setContextProperty("WeatherManager", &weatherManager);

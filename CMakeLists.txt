@@ -176,6 +176,7 @@ set(SOURCES
     src/core/settings.cpp
     src/core/widgetlibrary.cpp
     src/core/batterymanager.cpp
+    src/core/memorymonitor.cpp
     src/core/accessibilitymanager.cpp
     src/core/autowakemanager.cpp
     src/core/crashhandler.cpp
@@ -285,6 +286,7 @@ set(HEADERS
     src/core/settings.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
+    src/core/memorymonitor.h
     src/core/accessibilitymanager.h
     src/core/autowakemanager.h
     src/core/crashhandler.h
@@ -430,6 +432,11 @@ endif()
 # Link OpenSSL (non-Android, non-iOS; Android uses add_android_openssl_libraries below)
 if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza_DE1 PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
+# Link psapi on Windows (for GetProcessMemoryInfo in MemoryMonitor)
+if(WIN32)
+    target_link_libraries(Decenza_DE1 PRIVATE psapi)
 endif()
 
 # Optionally link Quick3D and add 3D screensaver sources

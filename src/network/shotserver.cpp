@@ -10,6 +10,7 @@
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
 #include "../ai/aimanager.h"
+#include "../core/memorymonitor.h"
 #include "version.h"
 
 #include <QNetworkInterface>
@@ -980,6 +981,14 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         m_storage->checkpoint();
         QString dbPath = m_storage->databasePath();
         sendFile(socket, dbPath, "application/x-sqlite3");
+    }
+    else if (path == "/api/memory") {
+        if (m_memoryMonitor) {
+            QJsonDocument doc(m_memoryMonitor->toJson());
+            sendJson(socket, doc.toJson(QJsonDocument::Compact));
+        } else {
+            sendResponse(socket, 503, "application/json", R"({"error":"Memory monitor not available"})");
+        }
     }
     else if (path == "/debug") {
         sendHtml(socket, generateDebugPage());
