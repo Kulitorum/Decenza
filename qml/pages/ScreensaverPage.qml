@@ -183,7 +183,6 @@ Page {
 
     MediaPlayer {
         id: mediaPlayer
-        audioOutput: AudioOutput { volume: 0 }  // Muted
         videoOutput: videoOutput
 
         onMediaStatusChanged: {

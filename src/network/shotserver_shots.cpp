@@ -3098,7 +3098,7 @@ QString ShotServer::generateDebugPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Debug &amp; Dev Tools - Decenza DE1</title>
+    <title>Debugging Tools - Decenza DE1</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>if (typeof Chart === "undefined") document.getElementById("memoryBody").innerHTML = "<p style='color:#8b949e;padding:1em'>Chart.js failed to load (no internet?). Memory data is still available via <code>/api/memory</code>.</p>";</script>
     <style>
@@ -3270,14 +3270,12 @@ QString ShotServer::generateDebugPage() const
             background: #000;
             border: 1px solid var(--border);
             border-radius: 8px;
-            height: calc(100vh - 500px);
+            height: calc(100vh - 280px);
             overflow-y: auto;
             font-family: "Consolas", "Monaco", "Courier New", monospace;
             font-size: 12px;
             padding: 0.5rem;
-        }
-        .log-container.expanded {
-            height: calc(100vh - 120px);
+            margin-bottom: 1rem;
         }
         .log-line {
             white-space: pre;
@@ -3295,7 +3293,7 @@ QString ShotServer::generateDebugPage() const
     <header class="header">
         <div class="header-content">
             <a href="/" class="back-btn">&#8592;</a>
-            <h1>Debug &amp; Dev Tools</h1>
+            <h1>Debugging Tools</h1>
             <div class="status">
                 <span class="status-dot"></span>
                 <span id="lineCount">0 lines</span>
@@ -3309,6 +3307,12 @@ QString ShotServer::generateDebugPage() const
         </div>
     </header>
     <main class="container">
+        <div style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+            <a href="/database.db" class="btn" style="text-decoration:none;">&#128190; Download Database</a>
+            <button class="btn" onclick="downloadLog()">&#128196; Download Log</button>
+            <a href="/upload" class="btn" style="text-decoration:none;">&#128230; Upload APK</a>
+        </div>
+        <div class="log-container" id="logContainer"></div>
         <div class="memory-section" id="memorySection">
             <div class="memory-header" onclick="toggleMemory()">
                 <h2>Memory</h2>
@@ -3355,12 +3359,6 @@ QString ShotServer::generateDebugPage() const
                 </div>
             </div>
         </div>
-        <div style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
-            <a href="/database.db" class="btn" style="text-decoration:none;">&#128190; Download Database</a>
-            <button class="btn" onclick="downloadLog()">&#128196; Download Log</button>
-            <a href="/upload" class="btn" style="text-decoration:none;">&#128230; Upload APK</a>
-        </div>
-        <div class="log-container" id="logContainer"></div>
     </main>
     <script>
         /* --- Memory section --- */
@@ -3371,7 +3369,6 @@ QString ShotServer::generateDebugPage() const
             memoryCollapsed = !memoryCollapsed;
             document.getElementById("memoryBody").classList.toggle("collapsed", memoryCollapsed);
             document.getElementById("memoryToggle").textContent = memoryCollapsed ? "Expand" : "Collapse";
-            document.getElementById("logContainer").classList.toggle("expanded", memoryCollapsed);
         }
 
         function formatUptime(minutes) {

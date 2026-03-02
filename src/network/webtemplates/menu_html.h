@@ -13,7 +13,6 @@ inline QString generateMenuHtml(bool includeUploadApk = false)
                     <div class="menu-dropdown" id="menuDropdown">
                         <a href="#" class="menu-item" id="powerToggle" onclick="togglePower(); return false;">&#9889; Loading...</a>
                         <a href="/" class="menu-item">&#127866; Shot History</a>
-                        <a href="/debug" class="menu-item">&#128196; Live Debug Log</a>
                         <a href="/remote" class="menu-item">&#128421; Remote Control</a>
                         <a href="/settings" class="menu-item">&#128273; AI and Web Service Connections</a>)HTML";
 
@@ -34,6 +33,7 @@ inline QString generateMenuHtml(bool includeUploadApk = false)
                         <a href="/api/backup/full" class="menu-item">&#128230; Download Backup</a>
                         <a href="/restore" class="menu-item">&#128229; Restore Backup</a>
                         <a href="/ai-conversations" class="menu-item">&#129302; AI Conversations</a>
+                        <a href="/debug" class="menu-item">&#128296; Debugging Tools</a>
                     </div>
                 </div>)HTML";
 
