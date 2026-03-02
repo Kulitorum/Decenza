@@ -14,6 +14,9 @@ static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
     if (val.isString()) {
         bool ok;
         double d = val.toString().toDouble(&ok);
+        if (!ok) {
+            qWarning() << "jsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+        }
         return ok ? d : defaultVal;
     }
     return val.toDouble(defaultVal);
@@ -404,10 +407,10 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     profile.setTitle(obj["title"].toString("Default"));
     profile.m_author = obj["author"].toString();
-    // Support both new "profile_notes" and legacy "notes" keys
-    profile.m_profileNotes = obj["profile_notes"].toString();
+    // Support both legacy "profile_notes" (old Decenza) and current "notes" (de1app) keys
+    profile.m_profileNotes = obj["notes"].toString();
     if (profile.m_profileNotes.isEmpty()) {
-        profile.m_profileNotes = obj["notes"].toString();
+        profile.m_profileNotes = obj["profile_notes"].toString();
     }
     profile.m_beverageType = obj["beverage_type"].toString("espresso");
 
@@ -417,7 +420,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_profileType = profileType;
 
     profile.m_targetWeight = jsonToDouble(obj["target_weight"], 36.0);
-    profile.m_targetVolume = jsonToDouble(obj["target_volume"], 36.0);
+    profile.m_targetVolume = jsonToDouble(obj["target_volume"], 0.0);
     QString stopAtStr = obj["stop_at_type"].toString("weight");
     profile.m_stopAtType = (stopAtStr == "volume") ? StopAtType::Volume : StopAtType::Weight;
     profile.m_espressoTemperature = jsonToDouble(obj["espresso_temperature"], 93.0);

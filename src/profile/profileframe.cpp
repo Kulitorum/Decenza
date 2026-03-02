@@ -7,6 +7,9 @@ static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
     if (val.isString()) {
         bool ok;
         double d = val.toString().toDouble(&ok);
+        if (!ok) {
+            qWarning() << "jsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+        }
         return ok ? d : defaultVal;
     }
     return val.toDouble(defaultVal);
@@ -51,7 +54,7 @@ QJsonObject ProfileFrame::toJson() const {
     if (exitWeight > 0) obj["weight"] = exitWeight;
 
     // Limiter (de1app nested format)
-    // Always save both fields for round-trip fidelity
+    // Always save the limiter object for round-trip fidelity
     // (D-Flow profiles set range to 0.2 even when limiter value is 0)
     QJsonObject limiterObj;
     limiterObj["value"] = maxFlowOrPressure;
@@ -105,9 +108,12 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
         } else if (exitType == "weight") {
             frame.exitType = "weight";
             frame.exitWeight = exitValue;
+        } else {
+            qWarning() << "ProfileFrame::fromJson: unrecognized exit type" << exitType << "- ignoring exit condition";
+            frame.exitIf = false;
         }
     } else {
-        // Flat fields (Decenza native format)
+        // Flat fields (legacy Decenza format, pre-migration)
         frame.exitIf = json["exit_if"].toBool(false);
         frame.exitType = json["exit_type"].toString();
         frame.exitPressureOver = jsonToDouble(json["exit_pressure_over"], 0.0);

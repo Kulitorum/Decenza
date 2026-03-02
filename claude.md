@@ -412,7 +412,7 @@ Twemoji by Twitter/X (CC-BY 4.0): https://github.com/twitter/twemoji
 
 ### JSON Format (unified with de1app)
 
-Decenza and de1app share the same JSON profile format. The writer (`toJson()`) outputs de1app v2 format: nested `exit`/`limiter` objects, `version`, `legacy_profile_type`, `notes`, `number_of_preinfuse_frames`. The reader (`fromJson()`) accepts both de1app nested and legacy Decenza flat fields (for old profiles in shot history), with `jsonToDouble()` handling string-encoded numbers.
+Decenza and de1app share the same JSON profile format. The writer (`toJson()`) outputs de1app v2 format with JSON numbers (not strings): nested `exit`/`limiter` objects, `version`, `legacy_profile_type`, `notes`, `number_of_preinfuse_frames`. The reader (`fromJson()`) accepts both de1app nested and legacy Decenza flat fields (for old profiles in shot history), with `jsonToDouble()` handling de1app's string-encoded numbers.
 
 - **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
 - **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots

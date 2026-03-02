@@ -16,7 +16,7 @@
  * 2. Direct Setpoint Control: App sends live setpoints frame-by-frame during extraction
  *
  * Profile File Formats:
- * - .json: Native format (our own JSON schema)
+ * - .json: Unified format (compatible with de1app v2)
  * - .tcl: de1app format (Tcl list syntax, importable)
  */
 class Profile {

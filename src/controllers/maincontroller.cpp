@@ -1032,7 +1032,7 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
     m_currentProfile = Profile::loadFromJsonString(jsonContent);
 
     if (m_currentProfile.title().isEmpty() || m_currentProfile.steps().isEmpty()) {
-        qWarning() << "loadProfileFromJson: Failed to parse profile JSON in any format";
+        qWarning() << "loadProfileFromJson: Failed to parse profile JSON";
         return false;
     }
 
@@ -3493,23 +3493,40 @@ void MainController::migrateProfileFormat() {
 
     qDebug() << "Migrating profile JSON format to de1app-compatible v2...";
     int migrated = 0;
+    int failed = 0;
 
     // Helper: check and resave a single file if it lacks the "version" field
     auto migrateFile = [&](const QString& filePath) {
         QFile file(filePath);
-        if (!file.open(QIODevice::ReadOnly)) return;
+        if (!file.open(QIODevice::ReadOnly)) {
+            qWarning() << "migrateProfileFormat: Cannot open profile:" << filePath
+                       << "-" << file.errorString();
+            failed++;
+            return;
+        }
         QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
         file.close();
-        if (doc.isNull()) return;
+        if (doc.isNull()) {
+            qWarning() << "migrateProfileFormat: Invalid JSON in profile:" << filePath;
+            failed++;
+            return;
+        }
 
         QJsonObject obj = doc.object();
         if (obj.contains("version")) return;  // Already in v2 format
 
         Profile profile = Profile::fromJson(doc);
-        if (profile.title().isEmpty() || profile.steps().isEmpty()) return;
+        if (profile.title().isEmpty() || profile.steps().isEmpty()) {
+            qWarning() << "migrateProfileFormat: Profile has empty title or steps:" << filePath;
+            failed++;
+            return;
+        }
 
         if (profile.saveToFile(filePath)) {
             migrated++;
+        } else {
+            qWarning() << "migrateProfileFormat: Failed to write migrated profile:" << filePath;
+            failed++;
         }
     };
 
@@ -3533,22 +3550,38 @@ void MainController::migrateProfileFormat() {
             if (jsonContent.isEmpty()) continue;
 
             QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
-            if (doc.isNull()) continue;
+            if (doc.isNull()) {
+                qWarning() << "migrateProfileFormat: Invalid JSON in SAF profile:" << name;
+                failed++;
+                continue;
+            }
 
             QJsonObject obj = doc.object();
             if (obj.contains("version")) continue;
 
             Profile profile = Profile::fromJson(doc);
-            if (profile.title().isEmpty() || profile.steps().isEmpty()) continue;
+            if (profile.title().isEmpty() || profile.steps().isEmpty()) {
+                qWarning() << "migrateProfileFormat: SAF profile has empty title or steps:" << name;
+                failed++;
+                continue;
+            }
 
             if (m_profileStorage->writeProfile(name, profile.toJsonString())) {
                 migrated++;
+            } else {
+                qWarning() << "migrateProfileFormat: Failed to write SAF profile:" << name;
+                failed++;
             }
         }
     }
 
-    if (m_settings) {
-        m_settings->setValue("profile_format_migrated", true);
+    if (failed > 0) {
+        qWarning() << "Profile format migration incomplete:" << migrated << "updated,"
+                   << failed << "failed. Will retry on next launch.";
+    } else {
+        if (m_settings) {
+            m_settings->setValue("profile_format_migrated", true);
+        }
+        qDebug() << "Profile format migration complete:" << migrated << "profiles updated";
     }
-    qDebug() << "Profile format migration complete:" << migrated << "profiles updated";
 }
