@@ -517,11 +517,12 @@ int main(int argc, char *argv[])
                      &bleManager, &BLEManager::de1LogMessage);
 #endif
 
-    // Scale auto-reconnect after disconnect: 3 retries with backoff (5s, 15s, 30s)
+    // Scale auto-reconnect after disconnect: 3 retries with backoff (5s, 30s, 60s).
+    // First retry is quick (5s). Subsequent delays exceed BLE's 20s connection timeout
+    // so each attempt completes before the next fires.
     int scaleReconnectAttempt = 0;
     QTimer scaleReconnectTimer;
     scaleReconnectTimer.setSingleShot(true);
-    // Delays must be > BLE's 20s internal connection timeout to avoid overlapping attempts
     const std::vector<int> reconnectDelays = {5000, 30000, 60000};
 
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,

@@ -91,20 +91,21 @@ bool ScaleFactory::isKnownScale(const QBluetoothDeviceInfo& device) {
 }
 
 ScaleType ScaleFactory::resolveScaleType(const QString& name) {
+    // Reuse the same is*() helpers as detectScaleType to stay in sync
     QString lower = name.toLower();
-    if (lower.contains("decent")) return ScaleType::DecentScale;
-    // Consolidate Pyxis into Acaia, matching detectScaleType behavior (unified AcaiaScale)
-    if (lower.contains("pyxis") || lower.contains("acaia")) return ScaleType::Acaia;
-    if (lower.contains("felicita")) return ScaleType::Felicita;
-    if (lower.contains("skale")) return ScaleType::Skale;
-    if (lower.contains("hiroia") || lower.contains("jimmy")) return ScaleType::HiroiaJimmy;
-    if (lower.contains("bookoo")) return ScaleType::Bookoo;
-    if (lower.contains("smartchef")) return ScaleType::SmartChef;
-    if (lower.contains("difluid")) return ScaleType::Difluid;
-    if (lower.contains("eureka") || lower.contains("precisa")) return ScaleType::EurekaPrecisa;
-    if (lower.contains("solo") || lower.contains("barista")) return ScaleType::SoloBarista;
-    if (lower.contains("eclair") || lower.contains("atomheart")) return ScaleType::AtomheartEclair;
-    if (lower.contains("aku") || lower.contains("varia")) return ScaleType::VariaAku;
+    if (isDecentScale(lower)) return ScaleType::DecentScale;
+    // Consolidate Pyxis into Acaia, matching detectScaleType (unified AcaiaScale)
+    if (isAcaiaPyxis(lower) || isAcaiaScale(lower)) return ScaleType::Acaia;
+    if (isFelicitaScale(lower)) return ScaleType::Felicita;
+    if (isSkaleScale(lower)) return ScaleType::Skale;
+    if (isHiroiaJimmy(lower)) return ScaleType::HiroiaJimmy;
+    if (isBookooScale(lower)) return ScaleType::Bookoo;
+    if (isSmartChefScale(lower)) return ScaleType::SmartChef;
+    if (isDifluidScale(lower)) return ScaleType::Difluid;
+    if (isEurekaPrecisa(lower)) return ScaleType::EurekaPrecisa;
+    if (isSoloBarista(lower)) return ScaleType::SoloBarista;
+    if (isAtomheartEclair(lower)) return ScaleType::AtomheartEclair;
+    if (isVariaAku(lower)) return ScaleType::VariaAku;
     return ScaleType::Unknown;
 }
 
