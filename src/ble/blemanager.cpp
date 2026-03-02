@@ -414,6 +414,12 @@ void BLEManager::setSavedScaleAddress(const QString& address, const QString& typ
     m_savedScaleName = name;
 }
 
+void BLEManager::resetScaleConnectionState() {
+    m_scaleConnectionFailed = false;
+    m_flowScaleFallbackEmitted = false;
+    emit scaleConnectionFailedChanged();
+}
+
 void BLEManager::clearSavedScale() {
     m_savedScaleAddress.clear();
     m_savedScaleType.clear();

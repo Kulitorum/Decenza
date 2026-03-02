@@ -90,24 +90,26 @@ bool ScaleFactory::isKnownScale(const QBluetoothDeviceInfo& device) {
     return detectScaleType(device) != ScaleType::Unknown;
 }
 
-std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInfo& device, const QString& typeName, QObject* parent) {
-    // Map type name to ScaleType enum
-    ScaleType type = ScaleType::Unknown;
+ScaleType ScaleFactory::resolveScaleType(const QString& name) {
+    QString lower = name.toLower();
+    if (lower.contains("decent")) return ScaleType::DecentScale;
+    if (lower.contains("pyxis")) return ScaleType::AcaiaPyxis;
+    if (lower.contains("acaia")) return ScaleType::Acaia;
+    if (lower.contains("felicita")) return ScaleType::Felicita;
+    if (lower.contains("skale")) return ScaleType::Skale;
+    if (lower.contains("hiroia") || lower.contains("jimmy")) return ScaleType::HiroiaJimmy;
+    if (lower.contains("bookoo")) return ScaleType::Bookoo;
+    if (lower.contains("smartchef")) return ScaleType::SmartChef;
+    if (lower.contains("difluid")) return ScaleType::Difluid;
+    if (lower.contains("eureka") || lower.contains("precisa")) return ScaleType::EurekaPrecisa;
+    if (lower.contains("solo") || lower.contains("barista")) return ScaleType::SoloBarista;
+    if (lower.contains("eclair") || lower.contains("atomheart")) return ScaleType::AtomheartEclair;
+    if (lower.contains("aku") || lower.contains("varia")) return ScaleType::VariaAku;
+    return ScaleType::Unknown;
+}
 
-    QString name = typeName.toLower();
-    if (name.contains("decent")) type = ScaleType::DecentScale;
-    else if (name.contains("pyxis")) type = ScaleType::AcaiaPyxis;
-    else if (name.contains("acaia")) type = ScaleType::Acaia;
-    else if (name.contains("felicita")) type = ScaleType::Felicita;
-    else if (name.contains("skale")) type = ScaleType::Skale;
-    else if (name.contains("hiroia") || name.contains("jimmy")) type = ScaleType::HiroiaJimmy;
-    else if (name.contains("bookoo")) type = ScaleType::Bookoo;
-    else if (name.contains("smartchef")) type = ScaleType::SmartChef;
-    else if (name.contains("difluid")) type = ScaleType::Difluid;
-    else if (name.contains("eureka") || name.contains("precisa")) type = ScaleType::EurekaPrecisa;
-    else if (name.contains("solo") || name.contains("barista")) type = ScaleType::SoloBarista;
-    else if (name.contains("eclair") || name.contains("atomheart")) type = ScaleType::AtomheartEclair;
-    else if (name.contains("aku") || name.contains("varia")) type = ScaleType::VariaAku;
+std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInfo& device, const QString& typeName, QObject* parent) {
+    ScaleType type = resolveScaleType(typeName);
 
     if (type == ScaleType::Unknown) {
         // Fall back to detection from device name

@@ -12,6 +12,7 @@
 #include <QDebug>
 #include <QOperatingSystemVersion>
 #include <memory>
+#include <vector>
 #include <QElapsedTimer>
 #include <QNetworkAccessManager>
 #include "version.h"
@@ -516,9 +517,32 @@ int main(int argc, char *argv[])
                      &bleManager, &BLEManager::de1LogMessage);
 #endif
 
+    // Scale auto-reconnect after disconnect: 3 retries with backoff (5s, 15s, 30s)
+    int scaleReconnectAttempt = 0;
+    QTimer scaleReconnectTimer;
+    scaleReconnectTimer.setSingleShot(true);
+    const std::vector<int> reconnectDelays = {5000, 15000, 30000};
+
+    QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
+                     [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer, &reconnectDelays]() {
+        if (settings.scaleAddress().isEmpty()) {
+            qDebug() << "Scale reconnect: no saved scale address, stopping retries";
+            return;
+        }
+        qDebug() << "Scale reconnect: attempt" << (scaleReconnectAttempt + 1) << "of" << reconnectDelays.size();
+        bleManager.resetScaleConnectionState();
+        bleManager.tryDirectConnectToScale();
+        scaleReconnectAttempt++;
+        if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
+            scaleReconnectTimer.start(reconnectDelays[scaleReconnectAttempt]);
+        } else {
+            qDebug() << "Scale reconnect: retries exhausted, waiting for manual reconnect or app resume";
+        }
+    });
+
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt](const QBluetoothDeviceInfo& device, const QString& type) {
         // Don't connect if we already have a connected scale
         if (physicalScale && physicalScale->isConnected()) {
             return;
@@ -531,8 +555,8 @@ int main(int argc, char *argv[])
 
         // If we already have a scale object, check if it's the same type
         if (physicalScale) {
-            // Compare types (case-insensitive) - if different, we need to create a new scale
-            if (physicalScale->type().compare(type, Qt::CaseInsensitive) != 0) {
+            // Compare types via enum to handle format differences (e.g., "decent" vs "Decent Scale")
+            if (ScaleFactory::resolveScaleType(physicalScale->type()) != ScaleFactory::resolveScaleType(type)) {
                 qDebug() << "Scale type changed from" << physicalScale->type() << "to" << type << "- creating new scale";
                 // IMPORTANT: Clear all references before deleting the scale to prevent dangling pointers
                 machineState.setScale(&flowScale);  // Switch to FlowScale first
@@ -542,6 +566,8 @@ int main(int argc, char *argv[])
                                  &weightProcessor, &WeightProcessor::processWeight);
                 bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference
                 physicalScale.reset();  // Now safe to delete old scale
+                scaleReconnectTimer.stop();
+                scaleReconnectAttempt = 0;
             } else {
                 // Re-wire to use physical scale
                 machineState.setScale(physicalScale.get());
@@ -586,8 +612,11 @@ int main(int argc, char *argv[])
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
-                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor]() {
+                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings]() {
             if (physicalScale && physicalScale->isConnected()) {
+                // Scale connected - stop any pending reconnect attempts
+                scaleReconnectTimer.stop();
+                scaleReconnectAttempt = 0;
                 // Scale connected - use physical scale
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
@@ -624,6 +653,12 @@ int main(int argc, char *argv[])
                 }
                 emit bleManager.scaleDisconnected();
                 qDebug() << "Scale disconnected - switched to FlowScale";
+                // Start auto-reconnect if we have a saved scale address
+                if (!settings.scaleAddress().isEmpty()) {
+                    scaleReconnectAttempt = 0;
+                    scaleReconnectTimer.start(reconnectDelays[0]);
+                    qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms";
+                }
             }
         });
 
