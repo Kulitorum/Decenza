@@ -1,67 +1,74 @@
 {
+    "title": "Test/pressure calibration",
     "author": "Decent",
     "beverage_type": "calibrate",
-    "espresso_temperature": 1,
-    "is_recipe_mode": false,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "You will need a portafilter fitted with a pressure gauge that leaks or has a slow flow rate.  This profile will slowly rise to 9 bar and hold it.  Compare what is on the screen with what your analog pressure gauge tells you.  Go to Settings->Machine->Calibrate and enter the held pressure value, and then retest until the pressure until the two agree.",
-    "preinfuse_frame_count": 2,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 7,
-            "exit_type": "pressure_over",
-            "flow": 2,
-            "name": "fast rise",
-            "pressure": 7,
-            "pump": "pressure",
-            "seconds": 20,
-            "sensor": "coffee",
-            "temperature": 1,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "final slow rise",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 3,
-            "sensor": "coffee",
-            "temperature": 1,
-            "transition": "smooth",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "hold",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 60,
-            "sensor": "coffee",
-            "temperature": 1,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
-    "target_volume": 36,
-    "target_weight": 36,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 6.0,
+    "target_weight": 36.0,
+    "target_volume": 36.0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         1,
         1,
         1,
         1
     ],
-    "title": "Test/pressure calibration"
+    "steps": [
+        {
+            "name": "fast rise",
+            "temperature": 1.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 7.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 7.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "final slow rise",
+            "temperature": 1.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 3.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "hold",
+            "temperature": 1.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 60.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

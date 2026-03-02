@@ -64,6 +64,5 @@ private:
     static double extractPourFlow(const ProfileFrame& frame);
     static double extractFlowLimit(const ProfileFrame& frame);
     static double extractPressureLimit(const ProfileFrame& frame);
-    static double extractDeclinePressure(const ProfileFrame& frame);
     static double extractDeclineTime(const ProfileFrame& frame);
 };

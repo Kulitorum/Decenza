@@ -1,98 +1,104 @@
 {
+    "title": "Cremina lever machine",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 91.5,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Aim for a 50 second shot time to have a thick espresso in the style of the much-loved Cremina manual lever machine. By Denis from KafaTek.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion start",
-            "pressure": 1.1,
-            "pump": "pressure",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 91.5,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion",
-            "pressure": 1.1,
-            "pump": "pressure",
-            "seconds": 3,
-            "sensor": "coffee",
-            "temperature": 91.5,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 0,
-            "name": "soak",
-            "pressure": 1.1,
-            "pump": "pressure",
-            "seconds": 10,
-            "sensor": "coffee",
-            "temperature": 91.5,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 9,
-            "exit_type": "pressure_over",
-            "flow": 2,
-            "name": "ramp",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 10,
-            "sensor": "coffee",
-            "temperature": 91.5,
-            "transition": "smooth",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "ramp-down",
-            "pressure": 3,
-            "pump": "pressure",
-            "seconds": 50,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "smooth",
-            "volume": 100
-        }
-    ],
-    "target_volume": 38,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 38,
+    "target_volume": 38,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         91.5,
         91.5,
         91.5,
         91.5
     ],
-    "title": "Cremina lever machine"
+    "steps": [
+        {
+            "name": "preinfusion start",
+            "temperature": 91.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 1.1,
+            "flow": 4.0,
+            "seconds": 2.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "preinfusion",
+            "temperature": 91.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 1.1,
+            "flow": 4.0,
+            "seconds": 3.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "soak",
+            "temperature": 91.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 1.1,
+            "flow": 0.0,
+            "seconds": 10.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "ramp",
+            "temperature": 91.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 10.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "ramp-down",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 3.0,
+            "flow": 0.0,
+            "seconds": 50.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

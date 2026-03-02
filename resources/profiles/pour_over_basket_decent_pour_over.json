@@ -1,122 +1,129 @@
 {
+    "title": "Pour over basket/Decent pour over",
     "author": "Decent",
     "beverage_type": "pourover",
-    "espresso_temperature": 99,
-    "is_recipe_mode": false,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "You can make a pour over coffee with your espresso machine.  To do this, first remove the drip tray. Then, place a coffee mug with a filter cone on it under the espresso machine's group head.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 6,
-            "name": "Prewet",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 4,
-            "sensor": "water",
-            "temperature": 99,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 40,
-            "sensor": "water",
-            "temperature": 97,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 6,
-            "name": "Main water #1",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 14,
-            "sensor": "water",
-            "temperature": 97,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 5,
-            "name": "Main water #2",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 25,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Drain",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Reset temperature",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 1,
-            "sensor": "water",
-            "temperature": 99,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
-    "target_volume": 32,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 32,
+    "target_volume": 32,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         88,
         90,
         93,
         96
     ],
-    "title": "Pour over basket/Decent pour over"
+    "steps": [
+        {
+            "name": "Prewet",
+            "temperature": 99.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 6.0,
+            "seconds": 4.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause",
+            "temperature": 97.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 40.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Main water #1",
+            "temperature": 97.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 6.0,
+            "seconds": 14.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Main water #2",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 5.0,
+            "seconds": 25.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Drain",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Reset temperature",
+            "temperature": 99.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 1.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

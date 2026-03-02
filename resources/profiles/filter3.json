@@ -1,119 +1,131 @@
 {
+    "title": "Filter3",
     "author": "Decent",
     "beverage_type": "filter",
-    "espresso_temperature": 94,
-    "is_recipe_mode": false,
-    "maximum_flow": 4,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Set your grinder as coarsely as it can be set (11am setting on a Niche Zero).  Center a 58.5mm filter paper in the bottom of a Filter3 basket. Wet it with Flush water. Add 22 grams of coffee and shake to level the grounds.  Gently lock the portafilter in.  Place a cup, tap the COFFEE icon on the Group Head to start.  Optional: 30 seconds into the extraction, unlock the portafilter, swirl and check for 2cm-4cm of water on the grounds.  Adjust the grind if necessary for next time: finer if you saw not enough water, coarser if there was too much water on the grounds.  If water comes out of the holes at the top of the basket, your grind is too fine.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 5,
-            "max_flow_or_pressure": 5,
-            "max_flow_or_pressure_range": 1,
-            "name": "Prewet",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 15,
-            "sensor": "water",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 75
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 0,
-            "name": "Bloom",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "water",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 75
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 1.1,
-            "name": "Wet 1a",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "water",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 200
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 1.1,
-            "name": "Wet 1b",
-            "popup": "Swirl now*",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "water",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 200
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 1.1,
-            "name": "Wet 2",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 60,
-            "sensor": "water",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 200
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 1.1,
-            "name": "Wet 3",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 100,
-            "sensor": "water",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 200
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 0,
-            "name": "Drawdown",
-            "popup": "Wait for all coffee to draw down",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 10,
-            "sensor": "water",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 200
-        }
-    ],
-    "target_volume": 36,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 4.0,
+    "minimum_pressure": 4.0,
     "target_weight": 0,
+    "target_volume": 36,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         94,
         94,
         94,
         94
     ],
-    "title": "Filter3"
+    "steps": [
+        {
+            "name": "Prewet",
+            "temperature": 94.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 5.0,
+            "seconds": 15.0,
+            "volume": 75.0,
+            "limiter": {
+                "value": 5.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Bloom",
+            "temperature": 94.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 30.0,
+            "volume": 75.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Wet 1a",
+            "temperature": 92.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 30.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Wet 1b",
+            "temperature": 92.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 30.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            },
+            "popup": "Swirl now*"
+        },
+        {
+            "name": "Wet 2",
+            "temperature": 90.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 60.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Wet 3",
+            "temperature": 88.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 1.1,
+            "seconds": 100.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            }
+        },
+        {
+            "name": "Drawdown",
+            "temperature": 88.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 45.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 1.0
+            },
+            "popup": "Wait for all coffee to draw down"
+        }
+    ]
 }

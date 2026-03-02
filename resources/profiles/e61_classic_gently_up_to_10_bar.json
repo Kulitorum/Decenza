@@ -8,8 +8,6 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "This high tech variation on the classic E61 9 bar shot brings out more acidity by increasing pressure towards the end of the shot.  This makes it more appropriate to drink without milk.  It will be quite thick, so adding water to make an Americano is recommended.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2a",
     "preinfusion_time": 10,
     "preinfusion_flow_rate": 8.0,
     "preinfusion_stop_pressure": 4.0,
@@ -19,8 +17,7 @@
     "pressure_end": 10.0,
     "maximum_flow_range_default": 1.0,
     "temp_steps_enabled": true,
-    "steps": [
-    ],
+    "steps": [],
     "target_volume": 36,
     "target_weight": 36,
     "temperature_presets": [
@@ -29,5 +26,8 @@
         92,
         92
     ],
-    "title": "E61 classic gently up to 10 bar"
+    "title": "E61 classic gently up to 10 bar",
+    "version": "2",
+    "legacy_profile_type": "settings_2a",
+    "number_of_preinfuse_frames": 0
 }

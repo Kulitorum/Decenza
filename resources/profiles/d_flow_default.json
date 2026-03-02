@@ -1,16 +1,16 @@
 {
-    "author": "Decent (D-Flow by Damian)",
+    "title": "D-Flow / default",
+    "author": "Damian",
     "beverage_type": "espresso",
-    "espresso_temperature": 88,
-    "is_recipe_mode": true,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
-    "notes": "D-Flow default: general-purpose, 3 bar infuse, 1.7 ml/s pour, 8.5 bar limiter",
-    "profile_notes": "A simple to use profiling system by Damian Brakel. D-Flow's Default profile is provided as an example profile for you to get started in creating your own.",
-    "preinfuse_frame_count": 1,
-    "profile_type": "settings_2c",
+    "notes": "A simple to use profiling system By Damian Brakel\n        D-Flow's Default profile is provided as an example profile for you to get started in creating your own",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 50.0,
+    "target_volume": 54,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,
@@ -19,7 +19,6 @@
         "declineTo": 1,
         "dose": 18,
         "editorType": "dflow",
-        "fillExitPressure": 1.5,
         "fillFlow": 8,
         "fillPressure": 3,
         "fillTemperature": 88,
@@ -38,62 +37,66 @@
         "targetVolume": 54,
         "targetWeight": 50
     },
-    "steps": [
-        {
-            "exit_if": true,
-            "exit_pressure_over": 2.1,
-            "exit_type": "pressure_over",
-            "flow": 0,
-            "max_flow_or_pressure": 0,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Filling",
-            "pressure": 3.0,
-            "pump": "pressure",
-            "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_if": false,
-            "exit_type": "pressure_over",
-            "exit_weight": 4,
-            "flow": 0,
-            "max_flow_or_pressure": 0,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Infusing",
-            "pressure": 3.0,
-            "pump": "pressure",
-            "seconds": 60,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_if": false,
-            "exit_type": "pressure_over",
-            "flow": 1.7,
-            "max_flow_or_pressure": 8.5,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Pouring",
-            "pressure": 0,
-            "pump": "flow",
-            "seconds": 127,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 0
-        }
-    ],
-    "target_volume": 54,
-    "target_weight": 50,
+    "mode": "frame_based",
+    "is_recipe_mode": true,
     "temperature_presets": [
         88,
         88,
         88,
         88
     ],
-    "title": "D-Flow / default"
+    "steps": [
+        {
+            "name": "Filling",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 25.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 1.5
+            },
+            "weight": 5.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.2
+            }
+        },
+        {
+            "name": "Infusing",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 60.0,
+            "volume": 100.0,
+            "weight": 4.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.2
+            }
+        },
+        {
+            "name": "Pouring",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.8,
+            "flow": 1.7,
+            "seconds": 127.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 8.5,
+                "range": 0.2
+            }
+        }
+    ]
 }

@@ -1,189 +1,194 @@
 {
+    "title": "Tea portafilter/no pressure",
     "author": "Decent",
     "beverage_type": "tea_portafilter",
-    "espresso_temperature": 94,
-    "is_recipe_mode": false,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "This profile requires a specially designed tea portafilter that opens its valve at pressures of 3 bar or above.  Put a tea bag or loose leaf tea into the basket.  Makes about 230ml of tea in 3 minutes.  The 2 bar of pressure extract a stronger brew, with different flavors.  You can up the pressure during the infusion steps, if you tighten the screw on your tea portafilter.",
-    "preinfuse_frame_count": 1,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 1,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Fill",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 1,
-            "exit_type": "pressure_over",
-            "flow": 11,
-            "name": "Release pressure",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 0,
-            "name": "Infuse",
-            "pressure": 0.1,
-            "pump": "flow",
-            "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 7,
-            "name": "Flush",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 11,
-            "name": "Release pressure",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 0,
-            "name": "Infuse",
-            "pressure": 0.1,
-            "pump": "flow",
-            "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 7,
-            "name": "Flush",
-            "pressure": 0.5,
-            "pump": "flow",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 7,
-            "name": "Release pressure",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 0,
-            "name": "Infuse",
-            "pressure": 0.1,
-            "pump": "flow",
-            "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 7,
-            "name": "Flush",
-            "pressure": 0.5,
-            "pump": "flow",
-            "seconds": 11,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 2,
-            "exit_type": "pressure_over",
-            "flow": 6,
-            "name": "Flush cooler",
-            "pressure": 0.5,
-            "pump": "flow",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 40,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
-    "target_volume": 0,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 1,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 0,
+    "target_volume": 0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         90,
         88,
         88,
         88
     ],
-    "title": "Tea portafilter/no pressure"
+    "steps": [
+        {
+            "name": "Fill",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 8.0,
+            "seconds": 20.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 1.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Release pressure",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 11.0,
+            "seconds": 5.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.1,
+            "flow": 0.0,
+            "seconds": 25.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flush",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 7.0,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Release pressure",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 11.0,
+            "seconds": 5.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.1,
+            "flow": 0.0,
+            "seconds": 25.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flush",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.5,
+            "flow": 7.0,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Release pressure",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 7.0,
+            "seconds": 5.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.1,
+            "flow": 0.0,
+            "seconds": 25.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flush",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.5,
+            "flow": 7.0,
+            "seconds": 11.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flush cooler",
+            "temperature": 40.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.5,
+            "flow": 6.0,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

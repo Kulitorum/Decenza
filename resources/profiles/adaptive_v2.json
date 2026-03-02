@@ -1,135 +1,150 @@
 {
+    "title": "Adaptive v2",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 93,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
+    "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagn\u00e9's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 3,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 36.0,
+    "target_volume": 36.0,
     "mode": "frame_based",
-    "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
-    "preinfuse_frame_count": 3,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 1,
-            "exit_if": false,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Prefill",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 93,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 1,
-            "exit_if": true,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Fill",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 12,
-            "sensor": "coffee",
-            "temperature": 93,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 1,
-            "exit_flow_under": 3,
-            "exit_if": true,
-            "exit_pressure_over": 3,
-            "exit_type": "flow_under",
-            "flow": 6.8,
-            "name": "Compressing",
-            "pressure": 3,
-            "pump": "pressure",
-            "seconds": 12,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 1,
-            "exit_if": false,
-            "exit_pressure_over": 1.5,
-            "exit_type": "flow_over",
-            "flow": 6.8,
-            "name": "Dripping",
-            "pressure": 0.1,
-            "pump": "pressure",
-            "seconds": 6,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 8.8,
-            "exit_type": "pressure_over",
-            "flow": 2,
-            "max_flow_or_pressure": 3.5,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Pressurize",
-            "popup": "$weight",
-            "pressure": 11,
-            "pump": "pressure",
-            "seconds": 6,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_type": "pressure_over",
-            "flow": 1.5,
-            "max_flow_or_pressure": 9.5,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Extraction start",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 0,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 3.5,
-            "max_flow_or_pressure": 9.5,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Extraction",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 60,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 100
-        }
-    ],
-    "target_volume": 36,
-    "target_weight": 36,
+    "is_recipe_mode": false,
     "temperature_presets": [
         89,
         89,
         89,
         89
     ],
-    "title": "Adaptive v2"
+    "steps": [
+        {
+            "name": "Prefill",
+            "temperature": 93.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 5.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Fill",
+            "temperature": 93.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 12.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Compressing",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 6.8,
+            "seconds": 12.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 3.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Dripping",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.1,
+            "flow": 6.8,
+            "seconds": 6.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressurize",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 11.0,
+            "flow": 0.0,
+            "seconds": 6.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 8.8
+            },
+            "limiter": {
+                "value": 3.5,
+                "range": 0.6
+            },
+            "popup": "$weight"
+        },
+        {
+            "name": "Extraction start",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 1.5,
+            "seconds": 0.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 0.0
+            },
+            "limiter": {
+                "value": 9.5,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Extraction",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "smooth",
+            "pressure": 3.0,
+            "flow": 3.5,
+            "seconds": 60.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 9.5,
+                "range": 0.6
+            }
+        }
+    ]
 }

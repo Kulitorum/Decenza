@@ -8,83 +8,91 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "A light roast pressure profile that emulates the flow and temperature characteristics of the Espresso Forge manual machine. Good for medium to light roasts where you want to mute the fruit flavors and up extraction to balance the shot more in comparison to a standard flat or lever profile.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
     "steps": [
         {
-            "exit_flow_over": 6,
-            "exit_flow_under": 4,
-            "exit_if": true,
-            "exit_pressure_over": 0.5,
-            "exit_type": "pressure_over",
-            "flow": 6,
             "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 10,
-            "sensor": "coffee",
             "temperature": 96,
+            "sensor": "coffee",
+            "pump": "flow",
             "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "long pre brew",
             "pressure": 1,
+            "flow": 6,
+            "seconds": 10,
+            "volume": 100,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 0.5
+            },
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "long pre brew",
+            "temperature": 93,
+            "sensor": "coffee",
             "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 1,
+            "flow": 2,
             "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 93,
-            "transition": "smooth",
-            "volume": 100
+            "volume": 100,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
         },
         {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 10,
-            "exit_type": "pressure_over",
-            "flow": 2,
             "name": "high pressure ramp",
-            "pressure": 10,
-            "pump": "pressure",
-            "seconds": 20,
-            "sensor": "coffee",
             "temperature": 93,
-            "transition": "smooth",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 10,
-            "exit_type": "pressure_over",
-            "flow": 2,
-            "name": "decline",
-            "pressure": 6,
+            "sensor": "coffee",
             "pump": "pressure",
-            "seconds": 50,
-            "sensor": "coffee",
-            "temperature": 92.5,
             "transition": "smooth",
-            "volume": 100
+            "pressure": 10,
+            "flow": 2,
+            "seconds": 20,
+            "volume": 100,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 10
+            },
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
         },
         {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 10,
-            "exit_type": "pressure_over",
-            "flow": 0,
-            "name": "reset temperature",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 1,
+            "name": "decline",
+            "temperature": 92.5,
             "sensor": "coffee",
-            "temperature": 96,
+            "pump": "pressure",
             "transition": "smooth",
-            "volume": 100
+            "pressure": 6,
+            "flow": 2,
+            "seconds": 50,
+            "volume": 100,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "reset temperature",
+            "temperature": 96,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "smooth",
+            "pressure": 6,
+            "flow": 0,
+            "seconds": 1,
+            "volume": 100,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
         }
     ],
     "target_volume": 42,
@@ -95,5 +103,8 @@
         93,
         96
     ],
-    "title": "Espresso Forge Light"
+    "title": "Espresso Forge Light",
+    "version": "2",
+    "legacy_profile_type": "settings_2c",
+    "number_of_preinfuse_frames": 0
 }

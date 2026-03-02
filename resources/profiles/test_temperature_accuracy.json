@@ -1,69 +1,69 @@
 {
+    "title": "Test/temperature accuracy",
     "author": "Decent",
     "beverage_type": "calibrate",
-    "espresso_temperature": 90,
-    "is_recipe_mode": false,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Put a pour over basket in your DE1.  Look for smooth temperature ramps between each temperature stage.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 10,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "90c",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 10,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "80c",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 80,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 10,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "70c",
-            "pressure": 9,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 70,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
-    "target_volume": 0,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 0,
+    "target_volume": 0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         0,
         0,
         0,
         0
     ],
-    "title": "Test/temperature accuracy"
+    "steps": [
+        {
+            "name": "90c",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 4.0,
+            "seconds": 20.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "80c",
+            "temperature": 80.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 4.0,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "70c",
+            "temperature": 70.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 4.0,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

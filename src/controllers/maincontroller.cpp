@@ -331,6 +331,9 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // One-time migration: resave profiles in unified de1app-compatible format
     migrateProfileFormat();
 
+    // One-time migration: regenerate frames for recipe-mode profiles so weight exits are applied
+    migrateRecipeFrames();
+
     // Check for temp file (modified profile from previous session)
     QString tempPath = profilesPath() + "/_current.json";
     if (QFile::exists(tempPath)) {
@@ -3583,5 +3586,104 @@ void MainController::migrateProfileFormat() {
             m_settings->setValue("profile_format_migrated", true);
         }
         qDebug() << "Profile format migration complete:" << migrated << "profiles updated";
+    }
+}
+
+void MainController::migrateRecipeFrames() {
+    // One-time migration: regenerate frames for recipe-mode profiles so that
+    // per-frame weight exits (e.g. infuseWeight) are actually applied.
+    // Previously, infuseByWeight=false caused infuseWeight to be silently ignored
+    // when generating frames, leaving exitWeight=0 on the Infusing frame.
+    if (m_settings && m_settings->value("recipe_frames_migrated", false).toBool()) {
+        return;
+    }
+
+    qDebug() << "Migrating recipe-mode profile frames...";
+    int migrated = 0;
+    int failed = 0;
+
+    auto migrateFile = [&](const QString& filePath) {
+        QFile file(filePath);
+        if (!file.open(QIODevice::ReadOnly)) {
+            qWarning() << "migrateRecipeFrames: cannot open" << filePath;
+            failed++;
+            return;
+        }
+        QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        file.close();
+        if (doc.isNull()) return;
+
+        QJsonObject obj = doc.object();
+        if (!obj.value("is_recipe_mode").toBool()) return;  // Not a recipe profile
+
+        Profile profile = Profile::fromJson(doc);
+        if (profile.title().isEmpty()) return;
+
+        profile.regenerateFromRecipe();
+
+        // Guard against degenerate regeneration result
+        const QList<ProfileFrame>& steps = profile.steps();
+        if (steps.isEmpty() || (steps.size() == 1 && steps.first().name == "empty")) {
+            qWarning() << "migrateRecipeFrames: regeneration produced degenerate result for"
+                       << filePath << "- skipping to avoid data loss";
+            failed++;
+            return;
+        }
+
+        if (profile.saveToFile(filePath)) {
+            qDebug() << "migrateRecipeFrames: regenerated" << filePath;
+            migrated++;
+        } else {
+            qWarning() << "migrateRecipeFrames: failed to write" << filePath;
+            failed++;
+        }
+    };
+
+    QDir userDir(userProfilesPath());
+    for (const QString& file : userDir.entryList({"*.json"}, QDir::Files)) {
+        if (file == "_current.json") continue;
+        migrateFile(userDir.filePath(file));
+    }
+
+    QDir downloadedDir(downloadedProfilesPath());
+    for (const QString& file : downloadedDir.entryList({"*.json"}, QDir::Files)) {
+        migrateFile(downloadedDir.filePath(file));
+    }
+
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        for (const QString& name : m_profileStorage->listProfiles()) {
+            QString jsonContent = m_profileStorage->readProfile(name);
+            if (jsonContent.isEmpty()) continue;
+            QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
+            if (doc.isNull() || !doc.object().value("is_recipe_mode").toBool()) continue;
+
+            Profile profile = Profile::fromJson(doc);
+            if (profile.title().isEmpty()) continue;
+
+            profile.regenerateFromRecipe();
+
+            // Guard against degenerate regeneration result
+            const QList<ProfileFrame>& steps = profile.steps();
+            if (steps.isEmpty() || (steps.size() == 1 && steps.first().name == "empty")) {
+                qWarning() << "migrateRecipeFrames: degenerate result for SAF profile:" << name;
+                failed++;
+                continue;
+            }
+
+            if (m_profileStorage->writeProfile(name, profile.toJsonString())) {
+                migrated++;
+            } else {
+                qWarning() << "migrateRecipeFrames: failed to write SAF profile:" << name;
+                failed++;
+            }
+        }
+    }
+
+    if (failed > 0) {
+        qWarning() << "Recipe frame migration incomplete:" << migrated << "updated,"
+                   << failed << "failed. Will retry on next launch.";
+    } else {
+        if (m_settings) m_settings->setValue("recipe_frames_migrated", true);
+        qDebug() << "Recipe frame migration complete:" << migrated << "profiles updated";
     }
 }

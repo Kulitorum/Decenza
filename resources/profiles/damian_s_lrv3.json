@@ -1,142 +1,164 @@
 {
+    "title": "Damian's LRv3",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 90,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 3rd edition. By Damian Brakel",
-    "preinfuse_frame_count": 2,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 1.5,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Fill start",
-            "pressure": 2,
-            "pump": "pressure",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 1.5,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Fill",
-            "pressure": 2,
-            "pump": "pressure",
-            "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Infuse",
-            "pressure": 3,
-            "pump": "pressure",
-            "seconds": 12,
-            "sensor": "coffee",
-            "temperature": 89.5,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "Pressure Up",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 4,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 1.9,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_over",
-            "flow": 2,
-            "name": "9 Bar Hold",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 2.8,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_over",
-            "flow": 2,
-            "name": "Pressure Decline",
-            "pressure": 5.5,
-            "pump": "pressure",
-            "seconds": 35,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "smooth",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 2.8,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_over",
-            "flow": 2,
-            "name": "5 Bar Hold",
-            "pressure": 5.5,
-            "pump": "pressure",
-            "seconds": 127,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2.2,
-            "name": "Flow Limit",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 127,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        }
-    ],
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 36.0,
     "target_volume": 95,
-    "target_weight": 36,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         90,
         90,
         90,
         90
     ],
-    "title": "Damian's LRv3"
+    "steps": [
+        {
+            "name": "Fill start",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2.0,
+            "flow": 8.0,
+            "seconds": 2.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Fill",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2.0,
+            "flow": 8.0,
+            "seconds": 25.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 1.5
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 89.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 12.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressure Up",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 4.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "9 Bar Hold",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 30.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "over",
+                "value": 1.9
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressure Decline",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 5.5,
+            "flow": 0.0,
+            "seconds": 35.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "over",
+                "value": 2.8
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "5 Bar Hold",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 5.5,
+            "flow": 0.0,
+            "seconds": 127.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "over",
+                "value": 2.8
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flow Limit",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 2.2,
+            "seconds": 127.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

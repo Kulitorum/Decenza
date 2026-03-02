@@ -1,82 +1,89 @@
 {
+    "title": "GHC/manual pressure control",
     "author": "Decent",
     "beverage_type": "manual",
-    "espresso_temperature": 88,
-    "is_recipe_mode": false,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "For use with machines that have a group head controller (GHC).  Hold your finger on the GHC for the pressure you want.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2a",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "rise and hold",
-            "pressure": 8.6,
-            "pump": "pressure",
-            "seconds": 4,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "decline",
-            "pressure": 6,
-            "pump": "pressure",
-            "seconds": 35,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 100
-        }
-    ],
-    "target_volume": 0,
+    "legacy_profile_type": "settings_2a",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 0,
+    "target_volume": 0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         88,
         90,
         93,
         96
     ],
-    "title": "GHC/manual pressure control"
+    "steps": [
+        {
+            "name": "preinfusion",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 4.0,
+            "seconds": 5.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "preinfusion",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 4.0,
+            "seconds": 20.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "rise and hold",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 8.6,
+            "flow": 0.0,
+            "seconds": 4.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "decline",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 35.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

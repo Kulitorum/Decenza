@@ -8,66 +8,71 @@
     "minimum_pressure": 0,
     "mode": "frame_based",
     "notes": "A dark roast pressure profile that emulates the flow and temperature characteristics of the Espresso Forge manual machine. Good for medium to dark roasts where you want to pull out more fruit flavors, similar to the classic Italian Lever profile.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
     "steps": [
         {
-            "exit_flow_over": 6,
-            "exit_flow_under": 4,
-            "exit_if": true,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 6,
             "name": "preinfusion",
+            "temperature": 84,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
             "pressure": 1,
-            "pump": "flow",
+            "flow": 6,
             "seconds": 10,
-            "sensor": "coffee",
-            "temperature": 84,
-            "transition": "fast",
-            "volume": 100
+            "volume": 100,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3
+            },
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
         },
         {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
             "name": "rise and hold",
-            "pressure": 7.5,
-            "pump": "pressure",
-            "seconds": 8,
-            "sensor": "coffee",
             "temperature": 81,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "decline",
-            "pressure": 3,
+            "sensor": "coffee",
             "pump": "pressure",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 78,
-            "transition": "smooth",
-            "volume": 100
+            "transition": "fast",
+            "pressure": 7.5,
+            "flow": 2,
+            "seconds": 8,
+            "volume": 100,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
         },
         {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "reset temperature",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 1,
+            "name": "decline",
+            "temperature": 78,
             "sensor": "coffee",
-            "temperature": 84,
+            "pump": "pressure",
             "transition": "smooth",
-            "volume": 100
+            "pressure": 3,
+            "flow": 2,
+            "seconds": 30,
+            "volume": 100,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "reset temperature",
+            "temperature": 84,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "smooth",
+            "pressure": 3,
+            "flow": 0,
+            "seconds": 1,
+            "volume": 100,
+            "limiter": {
+                "value": 0,
+                "range": 0.6
+            }
         }
     ],
     "target_volume": 42,
@@ -78,5 +83,8 @@
         93,
         96
     ],
-    "title": "Espresso Forge Dark"
+    "title": "Espresso Forge Dark",
+    "version": "2",
+    "legacy_profile_type": "settings_2c",
+    "number_of_preinfuse_frames": 0
 }

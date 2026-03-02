@@ -1,15 +1,16 @@
 {
+    "title": "Steam only",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 82,
-    "is_recipe_mode": true,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Fast heating of steam, not heating for espresso.   You might want to do this if you only want to steam, not brew. Perhaps you are making hot chocolate, an ice cream custard, or de-wrinkling your clothes with the steam wand.",
-    "preinfuse_frame_count": 1,
-    "profile_type": "settings_2a",
+    "legacy_profile_type": "settings_2a",
+    "version": "2",
+    "number_of_preinfuse_frames": 1,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 0,
+    "target_volume": 30,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,
@@ -17,7 +18,6 @@
         "declineTime": 50,
         "declineTo": 5,
         "dose": 18,
-        "fillExitPressure": 3.8,
         "fillFlow": 7.5,
         "fillPressure": 3.8,
         "fillTemperature": 82,
@@ -38,55 +38,64 @@
         "rampTime": 5,
         "targetWeight": 0
     },
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 3.8,
-            "exit_type": "pressure_over",
-            "flow": 7.5,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 8,
-            "sensor": "coffee",
-            "temperature": 82,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_if": false,
-            "flow": 2,
-            "name": "rise and hold",
-            "pressure": 7.8,
-            "pump": "pressure",
-            "seconds": 4,
-            "sensor": "coffee",
-            "temperature": 80,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 2,
-            "name": "decline",
-            "pressure": 5,
-            "pump": "pressure",
-            "seconds": 50,
-            "sensor": "coffee",
-            "temperature": 72,
-            "transition": "smooth",
-            "volume": 0
-        }
-    ],
-    "target_volume": 30,
-    "target_weight": 0,
+    "mode": "frame_based",
+    "is_recipe_mode": true,
     "temperature_presets": [
         0,
         0,
         0,
         0
     ],
-    "title": "Steam only"
+    "steps": [
+        {
+            "name": "preinfusion",
+            "temperature": 82.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 7.5,
+            "seconds": 8.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3.8
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "rise and hold",
+            "temperature": 80.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 7.8,
+            "flow": 0.0,
+            "seconds": 4.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "decline",
+            "temperature": 72.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 5.0,
+            "flow": 0.0,
+            "seconds": 50.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

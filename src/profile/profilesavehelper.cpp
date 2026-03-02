@@ -216,15 +216,6 @@ void ProfileSaveHelper::saveOverwrite()
 
     QString fullPath = destDir + "/" + m_pending->filename + ".json";
 
-    // Verify directory exists
-    QDir dir(destDir);
-    if (!dir.exists()) {
-        qWarning() << "ProfileSaveHelper::saveOverwrite: Directory does not exist:" << destDir;
-        emit importFailed("Failed to overwrite: destination folder does not exist");
-        m_pending.reset();
-        return;
-    }
-
     qDebug() << "ProfileSaveHelper::saveOverwrite: Saving to" << fullPath;
 
     if (m_pending->profile.saveToFile(fullPath)) {
@@ -433,6 +424,7 @@ QString ProfileSaveHelper::titleToFilename(const QString& title) const
     if (m_controller) {
         return m_controller->titleToFilename(title);
     }
+    qWarning() << "ProfileSaveHelper::titleToFilename: m_controller is null, falling back to simple sanitization for" << title;
     // Fallback: simple sanitization (shouldn't happen in practice)
     QString filename = title.toLower();
     filename.replace(QRegularExpression("[^a-z0-9]+"), "_");

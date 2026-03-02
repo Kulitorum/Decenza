@@ -1,117 +1,114 @@
 {
+    "title": "Two spring lever machine to 9 bar",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 94,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "A final evolution of the classic lever machine style was to add a second spring. This helped work around a deficiency with single springs, namely that the top pressure achieved went down almost immediately, rather than being held.  The second spring required more arm muscle but is often considered the final perfection of the lever espresso style.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2a",
-    "preinfusion_time": 20,
-    "preinfusion_flow_rate": 8.0,
-    "preinfusion_stop_pressure": 4.0,
-    "espresso_pressure": 9.0,
-    "espresso_hold_time": 8,
-    "espresso_decline_time": 26,
-    "pressure_end": 0.0,
-    "maximum_flow_range_default": 1.0,
-    "temp_steps_enabled": true,
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 6,
-            "name": "Prewet",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 4,
-            "sensor": "water",
-            "temperature": 99,
-            "transition": "fast",
-            "volume": 70
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 40,
-            "sensor": "water",
-            "temperature": 97,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 6,
-            "name": "Main water #1",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 14,
-            "sensor": "water",
-            "temperature": 97,
-            "transition": "fast",
-            "volume": 250
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 250
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 5,
-            "name": "Main water #2",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 25,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 200
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Drain",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 175
-        }
-    ],
-    "target_volume": 36,
-    "target_weight": 36,
+    "legacy_profile_type": "settings_2a",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 6.0,
+    "target_weight": 135.0,
+    "target_volume": 180.0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         94,
         94,
         94,
         94
     ],
-    "title": "Two spring lever machine to 9 bar"
+    "steps": [
+        {
+            "name": "Prewet",
+            "temperature": 99.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 6.0,
+            "seconds": 4.0,
+            "volume": 70.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause",
+            "temperature": 97.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 40.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Main water #1",
+            "temperature": 97.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 6.0,
+            "seconds": 14.0,
+            "volume": 250.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 250.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Main water #2",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 5.0,
+            "seconds": 25.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Drain",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 175.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

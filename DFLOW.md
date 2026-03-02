@@ -59,7 +59,6 @@ The de1app uses `settings_profile_type` to distinguish profile complexity:
 | Fill Pressure | `fillPressure` | 3.0 | 0–12 | bar |
 | Fill Flow | `fillFlow` | 8.0 | 0–10 | mL/s |
 | Fill Timeout | `fillTimeout` | 25 | 0+ | s |
-| Fill Exit Pressure | `fillExitPressure` | 3.0 | 0–12 | bar |
 
 ### Infuse Phase
 
@@ -142,7 +141,7 @@ Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
 
 | Frame | Pump | Key Values | Exit | Optional |
 |-------|------|-----------|------|----------|
-| Fill | flow | flow=fillFlow, pressure=fillPressure | pressure_over fillExitPressure | No |
+| Fill | flow | flow=fillFlow, pressure=fillPressure | pressure_over (infusePressure/2 + 0.6, min 1.2) | No |
 | Bloom | flow | flow=0 (rest) | pressure_under 0.5 | bloomEnabled |
 | Infuse | pressure | pressure=infusePressure | time or weight | infuseEnabled |
 | Ramp | flow | flow=pourFlow, pressure=pourPressure, smooth | none (fixed duration) | rampEnabled |
@@ -242,11 +241,9 @@ Recipe profiles store both the recipe parameters and generated frames:
     "fillPressure": 3.0,
     "fillFlow": 8.0,
     "fillTimeout": 25.0,
-    "fillExitPressure": 3.0,
     "infuseEnabled": true,
     "infusePressure": 3.0,
     "infuseTime": 20.0,
-    "infuseByWeight": false,
     "infuseWeight": 4.0,
     "infuseVolume": 100.0,
     "bloomEnabled": false,

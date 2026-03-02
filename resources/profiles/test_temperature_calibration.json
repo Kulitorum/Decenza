@@ -1,108 +1,114 @@
 {
+    "title": "Test/temperature calibration",
     "author": "Decent",
     "beverage_type": "calibrate",
-    "espresso_temperature": 90,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
+    "notes": "Make a device to read \u00baC inside a basket.  Drill a 3mm hole in a no hole basket. Thread a K type temperature bead through. Bend the wire. Run this profile twice to warm up the basket and portafilter. When the DE1 stabilizes at 90\u00baC, if the meter is not 90.0\u00baC then go to Settings->Machine->Calibrate and enter the temperature on your meter.  Press Enter, then Done, then Ok. Run the profile. Repeat until the DE1 is within 0.3\u00baC of the meter.",
+    "legacy_profile_type": "settings_2b",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 6.0,
+    "target_weight": 135.0,
+    "target_volume": 180.0,
     "mode": "frame_based",
-    "notes": "Make a device to read ºC inside a basket.  Drill a 3mm hole in a no hole basket. Thread a K type temperature bead through. Bend the wire. Run this profile twice to warm up the basket and portafilter. When the DE1 stabilizes at 90ºC, if the meter is not 90.0ºC then go to Settings->Machine->Calibrate and enter the temperature on your meter.  Press Enter, then Done, then Ok. Run the profile. Repeat until the DE1 is within 0.3ºC of the meter.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2b",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 6,
-            "name": "Prewet",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 4,
-            "sensor": "water",
-            "temperature": 99,
-            "transition": "fast",
-            "volume": 70
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 40,
-            "sensor": "water",
-            "temperature": 97,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 6,
-            "name": "Main water #1",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 14,
-            "sensor": "water",
-            "temperature": 97,
-            "transition": "fast",
-            "volume": 250
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 250
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 5,
-            "name": "Main water #2",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 25,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 200
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "Drain",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "water",
-            "temperature": 95,
-            "transition": "fast",
-            "volume": 175
-        }
-    ],
-    "target_volume": 0,
-    "target_weight": 0,
+    "is_recipe_mode": false,
     "temperature_presets": [
         90,
         90,
         90,
         90
     ],
-    "title": "Test/temperature calibration"
+    "steps": [
+        {
+            "name": "Prewet",
+            "temperature": 99.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 6.0,
+            "seconds": 4.0,
+            "volume": 70.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause",
+            "temperature": 97.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 40.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Main water #1",
+            "temperature": 97.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 6.0,
+            "seconds": 14.0,
+            "volume": 250.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 250.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Main water #2",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 5.0,
+            "seconds": 25.0,
+            "volume": 200.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Drain",
+            "temperature": 95.0,
+            "sensor": "water",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 175.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

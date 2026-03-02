@@ -1,113 +1,120 @@
 {
+    "title": "Blooming Espresso",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 97.5,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "This technique causes a furor when Rao first published it.  His extraction of 24% is 2% higher than what is usually attainable with only the very best grinders, yet Rao did it with an inexpensive home grinder.  This technique is especially appropriate for lightly roasted, complex and expensive coffee beans.  If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  8 grams of total dripping, within 2 grams, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
-    "preinfuse_frame_count": 2,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion start",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 97.5,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 23,
-            "sensor": "coffee",
-            "temperature": 97.5,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2.2,
-            "name": "ramp",
-            "popup": "$weight",
-            "pressure": 4,
-            "pump": "flow",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "smooth",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2.2,
-            "max_flow_or_pressure": 8.6,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "flat flow",
-            "pressure": 4,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "reset temperature",
-            "pressure": 4,
-            "pump": "flow",
-            "seconds": 1,
-            "sensor": "coffee",
-            "temperature": 98,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 60.0,
     "target_volume": 42,
-    "target_weight": 60,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         97.5,
         97.5,
         97.5,
         97.5
     ],
-    "title": "Blooming Espresso"
+    "steps": [
+        {
+            "name": "preinfusion start",
+            "temperature": 97.5,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 4.0,
+            "seconds": 2.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "preinfusion",
+            "temperature": 97.5,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 4.0,
+            "seconds": 23.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pause",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "ramp",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "smooth",
+            "pressure": 4.0,
+            "flow": 2.2,
+            "seconds": 5.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            },
+            "popup": "$weight"
+        },
+        {
+            "name": "flat flow",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.0,
+            "flow": 2.2,
+            "seconds": 20.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 8.6,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "reset temperature",
+            "temperature": 98.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.0,
+            "flow": 0.0,
+            "seconds": 1.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

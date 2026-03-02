@@ -1,16 +1,16 @@
 {
-    "author": "Decent (D-Flow by Damian)",
+    "title": "D-Flow / La Pavoni",
+    "author": "Damian",
     "beverage_type": "espresso",
-    "espresso_temperature": 94,
-    "is_recipe_mode": true,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
-    "notes": "D-Flow La Pavoni: lever emulation, 1.2 bar infuse, 2.4 ml/s, 9 bar limiter",
-    "profile_notes": "Damian created this profile to simulate the results from his La Pavoni machine which he profiled side by side with a Slayer V3 for same taste in cup.\n\nThe goal is to grind for a pressure peak between 6 and 9 bar.",
-    "preinfuse_frame_count": 1,
-    "profile_type": "settings_2c",
+    "notes": "",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 46.0,
+    "target_volume": 36,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,
@@ -19,7 +19,6 @@
         "declineTo": 1,
         "dose": 18,
         "editorType": "dflow",
-        "fillExitPressure": 1.2,
         "fillFlow": 8,
         "fillPressure": 1.2,
         "fillTemperature": 84,
@@ -38,62 +37,65 @@
         "targetVolume": 36,
         "targetWeight": 46
     },
-    "steps": [
-        {
-            "exit_if": true,
-            "exit_pressure_over": 1.2,
-            "exit_type": "pressure_over",
-            "flow": 0,
-            "max_flow_or_pressure": 0,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Filling",
-            "pressure": 1.2,
-            "pump": "pressure",
-            "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 84,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_if": false,
-            "exit_type": "pressure_over",
-            "exit_weight": 0.2,
-            "flow": 0,
-            "max_flow_or_pressure": 0,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Infusing",
-            "pressure": 1.2,
-            "pump": "pressure",
-            "seconds": 60,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_if": false,
-            "exit_type": "pressure_over",
-            "flow": 2.4,
-            "max_flow_or_pressure": 9.0,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "Pouring",
-            "pressure": 0,
-            "pump": "flow",
-            "seconds": 127,
-            "sensor": "coffee",
-            "temperature": 94,
-            "transition": "smooth",
-            "volume": 0
-        }
-    ],
-    "target_volume": 36,
-    "target_weight": 46,
+    "mode": "frame_based",
+    "is_recipe_mode": true,
     "temperature_presets": [
         94,
         94,
         94,
         94
     ],
-    "title": "D-Flow / La Pavoni"
+    "steps": [
+        {
+            "name": "Filling",
+            "temperature": 84.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 1.2,
+            "flow": 8.0,
+            "seconds": 25.0,
+            "volume": 60.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 1.2
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.2
+            }
+        },
+        {
+            "name": "Infusing",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 1.2,
+            "flow": 8.0,
+            "seconds": 60.0,
+            "volume": 100.0,
+            "weight": 0.2,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.2
+            }
+        },
+        {
+            "name": "Pouring",
+            "temperature": 94.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.8,
+            "flow": 2.4,
+            "seconds": 127.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 9.0,
+                "range": 0.2
+            }
+        }
+    ]
 }

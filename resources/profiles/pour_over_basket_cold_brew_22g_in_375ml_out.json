@@ -1,137 +1,144 @@
 {
+    "title": "Pour over basket/Cold brew 22g in, 375ml out",
     "author": "Decent",
     "beverage_type": "pourover",
-    "espresso_temperature": 20,
-    "is_recipe_mode": false,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Brewing with cold water substantially slows the flow rate of liquid through the coffee bed and often leads to choking. We set the flow rate very low for our cold brew recipe in order to provide steady flow, mitigate choking, and promote an even extraction. We recommend grinding a little coarser for cold brew than for hot-water brewing. Expect cold-brew extraction levels to be a couple of points lower than hot-water extractions.  We recommend giving the brewer a gentle spin after prewetting and after the last pulse of water has sprayed.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 1.5,
-            "exit_type": "pressure_over",
-            "flow": 6,
-            "name": "preinfusion",
-            "pressure": 0,
-            "pump": "flow",
-            "seconds": 14,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "bloom*",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2.5,
-            "name": "pulse",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 60,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "pause",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "pulse",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 60,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "pause",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "pulse",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 52,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0.1,
-            "name": "pulse*",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 20,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
-    "target_volume": 32,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 32,
+    "target_volume": 32,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         20,
         20,
         20,
         20
     ],
-    "title": "Pour over basket/Cold brew 22g in, 375ml out"
+    "steps": [
+        {
+            "name": "preinfusion",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 6.0,
+            "seconds": 14.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "bloom*",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 0.0,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pulse",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 2.5,
+            "seconds": 60.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pause",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 0.0,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pulse",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 2.0,
+            "seconds": 60.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pause",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 0.0,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pulse",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 2.0,
+            "seconds": 52.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pulse*",
+            "temperature": 20.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.1,
+            "seconds": 2.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

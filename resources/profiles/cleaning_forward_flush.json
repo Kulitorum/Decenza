@@ -1,99 +1,114 @@
 {
+    "title": "Cleaning/Forward flush",
     "author": "Decent",
     "beverage_type": "cleaning",
-    "espresso_temperature": 85,
-    "is_recipe_mode": false,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Use this profile with some cleaning product in a blind (no hole) portafilter basket, to thoroughly clean the inside of the group head.",
-    "preinfuse_frame_count": 2,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 7,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "Pressure rise 1",
-            "pressure": 6.8,
-            "pump": "flow",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 85,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 7,
-            "exit_type": "pressure_over",
-            "flow": 6.5,
-            "name": "Pause 1",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 85,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 7,
-            "exit_type": "pressure_over",
-            "flow": 6.5,
-            "name": "Pressure rise 2",
-            "pressure": 6.8,
-            "pump": "flow",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 85,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 7,
-            "exit_type": "pressure_over",
-            "flow": 6.5,
-            "name": "Pause 2",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 85,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 7,
-            "exit_type": "pressure_over",
-            "flow": 6.5,
-            "name": "Pressure rise 3",
-            "pressure": 6.8,
-            "pump": "flow",
-            "seconds": 15,
-            "sensor": "coffee",
-            "temperature": 85,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
-    "target_volume": 36,
-    "target_weight": 36,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 6.0,
+    "target_weight": 36.0,
+    "target_volume": 36.0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         85,
         85,
         85,
         85
     ],
-    "title": "Cleaning/Forward flush"
+    "steps": [
+        {
+            "name": "Pressure rise 1",
+            "temperature": 85.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.8,
+            "flow": 4.0,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 7.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause 1",
+            "temperature": 85.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 6.5,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressure rise 2",
+            "temperature": 85.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.8,
+            "flow": 6.5,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 7.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause 2",
+            "temperature": 85.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 6.5,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressure rise 3",
+            "temperature": 85.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.8,
+            "flow": 6.5,
+            "seconds": 15.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 7.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

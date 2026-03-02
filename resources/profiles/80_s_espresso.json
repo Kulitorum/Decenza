@@ -1,79 +1,89 @@
 {
+    "title": "80's Espresso",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 82,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "For medium to dark roasted beans. Produced a complex espresso meant for sipping, not for mixing with milk. The low starting temperature of 82C--which declines to 72C--is the magic.  This creates a silky, textured shot with good aroma, pleasant acidity, great complexity, and no off flavors. There are two styles: a ristretto or a double shot.  With a ristretto, put the recommended dose weight (ie, 14g, 15g, 18g, 20g) into the basket, and pull it as a 1:1 ratio shot.  For a double shot, updose by 10% to 20% and extract to a 2:1 ratio (and grind a bit coarser).  With both approaches, immediately after preinfusion aim for a flow rate in the range of 0.5-1.2ml/sec. The darker the roast, the slower the recommended flow rate. The ristretto has more flavor and complexity while the overdosed double shot is very smooth, easy to drink, and classic.",
-    "preinfuse_frame_count": 1,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 3.8,
-            "exit_type": "pressure_over",
-            "flow": 7.5,
-            "name": "preinfusion start",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 82,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 3.8,
-            "exit_type": "pressure_over",
-            "flow": 7.5,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 6,
-            "sensor": "coffee",
-            "temperature": 82,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_if": false,
-            "flow": 2,
-            "name": "rise and hold",
-            "pressure": 7.8,
-            "pump": "pressure",
-            "seconds": 4,
-            "sensor": "coffee",
-            "temperature": 80,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "flow": 2,
-            "name": "decline",
-            "pressure": 5,
-            "pump": "pressure",
-            "seconds": 50,
-            "sensor": "coffee",
-            "temperature": 72,
-            "transition": "smooth",
-            "volume": 0
-        }
-    ],
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 1,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 36.0,
     "target_volume": 30,
-    "target_weight": 36,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         82,
         82,
         80,
         72
     ],
-    "title": "80's Espresso"
+    "steps": [
+        {
+            "name": "preinfusion start",
+            "temperature": 82.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 7.5,
+            "seconds": 2.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "preinfusion",
+            "temperature": 82.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 7.5,
+            "seconds": 6.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3.8
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "rise and hold",
+            "temperature": 80.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 7.8,
+            "flow": 0.0,
+            "seconds": 4.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "decline",
+            "temperature": 72.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 5.0,
+            "flow": 0.0,
+            "seconds": 50.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

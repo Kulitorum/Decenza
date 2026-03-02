@@ -1,21 +1,26 @@
 {
-    "title": "Gagné/Adaptive Shot 92C v1.0",
+    "title": "Gagn\u00e9/Adaptive Shot 92C v1.0",
     "author": "Decent",
-    "notes": "Gagne adaptive shot with blooming from 4 to 2 bar. Adaptive pressure based on flow rate - lower resistance = declining pressure, higher resistance = increasing pressure. Best with large flat burr and light roasts. 20g dose, 1:2 to 1:2.5 ratio, 25-45s total.",
     "beverage_type": "espresso",
-    "profile_type": "settings_2c",
+    "notes": "The more forgiving evolution of Scott Rao's original blooming profile. Designed to produce tasty espressos from a wide range of grind settings. Accomplished by 2 main features in the recipe: 1. The Blooming stage declines from 4 bar to 2 bar. Blooming time is dictated by the grind size (Course is shorter, finer is longer) and ensures a more consistent puck resistance.  2. An adaptive pressure phase based on the flow rate evolution. e.g. When resistance is lower (faster flowrate) pressure declines. If resistance is higher (slower flowrate) pressure increases.  Best used with a large flat burr and light roasts. If using darker roasts, reduce the temps to 84\u00b0C-86\u00b0C and increase the exit pressure to enable a shorter bloom. Note conical burrs can use higher temperatures.  20g dose with a ratio between 1 : 2 to 1 : 2.5 with total shot times ranging from 25 to 45 seconds.",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 0,
     "target_volume": 0,
-    "espresso_temperature": 92.0,
-    "temperature_presets": [88.0, 90.0, 92.0, 94.0],
-    "maximum_pressure": 0,
-    "maximum_flow": 0,
-    "minimum_pressure": 0.0,
-    "preinfuse_frame_count": 2,
     "mode": "frame_based",
+    "temperature_presets": [
+        88.0,
+        90.0,
+        92.0,
+        94.0
+    ],
     "steps": [
         {
-            "name": "Preinfusion",
+            "name": "preinfusion",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -23,16 +28,19 @@
             "pressure": 1.0,
             "flow": 3.5,
             "seconds": 15.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "pressure_over",
-            "exit_pressure_over": 4.0,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 0
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Rise and hold",
+            "name": "rise and hold",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "pressure",
@@ -40,16 +48,14 @@
             "pressure": 8.6,
             "flow": 0.0,
             "seconds": 4.0,
-            "volume": 100,
-            "exit_if": false,
-            "exit_type": "pressure_over",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 0
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 3.5 mL/s",
+            "name": "Scan 3.5 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -57,16 +63,19 @@
             "pressure": 6.0,
             "flow": 3.5,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 3.4
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 3.4
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 3.3 mL/s",
+            "name": "Scan 3.3 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -74,16 +83,19 @@
             "pressure": 6.0,
             "flow": 3.3,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 3.2
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 3.2
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 3.1 mL/s",
+            "name": "Scan 3.1 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -91,16 +103,19 @@
             "pressure": 6.0,
             "flow": 3.1,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 3.0
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 3.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.9 mL/s",
+            "name": "Scan 2.9 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -108,16 +123,19 @@
             "pressure": 6.0,
             "flow": 2.9,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.8
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.8
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.7 mL/s",
+            "name": "Scan 2.7 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -125,16 +143,19 @@
             "pressure": 6.0,
             "flow": 2.7,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.6
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.6
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.6 mL/s",
+            "name": "Scan 2.6 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -142,16 +163,19 @@
             "pressure": 6.0,
             "flow": 2.6,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.5
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.5
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.5 mL/s",
+            "name": "Scan 2.5 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -159,16 +183,19 @@
             "pressure": 6.0,
             "flow": 2.5,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.4
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.4
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.4 mL/s",
+            "name": "Scan 2.4 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -176,16 +203,19 @@
             "pressure": 6.0,
             "flow": 2.4,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.3
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.3
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.3 mL/s",
+            "name": "Scan 2.3 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -193,16 +223,19 @@
             "pressure": 6.0,
             "flow": 2.3,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.2
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.2
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.2 mL/s",
+            "name": "Scan 2.2 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -210,16 +243,19 @@
             "pressure": 6.0,
             "flow": 2.2,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.1
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.1
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.1 mL/s",
+            "name": "Scan 2.1 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -227,16 +263,19 @@
             "pressure": 6.0,
             "flow": 2.1,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 2.0
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 2.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 2.0 mL/s",
+            "name": "Scan 2.0 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -244,16 +283,19 @@
             "pressure": 6.0,
             "flow": 2.0,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 1.9
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 1.9
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 1.8 mL/s",
+            "name": "Scan 1.8 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -261,16 +303,19 @@
             "pressure": 6.0,
             "flow": 1.8,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 1.7
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 1.7
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 1.6 mL/s",
+            "name": "Scan 1.6 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -278,16 +323,19 @@
             "pressure": 6.0,
             "flow": 1.6,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 1.5
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 1.5
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 1.4 mL/s",
+            "name": "Scan 1.4 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -295,16 +343,19 @@
             "pressure": 6.0,
             "flow": 1.4,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 1.3
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 1.3
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 1.2 mL/s",
+            "name": "Scan 1.2 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -312,16 +363,19 @@
             "pressure": 6.0,
             "flow": 1.2,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 1.1
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 1.1
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Scan 1.0 mL/s",
+            "name": "Scan 1.0 mL.s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -329,16 +383,19 @@
             "pressure": 6.0,
             "flow": 1.0,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": true,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 0.9
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 0.9
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         },
         {
-            "name": "Last resort",
+            "name": "last resort",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
@@ -346,13 +403,11 @@
             "pressure": 6.0,
             "flow": 0.5,
             "seconds": 127.0,
-            "volume": 100,
-            "exit_if": false,
-            "exit_type": "flow_under",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 1.8
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
         }
     ]
 }

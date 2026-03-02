@@ -3,15 +3,18 @@
     "author": "Decenza DE1",
     "notes": "Simple pressure profiled espresso with preinfusion",
     "beverage_type": "espresso",
-    "profile_type": "settings_2c",
     "target_weight": 36.0,
     "target_volume": 36.0,
     "espresso_temperature": 93.0,
-    "temperature_presets": [88.0, 90.0, 93.0, 96.0],
+    "temperature_presets": [
+        88.0,
+        90.0,
+        93.0,
+        96.0
+    ],
     "maximum_pressure": 12.0,
     "maximum_flow": 6.0,
     "minimum_pressure": 0.0,
-    "preinfuse_frame_count": 1,
     "mode": "frame_based",
     "is_recipe_mode": true,
     "recipe": {
@@ -43,12 +46,15 @@
             "flow": 2.0,
             "seconds": 15.0,
             "volume": 0,
-            "exit_if": true,
-            "exit_type": "pressure_over",
-            "exit_pressure_over": 3.0,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 0,
-            "exit_flow_under": 0
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3.0
+            },
+            "limiter": {
+                "value": 0,
+                "range": 0.2
+            }
         },
         {
             "name": "Extraction",
@@ -60,7 +66,13 @@
             "flow": 2.0,
             "seconds": 45.0,
             "volume": 0,
-            "exit_if": false
+            "limiter": {
+                "value": 0,
+                "range": 0.2
+            }
         }
-    ]
+    ],
+    "version": "2",
+    "legacy_profile_type": "settings_2c",
+    "number_of_preinfuse_frames": 1
 }

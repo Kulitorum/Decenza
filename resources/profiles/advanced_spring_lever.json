@@ -1,15 +1,16 @@
 {
+    "title": "Advanced spring lever",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 88,
-    "is_recipe_mode": true,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Advanced spring lever profile, with additional constant flow step to salvage overly slow and fast flowing shots.",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 32.0,
+    "target_volume": 32,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,
@@ -17,7 +18,6 @@
         "declineTime": 30,
         "declineTo": 6,
         "dose": 18,
-        "fillExitPressure": 6,
         "fillFlow": 8,
         "fillPressure": 6,
         "fillTemperature": 88,
@@ -38,95 +38,104 @@
         "rampTime": 5,
         "targetWeight": 32
     },
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 6,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "2s infuse",
-            "pressure": 0,
-            "pump": "flow",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 6,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "infuse",
-            "pressure": 0,
-            "pump": "flow",
-            "seconds": 10,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "rise and hold",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 3,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 1.2,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 6,
-            "exit_type": "pressure_under",
-            "flow": 8,
-            "max_flow_or_pressure": 1.5,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "decline",
-            "pressure": 6,
-            "pump": "pressure",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 0
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_over",
-            "flow": 1.5,
-            "max_flow_or_pressure": 6,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "maintain flow",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 0
-        }
-    ],
-    "target_volume": 32,
-    "target_weight": 32,
+    "mode": "frame_based",
+    "is_recipe_mode": true,
     "temperature_presets": [
         88,
         88,
         88,
         88
     ],
-    "title": "Advanced spring lever"
+    "steps": [
+        {
+            "name": "2s infuse",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 8.0,
+            "seconds": 2.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 6.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "infuse",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 0.0,
+            "flow": 8.0,
+            "seconds": 10.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 6.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "rise and hold",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 8.0,
+            "seconds": 3.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "decline",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 6.0,
+            "flow": 8.0,
+            "seconds": 30.0,
+            "volume": 0.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "under",
+                "value": 6.0
+            },
+            "limiter": {
+                "value": 1.5,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "maintain flow",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "smooth",
+            "pressure": 3.0,
+            "flow": 1.5,
+            "seconds": 30.0,
+            "volume": 0.0,
+            "limiter": {
+                "value": 6.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

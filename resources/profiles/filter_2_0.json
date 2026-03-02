@@ -1,84 +1,85 @@
 {
+    "title": "Filter 2.0",
     "author": "Decent",
     "beverage_type": "filter",
-    "espresso_temperature": 92,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "A new technique developed by Scott Rao, for making filter coffee with an espresso machine and 24g basket.  The process: (1) insert two micron 55mm paper filter into the bottom of a clean portafilter basket.  (2) Rinser the filter and basket with hot water.  (3) Fill the basket with 20g to 22g of finely ground coffee, not quite espresso grind, but far finer than any filter grind.  (4) WDT the grounds.  (5) tamping is optional.  (6) Place a metal mesh filter on top.  (7) Lock in the portafilter and make the espresso to a 5:1 ratio. (8) Dilute with 225g-250g of water.",
-    "preinfuse_frame_count": 1,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 5,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 6,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 465
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "pause",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 120,
-            "sensor": "coffee",
-            "temperature": 85,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "exit_weight": 150,
-            "flow": 3,
-            "max_flow_or_pressure": 3,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "flat flow",
-            "pressure": 4,
-            "pump": "flow",
-            "seconds": 120,
-            "sensor": "coffee",
-            "temperature": 85,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 0,
-            "name": "reset temperature",
-            "pressure": 4,
-            "pump": "flow",
-            "seconds": 1,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
-    "target_volume": 100,
-    "target_weight": 100,
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 1,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 100.0,
+    "target_volume": 100.0,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         92,
         92,
         92,
         92
     ],
-    "title": "Filter 2.0"
+    "steps": [
+        {
+            "name": "preinfusion",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 5.0,
+            "seconds": 6.0,
+            "volume": 465.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "pause",
+            "temperature": 85.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 120.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "flat flow",
+            "temperature": 85.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.0,
+            "flow": 3.0,
+            "seconds": 120.0,
+            "volume": 500.0,
+            "weight": 150.0,
+            "limiter": {
+                "value": 3.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "reset temperature",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.0,
+            "flow": 0.0,
+            "seconds": 1.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

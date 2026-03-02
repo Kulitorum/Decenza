@@ -54,14 +54,12 @@ struct RecipeParams {
     double fillPressure = 3.0;          // Fill pressure (bar)
     double fillFlow = 8.0;              // Fill flow rate (mL/s)
     double fillTimeout = 25.0;          // Max fill duration (seconds)
-    double fillExitPressure = 3.0;      // Exit to infuse when pressure over (bar)
 
     // === Infuse Phase (Preinfusion/Soak) ===
     bool infuseEnabled = true;          // Enable infuse phase
     double infusePressure = 3.0;        // Soak pressure (bar)
     double infuseTime = 20.0;           // Soak duration (seconds)
-    bool infuseByWeight = false;        // Exit on weight instead of time
-    double infuseWeight = 4.0;          // Weight to exit infuse (grams)
+    double infuseWeight = 4.0;          // Weight to exit infuse (grams, 0 = disabled)
     double infuseVolume = 100.0;        // Max volume during infuse (mL)
     bool bloomEnabled = false;          // Enable bloom (pause with 0 flow)
     double bloomTime = 10.0;            // Bloom pause duration (seconds)

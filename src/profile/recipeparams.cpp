@@ -49,7 +49,6 @@ QStringList RecipeParams::validate() const {
             issues << QString("%1 out of range [0, 12]: %2").arg(name).arg(p);
     };
     checkPressure(fillPressure, "fillPressure");
-    checkPressure(fillExitPressure, "fillExitPressure");
     checkPressure(infusePressure, "infusePressure");
     checkPressure(pourPressure, "pourPressure");
     checkPressure(espressoPressure, "espressoPressure");
@@ -101,7 +100,7 @@ void RecipeParams::clamp() {
         clampVal(*t, 0.0, 110.0);
 
     // Pressures (0-12)
-    for (double* p : {&fillPressure, &fillExitPressure, &infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
+    for (double* p : {&fillPressure, &infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
         clampVal(*p, 0.0, 12.0);
 
     // Flows (0-10)
@@ -130,13 +129,11 @@ QJsonObject RecipeParams::toJson() const {
     obj["fillPressure"] = fillPressure;
     obj["fillFlow"] = fillFlow;
     obj["fillTimeout"] = fillTimeout;
-    obj["fillExitPressure"] = fillExitPressure;
 
     // Infuse
     obj["infuseEnabled"] = infuseEnabled;
     obj["infusePressure"] = infusePressure;
     obj["infuseTime"] = infuseTime;
-    obj["infuseByWeight"] = infuseByWeight;
     obj["infuseWeight"] = infuseWeight;
     obj["infuseVolume"] = infuseVolume;
     obj["bloomEnabled"] = bloomEnabled;
@@ -201,13 +198,11 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     params.fillPressure = json["fillPressure"].toDouble(3.0);
     params.fillFlow = json["fillFlow"].toDouble(8.0);
     params.fillTimeout = json["fillTimeout"].toDouble(25.0);
-    params.fillExitPressure = json["fillExitPressure"].toDouble(3.0);
 
     // Infuse
     params.infuseEnabled = json["infuseEnabled"].toBool(true);  // Default true for legacy
     params.infusePressure = json["infusePressure"].toDouble(3.0);
     params.infuseTime = json["infuseTime"].toDouble(20.0);
-    params.infuseByWeight = json["infuseByWeight"].toBool(false);
     params.infuseWeight = json["infuseWeight"].toDouble(4.0);
     params.infuseVolume = json["infuseVolume"].toDouble(100.0);
     params.bloomEnabled = json["bloomEnabled"].toBool(false);
@@ -287,13 +282,11 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["fillPressure"] = fillPressure;
     map["fillFlow"] = fillFlow;
     map["fillTimeout"] = fillTimeout;
-    map["fillExitPressure"] = fillExitPressure;
 
     // Infuse
     map["infuseEnabled"] = infuseEnabled;
     map["infusePressure"] = infusePressure;
     map["infuseTime"] = infuseTime;
-    map["infuseByWeight"] = infuseByWeight;
     map["infuseWeight"] = infuseWeight;
     map["infuseVolume"] = infuseVolume;
     map["bloomEnabled"] = bloomEnabled;
@@ -358,13 +351,11 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     params.fillPressure = map.value("fillPressure", 3.0).toDouble();
     params.fillFlow = map.value("fillFlow", 8.0).toDouble();
     params.fillTimeout = map.value("fillTimeout", 25.0).toDouble();
-    params.fillExitPressure = map.value("fillExitPressure", 3.0).toDouble();
 
     // Infuse
     params.infuseEnabled = map.value("infuseEnabled", true).toBool();  // Default true for legacy
     params.infusePressure = map.value("infusePressure", 3.0).toDouble();
     params.infuseTime = map.value("infuseTime", 20.0).toDouble();
-    params.infuseByWeight = map.value("infuseByWeight", false).toBool();
     params.infuseWeight = map.value("infuseWeight", 4.0).toDouble();
     params.infuseVolume = map.value("infuseVolume", 100.0).toDouble();
     params.bloomEnabled = map.value("bloomEnabled", false).toBool();

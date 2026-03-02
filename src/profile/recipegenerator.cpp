@@ -117,8 +117,8 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
     frame.sensor = "coffee";
     frame.volume = 100.0;
 
-    // Exit when pressure builds (indicates puck is saturated)
-    // de1app formula: exit_pressure_over = infusePressure, halved+0.6 when >= 2.8, min 1.2
+    // Exit when pressure builds (indicates puck is saturated).
+    // Threshold matches de1app formula: pressure/2 + 0.6 for high pressures, else pressure itself.
     double exitP = recipe.infusePressure;
     if (exitP >= 2.8)
         exitP = std::round((exitP / 2.0 + 0.6) * 10.0) / 10.0;
@@ -177,15 +177,10 @@ ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
     frame.sensor = "coffee";
     frame.volume = recipe.infuseVolume;
 
-    // Duration depends on mode
-    if (recipe.infuseByWeight) {
-        // Long timeout: app monitors scale weight and sends SkipToNext when target is reached
-        frame.seconds = 60.0;
-        // Set exit weight for app-side SkipToNext (independent of exitIf per CLAUDE.md)
-        frame.exitWeight = recipe.infuseWeight;
-    } else {
-        frame.seconds = recipe.infuseTime;
-    }
+    // "First reached" exits: time is the max timeout, weight exits early if reached first
+    frame.seconds = recipe.infuseTime;
+    if (recipe.infuseWeight > 0)
+        frame.exitWeight = recipe.infuseWeight;  // app-side SkipToNext when scale hits target
 
     // No machine-side exit condition; time-based exits via frame timeout, weight-based exits via app-side SkipToNext
     // Dead exit fields stored for de1app compatibility
@@ -332,12 +327,9 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         infuse.sensor = "coffee";
         infuse.volume = recipe.infuseVolume;
 
-        if (recipe.infuseByWeight) {
-            infuse.seconds = 60.0;
+        infuse.seconds = recipe.infuseTime;
+        if (recipe.infuseWeight > 0)
             infuse.exitWeight = recipe.infuseWeight;
-        } else {
-            infuse.seconds = recipe.infuseTime;
-        }
 
         // Dead exit fields (exit_if=false, but stored for de1app compatibility)
         infuse.exitIf = false;

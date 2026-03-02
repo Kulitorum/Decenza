@@ -1,15 +1,16 @@
 {
+    "title": "Damian's LM Leva",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 89,
-    "is_recipe_mode": true,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "Damian wrote this profile to mimic a shot Gabor Laczko recorded on a La Marzocco Leva machine using his Smart Espresso Profiler. He feels that this is a great profile for non milk drinks, it highlights flavours in a smooth balanced way, with a more creamy body than the thicker chocolatey body of the LRv2 profile. By Damian Brakel",
-    "preinfuse_frame_count": 2,
-    "profile_type": "settings_2c",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 42.0,
+    "target_volume": 36,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,
@@ -17,7 +18,6 @@
         "declineTime": 58,
         "declineTo": 2.2,
         "dose": 18,
-        "fillExitPressure": 1,
         "fillFlow": 11,
         "fillPressure": 1.8,
         "fillTemperature": 89,
@@ -38,104 +38,124 @@
         "rampTime": 5,
         "targetWeight": 42
     },
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 1,
-            "exit_type": "pressure_over",
-            "flow": 11,
-            "name": "fill start",
-            "pressure": 1.8,
-            "pump": "pressure",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 1,
-            "exit_type": "pressure_over",
-            "flow": 11,
-            "name": "fill",
-            "pressure": 1.8,
-            "pump": "pressure",
-            "seconds": 20,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 1.5,
-            "name": "preinfusion",
-            "pressure": 2.2,
-            "pump": "pressure",
-            "seconds": 10,
-            "sensor": "coffee",
-            "temperature": 88.5,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 1.5,
-            "exit_if": true,
-            "exit_pressure_over": 8,
-            "exit_type": "pressure_over",
-            "flow": 2,
-            "name": "rise",
-            "pressure": 8,
-            "pump": "pressure",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 1.5,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_over",
-            "flow": 2,
-            "name": "hold",
-            "pressure": 8,
-            "pump": "pressure",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "decline",
-            "pressure": 2.2,
-            "pump": "pressure",
-            "seconds": 58,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 100
-        }
-    ],
-    "target_volume": 36,
-    "target_weight": 42,
+    "mode": "frame_based",
+    "is_recipe_mode": true,
     "temperature_presets": [
         89,
         89,
         89,
         89
     ],
-    "title": "Damian's LM Leva"
+    "steps": [
+        {
+            "name": "fill start",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 1.8,
+            "flow": 11.0,
+            "seconds": 2.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "fill",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 1.8,
+            "flow": 11.0,
+            "seconds": 20.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 1.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "preinfusion",
+            "temperature": 88.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2.2,
+            "flow": 1.5,
+            "seconds": 10.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "rise",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 8.0,
+            "flow": 0.0,
+            "seconds": 5.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 8.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "hold",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 8.0,
+            "flow": 0.0,
+            "seconds": 5.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "over",
+                "value": 1.5
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "decline",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 2.2,
+            "flow": 0.0,
+            "seconds": 58.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

@@ -15,6 +15,14 @@ Page {
     Component.onCompleted: root.currentPageTitle = trPageTitle.text
     StackView.onActivated: root.currentPageTitle = trPageTitle.text
 
+    // Cancel any pending duplicate resolution when navigating away to avoid
+    // leaving ProfileSaveHelper in a stuck state that blocks future imports.
+    Component.onDestruction: {
+        if (showingDuplicateChoice) {
+            MainController.visualizerImporter.cancelPending()
+        }
+    }
+
     // Import success/failure handling
     Connections {
         target: MainController.visualizerImporter

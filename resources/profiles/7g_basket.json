@@ -1,24 +1,16 @@
 {
+    "title": "7g basket",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 90,
-    "is_recipe_mode": true,
-    "maximum_flow": 6,
-    "maximum_pressure": 12,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "This profile is optimized for the 7g Decent Basket.  You should weigh 7g of beans and dose them into the center mini-basket at the bottom.  You'll need a small 36mm tamper.  The flow rate is slowed down to prevent disturbing the puck.  A lower pressure is used to compensate for the lower puck integrity.  Final shot weight should be 18 to 28 grams.",
-    "preinfuse_frame_count": 2,
-    "profile_type": "settings_2a",
-    "preinfusion_time": 8,
-    "preinfusion_flow_rate": 2.4,
-    "preinfusion_stop_pressure": 4.5,
-    "espresso_pressure": 7.5,
-    "espresso_hold_time": 6,
-    "espresso_decline_time": 10,
-    "pressure_end": 4.5,
-    "maximum_flow_range_default": 1.0,
-    "temp_steps_enabled": true,
+    "legacy_profile_type": "settings_2a",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 12.0,
+    "maximum_flow": 6.0,
+    "minimum_pressure": 6.0,
+    "target_weight": 36.0,
+    "target_volume": 36.0,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,
@@ -26,7 +18,6 @@
         "declineTime": 27,
         "declineTo": 6,
         "dose": 18,
-        "fillExitPressure": 4,
         "fillFlow": 4.5,
         "fillPressure": 4,
         "fillTemperature": 92,
@@ -47,77 +38,84 @@
         "rampTime": 5,
         "targetWeight": 35
     },
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4.5,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 0,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4.5,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 20,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "max_flow_or_pressure": 8,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "rise and hold",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 8,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "max_flow_or_pressure": 8,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "decline",
-            "pressure": 0,
-            "pump": "pressure",
-            "seconds": 27,
-            "sensor": "coffee",
-            "temperature": 92,
-            "transition": "smooth",
-            "volume": 100
-        }
-    ],
-    "target_volume": 36,
-    "target_weight": 35,
+    "mode": "frame_based",
+    "is_recipe_mode": true,
     "temperature_presets": [
         90,
         90,
         90,
         90
     ],
-    "title": "7g basket"
+    "steps": [
+        {
+            "name": "preinfusion",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 4.5,
+            "seconds": 0.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "preinfusion",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 4.5,
+            "seconds": 20.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "rise and hold",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 8.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 8.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "decline",
+            "temperature": 92.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 0.0,
+            "flow": 0.0,
+            "seconds": 27.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 8.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

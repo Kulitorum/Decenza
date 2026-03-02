@@ -99,7 +99,6 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         params.fillPressure = extractFillPressure(fillFrame);
         params.fillTimeout = fillFrame.seconds;
         params.fillFlow = fillFrame.flow > 0 ? fillFrame.flow : 8.0;
-        params.fillExitPressure = fillFrame.exitPressureOver > 0 ? fillFrame.exitPressureOver : 3.0;
         // Use fill frame temperature
         if (fillFrame.temperature > 0) {
             params.fillTemperature = fillFrame.temperature;
@@ -120,7 +119,7 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         params.infusePressure = extractInfusePressure(infuseFrame);
         params.infuseTime = extractInfuseTime(infuseFrame);
         params.infuseVolume = infuseFrame.volume > 0 ? infuseFrame.volume : 100.0;
-        params.infuseByWeight = false;  // Hard to detect from frames
+        params.infuseWeight = infuseFrame.exitWeight;  // App-side weight exit (0 = no weight exit)
     }
 
     // Extract ramp time
@@ -224,7 +223,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
             params.fillPressure = extractFillPressure(frame);
             params.fillTimeout = frame.seconds > 0 ? frame.seconds : 25.0;
             params.fillFlow = frame.flow > 0 ? frame.flow : 8.0;
-            params.fillExitPressure = frame.exitPressureOver > 0 ? frame.exitPressureOver : 3.0;
             if (frame.temperature > 0) {
                 params.fillTemperature = frame.temperature;
             }
@@ -473,10 +471,6 @@ double RecipeAnalyzer::extractPressureLimit(const ProfileFrame& frame) {
         return frame.maxFlowOrPressure;
     }
     return 0.0;
-}
-
-double RecipeAnalyzer::extractDeclinePressure(const ProfileFrame& frame) {
-    return frame.pressure > 0 ? frame.pressure : 6.0;
 }
 
 double RecipeAnalyzer::extractDeclineTime(const ProfileFrame& frame) {

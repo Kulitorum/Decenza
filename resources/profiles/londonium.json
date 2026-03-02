@@ -1,128 +1,129 @@
 {
+    "title": "Londonium",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 89,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
-    "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 2nd edition.  This is identical to the LRv2 profile, but renamed to be easier to understand. By Damian Brakel",
-    "preinfuse_frame_count": 0,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 1.5,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Fill start",
-            "pressure": 2,
-            "pump": "pressure",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 1.5,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Fill",
-            "pressure": 2,
-            "pump": "pressure",
-            "seconds": 25,
-            "sensor": "coffee",
-            "temperature": 89,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 3,
-            "exit_type": "pressure_over",
-            "flow": 8,
-            "name": "Infuse",
-            "pressure": 3,
-            "pump": "pressure",
-            "seconds": 12,
-            "sensor": "coffee",
-            "temperature": 88.5,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2,
-            "name": "Pressure Up",
-            "popup": "$weight",
-            "pressure": 9,
-            "pump": "pressure",
-            "seconds": 8,
-            "sensor": "coffee",
-            "temperature": 88.5,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 2.8,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_over",
-            "flow": 2,
-            "name": "Pressure Decline",
-            "pressure": 3,
-            "pump": "pressure",
-            "seconds": 55,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "smooth",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 2.8,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_over",
-            "flow": 2,
-            "name": "Pressure Hold",
-            "pressure": 3,
-            "pump": "pressure",
-            "seconds": 127,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "flow": 2.5,
-            "name": "Flow Limit",
-            "pressure": 3,
-            "pump": "flow",
-            "seconds": 127,
-            "sensor": "coffee",
-            "temperature": 88,
-            "transition": "fast",
-            "volume": 100
-        }
-    ],
+    "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range.  By Damian Brakel https://www.diy.brakel.com.au/londinium-r-style-profile/",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 36.0,
     "target_volume": 95,
-    "target_weight": 42,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         89,
         89,
         89,
         89
     ],
-    "title": "Londonium"
+    "steps": [
+        {
+            "name": "Fill",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2.0,
+            "flow": 8.0,
+            "seconds": 25.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 1.5
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Infuse",
+            "temperature": 88.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 8.0,
+            "seconds": 12.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressure Up",
+            "temperature": 88.5,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 9.0,
+            "flow": 0.0,
+            "seconds": 8.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressure Decline",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "smooth",
+            "pressure": 3.0,
+            "flow": 0.0,
+            "seconds": 55.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "over",
+                "value": 2.5
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pressure Hold",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 0.0,
+            "seconds": 127.0,
+            "volume": 100.0,
+            "exit": {
+                "type": "flow",
+                "condition": "over",
+                "value": 2.5
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Flow Limit",
+            "temperature": 88.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 3.0,
+            "flow": 2.0,
+            "seconds": 127.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        }
+    ]
 }

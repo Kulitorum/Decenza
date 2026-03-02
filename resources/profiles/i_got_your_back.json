@@ -1,118 +1,134 @@
 {
+    "title": "I got your back",
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 90,
-    "is_recipe_mode": false,
-    "maximum_flow": 0,
-    "maximum_pressure": 0,
-    "minimum_pressure": 0,
-    "mode": "frame_based",
     "notes": "The goal of this profile is to never fail to make an acceptable espresso, at any grinder dial setting. The profile detects the resistance by looking at the pressure. It then either it transitions to a flat 2.2ml/s flow shot at the low resistance (low pressure) or to bloom at the high resistance (high pressure/low flow rate).  Profile created by Shin.",
-    "preinfuse_frame_count": 2,
-    "profile_type": "settings_2c",
-    "steps": [
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion start",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 2,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 4,
-            "exit_type": "pressure_over",
-            "flow": 4,
-            "name": "preinfusion",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 11,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_flow_under": 1.5,
-            "exit_if": true,
-            "exit_pressure_over": 10,
-            "exit_type": "pressure_over",
-            "flow": 2.2,
-            "name": "Low Resistance",
-            "pressure": 1,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 2,
-            "exit_type": "pressure_under",
-            "flow": 0,
-            "name": "Pause at HR",
-            "pressure": 6,
-            "pump": "flow",
-            "seconds": 60,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": false,
-            "exit_pressure_over": 11,
-            "exit_type": "flow_under",
-            "flow": 2.2,
-            "name": "ramp",
-            "pressure": 4,
-            "pump": "flow",
-            "seconds": 5,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "smooth",
-            "volume": 500
-        },
-        {
-            "exit_flow_over": 6,
-            "exit_if": true,
-            "exit_pressure_over": 11,
-            "exit_type": "pressure_under",
-            "flow": 2.2,
-            "max_flow_or_pressure": 8.6,
-            "max_flow_or_pressure_range": 0.6,
-            "name": "flat flow",
-            "pressure": 4,
-            "pump": "flow",
-            "seconds": 30,
-            "sensor": "coffee",
-            "temperature": 90,
-            "transition": "fast",
-            "volume": 500
-        }
-    ],
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 2,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
+    "target_weight": 36.0,
     "target_volume": 42,
-    "target_weight": 36,
+    "mode": "frame_based",
+    "is_recipe_mode": false,
     "temperature_presets": [
         90,
         90,
         90,
         90
     ],
-    "title": "I got your back"
+    "steps": [
+        {
+            "name": "preinfusion start",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 4.0,
+            "seconds": 2.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "preinfusion",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 4.0,
+            "seconds": 11.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Low Resistance",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 1.0,
+            "flow": 2.2,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 10.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "Pause at HR",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 60.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "under",
+                "value": 2.0
+            },
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "ramp",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "smooth",
+            "pressure": 4.0,
+            "flow": 2.2,
+            "seconds": 5.0,
+            "volume": 500.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
+            "name": "flat flow",
+            "temperature": 90.0,
+            "sensor": "coffee",
+            "pump": "flow",
+            "transition": "fast",
+            "pressure": 4.0,
+            "flow": 2.2,
+            "seconds": 30.0,
+            "volume": 500.0,
+            "exit": {
+                "type": "pressure",
+                "condition": "under",
+                "value": 0.0
+            },
+            "limiter": {
+                "value": 8.6,
+                "range": 0.6
+            }
+        }
+    ]
 }

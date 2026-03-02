@@ -1,56 +1,53 @@
 {
-    "title": "Rao Allongé",
+    "title": "Rao Allong\u00e9",
     "author": "Decent",
-    "notes": "An amazing long espresso for light roasts. 5:1 ratio, 35-40 seconds, coarse espresso grind. Aim for 8-9 bar peak. High flow rate means small grind adjustments cause big pressure changes. Averages 24% extraction.",
     "beverage_type": "espresso",
-    "profile_type": "settings_2c",
+    "notes": "An amazing long espresso for light roasts, this is the biggest fruit bomb of any brewing method we know.  5:1 ratio, 35-40 seconds, coarse espresso grind. If close to the right pressure, make 0.5g dose adjustments to get to an 8-9 bar peak. The very high flow rate means small grind adjustments cause big pressure changes. An advanced technique, allong\u00e9 averages 24% extraction.",
+    "legacy_profile_type": "settings_2c",
+    "version": "2",
+    "number_of_preinfuse_frames": 0,
+    "maximum_pressure": 0.0,
+    "maximum_flow": 0.0,
+    "minimum_pressure": 4.0,
     "target_weight": 135.0,
     "target_volume": 180.0,
-    "espresso_temperature": 92.0,
-    "temperature_presets": [88.0, 90.0, 92.0, 94.0],
-    "maximum_pressure": 0,
-    "maximum_flow": 0,
-    "minimum_pressure": 0.0,
-    "preinfuse_frame_count": 0,
     "mode": "frame_based",
+    "temperature_presets": [
+        88.0,
+        90.0,
+        92.0,
+        94.0
+    ],
     "steps": [
         {
-            "name": "Hold at 4.5 ml/s",
+            "name": "hold at 4.5 ml/s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
             "transition": "fast",
-            "pressure": 0,
+            "pressure": 0.0,
             "flow": 4.5,
             "seconds": 2.0,
-            "volume": 500,
-            "max_flow_or_pressure": 8.6,
-            "max_flow_or_pressure_range": 0.6,
-            "exit_if": false,
-            "exit_type": "pressure_over",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 0
+            "volume": 500.0,
+            "limiter": {
+                "value": 8.6,
+                "range": 0.6
+            }
         },
         {
-            "name": "Hold at 4.5 ml/s",
+            "name": "hold at 4.5 ml/s",
             "temperature": 92.0,
             "sensor": "coffee",
             "pump": "flow",
             "transition": "fast",
-            "pressure": 0,
+            "pressure": 0.0,
             "flow": 4.5,
             "seconds": 60.0,
-            "volume": 500,
-            "max_flow_or_pressure": 8.6,
-            "max_flow_or_pressure_range": 0.6,
-            "exit_if": false,
-            "exit_type": "pressure_over",
-            "exit_pressure_over": 11,
-            "exit_pressure_under": 0,
-            "exit_flow_over": 6,
-            "exit_flow_under": 0
+            "volume": 500.0,
+            "limiter": {
+                "value": 8.6,
+                "range": 0.6
+            }
         }
     ]
 }
