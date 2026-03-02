@@ -76,6 +76,7 @@ void VisualizerImporter::importFromShotId(const QString& shotId) {
     }
 
     if (m_importing) {
+        qWarning() << "VisualizerImporter::importFromShotId: called while already importing, ignoring";
         return;
     }
 
@@ -104,6 +105,7 @@ void VisualizerImporter::importFromShotIdWithName(const QString& shotId, const Q
     }
 
     if (m_importing) {
+        qWarning() << "VisualizerImporter::importFromShotIdWithName: called while already importing, ignoring";
         return;
     }
 
@@ -135,6 +137,7 @@ void VisualizerImporter::importFromShareCode(const QString& shareCode) {
     }
 
     if (m_importing) {
+        qWarning() << "VisualizerImporter::importFromShareCode: called while already importing, ignoring";
         return;
     }
 
@@ -196,6 +199,7 @@ void VisualizerImporter::importSelectedShots(const QStringList& shotIds, bool ov
     }
 
     if (m_importing) {
+        qWarning() << "VisualizerImporter::importSelectedShots: called while already importing, ignoring";
         return;
     }
 
@@ -456,27 +460,22 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         return;
     }
 
-    // For renamed imports, use the custom name and save directly
+    // For renamed imports, save with the custom name (with duplicate detection via helper)
     if (isRenamedImport && !customName.isEmpty()) {
         profile.setTitle(customName);
 
-        QString downloadedPath = ProfileSaveHelper::downloadedProfilesPath();
         QString filename = m_saveHelper->titleToFilename(customName);
-        QString fullPath = downloadedPath + "/" + filename + ".json";
-
-        if (profile.saveToFile(fullPath)) {
-            qDebug() << "Successfully imported renamed profile to downloaded folder:" << customName;
-            if (m_controller) {
-                m_controller->refreshProfiles();
-            }
+        ProfileSaveHelper::SaveResult result = m_saveHelper->saveProfile(profile, filename);
+        if (result == ProfileSaveHelper::SaveResult::Saved) {
+            qDebug() << "Successfully imported renamed profile:" << customName;
             emit importSuccess(customName);
-            // Refresh shared shots list to update status
             fetchSharedShots();
-        } else {
+        } else if (result == ProfileSaveHelper::SaveResult::Failed) {
             m_lastError = "Failed to save profile";
             emit lastErrorChanged();
             emit importFailed(m_lastError);
         }
+        // PendingResolution: duplicate dialog shown via helper signal, waiting for user
         return;
     }
 

@@ -154,10 +154,16 @@ Profile ProfileSaveHelper::loadLocalProfile(const QString& filename) const
 
 ProfileSaveHelper::SaveResult ProfileSaveHelper::saveProfile(const Profile& profile, const QString& filename)
 {
+    if (m_pending.has_value()) {
+        qWarning() << "ProfileSaveHelper::saveProfile: called while pending resolution for"
+                   << m_pending->profile.title() << "- ignoring" << profile.title();
+        emit importFailed("Cannot save: another profile is awaiting duplicate resolution.");
+        return SaveResult::Failed;
+    }
+
     QString dlPath = ProfileSaveHelper::downloadedProfilesPath();
     if (dlPath.isEmpty()) {
         qWarning() << "ProfileSaveHelper::saveProfile: Cannot determine profile storage path for" << profile.title();
-        emit importFailed("Cannot access profile storage folder. Check app permissions.");
         return SaveResult::Failed;
     }
 
@@ -360,9 +366,11 @@ void ProfileSaveHelper::saveWithNewName(const QString& newName)
         QFile::exists(":/profiles/" + filename + ".json")) {
         int counter = 2;
         const int MAX_ATTEMPTS = 999;
+        QString dedupedTitle;
         QString newFilename;
         do {
-            newFilename = titleToFilename(newName + " (" + QString::number(counter) + ")");
+            dedupedTitle = newName + " (" + QString::number(counter) + ")";
+            newFilename = titleToFilename(dedupedTitle);
             counter++;
             if (counter > MAX_ATTEMPTS) {
                 qWarning() << "ProfileSaveHelper::saveWithNewName: Could not find unique name after"
@@ -373,6 +381,8 @@ void ProfileSaveHelper::saveWithNewName(const QString& newName)
             }
         } while (QFile::exists(dlPath + "/" + newFilename + ".json") ||
                  QFile::exists(":/profiles/" + newFilename + ".json"));
+        // Keep title and filename in sync
+        m_pending->profile.setTitle(dedupedTitle);
         filename = newFilename;
     }
 

@@ -338,6 +338,7 @@ Page {
 
         property string profileTitle: ""
         property bool showNameInput: false
+        property bool actionTaken: false
 
         contentItem: ColumnLayout {
             spacing: Theme.scaled(15)
@@ -385,6 +386,7 @@ Page {
                     accessibleName: TranslationManager.translate("profileImport.overwriteExisting", "Overwrite existing profile with this version")
                     destructive: true
                     onClicked: {
+                        duplicateDialog.actionTaken = true
                         MainController.profileImporter.saveOverwrite()
                         duplicateDialog.close()
                     }
@@ -405,6 +407,7 @@ Page {
                     text: TranslationManager.translate("profileimport.button.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("profileImport.cancelImport", "Cancel import and close dialog")
                     onClicked: {
+                        duplicateDialog.actionTaken = true
                         MainController.profileImporter.cancelImport()
                         duplicateDialog.close()
                     }
@@ -424,6 +427,7 @@ Page {
                     primary: true
                     enabled: newNameInput.text.trim().length > 0
                     onClicked: {
+                        duplicateDialog.actionTaken = true
                         MainController.profileImporter.saveWithNewName(newNameInput.text.trim())
                         duplicateDialog.close()
                     }
@@ -447,6 +451,11 @@ Page {
         }
 
         onClosed: {
+            // If closed without an action (tap outside, Escape), cancel the pending import
+            if (!actionTaken) {
+                MainController.profileImporter.cancelImport()
+            }
+            actionTaken = false
             showNameInput = false
         }
     }

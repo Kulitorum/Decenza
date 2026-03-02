@@ -182,7 +182,7 @@ void ProfileImporter::processNextScan()
         }
 
         if (!profile.isValid() || profile.title().isEmpty()) {
-            qDebug() << "ProfileImporter: Skipping invalid profile" << filename;
+            qWarning() << "ProfileImporter: Skipping invalid profile" << filename;
             m_processedProfiles++;
             continue;
         }
@@ -265,7 +265,8 @@ void ProfileImporter::importProfile(const QString& sourcePath)
     } else if (result == ProfileSaveHelper::SaveResult::PendingResolution) {
         // Duplicate found - waiting for user decision (signal already emitted by helper)
     } else {
-        // Failed
+        // Failed — helper already logged; surface to UI and reset state
+        setStatus("Failed to save: " + profile.title());
         m_importing = false;
         emit isImportingChanged();
         emit importFailed("Failed to save profile: " + profile.title());
@@ -352,6 +353,7 @@ void ProfileImporter::forceImportProfile(const QString& sourcePath)
             m_controller->refreshProfiles();
         }
     } else {
+        setStatus("Failed to save: " + profile.title());
         m_importing = false;
         emit isImportingChanged();
         emit importFailed("Failed to save profile: " + profile.title());
@@ -398,6 +400,7 @@ void ProfileImporter::importProfileWithName(const QString& sourcePath, const QSt
             m_controller->refreshProfiles();
         }
     } else {
+        setStatus("Failed to save: " + newName);
         m_importing = false;
         emit isImportingChanged();
         emit importFailed("Failed to save profile: " + newName);
@@ -578,6 +581,7 @@ void ProfileImporter::processNextImport()
             if (profile.saveToFile(fullPath)) {
                 m_batchImported++;
             } else {
+                qWarning() << "ProfileImporter: Failed to overwrite" << profile.title() << "at" << fullPath;
                 m_batchFailed++;
             }
         } else {
@@ -588,6 +592,7 @@ void ProfileImporter::processNextImport()
         if (profile.saveToFile(fullPath)) {
             m_batchImported++;
         } else {
+            qWarning() << "ProfileImporter: Failed to save" << profile.title() << "to" << fullPath;
             m_batchFailed++;
         }
     }
