@@ -58,4 +58,5 @@ private:
     QString m_deviceName;
     QString m_deviceId;  // UUID on iOS, address on other platforms - for duplicate detection
     bool m_connected = false;
+    bool m_notificationsEnabledOnce = false;  // Suppress routine CCCD logging after first enable
 };

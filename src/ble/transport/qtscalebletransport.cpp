@@ -158,7 +158,10 @@ void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceU
 
 void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid) {
-    QT_TRANSPORT_LOG(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
+    const bool firstEnable = !m_notificationsEnabledOnce;
+    if (firstEnable) {
+        QT_TRANSPORT_LOG(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
+    }
 
     QLowEnergyService* service = m_services.value(serviceUuid);
     if (!service) {
@@ -178,11 +181,15 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
         QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
 
     if (cccd.isValid()) {
-        QT_TRANSPORT_LOG("Writing CCCD to enable notifications");
+        if (firstEnable) {
+            QT_TRANSPORT_LOG("Writing CCCD to enable notifications");
+        }
         service->writeDescriptor(cccd, QByteArray::fromHex("0100"));
     } else {
         QT_TRANSPORT_LOG("CCCD descriptor not found - scale may still send notifications");
     }
+
+    m_notificationsEnabledOnce = true;
 
     // Emit immediately (fire-and-forget) - don't wait for CCCD write response.
     // Some scales (e.g. Bookoo) reject CCCD writes but still send notifications.
@@ -244,6 +251,7 @@ void QtScaleBleTransport::onControllerConnected() {
 void QtScaleBleTransport::onControllerDisconnected() {
     QT_TRANSPORT_LOG("Controller disconnected");
     m_connected = false;
+    m_notificationsEnabledOnce = false;
     emit disconnected();
 }
 
@@ -363,9 +371,8 @@ void QtScaleBleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic
 
 void QtScaleBleTransport::onDescriptorWritten(const QLowEnergyDescriptor& d, const QByteArray& value) {
     Q_UNUSED(value);
-    if (d.type() == QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration) {
-        QT_TRANSPORT_LOG("CCCD write confirmed by remote device");
-    }
+    // CCCD confirmations are expected and frequent (keep-alive re-enables every ~5 min) - don't log
+    Q_UNUSED(d);
 }
 
 void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {

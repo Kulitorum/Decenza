@@ -34,7 +34,11 @@ The algorithm iterates through the shot's pressure data looking for the longest 
 - Machine flow > 0.1 ml/s (excludes stalled flow)
 - Nearest scale data point within 1 second (ensures weight flow data alignment)
 
-Any sample that fails these criteria breaks the current window, and the algorithm picks the longest qualifying window from the entire shot. The window must span at least 5 seconds with at least 5 samples to provide a reliable average.
+Any sample that fails these criteria breaks the current window, and the algorithm picks the longest qualifying window from the entire shot. The window must span at least 4 seconds with at least 5 samples to provide a reliable average.
+
+### Stream Force Rejection
+
+Before running calibration, the algorithm checks whether the settled weight dropped significantly below the weight at pump stop (> 3g drop). This indicates the stream of water hitting the cup was adding downward force to the scale during extraction, inflating the weight readings. Calibrating against these inflated readings would produce a multiplier that's too high, so the shot is skipped. This typically occurs with high-flow profiles where the stream has significant momentum.
 
 ### Density Correction
 
