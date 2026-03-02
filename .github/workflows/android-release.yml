@@ -232,24 +232,26 @@ jobs:
           # Get current release notes
           CURRENT_NOTES=$(gh release view "$TAG" --json body --jq '.body' 2>/dev/null || echo "")
 
-          # Only inject if Build: line is not already present
-          if ! echo "$CURRENT_NOTES" | grep -qE "^Build:? [0-9]+"; then
-            if [ -z "$CURRENT_NOTES" ]; then
-              NEW_NOTES="Build: $BUILD_CODE"
-            else
-              # Insert Build: line after first heading or at the top
-              NEW_NOTES=$(echo "$CURRENT_NOTES" | sed "0,/^## /{s/^## \(.*\)/## \1\n\nBuild: $BUILD_CODE/}")
-              # If no heading was found (sed didn't change anything), prepend
-              if [ "$NEW_NOTES" = "$CURRENT_NOTES" ]; then
-                NEW_NOTES="Build: $BUILD_CODE
+          # Update existing Build: line, or inject one if not present
+          if echo "$CURRENT_NOTES" | grep -qE "^Build:? [0-9]+"; then
+            # Replace existing Build: line with new build number
+            NEW_NOTES=$(echo "$CURRENT_NOTES" | sed -E "s/^Build:? [0-9]+/Build: $BUILD_CODE/")
+            gh release edit "$TAG" --notes "$NEW_NOTES"
+            echo "Updated Build: $BUILD_CODE in release notes"
+          elif [ -z "$CURRENT_NOTES" ]; then
+            gh release edit "$TAG" --notes "Build: $BUILD_CODE"
+            echo "Injected Build: $BUILD_CODE into release notes"
+          else
+            # Insert Build: line after first heading or at the top
+            NEW_NOTES=$(echo "$CURRENT_NOTES" | sed "0,/^## /{s/^## \(.*\)/## \1\n\nBuild: $BUILD_CODE/}")
+            # If no heading was found (sed didn't change anything), prepend
+            if [ "$NEW_NOTES" = "$CURRENT_NOTES" ]; then
+              NEW_NOTES="Build: $BUILD_CODE
 
           $CURRENT_NOTES"
-              fi
             fi
             gh release edit "$TAG" --notes "$NEW_NOTES"
             echo "Injected Build: $BUILD_CODE into release notes"
-          else
-            echo "Build number already present in release notes"
           fi
 
       - name: Commit version code back to main
