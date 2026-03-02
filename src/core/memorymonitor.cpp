@@ -106,7 +106,7 @@ quint64 MemoryMonitor::readRss() const
 #endif
 }
 
-int MemoryMonitor::countQObjects() const
+QSet<QObject*> MemoryMonitor::collectAllQObjects() const
 {
     // Walk both QApplication and QML engine trees to get a meaningful count.
     // Most QObjects are parented under the engine (QML items), not the app.
@@ -126,7 +126,6 @@ int MemoryMonitor::countQObjects() const
             seen.insert(obj);
         seen.insert(m_engine);
 
-        // Also walk root objects and their trees
         const auto roots = m_engine->rootObjects();
         for (auto* root : roots) {
             if (!root) continue;
@@ -137,7 +136,53 @@ int MemoryMonitor::countQObjects() const
         }
     }
 
-    return seen.size();
+    return seen;
+}
+
+int MemoryMonitor::countQObjects()
+{
+    const auto all = collectAllQObjects();
+
+    // Build per-class counts
+    m_prevClassCounts = m_classCounts;
+    m_classCounts.clear();
+    for (auto* obj : all) {
+        const char* name = obj->metaObject()->className();
+        m_classCounts[QString::fromLatin1(name)]++;
+    }
+
+    // Log classes with biggest growth since last sample
+    if (!m_prevClassCounts.isEmpty()) {
+        QVector<QPair<QString, int>> deltas;
+        for (auto it = m_classCounts.constBegin(); it != m_classCounts.constEnd(); ++it) {
+            int prev = m_prevClassCounts.value(it.key(), 0);
+            int delta = it.value() - prev;
+            if (delta != 0)
+                deltas.append({it.key(), delta});
+        }
+        // Also check classes that disappeared
+        for (auto it = m_prevClassCounts.constBegin(); it != m_prevClassCounts.constEnd(); ++it) {
+            if (!m_classCounts.contains(it.key()))
+                deltas.append({it.key(), -it.value()});
+        }
+
+        if (!deltas.isEmpty()) {
+            // Sort by absolute delta descending
+            std::sort(deltas.begin(), deltas.end(), [](const auto& a, const auto& b) {
+                return qAbs(a.second) > qAbs(b.second);
+            });
+            QStringList parts;
+            int limit = qMin(deltas.size(), 5);
+            for (int i = 0; i < limit; ++i) {
+                const auto& d = deltas[i];
+                parts << QStringLiteral("%1%2 %3")
+                    .arg(d.second > 0 ? "+" : "").arg(d.second).arg(d.first);
+            }
+            qDebug("[Memory] QObject deltas: %s", qPrintable(parts.join(", ")));
+        }
+    }
+
+    return all.size();
 }
 
 double MemoryMonitor::currentRssMB() const
@@ -179,12 +224,33 @@ QJsonObject MemoryMonitor::toJson() const
         samplesArr.append(obj);
     }
 
+    // Per-class breakdown: sort by count descending, return top 30
+    QVector<QPair<QString, int>> sorted;
+    sorted.reserve(m_classCounts.size());
+    for (auto it = m_classCounts.constBegin(); it != m_classCounts.constEnd(); ++it)
+        sorted.append({it.key(), it.value()});
+    std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+        return a.second > b.second;
+    });
+
+    QJsonArray classesArr;
+    int classLimit = qMin(sorted.size(), 30);
+    for (int i = 0; i < classLimit; ++i) {
+        QJsonObject cls;
+        cls["name"] = sorted[i].first;
+        cls["count"] = sorted[i].second;
+        int prev = m_prevClassCounts.value(sorted[i].first, 0);
+        cls["delta"] = sorted[i].second - prev;
+        classesArr.append(cls);
+    }
+
     QJsonObject root;
     root["current"] = current;
     root["peak"] = peak;
     root["startup"] = startup;
     root["uptimeMinutes"] = static_cast<qint64>(m_uptime.elapsed() / 60000);
     root["samples"] = samplesArr;
+    root["topClasses"] = classesArr;
 
     return root;
 }

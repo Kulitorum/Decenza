@@ -3231,6 +3231,40 @@ QString ShotServer::generateDebugPage() const
             position: relative;
             height: 200px;
         }
+        .class-table-wrap {
+            max-height: 260px;
+            overflow-y: auto;
+            margin-top: 1rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .class-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8125rem;
+        }
+        .class-table th {
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.6875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+        .class-table td {
+            padding: 0.35rem 0.75rem;
+            border-bottom: 1px solid rgba(48,54,61,0.4);
+            font-family: "Consolas", "Monaco", "Courier New", monospace;
+        }
+        .class-table tr:hover td { background: rgba(255,255,255,0.03); }
+        .delta-pos { color: #f85149; }
+        .delta-neg { color: #18c37e; }
+        .delta-zero { color: var(--text-secondary); }
         .log-container {
             background: #000;
             border: 1px solid var(--border);
@@ -3308,6 +3342,12 @@ QString ShotServer::generateDebugPage() const
                 </div>
                 <div class="chart-container">
                     <canvas id="memoryChart"></canvas>
+                </div>
+                <div class="class-table-wrap">
+                    <table class="class-table">
+                        <thead><tr><th>Class</th><th style="text-align:right">Count</th><th style="text-align:right">Delta</th></tr></thead>
+                        <tbody id="classTableBody"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -3429,6 +3469,21 @@ QString ShotServer::generateDebugPage() const
                 memoryChart.data.datasets[0].data = data.samples.map(function(s) { return s.rss; });
                 memoryChart.data.datasets[1].data = data.samples.map(function(s) { return s.obj; });
                 memoryChart.update("none");
+            }
+
+            // Per-class breakdown table
+            var tbody = document.getElementById("classTableBody");
+            if (data.topClasses && data.topClasses.length > 0) {
+                var rows = "";
+                for (var i = 0; i < data.topClasses.length; i++) {
+                    var c = data.topClasses[i];
+                    var dc = c.delta > 0 ? "delta-pos" : (c.delta < 0 ? "delta-neg" : "delta-zero");
+                    var ds = c.delta > 0 ? "+" + c.delta : (c.delta === 0 ? "-" : String(c.delta));
+                    rows += "<tr><td>" + escapeHtml(c.name) + "</td>"
+                          + "<td style='text-align:right'>" + c.count.toLocaleString() + "</td>"
+                          + "<td style='text-align:right' class='" + dc + "'>" + ds + "</td></tr>";
+                }
+                tbody.innerHTML = rows;
             }
         }
 

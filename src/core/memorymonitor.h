@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QVector>
+#include <QHash>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QElapsedTimer>
@@ -45,7 +46,8 @@ private slots:
 
 private:
     quint64 readRss() const;
-    int countQObjects() const;
+    int countQObjects();
+    QSet<QObject*> collectAllQObjects() const;
 
     QQmlApplicationEngine* m_engine = nullptr;
     QTimer m_timer;
@@ -59,4 +61,8 @@ private:
     quint64 m_startupRss = 0;
     int m_lastQObjectCount = 0;
     bool m_firstSample = true;
+
+    // Per-class QObject tracking
+    QHash<QString, int> m_classCounts;      // Current snapshot
+    QHash<QString, int> m_prevClassCounts;   // Previous snapshot (for delta)
 };
