@@ -572,6 +572,10 @@ int main(int argc, char *argv[])
                                  &weightProcessor, &WeightProcessor::processWeight);
                 bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference
                 physicalScale.reset();  // Now safe to delete old scale
+                if (scaleReconnectTimer.isActive()) {
+                    qDebug() << "Scale reconnect: timer stopped due to scale type change";
+                    bleManager.appendScaleLog("Reconnect stopped (scale type changed)");
+                }
                 scaleReconnectTimer.stop();
                 scaleReconnectAttempt = 0;
             } else {

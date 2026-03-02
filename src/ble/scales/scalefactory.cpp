@@ -91,8 +91,14 @@ bool ScaleFactory::isKnownScale(const QBluetoothDeviceInfo& device) {
 }
 
 ScaleType ScaleFactory::resolveScaleType(const QString& name) {
-    // Reuse the same is*() helpers as detectScaleType to stay in sync
+    // Reuse the same is*() helpers as detectScaleType to stay in sync.
+    // Some type() return values don't match the is*() BLE name patterns
+    // (e.g., "decent" vs "decent scale", "solo_barista" vs "solo barista"),
+    // so we check internal type codes first as exact matches.
     QString lower = name.toLower();
+    if (lower == "decent") return ScaleType::DecentScale;
+    if (lower == "solo_barista") return ScaleType::SoloBarista;
+    // Then fall through to is*() helpers for display names and BLE device names
     if (isDecentScale(lower)) return ScaleType::DecentScale;
     // Consolidate Pyxis into Acaia, matching detectScaleType (unified AcaiaScale)
     if (isAcaiaPyxis(lower) || isAcaiaScale(lower)) return ScaleType::Acaia;
