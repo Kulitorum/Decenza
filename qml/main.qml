@@ -1294,7 +1294,7 @@ ApplicationWindow {
         }
 
         contentItem: ColumnLayout {
-            spacing: Theme.dialogSpacing
+            spacing: Theme.spacingMedium
 
             Text {
                 text: "Charging Not Detected"
