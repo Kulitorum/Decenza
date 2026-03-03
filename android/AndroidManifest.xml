@@ -17,8 +17,6 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <!-- Android 11+ (SDK 30+): needs MANAGE_EXTERNAL_STORAGE for profile backup to Documents -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-    <!-- Battery optimization exemption - allows app to request being whitelisted from Doze mode -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Foreground service for BLE keep-alive (prevents Samsung/OEM app killing) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />

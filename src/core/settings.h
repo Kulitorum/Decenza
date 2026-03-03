@@ -26,6 +26,10 @@ class Settings : public QObject {
     // Allow user to disable modal scale connection alert dialogs
     Q_PROPERTY(bool showScaleDialogs READ showScaleDialogs WRITE setShowScaleDialogs NOTIFY showScaleDialogsChanged)
 
+    // Enable USB serial polling for DE1 connection. Off by default to save battery
+    // (polling every 2 s). Only needed when connecting the DE1 via USB-C cable.
+    Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged)
+
     // Espresso settings
     Q_PROPERTY(double espressoTemperature READ espressoTemperature WRITE setEspressoTemperature NOTIFY espressoTemperatureChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
@@ -254,6 +258,10 @@ public:
     // Scale connection alert dialogs
     bool showScaleDialogs() const;
     void setShowScaleDialogs(bool enabled);
+
+    // USB serial polling
+    bool usbSerialEnabled() const;
+    void setUsbSerialEnabled(bool enabled);
 
     // Espresso settings
     double espressoTemperature() const;
@@ -721,6 +729,7 @@ signals:
     void scaleNameChanged();
     void useFlowScaleChanged();
     void showScaleDialogsChanged();
+    void usbSerialEnabledChanged();
     void espressoTemperatureChanged();
     void targetWeightChanged();
     void lastUsedRatioChanged();

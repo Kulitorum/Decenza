@@ -213,6 +213,18 @@ void Settings::setShowScaleDialogs(bool enabled) {
     }
 }
 
+// USB serial polling
+bool Settings::usbSerialEnabled() const {
+    return m_settings.value("usb/serialEnabled", false).toBool();
+}
+
+void Settings::setUsbSerialEnabled(bool enabled) {
+    if (usbSerialEnabled() != enabled) {
+        m_settings.setValue("usb/serialEnabled", enabled);
+        emit usbSerialEnabledChanged();
+    }
+}
+
 // Espresso settings
 double Settings::espressoTemperature() const {
     return m_settings.value("espresso/temperature", 93.0).toDouble();

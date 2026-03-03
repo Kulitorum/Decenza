@@ -655,7 +655,16 @@ int main(int argc, char *argv[])
     checkpoint("Managers wired");
 
 #ifndef Q_OS_IOS
-    usbManager.startPolling();
+    // USB serial polling for DE1 is opt-in (off by default) to avoid the 2 s polling
+    // battery drain on devices that never use a USB-C cable to connect to the DE1.
+    if (settings.usbSerialEnabled())
+        usbManager.startPolling();
+    QObject::connect(&settings, &Settings::usbSerialEnabledChanged, [&]() {
+        if (settings.usbSerialEnabled())
+            usbManager.startPolling();
+        else
+            usbManager.stopPolling();
+    });
     usbScaleManager.startPolling();
 #endif
 
