@@ -575,20 +575,36 @@ int main(int argc, char *argv[])
     // to reduce stop-the-world pause impact on BLE delivery and SAW latency.
     //
     // Strategy:
-    //   - EspressoPreheating / HotWater / Flush start → raise heap utilization threshold to
-    //     0.95 (GC only if heap is 95% full) and schedule a proactive GC to clean the heap
-    //     before extraction gets critical.
-    //   - Returning to Idle/Ready → reset threshold to default and schedule a cleanup GC.
+    //   - EspressoPreheating / HotWater / Flush start:
+    //       • Cancel any pending idle GC timer (don't want GC firing at shot start).
+    //       • Raise heap utilization threshold to 0.95 (GC only if heap is 95% full).
+    //         No explicit System.gc() here — GC near preinfusion is worse than no GC.
+    //   - Returning to Idle/Ready:
+    //       • Reset heap threshold to default.
+    //       • Schedule post-shot cleanup GC immediately (fine, nothing critical running).
+    //       • Start 30-second idle timer; if still idle when it fires, run a second
+    //         proactive GC to clean up any accumulation since the post-shot pass.
     //
-    // s_inOperation tracks whether we have already called onFlowingStarted so we don't
-    // double-call as the machine transitions through sub-phases (Preinfusion → Pouring → Ending).
-    QObject::connect(&machineState, &MachineState::phaseChanged, [&machineState]() {
+    // s_inOperation prevents double-calls as the machine moves through sub-phases
+    // (EspressoPreheating → Preinfusion → Pouring → Ending).
+
+    auto* idleGcTimer = new QTimer();
+    idleGcTimer->setSingleShot(true);
+    idleGcTimer->setInterval(30000);  // 30 seconds of idle before proactive GC
+    QObject::connect(idleGcTimer, &QTimer::timeout, []() {
+        QJniObject::callStaticMethod<void>(
+            "io/github/kulitorum/decenza_de1/BleHelper",
+            "idleGc", "()V");
+    });
+
+    QObject::connect(&machineState, &MachineState::phaseChanged,
+                     [&machineState, idleGcTimer]() {
         using Phase = MachineState::Phase;
         static bool s_inOperation = false;
         const Phase phase = machineState.phase();
 
         const bool enteringOp = !s_inOperation && (
-            phase == Phase::EspressoPreheating ||   // espresso: earliest warning, gives GC lead time
+            phase == Phase::EspressoPreheating ||   // earliest signal for espresso
             phase == Phase::HotWater ||
             phase == Phase::Flushing ||
             phase == Phase::Descaling ||
@@ -602,6 +618,7 @@ int main(int argc, char *argv[])
 
         if (enteringOp) {
             s_inOperation = true;
+            idleGcTimer->stop();  // Cancel idle GC — don't start a GC right before a shot
             QJniObject::callStaticMethod<void>(
                 "io/github/kulitorum/decenza_de1/BleHelper",
                 "onFlowingStarted", "()V");
@@ -610,6 +627,7 @@ int main(int argc, char *argv[])
             QJniObject::callStaticMethod<void>(
                 "io/github/kulitorum/decenza_de1/BleHelper",
                 "onFlowingEnded", "()V");
+            idleGcTimer->start();  // Schedule proactive GC if still idle in 30s
         }
     });
 #endif

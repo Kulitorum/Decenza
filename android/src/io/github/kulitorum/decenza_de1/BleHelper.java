@@ -33,20 +33,14 @@ public class BleHelper {
      * Call when a flowing operation is about to start (espresso preheating,
      * hot water, flush, etc.).
      *
-     * 1. Raises the ART heap utilization target to 0.95, which tells the GC
-     *    to wait until the heap is 95% full before collecting. This defers
-     *    stop-the-world GC pauses during the operation.
-     * 2. Runs System.gc() on a background thread so the heap is clean going
-     *    into the operation and the next automatic GC is pushed further away.
+     * Raises the ART heap utilization target to 0.95 so the GC won't trigger
+     * until the heap is 95% full. This defers stop-the-world pauses during
+     * the operation without scheduling any GC of our own (which could fire
+     * during preinfusion).
      */
     public static void onFlowingStarted() {
         setHeapUtilization(HEAP_UTIL_DEFERRED);
-        new Thread(() -> {
-            System.gc();
-            System.runFinalization();
-            System.gc();
-        }, "DecenzaPreShotGC").start();
-        Log.d(TAG, "onFlowingStarted: heap utilization deferred to " + HEAP_UTIL_DEFERRED + ", pre-shot GC scheduled");
+        Log.d(TAG, "onFlowingStarted: heap utilization deferred to " + HEAP_UTIL_DEFERRED);
     }
 
     /**
@@ -55,7 +49,8 @@ public class BleHelper {
      * 1. Resets the ART heap utilization target to the default (~0.75) so
      *    normal GC behaviour resumes.
      * 2. Runs System.gc() on a background thread to clean up BLE callback
-     *    objects accumulated during the operation.
+     *    objects accumulated during the operation. Post-shot idle is the
+     *    ideal time — nothing time-critical is happening.
      */
     public static void onFlowingEnded() {
         setHeapUtilization(HEAP_UTIL_DEFAULT);
@@ -64,6 +59,22 @@ public class BleHelper {
             System.runFinalization();
         }, "DecenzaPostShotGC").start();
         Log.d(TAG, "onFlowingEnded: heap utilization reset to default, post-shot GC scheduled");
+    }
+
+    /**
+     * Trigger a proactive GC while the app is sitting idle.
+     *
+     * Called after the machine has been on the idle screen for a sustained
+     * period (e.g. 30 seconds). Cleans the Java heap so it is in good shape
+     * before the next shot without risking a GC pause during extraction.
+     */
+    public static void idleGc() {
+        new Thread(() -> {
+            System.gc();
+            System.runFinalization();
+            System.gc();
+        }, "DecenzaIdleGC").start();
+        Log.d(TAG, "idleGc: proactive GC scheduled after sustained idle period");
     }
 
     /**
