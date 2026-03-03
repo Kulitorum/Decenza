@@ -21,15 +21,6 @@ Item {
     property color valueColor: Theme.textColor
     property color accentColor: Theme.primaryColor
 
-    // Geared mode: horizontal drag adjusts value, vertical displacement from the gear-reference
-    // point selects the step multiplier (boundaries are scaled: sc(50) px per gear level):
-    //   0 – sc(50) px  = ×1 (base stepSize)
-    //   sc(50) – sc(100) px = ×10
-    //   sc(100)+ px    = ×100
-    // In the inline handler the gear reference is established when horizontal commitment is
-    // confirmed (not at the original touch-down). In the popup it is the original press position.
-    property bool geared: stepSize > 0
-
     // Scale mode - when true, uses Theme.scaledBase() for consistent size across pages
     property bool useBaseScale: false
 
@@ -774,10 +765,12 @@ Item {
                 color: Theme.textSecondaryColor
             }
 
-            // Range display below
+            // Range display — positioned below the step indicator / hint text to avoid overlap.
+            // The step/hint sits at popupControl.bottom + sc(20) with up to sc(30) height,
+            // so sc(56) keeps a clear gap below the tallest element.
             Text {
                 anchors.top: popupControl.bottom
-                anchors.topMargin: sc(12)
+                anchors.topMargin: sc(56)
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.rangeText || (root.from.toFixed(root.decimals) + root.suffix + " \u2014 " + root.to.toFixed(root.decimals) + root.suffix)
                 font: Theme.bodyFont
