@@ -155,7 +155,7 @@ void WeightProcessor::setTareComplete(bool complete)
     m_tareComplete = complete;
     if (complete) {
         // Confirm tare clears any pending oscillation recovery — ensures SAW is
-        // re-armed if called mid-shot (e.g. scale reconnects, source switches to FlowScale).
+        // re-armed if called mid-shot (e.g. physical scale reconnects after a BLE drop).
         m_oscillationDetected = false;
         m_settleCount = 0;
     }
@@ -192,7 +192,8 @@ void WeightProcessor::stopExtraction()
         }
     }
 
-    // Don't clear weight samples — settling still needs flow rate data
+    // Don't clear weight samples — logging block above reads them for rate diagnostics,
+    // and settling still needs them for LSLR-based flow rate computation.
 }
 
 void WeightProcessor::resetForRetare()

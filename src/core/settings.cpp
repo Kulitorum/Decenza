@@ -3166,9 +3166,10 @@ QList<QPair<double, double>> Settings::sawLearningEntries(const QString& scaleTy
 
 double Settings::sensorLag(const QString& scaleType)
 {
-    // BLE sensor lag per scale type, empirically derived from de1app device_scale.tcl values.
+    // BLE sensor lag per scale type, taken from de1app device_scale.tcl documentation.
     // Used as the first-shot SAW default before adaptive learning has any data.
-    // The +0.1s DE1 machine lag is added at call sites: default_drip = flow * (sensorLag + 0.1).
+    // The +0.1s added at call sites is the DE1 machine-side stop-command execution lag
+    // (separate from BLE round-trip lag), keeping this value scale-specific only.
     if (scaleType == "Bookoo")           return 0.50;
     if (scaleType == "Acaia")            return 0.69;
     if (scaleType == "Acaia Pyxis")      return 0.69;  // Same Acaia BLE protocol
@@ -3177,6 +3178,7 @@ double Settings::sensorLag(const QString& scaleType)
     if (scaleType == "Hiroia Jimmy")     return 0.25;
     if (scaleType == "Decent Scale")     return 0.38;
     if (scaleType == "Skale")            return 0.38;
+    if (scaleType == "decent")           return 0.38;  // QSettings default before any scale is paired
     qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType << "- using default 0.38s";
     return 0.38;  // de1app default for unknown/unlisted scales
 }
@@ -3215,8 +3217,16 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
     }
 
     QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.isArray() ? doc.array() : QJsonArray();
+    QJsonArray arr;
+    if (!data.isEmpty()) {
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        if (doc.isArray()) {
+            arr = doc.array();
+        } else {
+            qWarning() << "[SAW] Learning history corrupted, starting fresh:" << parseError.errorString();
+        }
+    }
 
     // Auto-reset: if this shot stopped 6g+ early (current) AND the most recent
     // prior entry for this scale type also stopped 6g+ early, the learning is
