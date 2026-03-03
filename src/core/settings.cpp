@@ -3073,8 +3073,10 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
 
     const QJsonArray& arr = m_sawHistoryCache;
     if (arr.isEmpty()) {
-        // Default: assume 1.5s lag worth of drip
-        return currentFlowRate * 1.5;
+        // Default: assume 1.5s lag worth of drip, capped at 8g.
+        // Without the cap, high capped-flow values (e.g. 12 g/s from a scale oscillation)
+        // produce 18g predicted drip, causing SAW to fire way too early on the first shot.
+        return qMin(currentFlowRate * 1.5, 8.0);
     }
 
     // Check convergence state to determine adaptive parameters
@@ -3104,7 +3106,7 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
     }
 
     if (entries.isEmpty()) {
-        return currentFlowRate * 1.5;  // Default for this scale type
+        return qMin(currentFlowRate * 1.5, 8.0);  // Default for this scale type
     }
 
     // Weighted average: weight by recency AND flow similarity
@@ -3167,6 +3169,14 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
         return;
     }
 
+    // Reject physically implausible entries: implied lag > 4s is beyond any real BLE
+    // scale (BLE round-trip + machine stop + final drip ≈ 3.5s worst case).
+    if (flowRate > 0.5 && drip / flowRate > 4.0) {
+        qWarning() << "[SAW] Implied lag too high (" << drip / flowRate
+                   << "s), skipping learning: drip=" << drip << "flow=" << flowRate;
+        return;
+    }
+
     // Outlier rejection: when converged, skip learning points that deviate too far
     if (isSawConverged(scaleType)) {
         double expectedDrip = getExpectedDrip(flowRate);
@@ -3182,6 +3192,32 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
     QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.isArray() ? doc.array() : QJsonArray();
+
+    // Auto-reset: if this shot stopped 6g+ early AND the previous entry for this
+    // scale also stopped 6g+ early, the learning is stuck producing too-aggressive
+    // thresholds. Clear history and start fresh so the new entry is the baseline.
+    if (overshoot < -6.0) {
+        int consecutiveUnder = 0;
+        for (int i = arr.size() - 1; i >= 0 && consecutiveUnder < 1; --i) {
+            QJsonObject obj = arr[i].toObject();
+            if (obj["scale"].toString() == scaleType) {
+                if (obj["overshoot"].toDouble() < -6.0)
+                    consecutiveUnder++;
+                else
+                    break;
+            }
+        }
+        if (consecutiveUnder >= 1) {
+            qWarning() << "[SAW] 2 consecutive early stops (overshoot <-6g) - resetting learning for" << scaleType;
+            // Remove all entries for this scale type, preserving other scales
+            QJsonArray filtered;
+            for (int i = 0; i < arr.size(); ++i) {
+                if (arr[i].toObject()["scale"].toString() != scaleType)
+                    filtered.append(arr[i]);
+            }
+            arr = filtered;
+        }
+    }
 
     // Create new entry with drip, flow, and overshoot
     QJsonObject entry;

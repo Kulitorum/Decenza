@@ -725,9 +725,9 @@ void MachineState::tareScale() {
 
         // Fallback timeout in case scale never reports near-zero
         // (e.g., scale disconnects, or tare fails)
-        QTimer::singleShot(3000, this, [this]() {
+        QTimer::singleShot(6000, this, [this]() {
             if (m_waitingForTare) {
-                qWarning() << "Tare timeout: scale didn't report ~0g within 3s";
+                qWarning() << "Tare timeout: scale didn't report ~0g within 6s";
                 m_waitingForTare = false;
                 m_tareCompleted = true;
                 emit tareCompleted();

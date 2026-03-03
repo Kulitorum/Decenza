@@ -34,6 +34,16 @@ void WeightProcessor::processWeight(double weight)
 
     // SOW and per-frame checks only during active extraction
     if (!m_active) return;
+
+    // Bookoo (and any scale) tare oscillation guard: large negative swing during
+    // extraction means the scale is mid-reset. Re-arm the tare guard so SAW is
+    // blocked until the scale settles back to ~0g and tare is re-confirmed.
+    if (m_tareComplete && weight < -5.0) {
+        m_tareComplete = false;
+        qWarning() << "[SAW-Worker] Scale oscillation detected (weight=" << weight
+                   << "g) - re-arming tare guard";
+    }
+
     if (!m_tareComplete) {
         // Throttle warning to every 5s to avoid log spam at 5Hz
         static qint64 s_lastTareWarnMs = 0;
@@ -180,7 +190,7 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
     // Algorithm matches Settings::getExpectedDrip — weighted average with
     // recency and flow-similarity weights.
     if (m_learningDrips.isEmpty()) {
-        return currentFlowRate * 1.5;  // Default: assume 1.5s lag
+        return qMin(currentFlowRate * 1.5, 8.0);  // Default: assume 1.5s lag, capped at 8g
     }
 
     int maxEntries = m_sawConverged ? 12 : 8;
