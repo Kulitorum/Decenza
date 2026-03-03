@@ -28,18 +28,62 @@ void WeightProcessor::processWeight(double weight)
 
     // Compute flow rates (always, even outside extraction — for QML display and settling)
     double flowRate = computeLSLR(1000);
-    double flowRateShort = computeLSLR(500);
+
+    // Adaptive short window: ensure at least 3 samples are covered regardless of
+    // the scale's reporting rate. At 5Hz (Decent Scale) the span of 2 intervals is
+    // 400ms; the 500ms floor dominates and the window stays at 500ms. At 2Hz (Bookoo)
+    // the span of 2 intervals is ~1000ms, giving 1000ms+50ms, capped at 1000ms to
+    // match the rolling buffer — covers 2–3 samples vs. only 1–2 at 500ms.
+    // Without this, sparse scales flicker flowRateShort near 0 and SAW is gated out.
+    int shortWindowMs = 500;
+    if (m_weightSamples.size() >= 3) {
+        qint64 spanOf3 = m_weightSamples.last().timestamp
+                         - m_weightSamples[m_weightSamples.size() - 3].timestamp;
+        shortWindowMs = qBound(500, (int)spanOf3 + 50, 1000);
+    }
+    double flowRateShort = computeLSLR(shortWindowMs);
 
     emit flowRatesReady(weight, flowRate, flowRateShort);
 
     // SOW and per-frame checks only during active extraction
     if (!m_active) return;
+
+    // Bookoo (and any scale) tare oscillation guard: large negative swing during
+    // extraction means the scale is mid-reset. Block SAW and enter recovery mode —
+    // matching de1app's on_tare_seen pattern: clear the LSLR and wait for the scale
+    // to return to ~0g before re-arming, so oscillation samples never corrupt SAW.
+    if (m_tareComplete && weight < -5.0) {
+        m_tareComplete = false;
+        m_oscillationDetected = true;
+        m_settleCount = 0;
+        m_weightSamples.clear();  // Discard oscillation samples from LSLR
+        qWarning() << "[SAW-Worker] Scale oscillation detected (weight=" << weight
+                   << "g) - SAW blocked, awaiting settle";
+    }
+
+    // Mid-shot oscillation recovery: once scale returns to ~0g stably, re-arm SAW
+    // with a clean LSLR baseline. Requires 3 consecutive near-zero readings (~0.4s
+    // at 5Hz, ~1.0s at 2Hz) to avoid re-arming while the scale is still mid-oscillation.
+    // This mirrors de1app's _tare_awaiting_zero / on_tare_seen mechanism.
+    if (!m_tareComplete && m_oscillationDetected) {
+        if (qAbs(weight) < 2.0) {
+            if (++m_settleCount >= 3) {
+                m_tareComplete = true;
+                m_oscillationDetected = false;
+                m_settleCount = 0;
+                m_weightSamples.clear();  // Fresh LSLR baseline from post-settle readings
+                qDebug() << "[SAW-Worker] Scale settled after oscillation, SAW re-armed";
+            }
+        } else {
+            m_settleCount = 0;  // Reset counter if weight leaves the near-zero band
+        }
+    }
+
     if (!m_tareComplete) {
         // Throttle warning to every 5s to avoid log spam at 5Hz
-        static qint64 s_lastTareWarnMs = 0;
-        if (now - s_lastTareWarnMs >= 5000) {
+        if (now - m_lastTareWarnMs >= 5000) {
             qWarning() << "[SAW-Worker] Active but tare not complete - skipping SAW, weight=" << weight;
-            s_lastTareWarnMs = now;
+            m_lastTareWarnMs = now;
         }
         return;
     }
@@ -53,11 +97,10 @@ void WeightProcessor::processWeight(double weight)
     // Stop-at-weight check (requires valid flow rate for drip prediction)
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort < 0.5) {
         // Throttle this log to every 5s
-        static qint64 s_lastLowFlowLogMs = 0;
-        if (now - s_lastLowFlowLogMs >= 5000) {
+        if (now - m_lastLowFlowLogMs >= 5000) {
             qDebug() << "[SAW-Worker] Flow too low for SAW check: flowShort=" << flowRateShort
                      << "weight=" << weight << "target=" << m_targetWeight;
-            s_lastLowFlowLogMs = now;
+            m_lastLowFlowLogMs = now;
         }
     }
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
@@ -92,13 +135,14 @@ void WeightProcessor::processWeight(double weight)
 
 void WeightProcessor::configure(double targetWeight, QVector<double> frameExitWeights,
                                 QVector<double> learningDrips, QVector<double> learningFlows,
-                                bool sawConverged)
+                                bool sawConverged, double sensorLagSeconds)
 {
     m_targetWeight = targetWeight;
     m_frameExitWeights = frameExitWeights;
     m_learningDrips = learningDrips;
     m_learningFlows = learningFlows;
     m_sawConverged = sawConverged;
+    m_sensorLagSeconds = sensorLagSeconds;
 }
 
 void WeightProcessor::setCurrentFrame(int frameNumber)
@@ -109,6 +153,12 @@ void WeightProcessor::setCurrentFrame(int frameNumber)
 void WeightProcessor::setTareComplete(bool complete)
 {
     m_tareComplete = complete;
+    if (complete) {
+        // Confirm tare clears any pending oscillation recovery — ensures SAW is
+        // re-armed if called mid-shot (e.g. physical scale reconnects after a BLE drop).
+        m_oscillationDetected = false;
+        m_settleCount = 0;
+    }
 }
 
 void WeightProcessor::startExtraction()
@@ -120,12 +170,30 @@ void WeightProcessor::startExtraction()
     m_weightSamples.clear();
     m_currentFrame = -1;
     m_tareComplete = false;
+    m_oscillationDetected = false;
+    m_settleCount = 0;
+    m_lastTareWarnMs = 0;
+    m_lastLowFlowLogMs = 0;
 }
 
 void WeightProcessor::stopExtraction()
 {
     m_active = false;
-    // Don't clear weight samples — settling still needs flow rate data
+
+    // Log measured scale reporting rate — captured in shot debug log.
+    // Helps diagnose SAW issues on slow-reporting scales (Bookoo ~2Hz, etc.).
+    if (m_weightSamples.size() >= 3) {
+        qint64 span = m_weightSamples.last().timestamp - m_weightSamples.first().timestamp;
+        if (span > 0) {
+            double avgIntervalMs = span / (double)(m_weightSamples.size() - 1);
+            qDebug() << "[Weight-Worker] Scale interval: avg" << (int)avgIntervalMs << "ms"
+                     << "(" << QString::number(1000.0 / avgIntervalMs, 'f', 1) << "Hz)"
+                     << "over" << m_weightSamples.size() << "samples (last 1s)";
+        }
+    }
+
+    // Don't clear weight samples — logging block above reads them for rate diagnostics,
+    // and settling still needs them for LSLR-based flow rate computation.
 }
 
 void WeightProcessor::resetForRetare()
@@ -180,7 +248,9 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
     // Algorithm matches Settings::getExpectedDrip — weighted average with
     // recency and flow-similarity weights.
     if (m_learningDrips.isEmpty()) {
-        return currentFlowRate * 1.5;  // Default: assume 1.5s lag
+        // No learning data — use scale-specific sensor lag as first-shot default.
+        // Matches de1app: flow × (sensor_lag + 0.1s DE1 machine lag), capped at 8g.
+        return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);
     }
 
     int maxEntries = m_sawConverged ? 12 : 8;
@@ -208,7 +278,7 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
     }
 
     if (totalWeight < 0.01) {
-        return currentFlowRate * 1.5;  // All entries have very different flow rates
+        return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);  // All entries have very different flow rates
     }
 
     return qBound(0.5, weightedDripSum / totalWeight, 20.0);

@@ -32,7 +32,7 @@ public slots:
     void processWeight(double weight);
     void configure(double targetWeight, QVector<double> frameExitWeights,
                    QVector<double> learningDrips, QVector<double> learningFlows,
-                   bool sawConverged);
+                   bool sawConverged, double sensorLagSeconds = 0.38);
     void setCurrentFrame(int frameNumber);
     void setTareComplete(bool complete);
     void startExtraction();
@@ -65,6 +65,14 @@ private:
     int m_currentFrame = -1;
     qint64 m_extractionStartTime = 0;
 
+    // Oscillation recovery (e.g. Bookoo mid-shot tare reset)
+    bool m_oscillationDetected = false;  // true while waiting for scale to re-settle after oscillation
+    int m_settleCount = 0;               // consecutive near-zero readings since oscillation detected
+
+    // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
+    qint64 m_lastTareWarnMs = 0;
+    qint64 m_lastLowFlowLogMs = 0;
+
     // Configuration (set once at shot start, read-only during extraction)
     double m_targetWeight = 0;
     QVector<double> m_frameExitWeights;
@@ -73,6 +81,7 @@ private:
     QVector<double> m_learningDrips;
     QVector<double> m_learningFlows;
     bool m_sawConverged = false;
+    double m_sensorLagSeconds = 0.38;  // From Settings::sensorLag() — used for first-shot default
 
     // Per-frame exit tracking (avoid duplicate skip commands)
     QSet<int> m_frameWeightSkipSent;

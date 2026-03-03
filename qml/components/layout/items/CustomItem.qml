@@ -54,7 +54,6 @@ Item {
         || content.indexOf("%VOLUME%") >= 0
         || content.indexOf("%POUR_VOLUME%") >= 0
         || content.indexOf("%PREINFUSION_VOLUME%") >= 0
-        || content.indexOf("%SCALE_CONNECTED%") >= 0
         || content.indexOf("%DEVICES%") >= 0
 
     readonly property bool _needsControllerData: content.indexOf("%TARGET_WEIGHT%") >= 0

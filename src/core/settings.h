@@ -691,6 +691,10 @@ public:
     void addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot);
     Q_INVOKABLE void resetSawLearning();
 
+    // Per-scale BLE sensor lag (seconds). Used as first-shot SAW default before learning kicks in.
+    // Values empirically derived from de1app device_scale.tcl.
+    static double sensorLag(const QString& scaleType);
+
     // Layout configuration (dynamic IdlePage layout)
     QString layoutConfiguration() const;
     void setLayoutConfiguration(const QString& json);

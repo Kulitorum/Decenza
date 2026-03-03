@@ -724,10 +724,12 @@ void MachineState::tareScale() {
         m_scale->resetFlowCalculation();  // Avoid flow rate spikes after tare
 
         // Fallback timeout in case scale never reports near-zero
-        // (e.g., scale disconnects, or tare fails)
-        QTimer::singleShot(3000, this, [this]() {
+        // (e.g., scale disconnects, or tare fails). Forcing tareCompleted=true
+        // on timeout is an intentional trade-off: proceeding with potentially
+        // untared weight is less harmful than permanently blocking SAW for the shot.
+        QTimer::singleShot(6000, this, [this]() {
             if (m_waitingForTare) {
-                qWarning() << "Tare timeout: scale didn't report ~0g within 3s";
+                qWarning() << "Tare timeout: scale didn't report ~0g within 6s";
                 m_waitingForTare = false;
                 m_tareCompleted = true;
                 emit tareCompleted();

@@ -542,10 +542,12 @@ int main(int argc, char *argv[])
 
                          // Tare already happened synchronously in onEspressoCycleStarted
                          bool tareComplete = timingController.isTareComplete();
+                         double sensorLagSeconds = Settings::sensorLag(scaleType);
 
                          QMetaObject::invokeMethod(&weightProcessor,
-                             [&weightProcessor, targetWeight, frameExitWeights, drips, flows, converged, tareComplete]() {
-                                 weightProcessor.configure(targetWeight, frameExitWeights, drips, flows, converged);
+                             [&weightProcessor, targetWeight, frameExitWeights, drips, flows, converged, tareComplete, sensorLagSeconds]() {
+                                 weightProcessor.configure(targetWeight, frameExitWeights, drips, flows, converged,
+                                                           sensorLagSeconds);
                                  weightProcessor.startExtraction();
                                  if (tareComplete) {
                                      weightProcessor.setTareComplete(true);
@@ -606,6 +608,7 @@ int main(int argc, char *argv[])
         const bool enteringOp = !s_inOperation && (
             phase == Phase::EspressoPreheating ||   // earliest signal for espresso
             phase == Phase::HotWater ||
+            phase == Phase::Steaming ||
             phase == Phase::Flushing ||
             phase == Phase::Descaling ||
             phase == Phase::Cleaning);
