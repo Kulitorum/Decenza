@@ -3131,8 +3131,9 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
     }
 
     if (totalWeight < 0.01) {
-        // All entries have very different flow rates - fall back to default
-        return currentFlowRate * 1.5;
+        // All entries have very different flow rates — fall back to default.
+        // Cap at 8g for the same reason as the empty-history fallback above.
+        return qMin(currentFlowRate * 1.5, 8.0);
     }
 
     double expectedDrip = weightedDripSum / totalWeight;
@@ -3171,20 +3172,26 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
 
     // Reject physically implausible entries: implied lag > 4s is beyond any real BLE
     // scale (BLE round-trip + machine stop + final drip ≈ 3.5s worst case).
+    // The flowRate > 0.5 guard prevents division-by-near-zero making the ratio meaningless
+    // at very low flow (e.g. 0.1 g/s would flag a 0.39g drip as "too high").
     if (flowRate > 0.5 && drip / flowRate > 4.0) {
         qWarning() << "[SAW] Implied lag too high (" << drip / flowRate
                    << "s), skipping learning: drip=" << drip << "flow=" << flowRate;
         return;
     }
 
-    // Outlier rejection: when converged, skip learning points that deviate too far
-    if (isSawConverged(scaleType)) {
+    // Outlier rejection: when converged, skip learning points that deviate too far.
+    // Skipped when overshoot < -6g (auto-reset candidate): the model may be systematically
+    // wrong and must accept the new baseline rather than defending the stale converged model.
+    bool isAutoResetCandidate = (overshoot < -6.0);
+    if (!isAutoResetCandidate && isSawConverged(scaleType)) {
         double expectedDrip = getExpectedDrip(flowRate);
         double threshold = qMax(3.0, expectedDrip);  // Reject if deviation exceeds expected drip (or 3g floor)
         if (qAbs(drip - expectedDrip) > threshold) {
-            qDebug() << "[SAW] Outlier rejected: drip=" << drip
-                     << "g expected=" << expectedDrip
-                     << "g (converged, deviation too high)";
+            qWarning() << "[SAW] Outlier rejected: drip=" << drip
+                       << "g expected=" << expectedDrip
+                       << "g threshold=" << threshold
+                       << "(converged, deviation too high)";
             return;
         }
     }
@@ -3193,23 +3200,28 @@ void Settings::addSawLearningPoint(double drip, double flowRate, const QString& 
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.isArray() ? doc.array() : QJsonArray();
 
-    // Auto-reset: if this shot stopped 6g+ early AND the previous entry for this
-    // scale also stopped 6g+ early, the learning is stuck producing too-aggressive
-    // thresholds. Clear history and start fresh so the new entry is the baseline.
-    if (overshoot < -6.0) {
-        int consecutiveUnder = 0;
-        for (int i = arr.size() - 1; i >= 0 && consecutiveUnder < 1; --i) {
+    // Auto-reset: if this shot stopped 6g+ early (current) AND the most recent
+    // prior entry for this scale type also stopped 6g+ early, the learning is
+    // stuck producing too-aggressive thresholds. Clear history and start fresh
+    // so the new entry becomes the sole baseline. Entries from other scale types
+    // are skipped when searching backwards — "consecutive" means consecutive for
+    // this scale type only.
+    // NOTE: execution always falls through to the append+save below — do NOT add
+    // an early return here, or the reset will wipe history without saving anything.
+    if (isAutoResetCandidate) {
+        bool prevAlsoEarly = false;
+        for (int i = arr.size() - 1; i >= 0; --i) {
             QJsonObject obj = arr[i].toObject();
             if (obj["scale"].toString() == scaleType) {
-                if (obj["overshoot"].toDouble() < -6.0)
-                    consecutiveUnder++;
-                else
-                    break;
+                prevAlsoEarly = (obj["overshoot"].toDouble() < -6.0);
+                break;  // Only check the most recent entry for this scale type
             }
         }
-        if (consecutiveUnder >= 1) {
-            qWarning() << "[SAW] 2 consecutive early stops (overshoot <-6g) - resetting learning for" << scaleType;
-            // Remove all entries for this scale type, preserving other scales
+        if (prevAlsoEarly) {
+            qWarning() << "[SAW] 2nd consecutive early stop for" << scaleType
+                       << "- resetting learning (both shots overshoot <-6g)";
+            // Remove all entries for this scale type, preserving other scales.
+            // The new entry will be appended below and becomes the fresh baseline.
             QJsonArray filtered;
             for (int i = 0; i < arr.size(); ++i) {
                 if (arr[i].toObject()["scale"].toString() != scaleType)

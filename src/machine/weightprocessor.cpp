@@ -36,12 +36,14 @@ void WeightProcessor::processWeight(double weight)
     if (!m_active) return;
 
     // Bookoo (and any scale) tare oscillation guard: large negative swing during
-    // extraction means the scale is mid-reset. Re-arm the tare guard so SAW is
-    // blocked until the scale settles back to ~0g and tare is re-confirmed.
+    // extraction means the scale is mid-reset. Disable SAW for the remainder of
+    // this shot — m_tareComplete is not restored mid-shot (setTareComplete is
+    // only called once at shot start), so this is a one-way latch until the
+    // shot ends.
     if (m_tareComplete && weight < -5.0) {
         m_tareComplete = false;
         qWarning() << "[SAW-Worker] Scale oscillation detected (weight=" << weight
-                   << "g) - re-arming tare guard";
+                   << "g) - SAW disabled for remainder of shot (scale mid-reset)";
     }
 
     if (!m_tareComplete) {
@@ -218,7 +220,7 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
     }
 
     if (totalWeight < 0.01) {
-        return currentFlowRate * 1.5;  // All entries have very different flow rates
+        return qMin(currentFlowRate * 1.5, 8.0);  // All entries have very different flow rates; cap matches empty-history default
     }
 
     return qBound(0.5, weightedDripSum / totalWeight, 20.0);
