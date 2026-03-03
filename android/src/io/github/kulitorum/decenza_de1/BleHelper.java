@@ -3,20 +3,90 @@ package io.github.kulitorum.decenza_de1;
 import android.bluetooth.BluetoothGatt;
 import android.util.Log;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Map;
 
 /**
- * Android-only BLE helper utilities not exposed by Qt's QLowEnergyController.
+ * Android-only BLE and GC helper utilities not exposed by Qt.
  *
- * Qt 6 does not expose BluetoothGatt.requestConnectionPriority() through its
- * public API. This class uses reflection on Qt's internal QtBluetoothLE class
- * to access the underlying BluetoothGatt and call Android-specific methods.
+ * Qt 6 does not expose BluetoothGatt.requestConnectionPriority() or JVM
+ * heap utilization tuning through its public API. This class uses reflection
+ * on Qt's internal QtBluetoothLE class (for GATT access) and on
+ * dalvik.system.VMRuntime (for heap tuning).
  *
- * Reflection targets are best-effort: if Qt changes internal field names the
- * call silently no-ops and logs a warning.
+ * All reflection is best-effort: if field/method names change between Qt or
+ * Android versions the calls silently no-op and log a warning.
  */
 public class BleHelper {
     private static final String TAG = "DecenzaBleHelper";
+
+    // Default ART heap utilization target (~0.75). Set higher during shots to
+    // defer GC; reset to default when returning to idle.
+    private static final float HEAP_UTIL_DEFAULT  = 0.75f;
+    private static final float HEAP_UTIL_DEFERRED = 0.95f;
+
+    // -------------------------------------------------------------------------
+    // Shot / flowing-operation GC management
+    // -------------------------------------------------------------------------
+
+    /**
+     * Call when a flowing operation is about to start (espresso preheating,
+     * hot water, flush, etc.).
+     *
+     * 1. Raises the ART heap utilization target to 0.95, which tells the GC
+     *    to wait until the heap is 95% full before collecting. This defers
+     *    stop-the-world GC pauses during the operation.
+     * 2. Runs System.gc() on a background thread so the heap is clean going
+     *    into the operation and the next automatic GC is pushed further away.
+     */
+    public static void onFlowingStarted() {
+        setHeapUtilization(HEAP_UTIL_DEFERRED);
+        new Thread(() -> {
+            System.gc();
+            System.runFinalization();
+            System.gc();
+        }, "DecenzaPreShotGC").start();
+        Log.d(TAG, "onFlowingStarted: heap utilization deferred to " + HEAP_UTIL_DEFERRED + ", pre-shot GC scheduled");
+    }
+
+    /**
+     * Call when a flowing operation ends and the machine returns to idle.
+     *
+     * 1. Resets the ART heap utilization target to the default (~0.75) so
+     *    normal GC behaviour resumes.
+     * 2. Runs System.gc() on a background thread to clean up BLE callback
+     *    objects accumulated during the operation.
+     */
+    public static void onFlowingEnded() {
+        setHeapUtilization(HEAP_UTIL_DEFAULT);
+        new Thread(() -> {
+            System.gc();
+            System.runFinalization();
+        }, "DecenzaPostShotGC").start();
+        Log.d(TAG, "onFlowingEnded: heap utilization reset to default, post-shot GC scheduled");
+    }
+
+    /**
+     * Sets the ART heap utilization target via VMRuntime reflection.
+     * This is a hidden API; gracefully no-ops if unavailable.
+     */
+    private static void setHeapUtilization(float utilization) {
+        try {
+            Class<?> vmRuntimeClass = Class.forName("dalvik.system.VMRuntime");
+            java.lang.reflect.Method getRuntime = vmRuntimeClass.getDeclaredMethod("getRuntime");
+            Object vmRuntime = getRuntime.invoke(null);
+            java.lang.reflect.Method setUtil = vmRuntimeClass.getDeclaredMethod(
+                "setTargetHeapUtilization", float.class);
+            setUtil.invoke(vmRuntime, utilization);
+        } catch (Exception e) {
+            // Hidden API restricted on this Android version — gracefully ignore.
+            Log.d(TAG, "setHeapUtilization: unavailable (" + e.getMessage() + ")");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CONNECTION_PRIORITY_HIGH
+    // -------------------------------------------------------------------------
 
     /**
      * Request CONNECTION_PRIORITY_HIGH for the GATT connection to the given

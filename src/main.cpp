@@ -570,6 +570,50 @@ int main(int argc, char *argv[])
                          }, Qt::QueuedConnection);
                      });
 
+#ifdef Q_OS_ANDROID
+    // GC management: defer Android GC during flowing operations (espresso, hot water, etc.)
+    // to reduce stop-the-world pause impact on BLE delivery and SAW latency.
+    //
+    // Strategy:
+    //   - EspressoPreheating / HotWater / Flush start → raise heap utilization threshold to
+    //     0.95 (GC only if heap is 95% full) and schedule a proactive GC to clean the heap
+    //     before extraction gets critical.
+    //   - Returning to Idle/Ready → reset threshold to default and schedule a cleanup GC.
+    //
+    // s_inOperation tracks whether we have already called onFlowingStarted so we don't
+    // double-call as the machine transitions through sub-phases (Preinfusion → Pouring → Ending).
+    QObject::connect(&machineState, &MachineState::phaseChanged, [&machineState]() {
+        using Phase = MachineState::Phase;
+        static bool s_inOperation = false;
+        const Phase phase = machineState.phase();
+
+        const bool enteringOp = !s_inOperation && (
+            phase == Phase::EspressoPreheating ||   // espresso: earliest warning, gives GC lead time
+            phase == Phase::HotWater ||
+            phase == Phase::Flushing ||
+            phase == Phase::Descaling ||
+            phase == Phase::Cleaning);
+
+        const bool exitingOp = s_inOperation && (
+            phase == Phase::Idle ||
+            phase == Phase::Ready ||
+            phase == Phase::Sleep ||
+            phase == Phase::Disconnected);
+
+        if (enteringOp) {
+            s_inOperation = true;
+            QJniObject::callStaticMethod<void>(
+                "io/github/kulitorum/decenza_de1/BleHelper",
+                "onFlowingStarted", "()V");
+        } else if (exitingOp) {
+            s_inOperation = false;
+            QJniObject::callStaticMethod<void>(
+                "io/github/kulitorum/decenza_de1/BleHelper",
+                "onFlowingEnded", "()V");
+        }
+    });
+#endif
+
     checkpoint("WeightProcessor wiring");
 
     // Create and wire AI Manager
