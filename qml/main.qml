@@ -1281,12 +1281,19 @@ ApplicationWindow {
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
         closePolicy: Popup.CloseOnEscape
+        onClosed: root.showNextPendingPopup()
 
         Accessible.role: Accessible.Dialog
         Accessible.name: "Charging not detected"
 
-        ColumnLayout {
-            width: parent.width
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: "white"
+        }
+
+        contentItem: ColumnLayout {
             spacing: Theme.dialogSpacing
 
             Text {
@@ -1303,7 +1310,6 @@ ApplicationWindow {
             Text {
                 text: "Smart charging is set to ON but the tablet is not receiving power from the DE1.\n\nPossible causes:\n• DE1 went to sleep and cut its USB port\n• BLE command failed — retrying automatically\n• USB cable is disconnected"
                 wrapMode: Text.Wrap
-                width: parent.width
                 font: Theme.bodyFont
                 color: Theme.textColor
                 Layout.fillWidth: true
@@ -1332,6 +1338,9 @@ ApplicationWindow {
 
         function onChargingMismatchResolved() {
             chargingMismatchDialog.close()
+            // Remove any queued instance so it doesn't appear after screensaver wake
+            // when the condition has already cleared.
+            pendingPopups = pendingPopups.filter(function(p) { return p.id !== "chargingMismatch" })
         }
     }
 

@@ -53,21 +53,19 @@ void BatteryManager::setSettings(Settings* settings) {
         return;
     }
     m_settings = settings;
-    if (m_settings) {
-        m_chargingMode = m_settings->value("smartBatteryCharging", On).toInt();
+    m_chargingMode = m_settings->value("smartBatteryCharging", On).toInt();
 
-        // Restore the discharging flag so the charge/discharge cycle survives restarts.
-        // Without this, m_discharging always resets to false on startup. That means if
-        // the battery was at 60 % and actively discharging toward the 55 % floor, after
-        // a restart the app would see 60 % < 65 % and immediately re-enable the port,
-        // charging back to 65 % — the lower threshold would effectively never be reached.
-        m_discharging = m_settings->value("battery/discharging", false).toBool();
+    // Restore the discharging flag so the charge/discharge cycle survives restarts.
+    // Without this, m_discharging always resets to false on startup. That means if
+    // the battery was at 60 % and actively discharging toward the 55 % floor, after
+    // a restart the app would see 60 % < 65 % and immediately re-enable the port,
+    // charging back to 65 % — the lower threshold would effectively never be reached.
+    m_discharging = m_settings->value("battery/discharging", false).toBool();
 
-        qDebug() << "BatteryManager: Loaded mode=" << m_chargingMode
-                 << "discharging=" << m_discharging;
+    qDebug() << "BatteryManager: Loaded mode=" << m_chargingMode
+             << "discharging=" << m_discharging;
 
-        emit chargingModeChanged();
-    }
+    emit chargingModeChanged();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
