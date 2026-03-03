@@ -438,7 +438,11 @@ void ShotServer::stop()
         auto themeCopy = m_sseThemeClients;
         m_sseThemeClients.clear();
         for (QTcpSocket* s : themeCopy) s->close();
-        for (QTimer* t : m_keepAliveTimers) t->stop();
+        // Don't call t->stop() on individual timers — pointers may be dangling if
+        // cleanupStaleConnections() previously scheduled a socket for deleteLater()
+        // without disconnected() firing synchronously. The socket deletion destroys
+        // the child timer, leaving a stale pointer in the map.
+        // All remaining valid timers will be destroyed with m_server below.
         m_keepAliveTimers.clear();
         m_server->close();
         delete m_server;
@@ -755,6 +759,12 @@ void ShotServer::cleanupStaleConnections()
         QString addr = (socket->state() != QAbstractSocket::UnconnectedState)
             ? socket->peerAddress().toString() : "unknown";
         qWarning() << "ShotServer: Cleaning up stale connection from" << addr;
+        // Remove the keep-alive timer from the map before scheduling deletion.
+        // If disconnected() doesn't fire synchronously from close(), the socket
+        // and its child timer will be destroyed by deleteLater() while the pointer
+        // still sits in m_keepAliveTimers — causing a dangling-pointer crash in stop().
+        if (QTimer* t = m_keepAliveTimers.take(socket))
+            t->stop();
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         socket->close();

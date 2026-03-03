@@ -21,9 +21,9 @@ Item {
     property color valueColor: Theme.textColor
     property color accentColor: Theme.primaryColor
 
-    // Geared mode - in fullscreen popup, vertical finger distance from center controls step multiplier
-    // Auto-enabled when the range has too many steps to comfortably drag through
-    property bool geared: stepSize > 0 && (to - from) / stepSize > 200
+    // Geared mode - horizontal drag changes value, vertical drag from drag start selects step multiplier:
+    // 0–50 px = ×1 (base stepSize), 50–100 px = ×10, 100+ px = ×100
+    property bool geared: stepSize > 0
 
     // Scale mode - when true, uses Theme.scaledBase() for consistent size across pages
     property bool useBaseScale: false
@@ -222,38 +222,19 @@ Item {
                             }
                         }
 
-                        if (root.geared) {
-                            // Gear based on vertical distance from center of widget
-                            var centerY = valueDragArea.height / 2
-                            var verticalDist = Math.abs(mouse.y - centerY)
-                            var widgetHeight = root.height
-                            var gear = Math.min(2, Math.floor(verticalDist / widgetHeight))
+                        // Vertical distance from drag-start selects gear (50 px per level)
+                        var gear = Math.min(2, Math.floor(Math.abs(mouse.y - startY) / sc(50)))
+                        if (gear !== currentGear) {
+                            currentGear = gear
+                            announceGearChange(gear)
+                        }
 
-                            if (gear !== currentGear) {
-                                currentGear = gear
-                                announceGearChange(gear)
-                            }
-
-                            var gearMultiplier = Math.pow(10, gear)
-                            var effectiveStep = root.stepSize * gearMultiplier
-
-                            var dragStep = sc(20)
-                            var steps = Math.round(deltaX / dragStep)
-                            if (steps !== 0) {
-                                adjustValueWithStep(steps, effectiveStep)
-                                startX = mouse.x
-                            }
-                        } else {
-                            var deltaY2 = startY - mouse.y
-                            var delta = Math.abs(deltaX) > Math.abs(deltaY2) ? deltaX : deltaY2
-
-                            var dragStep2 = sc(20)
-                            var steps2 = Math.round(delta / dragStep2)
-                            if (steps2 !== 0) {
-                                adjustValue(steps2)
-                                startX = mouse.x
-                                startY = mouse.y
-                            }
+                        var effectiveStep = root.stepSize * Math.pow(10, gear)
+                        var steps = Math.round(deltaX / sc(20))
+                        if (steps !== 0) {
+                            adjustValueWithStep(steps, effectiveStep)
+                            startX = mouse.x
+                            // Do NOT reset startY — it is the gear reference point
                         }
                     }
 
@@ -368,29 +349,33 @@ Item {
                 }
             }
 
-            // Inline geared step indicator - rendered in overlay below the widget
+            // Gear indicator + step label — rendered in overlay to the right of the widget
             Loader {
-                active: root.geared && valueDragArea.isDragging
+                active: valueDragArea.isDragging
                 sourceComponent: Item {
                     parent: Overlay.overlay
-                    visible: root.geared && valueDragArea.isDragging
+                    visible: valueDragArea.isDragging
 
-                    property point widgetPos: valueContainer.mapToItem(Overlay.overlay, valueContainer.width / 2, valueContainer.height)
-                    x: widgetPos.x - width / 2
-                    y: widgetPos.y + sc(8)
-                    width: stepLabel.width
-                    height: stepLabel.height
+                    property point widgetPos: valueContainer.mapToItem(Overlay.overlay, valueContainer.width, valueContainer.height / 2)
+                    x: widgetPos.x + sc(8)
+                    y: widgetPos.y - height / 2
+                    width: gearCol.width
+                    height: gearCol.height
 
-                    Text {
-                        id: stepLabel
-                        text: {
-                            var effectiveStep = root.stepSize * Math.pow(10, valueDragArea.currentGear)
-                            var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
-                            return "step: " + effectiveStep.toFixed(d)
+                    Column {
+                        id: gearCol
+                        spacing: sc(2)
+
+                        Repeater {
+                            model: ["×1", "×10", "×100"]
+                            Text {
+                                text: modelData
+                                font.pixelSize: sc(13)
+                                font.bold: valueDragArea.currentGear === index
+                                color: valueDragArea.currentGear === index ? Theme.primaryColor : Theme.textSecondaryColor
+                                opacity: valueDragArea.currentGear === index ? 1.0 : 0.35
+                            }
                         }
-                        font.pixelSize: sc(14)
-                        font.bold: true
-                        color: Theme.primaryColor
                     }
                 }
             }
@@ -576,54 +561,26 @@ Item {
                             }
 
                             onPositionChanged: function(mouse) {
-                                if (root.geared) {
-                                    var deltaX = mouse.x - startX
+                                var deltaX = mouse.x - startX
 
-                                    if (!isDragging && (Math.abs(deltaX) > sc(5) || Math.abs(mouse.y - startY) > sc(5))) {
-                                        isDragging = true
+                                if (!isDragging && (Math.abs(deltaX) > sc(5) || Math.abs(mouse.y - startY) > sc(5))) {
+                                    isDragging = true
+                                }
+
+                                if (isDragging) {
+                                    // Vertical distance from drag-start selects gear (50 px per level)
+                                    var gear = Math.min(2, Math.floor(Math.abs(mouse.y - startY) / sc(50)))
+                                    if (gear !== popupContent.currentGear) {
+                                        popupContent.currentGear = gear
+                                        announceGearChange(gear)
                                     }
 
-                                    if (isDragging) {
-                                        // Gear based on vertical distance from center of drag area
-                                        var centerY = popupDragArea.height / 2
-                                        var verticalDist = Math.abs(mouse.y - centerY)
-                                        var widgetHeight = popupControl.height
-                                        var gear = Math.min(2, Math.floor(verticalDist / widgetHeight))
-
-                                        if (gear !== popupContent.currentGear) {
-                                            popupContent.currentGear = gear
-                                            announceGearChange(gear)
-                                        }
-
-                                        var gearMultiplier = Math.pow(10, gear)
-                                        var effectiveStep = root.stepSize * gearMultiplier
-
-                                        // Horizontal drag changes value
-                                        var dragStep = sc(20)
-                                        var steps = Math.round(deltaX / dragStep)
-                                        if (steps !== 0) {
-                                            adjustValueWithStep(steps, effectiveStep)
-                                            startX = mouse.x
-                                            // Don't reset startY - vertical position is absolute from center
-                                        }
-                                    }
-                                } else {
-                                    var deltaX2 = mouse.x - startX
-                                    var deltaY = startY - mouse.y
-                                    var delta = Math.abs(deltaX2) > Math.abs(deltaY) ? deltaX2 : deltaY
-
-                                    if (Math.abs(delta) > sc(5)) {
-                                        isDragging = true
-                                    }
-
-                                    if (isDragging) {
-                                        var dragStep2 = sc(20)
-                                        var steps2 = Math.round(delta / dragStep2)
-                                        if (steps2 !== 0) {
-                                            adjustValue(steps2)
-                                            startX = mouse.x
-                                            startY = mouse.y
-                                        }
+                                    var effectiveStep = root.stepSize * Math.pow(10, gear)
+                                    var steps = Math.round(deltaX / sc(20))
+                                    if (steps !== 0) {
+                                        adjustValueWithStep(steps, effectiveStep)
+                                        startX = mouse.x
+                                        // Do NOT reset startY — it is the gear reference point
                                     }
                                 }
                             }
@@ -768,67 +725,48 @@ Item {
                 }
             }
 
-            // Gear zone indicators (only in geared mode)
-            Item {
-                visible: root.geared
-                anchors.fill: parent
+            // Gear selector — column of multipliers to the left of the control
+            Column {
+                anchors.right: popupControl.left
+                anchors.rightMargin: sc(12)
+                anchors.verticalCenter: popupControl.verticalCenter
+                spacing: sc(8)
 
-                // Gear zone boundary lines and labels
                 Repeater {
-                    model: 2  // gear 1 and gear 2 boundaries
-
-                    Item {
-                        property real offsetY: (index + 1) * popupControl.height
-                        property real centerY: popupControl.y + popupControl.height / 2
-                        property string label: index === 0 ? "×10" : "×100"
-                        property bool isActiveGear: popupContent.currentGear > index
-
-                        // Line above center
-                        Rectangle {
-                            x: popupControl.x
-                            y: parent.centerY - parent.offsetY
-                            width: popupControl.width
-                            height: 1
-                            color: Theme.textSecondaryColor
-                            opacity: parent.isActiveGear ? 0.5 : 0.15
-                        }
-
-                        // Line below center
-                        Rectangle {
-                            x: popupControl.x
-                            y: parent.centerY + parent.offsetY
-                            width: popupControl.width
-                            height: 1
-                            color: Theme.textSecondaryColor
-                            opacity: parent.isActiveGear ? 0.5 : 0.15
-                        }
-
-                        // Label above
-                        Text {
-                            x: popupControl.x + popupControl.width + sc(8)
-                            y: parent.centerY - parent.offsetY - height / 2
-                            text: parent.label
-                            font.pixelSize: sc(12)
-                            color: Theme.textSecondaryColor
-                            opacity: parent.isActiveGear ? 0.8 : 0.3
-                        }
+                    model: ["×1", "×10", "×100"]
+                    Text {
+                        text: modelData
+                        font.pixelSize: sc(16)
+                        font.bold: popupContent.currentGear === index
+                        color: popupContent.currentGear === index ? Theme.primaryColor : Theme.textSecondaryColor
+                        opacity: popupContent.currentGear === index ? 1.0 : 0.35
                     }
                 }
+            }
 
-                // Current step indicator (visible while dragging, below bar so finger doesn't cover it)
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    y: popupControl.y + popupControl.height + sc(40)
-                    visible: popupDragArea.isDragging
-                    text: {
-                        var effectiveStep = root.stepSize * Math.pow(10, popupContent.currentGear)
-                        var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
-                        return "step: " + effectiveStep.toFixed(d)
-                    }
-                    font.pixelSize: sc(28)
-                    font.bold: true
-                    color: Theme.primaryColor
+            // Step size indicator while dragging
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: popupControl.y + popupControl.height + sc(20)
+                visible: popupDragArea.isDragging
+                text: {
+                    var effectiveStep = root.stepSize * Math.pow(10, popupContent.currentGear)
+                    var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
+                    return TranslationManager.translate("valueinput.step", "step") + ": " + effectiveStep.toFixed(d)
                 }
+                font.pixelSize: sc(24)
+                font.bold: true
+                color: Theme.primaryColor
+            }
+
+            // Usage hint when not dragging
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: popupControl.y + popupControl.height + sc(20)
+                visible: !popupDragArea.isDragging
+                text: TranslationManager.translate("valueinput.hint", "← drag  ↕ gear")
+                font.pixelSize: sc(16)
+                color: Theme.textSecondaryColor
             }
 
             // Range display below
