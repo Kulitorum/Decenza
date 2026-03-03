@@ -290,6 +290,11 @@ void ShotServer::setSettings(Settings* settings)
     }
 }
 
+// Precondition: every socket in `clients` must NOT have an entry in
+// m_keepAliveTimers. SSE sockets satisfy this because their timer is
+// explicitly taken out of the map (via take()) when they are registered
+// as SSE clients. This static function has no access to m_keepAliveTimers,
+// so callers are responsible for maintaining this invariant.
 static void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event)
 {
     QList<QTcpSocket*> dead;
@@ -668,7 +673,8 @@ void ShotServer::onDisconnected()
     if (socket) {
         m_sseLayoutClients.remove(socket);
         m_sseThemeClients.remove(socket);
-        m_keepAliveTimers.remove(socket);
+        if (QTimer* t = m_keepAliveTimers.take(socket))
+            t->stop();
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
 
@@ -772,6 +778,13 @@ void ShotServer::cleanupStaleConnections()
         socket->close();
         socket->deleteLater();
     }
+
+    // SSE clients are long-lived and never appear in m_pendingRequests, so the
+    // stale-connection loop above won't catch them. Send a keepalive comment every
+    // 30 s — broadcastSseEvent() detects failed writes and removes dead clients.
+    // This ensures silently-dropped SSE connections are cleaned up promptly.
+    broadcastSseEvent(m_sseLayoutClients, ": keepalive\n\n");
+    broadcastSseEvent(m_sseThemeClients,  ": keepalive\n\n");
 }
 
 void ShotServer::onDiscoveryDatagram()
