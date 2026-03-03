@@ -322,6 +322,7 @@ ApplicationWindow {
             case "scaleDisconnected": scaleDisconnectedDialog.open(); break
 
             case "update": updateDialog.open(); break
+            case "chargingMismatch": chargingMismatchDialog.open(); break
             case "bleError":
                 bleErrorDialog.errorMessage = next.params.errorMessage || ""
                 bleErrorDialog.isLocationError = next.params.isLocationError || false
@@ -1266,6 +1267,71 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: noScaleAbortDialog.close()
             }
+        }
+    }
+
+    // Charging mismatch warning dialog
+    // Shown when smart charging commands the DE1 USB port ON but Android still reports
+    // DISCHARGING — the port is not delivering power (DE1 asleep, BLE command failed, cable issue).
+    Popup {
+        id: chargingMismatchDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        padding: Theme.dialogPadding
+        closePolicy: Popup.CloseOnEscape
+
+        Accessible.role: Accessible.Dialog
+        Accessible.name: "Charging not detected"
+
+        ColumnLayout {
+            width: parent.width
+            spacing: Theme.dialogSpacing
+
+            Text {
+                text: "Charging Not Detected"
+                font.family: Theme.headingFont.family
+                font.pixelSize: Theme.headingFont.pixelSize
+                font.bold: true
+                color: Theme.textColor
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+            }
+
+            Text {
+                text: "Smart charging is set to ON but the tablet is not receiving power from the DE1.\n\nPossible causes:\n• DE1 went to sleep and cut its USB port\n• BLE command failed — retrying automatically\n• USB cable is disconnected"
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+                Layout.fillWidth: true
+                Accessible.ignored: true
+            }
+
+            AccessibleButton {
+                text: "OK"
+                accessibleName: "Dismiss charging warning"
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: chargingMismatchDialog.close()
+            }
+        }
+    }
+
+    Connections {
+        target: BatteryManager
+
+        function onChargingMismatchDetected() {
+            if (screensaverActive) {
+                queuePopup("chargingMismatch")
+                return
+            }
+            chargingMismatchDialog.open()
+        }
+
+        function onChargingMismatchResolved() {
+            chargingMismatchDialog.close()
         }
     }
 
@@ -2241,6 +2307,7 @@ ApplicationWindow {
             { dialog: scaleDisconnectedDialog, id: "scaleDisconnected" },
             { dialog: refillDialog,            id: "refill" },
             { dialog: bleErrorDialog,          id: "bleError" },
+            { dialog: chargingMismatchDialog,  id: "chargingMismatch" },
             { dialog: noScaleAbortDialog,      id: null },
             { dialog: crashReportDialog,       id: null },
             { dialog: emptyDatabaseDialog,     id: null },

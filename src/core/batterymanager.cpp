@@ -48,6 +48,10 @@ void BatteryManager::setDE1Device(DE1Device* device) {
 }
 
 void BatteryManager::setSettings(Settings* settings) {
+    if (!settings) {
+        qWarning() << "BatteryManager: setSettings(nullptr) called — charging mode will use default (On/55-65%)";
+        return;
+    }
     m_settings = settings;
     if (m_settings) {
         m_chargingMode = m_settings->value("smartBatteryCharging", On).toInt();
@@ -71,11 +75,24 @@ void BatteryManager::setSettings(Settings* settings) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::setChargingMode(int mode) {
+    if (mode < Off || mode > Night) {
+        qWarning() << "BatteryManager: setChargingMode() called with invalid value" << mode << "— ignoring";
+        return;
+    }
+
     if (m_chargingMode == mode)
         return;
 
     m_chargingMode = mode;
     qDebug() << "BatteryManager: Charging mode set to" << mode;
+
+    // Reset mismatch state on mode change — stale count from the previous mode is
+    // meaningless in the new context and could cause a spurious resolved emission.
+    m_chargingMismatchCount = 0;
+    if (m_chargingMismatch) {
+        m_chargingMismatch = false;
+        emit chargingMismatchResolved();
+    }
 
     if (m_settings)
         m_settings->setValue("smartBatteryCharging", mode);
@@ -115,8 +132,10 @@ int BatteryManager::readPlatformBatteryPercent() {
         "getContext",
         "()Landroid/content/Context;");
 
-    if (!context.isValid())
+    if (!context.isValid()) {
+        qWarning() << "BatteryManager: QtNative.getContext() returned null — JNI context unavailable, battery reading skipped";
         return 100;
+    }
 
     QJniObject intentFilter("android/content/IntentFilter",
         "(Ljava/lang/String;)V",
@@ -128,8 +147,10 @@ int BatteryManager::readPlatformBatteryPercent() {
         nullptr,
         intentFilter.object());
 
-    if (!intent.isValid())
+    if (!intent.isValid()) {
+        qWarning() << "BatteryManager: registerReceiver() returned null intent — battery status unavailable";
         return 100;
+    }
 
     // Battery percentage is expressed as level/scale (e.g. 72/100 = 72 %).
     jint level = intent.callMethod<jint>("getIntExtra",
@@ -190,9 +211,13 @@ void BatteryManager::applySmartCharging() {
     // If the DE1 is disconnected we skip the command — the DE1 will auto-enable its
     // port after 10 minutes anyway, so the tablet will eventually charge.
     if (!m_device || !m_device->isConnected()) {
-        qDebug() << "BatteryManager: battery=" << m_batteryPercent
-                 << "% mode=" << m_chargingMode
-                 << "— DE1 not connected, skipping charger command";
+        if (!m_device) {
+            qDebug() << "BatteryManager: DE1 device not yet set, skipping charger command";
+        } else {
+            qDebug() << "BatteryManager: battery=" << m_batteryPercent
+                     << "% mode=" << m_chargingMode
+                     << "— DE1 not connected, skipping charger command";
+        }
         return;
     }
 
@@ -256,6 +281,12 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = true;   // Still charging toward 95 %
             }
         }
+        break;
+
+    default:
+        qWarning() << "BatteryManager: Unknown charging mode" << m_chargingMode
+                   << "— defaulting to always-on. Check QSettings for corruption.";
+        shouldChargerBeOn = true;
         break;
     }
 
@@ -337,9 +368,13 @@ void BatteryManager::applySmartCharging() {
     //
     // This block is Android-only; m_androidBatteryStatus stays -1 on other platforms.
     if (m_androidBatteryStatus != -1) {
+        // Port is confirmed electrically off if Android reports DISCHARGING or UNPLUGGED.
+        // Using m_androidPlugged as a second signal catches NOT_CHARGING(4) edge cases
+        // where the cable is physically connected but the DE1 cut its USB output.
         const bool androidDischarging = (m_androidBatteryStatus == 3);
+        const bool portActuallyOff = androidDischarging || (m_androidPlugged == 0);
 
-        if (shouldChargerBeOn && androidDischarging) {
+        if (shouldChargerBeOn && portActuallyOff) {
             m_chargingMismatchCount++;
 
             // On the first failed check after enabling the port, act immediately.
@@ -362,8 +397,13 @@ void BatteryManager::applySmartCharging() {
         } else {
             // Charging is working as expected (or we deliberately have the port off).
             if (m_chargingMismatch) {
-                qDebug() << "BatteryManager: Charging mismatch resolved after"
-                         << m_chargingMismatchCount << "min";
+                if (m_chargingMismatchCount > 1) {
+                    qDebug() << "BatteryManager: Charging mismatch resolved after"
+                             << m_chargingMismatchCount << "min — initial BLE command may have failed and been retried";
+                } else {
+                    qDebug() << "BatteryManager: Charging mismatch resolved after"
+                             << m_chargingMismatchCount << "min";
+                }
                 m_chargingMismatch = false;
                 emit chargingMismatchResolved();
             }
