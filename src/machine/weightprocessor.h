@@ -32,7 +32,7 @@ public slots:
     void processWeight(double weight);
     void configure(double targetWeight, QVector<double> frameExitWeights,
                    QVector<double> learningDrips, QVector<double> learningFlows,
-                   bool sawConverged);
+                   bool sawConverged, double sensorLagSeconds = 0.38);
     void setCurrentFrame(int frameNumber);
     void setTareComplete(bool complete);
     void startExtraction();
@@ -77,6 +77,7 @@ private:
     QVector<double> m_learningDrips;
     QVector<double> m_learningFlows;
     bool m_sawConverged = false;
+    double m_sensorLagSeconds = 0.38;  // From Settings::sensorLag() — used for first-shot default
 
     // Per-frame exit tracking (avoid duplicate skip commands)
     QSet<int> m_frameWeightSkipSent;

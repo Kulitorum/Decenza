@@ -545,7 +545,8 @@ int main(int argc, char *argv[])
 
                          QMetaObject::invokeMethod(&weightProcessor,
                              [&weightProcessor, targetWeight, frameExitWeights, drips, flows, converged, tareComplete]() {
-                                 weightProcessor.configure(targetWeight, frameExitWeights, drips, flows, converged);
+                                 weightProcessor.configure(targetWeight, frameExitWeights, drips, flows, converged,
+                                                           Settings::sensorLag(scaleType));
                                  weightProcessor.startExtraction();
                                  if (tareComplete) {
                                      weightProcessor.setTareComplete(true);

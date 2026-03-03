@@ -3073,10 +3073,11 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
 
     const QJsonArray& arr = m_sawHistoryCache;
     if (arr.isEmpty()) {
-        // Default: assume 1.5s lag worth of drip, capped at 8g.
-        // Without the cap, high capped-flow values (e.g. 12 g/s from a scale oscillation)
-        // produce 18g predicted drip, causing SAW to fire way too early on the first shot.
-        return qMin(currentFlowRate * 1.5, 8.0);
+        // No history at all — use scale-specific sensor lag as first-shot default.
+        // Formula: flow × (sensor_lag + 0.1s DE1 machine lag), capped at 8g.
+        // Matches de1app's first-shot behaviour (lag_time_estimation=0 before learning).
+        QString currentScale = scaleType();
+        return qMin(currentFlowRate * (sensorLag(currentScale) + 0.1), 8.0);
     }
 
     // Check convergence state to determine adaptive parameters
@@ -3106,7 +3107,7 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
     }
 
     if (entries.isEmpty()) {
-        return qMin(currentFlowRate * 1.5, 8.0);  // Default for this scale type
+        return qMin(currentFlowRate * (sensorLag(currentScale) + 0.1), 8.0);  // No entries for this scale type
     }
 
     // Weighted average: weight by recency AND flow similarity
@@ -3131,9 +3132,8 @@ double Settings::getExpectedDrip(double currentFlowRate) const {
     }
 
     if (totalWeight < 0.01) {
-        // All entries have very different flow rates — fall back to default.
-        // Cap at 8g for the same reason as the empty-history fallback above.
-        return qMin(currentFlowRate * 1.5, 8.0);
+        // All entries have very different flow rates — fall back to sensor-lag default.
+        return qMin(currentFlowRate * (sensorLag(currentScale) + 0.1), 8.0);
     }
 
     double expectedDrip = weightedDripSum / totalWeight;
@@ -3161,6 +3161,22 @@ QList<QPair<double, double>> Settings::sawLearningEntries(const QString& scaleTy
         }
     }
     return result;
+}
+
+double Settings::sensorLag(const QString& scaleType)
+{
+    // BLE sensor lag per scale type, sourced from de1app device_scale.tcl.
+    // Derived from James Hoffmann's video analysis + 0.05s for half the BLE poll period.
+    // Used as the first-shot SAW default before adaptive learning has any data.
+    // The +0.1s DE1 machine lag is added at call sites: default_drip = flow * (sensorLag + 0.1).
+    if (scaleType == "Bookoo")           return 0.50;
+    if (scaleType == "Acaia")            return 0.69;
+    if (scaleType == "Felicita")         return 0.50;
+    if (scaleType == "Atomheart Eclair") return 0.50;
+    if (scaleType == "Hiroia Jimmy")     return 0.25;
+    if (scaleType == "Decent Scale")     return 0.38;
+    if (scaleType == "Skale")            return 0.38;
+    return 0.38;  // de1app default for unknown/unlisted scales
 }
 
 void Settings::addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot) {

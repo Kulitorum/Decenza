@@ -135,13 +135,14 @@ void WeightProcessor::processWeight(double weight)
 
 void WeightProcessor::configure(double targetWeight, QVector<double> frameExitWeights,
                                 QVector<double> learningDrips, QVector<double> learningFlows,
-                                bool sawConverged)
+                                bool sawConverged, double sensorLagSeconds)
 {
     m_targetWeight = targetWeight;
     m_frameExitWeights = frameExitWeights;
     m_learningDrips = learningDrips;
     m_learningFlows = learningFlows;
     m_sawConverged = sawConverged;
+    m_sensorLagSeconds = sensorLagSeconds;
 }
 
 void WeightProcessor::setCurrentFrame(int frameNumber)
@@ -236,7 +237,9 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
     // Algorithm matches Settings::getExpectedDrip — weighted average with
     // recency and flow-similarity weights.
     if (m_learningDrips.isEmpty()) {
-        return qMin(currentFlowRate * 1.5, 8.0);  // Default: assume 1.5s lag, capped at 8g
+        // No learning data — use scale-specific sensor lag as first-shot default.
+        // Matches de1app: flow × (sensor_lag + 0.1s DE1 machine lag), capped at 8g.
+        return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);
     }
 
     int maxEntries = m_sawConverged ? 12 : 8;
@@ -264,7 +267,7 @@ double WeightProcessor::getExpectedDrip(double currentFlowRate) const
     }
 
     if (totalWeight < 0.01) {
-        return qMin(currentFlowRate * 1.5, 8.0);  // All entries have very different flow rates; cap matches empty-history default
+        return qMin(currentFlowRate * (m_sensorLagSeconds + 0.1), 8.0);  // All entries have very different flow rates
     }
 
     return qBound(0.5, weightedDripSum / totalWeight, 20.0);
