@@ -322,6 +322,7 @@ ApplicationWindow {
             case "scaleDisconnected": scaleDisconnectedDialog.open(); break
 
             case "update": updateDialog.open(); break
+            case "chargingMismatch": chargingMismatchDialog.open(); break
             case "bleError":
                 bleErrorDialog.errorMessage = next.params.errorMessage || ""
                 bleErrorDialog.isLocationError = next.params.isLocationError || false
@@ -452,13 +453,6 @@ ApplicationWindow {
             // On subsequent launches, still check if storage setup is needed
             // (e.g., after reinstall when QSettings was restored but SAF permission wasn't)
             checkStorageSetup()
-        }
-
-        // Show Samsung Fast Charging warning on first launch (if Samsung tablet)
-        if (BatteryManager.showSamsungWarning) {
-            Qt.callLater(function() {
-                samsungFastChargeDialog.open()
-            })
         }
 
         // Initialize sleep countdowns (fresh app start, not auto-woken)
@@ -1276,6 +1270,80 @@ ApplicationWindow {
         }
     }
 
+    // Charging mismatch warning dialog
+    // Shown when smart charging commands the DE1 USB port ON but Android still reports
+    // DISCHARGING — the port is not delivering power (DE1 asleep, BLE command failed, cable issue).
+    Popup {
+        id: chargingMismatchDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        padding: Theme.dialogPadding
+        closePolicy: Popup.CloseOnEscape
+        onClosed: root.showNextPendingPopup()
+
+        Accessible.role: Accessible.Dialog
+        Accessible.name: "Charging not detected"
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: "white"
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: "Charging Not Detected"
+                font.family: Theme.headingFont.family
+                font.pixelSize: Theme.headingFont.pixelSize
+                font.bold: true
+                color: Theme.textColor
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+            }
+
+            Text {
+                text: "Smart charging is set to ON but the tablet is not receiving power from the DE1.\n\nPossible causes:\n• DE1 went to sleep and cut its USB port\n• BLE command failed — retrying automatically\n• USB cable is disconnected"
+                wrapMode: Text.Wrap
+                font: Theme.bodyFont
+                color: Theme.textColor
+                Layout.fillWidth: true
+                Accessible.ignored: true
+            }
+
+            AccessibleButton {
+                text: "OK"
+                accessibleName: "Dismiss charging warning"
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: chargingMismatchDialog.close()
+            }
+        }
+    }
+
+    Connections {
+        target: BatteryManager
+
+        function onChargingMismatchDetected() {
+            if (screensaverActive) {
+                queuePopup("chargingMismatch")
+                return
+            }
+            chargingMismatchDialog.open()
+        }
+
+        function onChargingMismatchResolved() {
+            chargingMismatchDialog.close()
+            // Remove any queued instance so it doesn't appear after screensaver wake
+            // when the condition has already cleared.
+            pendingPopups = pendingPopups.filter(function(p) { return p.id !== "chargingMismatch" })
+        }
+    }
+
     // Water tank refill dialog
     Popup {
         id: refillDialog
@@ -1345,97 +1413,6 @@ ApplicationWindow {
         }
     }
 
-    // Samsung Fast Charging warning dialog
-    Popup {
-        id: samsungFastChargeDialog
-        modal: true
-        dim: true
-        anchors.centerIn: parent
-        width: Theme.dialogWidth + 2 * padding
-        padding: Theme.dialogPadding
-        onClosed: root.showNextPendingPopup()
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 2
-            border.color: "white"
-        }
-
-        onOpened: {
-            BatteryManager.dismissSamsungWarning()
-            if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce("Samsung tablet detected. Please disable Fast Charging in your device settings for best results with smart battery charging.", true)
-            }
-        }
-
-        contentItem: Column {
-            spacing: Theme.spacingMedium
-
-            Text {
-                text: "Samsung Tablet Detected"
-                font: Theme.subtitleFont
-                color: Theme.textColor
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            Text {
-                text: "For smart battery charging to work correctly, please disable Fast Charging on your Samsung tablet.\n\nTap \"Open Settings\" below, then turn off \"Fast charging\"."
-                wrapMode: Text.Wrap
-                width: parent.width
-                font: Theme.bodyFont
-                color: Theme.textColor
-            }
-
-            Row {
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Theme.scaled(12)
-
-                AccessibleButton {
-                    text: "Open Settings"
-                    accessibleName: "Open Samsung battery settings"
-                    onClicked: {
-                        BatteryManager.openSamsungBatterySettings()
-                        samsungFastChargeDialog.close()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(140)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    text: "OK"
-                    accessibleName: "Dismiss Samsung fast charging warning"
-                    onClicked: samsungFastChargeDialog.close()
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(80)
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: parent.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
-        }
-    }
 
     // Update notification dialog
     Popup {
@@ -2339,8 +2316,8 @@ ApplicationWindow {
             { dialog: scaleDisconnectedDialog, id: "scaleDisconnected" },
             { dialog: refillDialog,            id: "refill" },
             { dialog: bleErrorDialog,          id: "bleError" },
+            { dialog: chargingMismatchDialog,  id: "chargingMismatch" },
             { dialog: noScaleAbortDialog,      id: null },
-            { dialog: samsungFastChargeDialog, id: null },
             { dialog: crashReportDialog,       id: null },
             { dialog: emptyDatabaseDialog,     id: null },
         ]

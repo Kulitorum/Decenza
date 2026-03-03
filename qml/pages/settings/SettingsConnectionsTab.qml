@@ -451,6 +451,38 @@ Item {
                     }
                 }
 
+                // Serial USB toggle — bottom of machine connection card, always visible
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Text {
+                            text: "Serial USB (DE1 USB-C)"
+                            font.pixelSize: Theme.scaled(14)
+                            color: Theme.textColor
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            text: "Poll for USB-connected DE1. Disable to save battery."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.Wrap
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    StyledSwitch {
+                        checked: Settings.usbSerialEnabled
+                        accessibleName: "Enable serial USB connection for DE1"
+                        onToggled: Settings.usbSerialEnabled = checked
+                    }
+                }
+
             }
         }
 

@@ -5,74 +5,110 @@
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
-#include <QCoreApplication>
-#include <QGuiApplication>
 #endif
 
 #ifdef Q_OS_IOS
 #include <UIKit/UIKit.h>
 #endif
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Construction
+// ─────────────────────────────────────────────────────────────────────────────
+
 BatteryManager::BatteryManager(QObject* parent)
     : QObject(parent)
 {
-    // Check battery every 60 seconds (like de1app)
+    // Poll every 60 seconds — same cadence as de1app. This is also the frequency at
+    // which we resend the charger command to the DE1. The DE1 has a 10-minute built-in
+    // timeout that re-enables its USB port automatically; 60 s gives us a 10× safety
+    // margin so we always win the race to keep the port in the state we want.
     m_checkTimer.setInterval(60000);
     connect(&m_checkTimer, &QTimer::timeout, this, &BatteryManager::checkBattery);
     m_checkTimer.start();
 
-    // Check if this is a Samsung tablet (must disable smart charging)
-    checkSamsungTablet();
-
-#ifdef Q_OS_ANDROID
-    // Re-check battery optimization when app returns to foreground (event-based guard).
-    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-        if (state == Qt::ApplicationActive && m_batteryOptimizationPending) {
-            m_batteryOptimizationPending = false;
-            emit batteryOptimizationChanged();
-        }
-    });
-#endif
-
-    // Do an initial check
     checkBattery();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Setup
+// ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::setDE1Device(DE1Device* device) {
     m_device = device;
+
+    // Apply smart charging the moment the DE1 connects rather than waiting up to 60 s
+    // for the next timer tick. Without this the DE1 can reconnect after a BLE drop and
+    // sit for up to a minute with its USB port in the wrong state — on at 70 % when we
+    // want it off, for example. We only act on the rising edge (isConnected == true);
+    // the disconnect edge is handled by the early return in applySmartCharging().
+    connect(device, &DE1Device::connectedChanged, this, [this]() {
+        if (m_device && m_device->isConnected())
+            checkBattery();
+    });
 }
 
 void BatteryManager::setSettings(Settings* settings) {
-    m_settings = settings;
-    if (m_settings) {
-        // Load charging mode from settings
-        m_chargingMode = m_settings->value("smartBatteryCharging", On).toInt();
-
-        emit chargingModeChanged();
-    }
-}
-
-void BatteryManager::setChargingMode(int mode) {
-    if (m_chargingMode == mode) {
+    if (!settings) {
+        qWarning() << "BatteryManager: setSettings(nullptr) called — charging mode will use default (On/55-65%)";
         return;
     }
+    m_settings = settings;
+    m_chargingMode = m_settings->value("smartBatteryCharging", On).toInt();
+
+    // Restore the discharging flag so the charge/discharge cycle survives restarts.
+    // Without this, m_discharging always resets to false on startup. That means if
+    // the battery was at 60 % and actively discharging toward the 55 % floor, after
+    // a restart the app would see 60 % < 65 % and immediately re-enable the port,
+    // charging back to 65 % — the lower threshold would effectively never be reached.
+    m_discharging = m_settings->value("battery/discharging", false).toBool();
+
+    qDebug() << "BatteryManager: Loaded mode=" << m_chargingMode
+             << "discharging=" << m_discharging;
+
+    emit chargingModeChanged();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mode changes
+// ─────────────────────────────────────────────────────────────────────────────
+
+void BatteryManager::setChargingMode(int mode) {
+    if (mode < Off || mode > Night) {
+        qWarning() << "BatteryManager: setChargingMode() called with invalid value" << mode << "— ignoring";
+        return;
+    }
+
+    if (m_chargingMode == mode)
+        return;
+
     m_chargingMode = mode;
     qDebug() << "BatteryManager: Charging mode set to" << mode;
 
-    if (m_settings) {
-        m_settings->setValue("smartBatteryCharging", mode);
+    // Reset mismatch state on mode change — stale count from the previous mode is
+    // meaningless in the new context and could cause a spurious resolved emission.
+    m_chargingMismatchCount = 0;
+    if (m_chargingMismatch) {
+        m_chargingMismatch = false;
+        emit chargingMismatchResolved();
     }
 
-    // If turning off smart charging, ensure charger is ON
-    if (mode == Off && m_device) {
+    if (m_settings)
+        m_settings->setValue("smartBatteryCharging", mode);
+
+    // Switching to Off means "always charge" — turn the port on immediately so the
+    // user doesn't have to wait for the next 60-second tick.
+    if (mode == Off && m_device)
         m_device->setUsbChargerOn(true);
-    }
 
     emit chargingModeChanged();
 
-    // Apply new mode immediately
+    // Recompute the correct port state for the new mode right away.
     checkBattery();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Battery reading
+// ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::checkBattery() {
     int newPercent = readPlatformBatteryPercent();
@@ -87,340 +123,306 @@ void BatteryManager::checkBattery() {
 
 int BatteryManager::readPlatformBatteryPercent() {
 #ifdef Q_OS_ANDROID
-    // Android: Use Intent.ACTION_BATTERY_CHANGED via JNI
+    // ACTION_BATTERY_CHANGED is a sticky broadcast — registering a null receiver
+    // returns the most recent cached intent without needing a persistent receiver.
     QJniObject context = QJniObject::callStaticObjectMethod(
         "org/qtproject/qt/android/QtNative",
         "getContext",
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
+        qWarning() << "BatteryManager: QtNative.getContext() returned null — JNI context unavailable, battery reading skipped";
         return 100;
     }
 
-    // Get IntentFilter for ACTION_BATTERY_CHANGED
     QJniObject intentFilter("android/content/IntentFilter",
         "(Ljava/lang/String;)V",
         QJniObject::fromString("android.intent.action.BATTERY_CHANGED").object<jstring>());
 
-    // Register receiver (null) to get sticky intent
-    QJniObject batteryStatus = context.callObjectMethod(
+    QJniObject intent = context.callObjectMethod(
         "registerReceiver",
         "(Landroid/content/BroadcastReceiver;Landroid/content/IntentFilter;)Landroid/content/Intent;",
         nullptr,
         intentFilter.object());
 
-    if (!batteryStatus.isValid()) {
+    if (!intent.isValid()) {
+        qWarning() << "BatteryManager: registerReceiver() returned null intent — battery status unavailable";
         return 100;
     }
 
-    // Get level and scale
-    jint level = batteryStatus.callMethod<jint>(
-        "getIntExtra",
+    // Battery percentage is expressed as level/scale (e.g. 72/100 = 72 %).
+    jint level = intent.callMethod<jint>("getIntExtra",
         "(Ljava/lang/String;I)I",
-        QJniObject::fromString("level").object<jstring>(),
-        -1);
+        QJniObject::fromString("level").object<jstring>(), -1);
 
-    jint scale = batteryStatus.callMethod<jint>(
-        "getIntExtra",
+    jint scale = intent.callMethod<jint>("getIntExtra",
         "(Ljava/lang/String;I)I",
-        QJniObject::fromString("scale").object<jstring>(),
-        100);
+        QJniObject::fromString("scale").object<jstring>(), 100);
 
-    if (level < 0 || scale <= 0) {
+    if (level < 0 || scale <= 0)
         return 100;
-    }
+
+    // Read the actual charging status and power-source type. These are used by
+    // applySmartCharging() to detect whether the DE1 USB port is actually delivering
+    // power, independently of what we commanded via BLE.
+    //
+    // status values (android.os.BatteryManager.BATTERY_STATUS_*):
+    //   1=UNKNOWN  2=CHARGING  3=DISCHARGING  4=NOT_CHARGING  5=FULL
+    //
+    // In this hardware setup "DISCHARGING" means the DE1's USB port is electrically
+    // off — the tablet is not receiving current, even if the cable is still plugged in.
+    m_androidBatteryStatus = intent.callMethod<jint>("getIntExtra",
+        "(Ljava/lang/String;I)I",
+        QJniObject::fromString("status").object<jstring>(), -1);
+
+    // plugged values (android.os.BatteryManager.BATTERY_PLUGGED_*):
+    //   0=UNPLUGGED  1=AC  2=USB (DE1 port)  4=WIRELESS
+    //
+    // "UNPLUGGED" here means the DE1 USB port is not providing voltage — either the
+    // DE1 turned the port off (our command), the DE1 went to sleep, or the cable
+    // was physically removed. If we're commanding the port ON and see UNPLUGGED, that
+    // is a mismatch worth investigating.
+    m_androidPlugged = intent.callMethod<jint>("getIntExtra",
+        "(Ljava/lang/String;I)I",
+        QJniObject::fromString("plugged").object<jstring>(), -1);
 
     return (level * 100) / scale;
 
 #elif defined(Q_OS_IOS)
-    // iOS: Use UIDevice battery monitoring
     [[UIDevice currentDevice] setBatteryMonitoringEnabled:YES];
     float level = [[UIDevice currentDevice] batteryLevel];
-
-    if (level < 0) {
-        // Battery level unknown
-        return 100;
-    }
-
+    if (level < 0)
+        return 100;  // level unknown
     return static_cast<int>(level * 100);
 
 #else
-    // Desktop: No battery, return 100%
-    return 100;
+    return 100;  // Desktop — no real battery
 #endif
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Smart charging logic
+// ─────────────────────────────────────────────────────────────────────────────
+
 void BatteryManager::applySmartCharging() {
+    // We can only control the DE1 USB port while BLE is connected.
+    // If the DE1 is disconnected we skip the command — the DE1 will auto-enable its
+    // port after 10 minutes anyway, so the tablet will eventually charge.
     if (!m_device || !m_device->isConnected()) {
+        if (!m_device) {
+            qDebug() << "BatteryManager: DE1 device not yet set, skipping charger command";
+        } else {
+            qDebug() << "BatteryManager: battery=" << m_batteryPercent
+                     << "% mode=" << m_chargingMode
+                     << "— DE1 not connected, skipping charger command";
+        }
         return;
     }
+
+    // ── Step 1: decide whether the DE1 USB port should be on ─────────────────
 
     bool shouldChargerBeOn = true;
 
     switch (m_chargingMode) {
+
     case Off:
-        // Charger always on
+        // Always-on mode — no smart control, just keep the port enabled.
         shouldChargerBeOn = true;
         break;
 
     case On:
-        // Smart charging: 55-65%
-        // Turn charger ON when battery <= 55%
-        // Turn charger OFF when battery >= 65%
+        // Smart charging 55–65 %. We use a two-state machine (m_discharging) to
+        // create hysteresis and avoid rapid switching near the boundaries:
+        //   m_discharging=false → port is on, charging. Switch port off at 65 %.
+        //   m_discharging=true  → port is off, draining. Switch port on at 55 %.
+        // m_discharging is persisted so a restart mid-cycle doesn't reset the window.
         if (m_discharging) {
-            // Currently discharging, wait until 55%
             if (m_batteryPercent <= 55) {
                 shouldChargerBeOn = true;
                 m_discharging = false;
+                if (m_settings) m_settings->setValue("battery/discharging", false);
                 qDebug() << "BatteryManager: Battery at" << m_batteryPercent << "%, starting charge";
             } else {
-                shouldChargerBeOn = false;
+                shouldChargerBeOn = false;  // Still draining toward 55 %
             }
         } else {
-            // Currently charging, wait until 65%
             if (m_batteryPercent >= 65) {
                 shouldChargerBeOn = false;
                 m_discharging = true;
+                if (m_settings) m_settings->setValue("battery/discharging", true);
                 qDebug() << "BatteryManager: Battery at" << m_batteryPercent << "%, stopping charge";
             } else {
-                shouldChargerBeOn = true;
+                shouldChargerBeOn = true;   // Still charging toward 65 %
             }
         }
         break;
 
     case Night:
-        // Night mode: 90-95% when active, 15-95% when sleeping
-        // For now, use 90-95% (we'd need machine state to check sleep)
+        // Smart charging 90–95 %. Same two-state machine as On mode, different thresholds.
+        // Designed to keep the battery high for morning use without staying at 100 %.
         if (m_discharging) {
             if (m_batteryPercent <= 90) {
                 shouldChargerBeOn = true;
                 m_discharging = false;
+                if (m_settings) m_settings->setValue("battery/discharging", false);
                 qDebug() << "BatteryManager: Night mode - battery at" << m_batteryPercent << "%, starting charge";
             } else {
-                shouldChargerBeOn = false;
+                shouldChargerBeOn = false;  // Still draining toward 90 %
             }
         } else {
             if (m_batteryPercent >= 95) {
                 shouldChargerBeOn = false;
                 m_discharging = true;
+                if (m_settings) m_settings->setValue("battery/discharging", true);
                 qDebug() << "BatteryManager: Night mode - battery at" << m_batteryPercent << "%, stopping charge";
             } else {
-                shouldChargerBeOn = true;
+                shouldChargerBeOn = true;   // Still charging toward 95 %
             }
         }
         break;
+
+    default:
+        qWarning() << "BatteryManager: Unknown charging mode" << m_chargingMode
+                   << "— defaulting to always-on. Check QSettings for corruption.";
+        shouldChargerBeOn = true;
+        break;
     }
 
-    // IMPORTANT: Always send the charger command with force=true.
-    // The DE1 has a 10-minute timeout that automatically turns the charger back ON.
-    // We must resend the command every 60 seconds to keep it off (if that's what we want).
-    // This matches de1app behavior which always calls set_usb_charger_on every check.
+    // ── Step 2: log current state every cycle ────────────────────────────────
+    //
+    // We log unconditionally (not just on state changes) so we can reconstruct
+    // the battery level curve from logs when diagnosing drain issues.
+
+    static const char* modeNames[] = {"Off(always-on)", "On(55-65%)", "Night(90-95%)"};
+    const char* modeName = (m_chargingMode >= 0 && m_chargingMode <= 2)
+        ? modeNames[m_chargingMode] : "Unknown";
+
+    // Human-readable Android status for the log.
+    const char* androidStatus = "n/a";
+    switch (m_androidBatteryStatus) {
+    case 1: androidStatus = "UNKNOWN";      break;
+    case 2: androidStatus = "CHARGING";     break;
+    case 3: androidStatus = "DISCHARGING";  break;
+    case 4: androidStatus = "NOT-CHARGING"; break;
+    case 5: androidStatus = "FULL";         break;
+    }
+
+    // Human-readable plugged source for the log.
+    // "USB(DE1)" confirms the DE1 port is electrically active; "UNPLUGGED" means it isn't.
+    const char* androidPlugged = "n/a";
+    switch (m_androidPlugged) {
+    case 0: androidPlugged = "UNPLUGGED"; break;
+    case 1: androidPlugged = "AC";        break;
+    case 2: androidPlugged = "USB(DE1)";  break;
+    case 4: androidPlugged = "WIRELESS";  break;
+    }
+
+    qDebug() << "BatteryManager: battery=" << m_batteryPercent
+             << "% mode=" << modeName
+             << "charger=" << (shouldChargerBeOn ? "ON" : "OFF")
+             << "discharging=" << m_discharging
+             << "android=" << androidStatus
+             << "plugged=" << androidPlugged;
+
+    // ── Step 3: send the command to the DE1 ──────────────────────────────────
+    //
+    // Always send with force=true so we resend even when the decision hasn't changed.
+    // The DE1's 10-minute auto-enable timeout means that if we want the port OFF we
+    // must actively reassert that every cycle — otherwise the DE1 overrides us.
     m_device->setUsbChargerOn(shouldChargerBeOn, true);
 
-    // Update isCharging state
-    if (m_isCharging != shouldChargerBeOn) {
-        m_isCharging = shouldChargerBeOn;
+    // ── Step 4: update isCharging to reflect reality, not just our intent ────
+    //
+    // Previously isCharging was set from shouldChargerBeOn (what we commanded).
+    // That caused the UI to show "Charging" even when the DE1 USB port wasn't
+    // actually delivering power — misleading the user while the battery drained.
+    //
+    // On Android we now use the OS-reported status instead. CHARGING(2) or FULL(5)
+    // means current is actually flowing into the battery. On non-Android platforms
+    // m_androidBatteryStatus stays -1, so we fall back to the commanded state.
+    bool actuallyCharging = (m_androidBatteryStatus != -1)
+        ? (m_androidBatteryStatus == 2 || m_androidBatteryStatus == 5)
+        : shouldChargerBeOn;
+
+    if (m_isCharging != actuallyCharging) {
+        m_isCharging = actuallyCharging;
         emit isChargingChanged();
     }
-}
 
-bool BatteryManager::isBatteryOptimizationIgnored() const {
-#ifdef Q_OS_ANDROID
-    QJniObject context = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "getContext",
-        "()Landroid/content/Context;");
+    // ── Step 5: mismatch detection ───────────────────────────────────────────
+    //
+    // If we commanded the port ON but Android reports DISCHARGING, the DE1 USB port
+    // is not delivering power despite our instruction. Possible causes:
+    //   • The DE1 went to sleep and cut the USB port (most common overnight)
+    //   • A BLE write silently failed and the DE1 never received the command
+    //   • The physical cable between the tablet and DE1 was disconnected
+    //
+    // We check on the very next 60-second cycle after enabling the port. 60 seconds
+    // is comfortably longer than the round-trip time for: BLE write → DE1 processes
+    // command → port switches on → tablet hardware detects USB power → Android updates
+    // the sticky ACTION_BATTERY_CHANGED intent. If we still see DISCHARGING after all
+    // that, the port genuinely did not come on and we should retry and warn immediately.
+    // The downside of acting quickly is at most one extra BLE command — harmless.
+    //
+    // This block is Android-only; m_androidBatteryStatus stays -1 on other platforms.
+    if (m_androidBatteryStatus != -1) {
+        // Port is confirmed electrically off if Android reports DISCHARGING or UNPLUGGED.
+        // Using m_androidPlugged as a second signal catches NOT_CHARGING(4) edge cases
+        // where the cable is physically connected but the DE1 cut its USB output.
+        const bool androidDischarging = (m_androidBatteryStatus == 3);
+        const bool portActuallyOff = androidDischarging || (m_androidPlugged == 0);
 
-    if (!context.isValid()) {
-        return true;  // Assume OK if we can't check
-    }
+        if (shouldChargerBeOn && portActuallyOff) {
+            m_chargingMismatchCount++;
 
-    // Get PowerManager
-    QJniObject powerServiceName = QJniObject::getStaticObjectField(
-        "android/content/Context",
-        "POWER_SERVICE",
-        "Ljava/lang/String;");
-
-    QJniObject powerManager = context.callObjectMethod(
-        "getSystemService",
-        "(Ljava/lang/String;)Ljava/lang/Object;",
-        powerServiceName.object<jstring>());
-
-    if (!powerManager.isValid()) {
-        return true;
-    }
-
-    // Get package name
-    QJniObject packageName = context.callObjectMethod(
-        "getPackageName",
-        "()Ljava/lang/String;");
-
-    // Check if we're ignoring battery optimizations
-    jboolean isIgnoring = powerManager.callMethod<jboolean>(
-        "isIgnoringBatteryOptimizations",
-        "(Ljava/lang/String;)Z",
-        packageName.object<jstring>());
-
-    return isIgnoring;
-#else
-    return true;  // Non-Android platforms don't have this restriction
-#endif
-}
-
-void BatteryManager::requestIgnoreBatteryOptimization() {
-#ifdef Q_OS_ANDROID
-    if (isBatteryOptimizationIgnored()) {
-        return;  // Already whitelisted
-    }
-
-    QJniObject context = QJniObject::callStaticObjectMethod(
-        "org/qtproject/qt/android/QtNative",
-        "getContext",
-        "()Landroid/content/Context;");
-
-    if (!context.isValid()) {
-        return;
-    }
-
-    // Get package name
-    QJniObject packageName = context.callObjectMethod(
-        "getPackageName",
-        "()Ljava/lang/String;");
-
-    // Create intent to request ignoring battery optimizations
-    QJniObject actionString = QJniObject::getStaticObjectField(
-        "android/provider/Settings",
-        "ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "Ljava/lang/String;");
-
-    // Build URI: package:com.example.app
-    QString uriString = QString("package:%1").arg(packageName.toString());
-    QJniObject uri = QJniObject::callStaticObjectMethod(
-        "android/net/Uri",
-        "parse",
-        "(Ljava/lang/String;)Landroid/net/Uri;",
-        QJniObject::fromString(uriString).object<jstring>());
-
-    // Create intent
-    QJniObject intent("android/content/Intent",
-        "(Ljava/lang/String;Landroid/net/Uri;)V",
-        actionString.object<jstring>(),
-        uri.object());
-
-    // Add FLAG_ACTIVITY_NEW_TASK flag
-    jint flagNewTask = QJniObject::getStaticField<jint>(
-        "android/content/Intent",
-        "FLAG_ACTIVITY_NEW_TASK");
-    intent.callObjectMethod(
-        "addFlags",
-        "(I)Landroid/content/Intent;",
-        flagNewTask);
-
-    // Start activity
-    context.callMethod<void>(
-        "startActivity",
-        "(Landroid/content/Intent;)V",
-        intent.object());
-
-    // Flag checked when app resumes from Android Settings (applicationStateChanged)
-    m_batteryOptimizationPending = true;
-#endif
-}
-
-void BatteryManager::checkSamsungTablet() {
-#ifdef Q_OS_ANDROID
-    // Check if manufacturer contains "samsung" (case insensitive)
-    // This matches de1app's tablet_is_samsung_brand check
-    QJniObject manufacturer = QJniObject::getStaticObjectField(
-        "android/os/Build",
-        "MANUFACTURER",
-        "Ljava/lang/String;");
-
-    if (manufacturer.isValid()) {
-        QString mfr = manufacturer.toString().toLower();
-        m_isSamsungTablet = mfr.contains("samsung");
-        if (m_isSamsungTablet) {
-            qDebug() << "BatteryManager: Samsung device detected (manufacturer:" << manufacturer.toString() << ")";
+            // On the first failed check after enabling the port, act immediately.
+            // No grace period — 60 s is already enough time for the command to take effect.
+            if (m_chargingMismatchCount == 1) {
+                qWarning() << "BatteryManager: ALERT - charger commanded ON but DE1 USB port is"
+                           << "not delivering power (battery=" << m_batteryPercent
+                           << "%). DE1 may have gone to sleep. Forcing retry.";
+                m_device->setUsbChargerOn(true, true);
+                if (!m_chargingMismatch) {
+                    m_chargingMismatch = true;
+                    emit chargingMismatchDetected();
+                }
+            } else {
+                // Retry is already in flight from the first check. Keep warning each
+                // cycle so the problem is visible in logs while it persists.
+                qWarning() << "BatteryManager: DE1 USB power mismatch ongoing -"
+                           << m_chargingMismatchCount << "min, battery=" << m_batteryPercent << "%";
+            }
+        } else {
+            // Charging is working as expected (or we deliberately have the port off).
+            if (m_chargingMismatch) {
+                if (m_chargingMismatchCount > 1) {
+                    qDebug() << "BatteryManager: Charging mismatch resolved after"
+                             << m_chargingMismatchCount << "min — initial BLE command may have failed and been retried";
+                } else {
+                    qDebug() << "BatteryManager: Charging mismatch resolved after"
+                             << m_chargingMismatchCount << "min";
+                }
+                m_chargingMismatch = false;
+                emit chargingMismatchResolved();
+            }
+            m_chargingMismatchCount = 0;
         }
     }
-#endif
-    m_samsungCheckDone = true;
 }
 
-bool BatteryManager::isSamsungTablet() const {
-    return m_isSamsungTablet;
-}
-
-bool BatteryManager::showSamsungWarning() const {
-    if (!m_isSamsungTablet || !m_settings) {
-        return false;
-    }
-    return !m_settings->value("samsungFastChargeWarningShown", false).toBool();
-}
-
-void BatteryManager::dismissSamsungWarning() {
-    if (m_settings) {
-        m_settings->setValue("samsungFastChargeWarningShown", true);
-    }
-}
-
-void BatteryManager::openSamsungBatterySettings() {
-#ifdef Q_OS_ANDROID
-    QJniObject activity = QNativeInterface::QAndroidApplication::context();
-    if (!activity.isValid()) return;
-
-    // Try Samsung Device Care activities in order of specificity.
-    // Qt's callMethod clears JNI exceptions internally, so we use PackageManager
-    // to verify each component exists before attempting to start it.
-    struct { const char* pkg; const char* cls; } targets[] = {
-        // Charging settings page (has Fast Charging toggle directly)
-        {"com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryAdvancedMenuActivity"},
-        // Main battery page (has "Charging settings" sub-item)
-        {"com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryActivity"},
-    };
-
-    QJniObject pm = activity.callObjectMethod("getPackageManager",
-        "()Landroid/content/pm/PackageManager;");
-
-    for (const auto& t : targets) {
-        QJniObject intent("android/content/Intent");
-        QJniObject component("android/content/ComponentName",
-            "(Ljava/lang/String;Ljava/lang/String;)V",
-            QJniObject::fromString(t.pkg).object<jstring>(),
-            QJniObject::fromString(t.cls).object<jstring>());
-        intent.callObjectMethod("setComponent",
-            "(Landroid/content/ComponentName;)Landroid/content/Intent;",
-            component.object());
-        intent.callMethod<QJniObject>("addFlags", "(I)Landroid/content/Intent;", 0x10000000);
-
-        // queryIntentActivities returns a non-empty list if the activity actually exists
-        QJniObject matches = pm.callObjectMethod("queryIntentActivities",
-            "(Landroid/content/Intent;I)Ljava/util/List;",
-            intent.object(), 0);
-        if (matches.isValid() && matches.callMethod<jint>("size") > 0) {
-            qDebug() << "BatteryManager: Opening" << t.cls;
-            activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
-            return;
-        }
-    }
-
-    // Fallback: standard Android battery settings
-    qDebug() << "BatteryManager: Samsung activities not found, opening standard battery settings";
-    QJniObject action = QJniObject::fromString("android.intent.action.POWER_USAGE_SUMMARY");
-    QJniObject fallback("android/content/Intent", "(Ljava/lang/String;)V", action.object<jstring>());
-    fallback.callMethod<QJniObject>("addFlags", "(I)Landroid/content/Intent;", 0x10000000);
-    if (fallback.isValid()) {
-        activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", fallback.object());
-    }
-#endif
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// App lifecycle safety
+// ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::ensureChargerOn() {
-    // Safety function: Always turn charger ON when app exits or goes to background
-    // This prevents the tablet from dying if left unattended with smart charging enabled
-    // Matches de1app's app_exit behavior
+    // Called on app exit or suspend. Re-enables the DE1 USB port unconditionally so
+    // the tablet can charge while the app is not running to manage it. Without this,
+    // if smart charging had turned the port off (battery > 65 %, say), the DE1 would
+    // keep the port off for up to 10 minutes after the app exits — the tablet would
+    // drain unnecessarily. Matches de1app's app_exit behaviour.
     if (m_device && m_device->isConnected()) {
         qDebug() << "BatteryManager: Ensuring charger is ON (app exit/suspend safety)";
-        m_device->setUsbChargerOn(true, true);  // force=true to ensure it's sent
+        m_device->setUsbChargerOn(true, true);
     }
 }
+
