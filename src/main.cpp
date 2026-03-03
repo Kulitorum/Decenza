@@ -606,6 +606,7 @@ int main(int argc, char *argv[])
         const bool enteringOp = !s_inOperation && (
             phase == Phase::EspressoPreheating ||   // earliest signal for espresso
             phase == Phase::HotWater ||
+            phase == Phase::Steaming ||
             phase == Phase::Flushing ||
             phase == Phase::Descaling ||
             phase == Phase::Cleaning);
@@ -935,6 +936,7 @@ int main(int argc, char *argv[])
                 machineState.setScale(&flowScale);
                 timingController.setScale(&flowScale);
                 engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
+                settings.setUseFlowScale(true);  // Re-enable FlowScale fallback
                 // Disconnect physical scale from weight processor
                 QObject::disconnect(physicalScale.get(), &ScaleDevice::weightChanged,
                                     &weightProcessor, &WeightProcessor::processWeight);
