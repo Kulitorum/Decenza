@@ -1,4 +1,4 @@
-module DecenzaDE1
+module Decenza
 
 # Design-time type information
 typeinfo plugins.qmltypes

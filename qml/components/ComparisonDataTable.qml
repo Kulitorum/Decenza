@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 // Unified shot comparison table: header row (column toggles) + one row per shot (row toggle).
 // Replaces the separate legend, curve toggle buttons, and ComparisonInspectBar.

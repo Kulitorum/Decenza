@@ -17,7 +17,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
-# Decenza DE1
+# Decenza
 
 Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE connectivity.
 
@@ -61,8 +61,8 @@ cd build/Debug && unset CMAKE_BUILD_PARALLEL_LEVEL && MSYS_NO_PATHCONV=1 cmake -
 Note: `unset CMAKE_BUILD_PARALLEL_LEVEL` avoids conflicts with `/m`. `MSYS_NO_PATHCONV=1` prevents bash from converting `/m` to `M:/`. The `/m` flag enables MSBuild parallel compilation.
 
 **Output locations:**
-- Release: `build/Release/Release/Decenza_DE1.exe`
-- Debug: `build/Debug/Debug/Decenza_DE1.exe`
+- Release: `build/Release/Release/Decenza.exe`
+- Debug: `build/Debug/Debug/Decenza.exe`
 
 ## macOS/iOS Build (on Mac)
 
@@ -88,9 +88,9 @@ rm -rf build/Qt_6_10_2_for_macOS && mkdir -p build/Qt_6_10_2_for_macOS && cd bui
 
 **Open in Xcode:**
 ```bash
-open build/Qt_6_10_2_for_iOS/Decenza_DE1.xcodeproj
+open build/Qt_6_10_2_for_iOS/Decenza.xcodeproj
 # or
-open build/Qt_6_10_2_for_macOS/Decenza_DE1.xcodeproj
+open build/Qt_6_10_2_for_macOS/Decenza.xcodeproj
 ```
 
 Then in Xcode: Product → Archive for App Store submission.
@@ -138,7 +138,7 @@ gh run view --repo Kulitorum/Decenza --log-failed
 See "Publishing Releases" section below for the full process. In short:
 ```bash
 # 1. Create the GitHub Release FIRST (so CI finds it)
-gh release create vX.Y.Z --title "Decenza DE1 vX.Y.Z" --prerelease --notes "..."
+gh release create vX.Y.Z --title "Decenza vX.Y.Z" --prerelease --notes "..."
 # 2. Then push the tag to trigger all 6 builds
 git tag vX.Y.Z
 git push origin vX.Y.Z
@@ -710,19 +710,19 @@ The app links OpenSSL directly (for TLS certificate generation in Remote Access)
 - **Keystore path**: `build.gradle` reads `ANDROID_KEYSTORE_PATH` env var, falls back to local path
 
 ### How Signing & Renaming Works
-1. Build creates unsigned APK (`android-build-Decenza_DE1-release-unsigned.apk`)
+1. Build creates unsigned APK (`android-build-Decenza-release-unsigned.apk`)
 2. `gradle.buildFinished` hook in `android/build.gradle` triggers:
    - Finds unsigned APK
    - Signs it with `apksigner` from Android SDK build-tools (cross-platform: `.bat` on Windows, no extension on Linux)
-   - Outputs as `Decenza_DE1_<version>.apk`
-3. For AAB: same hook copies (via `java.nio.file.Files.copy`) and signs with `jarsigner` to `Decenza_DE1-<version>.aab`
+   - Outputs as `Decenza_<version>.apk`
+3. For AAB: same hook copies (via `java.nio.file.Files.copy`) and signs with `jarsigner` to `Decenza-<version>.aab`
 4. On CI, a fallback step signs the APK manually if the gradle hook fails
 
 ### Output Files
-- **APK output**: `build/.../android-build-Decenza_DE1/build/outputs/apk/release/`
-  - `Decenza_DE1_X.Y.Z.apk` (versioned, signed)
-- **AAB output**: `build/.../android-build-Decenza_DE1/build/outputs/bundle/release/`
-  - `Decenza_DE1-X.Y.Z.aab` (versioned, for Play Store)
+- **APK output**: `build/.../android-build-Decenza/build/outputs/apk/release/`
+  - `Decenza_X.Y.Z.apk` (versioned, signed)
+- **AAB output**: `build/.../android-build-Decenza/build/outputs/bundle/release/`
+  - `Decenza-X.Y.Z.aab` (versioned, for Play Store)
 
 ## Publishing Releases
 
@@ -751,7 +751,7 @@ For beta/prerelease builds, add `--prerelease` flag. Users with "Beta updates" e
 
 ```bash
 gh release create vX.Y.Z \
-  --title "Decenza DE1 vX.Y.Z" \
+  --title "Decenza vX.Y.Z" \
   --prerelease \
   --notes "$(cat <<'EOF'
 ## Changes
@@ -766,7 +766,7 @@ gh release create vX.Y.Z \
 
 ## Installation
 
-**Direct APK download:** https://github.com/Kulitorum/Decenza/releases/download/vX.Y.Z/Decenza_DE1_X.Y.Z.apk
+**Direct APK download:** https://github.com/Kulitorum/Decenza/releases/download/vX.Y.Z/Decenza_X.Y.Z.apk
 
 Install on your Android device (allow unknown sources).
 EOF
@@ -857,7 +857,7 @@ Each operation page (Steam, HotWater, Flush) has:
 
 ## Versioning
 
-- **Display version** (versionName): Set in `CMakeLists.txt` line 2: `project(Decenza_DE1 VERSION x.y.z)`
+- **Display version** (versionName): Set in `CMakeLists.txt` line 2: `project(Decenza VERSION x.y.z)`
 - **Version code** (versionCode): Stored in `versioncode.txt`. Does **not** auto-increment during local builds. CI workflows bump it on tag push, and the Android workflow commits the new value back to `main`.
 - **version.h**: Auto-generated from `src/version.h.in` with VERSION_STRING macro
 - To release a new version: Update VERSION in CMakeLists.txt, commit, then follow the "Publishing Releases" process (create release first, then push tag)

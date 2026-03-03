@@ -1,6 +1,6 @@
 # Recipe Editor & Profile Types
 
-This document describes the Recipe Editor and supported profile editor types in Decenza DE1.
+This document describes the Recipe Editor and supported profile editor types in Decenza.
 
 ## What is the Recipe Editor?
 

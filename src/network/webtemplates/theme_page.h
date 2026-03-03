@@ -18,7 +18,7 @@ inline QString generateThemePageHtml(const QString& deviceId = QString())
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Theme Editor - Decenza DE1</title>
+<title>Theme Editor - Decenza</title>
 <style>
 )HTML";
 

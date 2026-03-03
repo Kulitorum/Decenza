@@ -430,7 +430,7 @@ QString export = shotHistory->exportShotData(shotId);
 
 Output format:
 ```
-=== Decenza DE1 Shot Export ===
+=== Decenza Shot Export ===
 Shot ID: 12345
 UUID: a1b2c3d4-...
 Date: 2026-01-02T14:35:22

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 // Classic tab button - active tab has top-rounded corners and merges with content
 TabButton {

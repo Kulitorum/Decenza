@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 /**
  * RecipeSection - A styled section container for the Recipe Editor

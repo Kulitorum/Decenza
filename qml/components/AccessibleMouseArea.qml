@@ -1,5 +1,5 @@
 import QtQuick
-import DecenzaDE1
+import Decenza
 
 // Reusable MouseArea with accessibility support:
 // - Normal mode: single tap activates, double-tap for special action

@@ -92,7 +92,7 @@ gh run download <RUN_ID> --repo Kulitorum/de1-qt
 ### Download via browser:
 1. Go to the completed workflow run
 2. Scroll to "Artifacts" section
-3. Click "Decenza_DE1-iOS" to download
+3. Click "Decenza-iOS" to download
 
 Artifacts are retained for 30 days.
 
@@ -212,7 +212,7 @@ The app version is managed in two places:
 
 1. **Display version** (e.g., "1.1.38"): Set in `CMakeLists.txt` line 2
    ```cmake
-   project(Decenza_DE1 VERSION 1.1.38 LANGUAGES CXX)
+   project(Decenza VERSION 1.1.38 LANGUAGES CXX)
    ```
 
 2. **Build number** (e.g., 1971): Auto-increments in `versioncode.txt`

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 // A small (i) info button that can be placed next to any profile name
 // Emits clicked() signal - parent handles navigation to ProfileInfoPage

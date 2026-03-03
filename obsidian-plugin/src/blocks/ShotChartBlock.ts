@@ -22,7 +22,7 @@ export function registerShotChartBlock(plugin: DecenzaPlugin): void {
 
             if (!plugin.settings.serverUrl) {
                 el.createEl("p", {
-                    text: "Decenza server URL not configured. Go to Settings \u2192 Decenza DE1.",
+                    text: "Decenza server URL not configured. Go to Settings \u2192 Decenza.",
                     cls: "decenza-error",
                 });
                 return;

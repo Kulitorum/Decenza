@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 // Autocomplete text field that shows filtered suggestions as you type
 Item {

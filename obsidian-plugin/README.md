@@ -1,11 +1,11 @@
-# Decenza DE1 Espresso — Obsidian Plugin
+# Decenza Espresso — Obsidian Plugin
 
-Display espresso shot data from your Decenza DE1 controller directly in your Obsidian notes. Browse shots, embed interactive charts, and build your coffee journal without leaving Obsidian.
+Display espresso shot data from your Decenza controller directly in your Obsidian notes. Browse shots, embed interactive charts, and build your coffee journal without leaving Obsidian.
 
 ## Requirements
 
 - [Obsidian](https://obsidian.md) v1.0.0 or later (desktop or Android)
-- [Decenza DE1](https://github.com/Kulitorum/de1-qt) app running on the same WiFi network
+- [Decenza](https://github.com/Kulitorum/de1-qt) app running on the same WiFi network
 - **Remote Access** enabled in the Decenza app
 
 > **Note:** This plugin uses HTTP to communicate with the Decenza app over your local network. It works on desktop (Windows, macOS, Linux) and Android. iOS is not supported because Obsidian on iOS requires HTTPS connections.
@@ -44,7 +44,7 @@ npm run build
 
 1. Open Obsidian **Settings** (gear icon or `Ctrl+,` / `Cmd+,`)
 2. Go to **Community plugins**
-3. Enable **Decenza DE1 Espresso**
+3. Enable **Decenza Espresso**
 4. Click the gear icon next to the plugin name to open its settings
 5. Enter your Decenza server URL (e.g., `http://192.168.1.100:8888`)
 6. Click **Test** to verify the connection
@@ -186,7 +186,7 @@ Shot IDs are shown:
 
 ### "Decenza server URL not configured"
 
-Open Obsidian Settings → Decenza DE1 and enter the server URL.
+Open Obsidian Settings → Decenza and enter the server URL.
 
 ### "Connection failed"
 

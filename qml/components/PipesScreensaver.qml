@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick3D
-import DecenzaDE1
+import Decenza
 
 Item {
     id: root

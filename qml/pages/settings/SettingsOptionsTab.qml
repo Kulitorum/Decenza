@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 import "../../components"
 
 KeyboardAwareContainer {
@@ -376,7 +376,7 @@ KeyboardAwareContainer {
                             id: mapLoader
                             anchors.fill: parent
                             active: mapTestPopup.visible
-                            source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapScreensaver.qml"
+                            source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
                             onLoaded: {
                                 item.testMode = true
                                 item.testLatitude = Qt.binding(function() { return MainController.shotReporter ? MainController.shotReporter.latitude : 0 })

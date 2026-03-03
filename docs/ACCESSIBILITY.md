@@ -1,6 +1,6 @@
-# Accessibility Analysis for Decenza DE1
+# Accessibility Analysis for Decenza
 
-This document analyzes the current state of accessibility in the Decenza DE1 application and outlines solutions for making the app usable by blind and visually impaired users.
+This document analyzes the current state of accessibility in the Decenza application and outlines solutions for making the app usable by blind and visually impaired users.
 
 ---
 
@@ -478,7 +478,7 @@ adb shell getprop ro.product.cpu.abi
 
 ## Notes
 
-This document was created in response to feedback from a blind user who wanted to use the Decenza DE1 app. The goal is to make espresso control accessible to users who cannot see the screen - a capability almost no coffee software provides today.
+This document was created in response to feedback from a blind user who wanted to use the Decenza app. The goal is to make espresso control accessible to users who cannot see the screen - a capability almost no coffee software provides today.
 
 The Qt/QML foundation of this app is actually excellent for accessibility. Unlike web or purely visual frameworks, Qt has first-class accessibility support that maps directly to platform accessibility APIs. We just need to use it.
 

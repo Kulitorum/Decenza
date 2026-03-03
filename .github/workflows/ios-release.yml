@@ -98,10 +98,10 @@ jobs:
 
           # Build archive
           xcodebuild archive \
-            -project Decenza_DE1.xcodeproj \
-            -scheme Decenza_DE1 \
+            -project Decenza.xcodeproj \
+            -scheme Decenza \
             -destination "generic/platform=iOS" \
-            -archivePath $RUNNER_TEMP/Decenza_DE1.xcarchive \
+            -archivePath $RUNNER_TEMP/Decenza.xcarchive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=$TEAM_ID \
             CODE_SIGN_IDENTITY="iPhone Distribution" \
@@ -147,7 +147,7 @@ jobs:
           cat $RUNNER_TEMP/ExportOptions.plist
 
           xcodebuild -exportArchive \
-            -archivePath $RUNNER_TEMP/Decenza_DE1.xcarchive \
+            -archivePath $RUNNER_TEMP/Decenza.xcarchive \
             -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
             -exportPath $RUNNER_TEMP/export \
             -allowProvisioningUpdates
@@ -173,7 +173,7 @@ jobs:
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Decenza_DE1-iOS
+          name: Decenza-iOS
           path: ${{ runner.temp }}/export/*.ipa
           retention-days: 1
           overwrite: true

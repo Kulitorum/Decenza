@@ -9,8 +9,15 @@
 #include <QEventLoop>
 #include <QGuiApplication>
 #include <QAccessible>
+#include <QCoreApplication>
 #include <QDebug>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
+#include <QFileInfo>
 #include <QOperatingSystemVersion>
+#include <QSet>
+#include <QStandardPaths>
 #include <memory>
 #include <vector>
 #include <QElapsedTimer>
@@ -19,7 +26,6 @@
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
-#include <QCoreApplication>
 #endif
 
 
@@ -75,6 +81,201 @@
 
 using namespace Qt::StringLiterals;
 
+namespace {
+
+constexpr const char* kAppNameOld = "Decenza DE1";
+constexpr const char* kAppNameNew = "Decenza";
+constexpr const char* kMigrationKey = "migration/app_name_decenza_de1_to_decenza_done";
+
+struct MergeResult {
+    int moved = 0;
+    int copiedFallback = 0;
+    int skipped = 0;
+    int failed = 0;
+};
+
+QString appScopedPathForName(QStandardPaths::StandardLocation location, const QString& appName)
+{
+    const QString originalName = QCoreApplication::applicationName();
+    QCoreApplication::setApplicationName(appName);
+    const QString path = QDir::cleanPath(QStandardPaths::writableLocation(location));
+    QCoreApplication::setApplicationName(originalName);
+    return path;
+}
+
+MergeResult mergeDirectoryContents(const QString& sourceRoot, const QString& destRoot)
+{
+    MergeResult result;
+    QDir sourceDir(sourceRoot);
+    if (!sourceDir.exists()) {
+        return result;
+    }
+
+    // Fast path: move whole directory when destination doesn't exist yet.
+    if (!QDir(destRoot).exists()) {
+        const QString destParent = QFileInfo(destRoot).absolutePath();
+        if (!QDir().mkpath(destParent)) {
+            qWarning() << "AppNameMigration: Failed to create destination parent directory:" << destParent;
+            result.failed++;
+            return result;
+        }
+        if (QDir().rename(sourceRoot, destRoot)) {
+            result.moved++;
+            return result;
+        }
+    }
+
+    if (!QDir().mkpath(destRoot)) {
+        qWarning() << "AppNameMigration: Failed to create destination directory:" << destRoot;
+        result.failed++;
+        return result;
+    }
+
+    QDirIterator it(sourceRoot, QDir::NoDotAndDotDot | QDir::AllEntries, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        const QFileInfo sourceInfo = it.fileInfo();
+        const QString relativePath = sourceDir.relativeFilePath(sourceInfo.absoluteFilePath());
+        const QString destPath = QDir(destRoot).filePath(relativePath);
+
+        if (sourceInfo.isDir()) {
+            if (!QDir().mkpath(destPath)) {
+                qWarning() << "AppNameMigration: Failed to create subdirectory:" << destPath;
+                result.failed++;
+            }
+            continue;
+        }
+
+        if (QFileInfo::exists(destPath)) {
+            result.skipped++;
+            continue;
+        }
+
+        const QString destParent = QFileInfo(destPath).absolutePath();
+        if (!QDir().mkpath(destParent)) {
+            qWarning() << "AppNameMigration: Failed to create parent directory:" << destParent;
+            result.failed++;
+            continue;
+        }
+
+        QFile sourceFile(sourceInfo.absoluteFilePath());
+        if (sourceFile.rename(destPath)) {
+            result.moved++;
+            continue;
+        }
+
+        // Fallback for edge cases where rename isn't possible.
+        if (QFile::copy(sourceInfo.absoluteFilePath(), destPath)) {
+            QFile::remove(sourceInfo.absoluteFilePath());
+            result.copiedFallback++;
+        } else {
+            qWarning() << "AppNameMigration: Failed to copy file:" << sourceInfo.absoluteFilePath()
+                       << "->" << destPath;
+            result.failed++;
+        }
+    }
+
+    // Best-effort cleanup of empty source directories.
+    QStringList subdirs;
+    QDirIterator dirIt(sourceRoot, QDir::NoDotAndDotDot | QDir::Dirs, QDirIterator::Subdirectories);
+    while (dirIt.hasNext()) {
+        dirIt.next();
+        subdirs.prepend(dirIt.filePath());
+    }
+    for (const QString& subdir : subdirs) {
+        QDir().rmdir(subdir);
+    }
+    QDir().rmdir(sourceRoot);
+
+    return result;
+}
+
+void migrateDefaultQSettingsFromOldAppName(int& copied, int& skipped)
+{
+    const QString originalName = QCoreApplication::applicationName();
+
+    QCoreApplication::setApplicationName(kAppNameOld);
+    QSettings oldSettings;
+    const QStringList oldKeys = oldSettings.allKeys();
+
+    QCoreApplication::setApplicationName(kAppNameNew);
+    QSettings newSettings;
+    for (const QString& key : oldKeys) {
+        if (newSettings.contains(key)) {
+            skipped++;
+            continue;
+        }
+        newSettings.setValue(key, oldSettings.value(key));
+        copied++;
+    }
+    newSettings.sync();
+
+    QCoreApplication::setApplicationName(originalName);
+}
+
+void runAppNameMigrationOnce()
+{
+    if (QCoreApplication::applicationName() != QLatin1String(kAppNameNew)) {
+        return;
+    }
+
+    QSettings migrationSettings("DecentEspresso", "DE1Qt");
+    if (migrationSettings.value(kMigrationKey, false).toBool()) {
+        return;
+    }
+
+    int settingsCopied = 0;
+    int settingsSkipped = 0;
+    migrateDefaultQSettingsFromOldAppName(settingsCopied, settingsSkipped);
+
+    int filesMoved = 0;
+    int filesCopiedFallback = 0;
+    int filesSkipped = 0;
+    int filesFailed = 0;
+    const std::vector<QStandardPaths::StandardLocation> locations = {
+        QStandardPaths::AppDataLocation,
+        QStandardPaths::AppLocalDataLocation,
+        QStandardPaths::CacheLocation
+    };
+    QSet<QString> migratedPairs;
+    for (QStandardPaths::StandardLocation location : locations) {
+        const QString oldPath = appScopedPathForName(location, kAppNameOld);
+        const QString newPath = appScopedPathForName(location, kAppNameNew);
+        if (oldPath.isEmpty() || newPath.isEmpty() || oldPath == newPath) {
+            continue;
+        }
+
+        const QString migrationPair = oldPath + "->" + newPath;
+        if (migratedPairs.contains(migrationPair)) {
+            continue;
+        }
+        migratedPairs.insert(migrationPair);
+
+        if (!QDir(oldPath).exists()) {
+            continue;
+        }
+
+        const MergeResult merge = mergeDirectoryContents(oldPath, newPath);
+        filesMoved += merge.moved;
+        filesCopiedFallback += merge.copiedFallback;
+        filesSkipped += merge.skipped;
+        filesFailed += merge.failed;
+    }
+
+    migrationSettings.setValue(kMigrationKey, true);
+    migrationSettings.sync();
+
+    qInfo() << "AppNameMigration: completed"
+            << "settingsCopied=" << settingsCopied
+            << "settingsSkipped=" << settingsSkipped
+            << "filesMoved=" << filesMoved
+            << "filesCopiedFallback=" << filesCopiedFallback
+            << "filesSkipped=" << filesSkipped
+            << "filesFailed=" << filesFailed;
+}
+
+}  // namespace
+
 int main(int argc, char *argv[])
 {
     // Install async logger FIRST — sits at bottom of handler chain.
@@ -121,8 +322,9 @@ int main(int argc, char *argv[])
     // Set application metadata
     app.setOrganizationName("DecentEspresso");
     app.setOrganizationDomain("decentespresso.com");
-    app.setApplicationName("Decenza DE1");
+    app.setApplicationName("Decenza");
     app.setApplicationVersion(VERSION_STRING);
+    runAppNameMigrationOnce();
 
     // Set Qt Quick Controls style (must be before QML engine creation)
     QQuickStyle::setStyle("Material");
@@ -882,34 +1084,34 @@ int main(int argc, char *argv[])
 #endif
 
     // Register types for QML (use different names to avoid conflict with context properties)
-    qmlRegisterUncreatableType<DE1Device>("DecenzaDE1", 1, 0, "DE1DeviceType",
+    qmlRegisterUncreatableType<DE1Device>("Decenza", 1, 0, "DE1DeviceType",
         "DE1Device is created in C++");
-    qmlRegisterUncreatableType<MachineState>("DecenzaDE1", 1, 0, "MachineStateType",
+    qmlRegisterUncreatableType<MachineState>("Decenza", 1, 0, "MachineStateType",
         "MachineState is created in C++");
-    qmlRegisterUncreatableType<AIConversation>("DecenzaDE1", 1, 0, "AIConversationType",
+    qmlRegisterUncreatableType<AIConversation>("Decenza", 1, 0, "AIConversationType",
         "AIConversation is created in C++");
 
     // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
-    qmlRegisterType<StrangeAttractorRenderer>("DecenzaDE1", 1, 0, "StrangeAttractorRenderer");
+    qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");
 
     // Register fast line renderer for shot graph (QSGGeometryNode, pre-allocated VBO)
-    qmlRegisterType<FastLineRenderer>("DecenzaDE1", 1, 0, "FastLineRenderer");
+    qmlRegisterType<FastLineRenderer>("Decenza", 1, 0, "FastLineRenderer");
 
 #ifdef ENABLE_QUICK3D
     // Register pipe geometry types for 3D pipes screensaver
-    qmlRegisterType<PipeCylinderGeometry>("DecenzaDE1", 1, 0, "PipeCylinderGeometry");
-    qmlRegisterType<PipeElbowGeometry>("DecenzaDE1", 1, 0, "PipeElbowGeometry");
-    qmlRegisterType<PipeCapGeometry>("DecenzaDE1", 1, 0, "PipeCapGeometry");
-    qmlRegisterType<PipeSphereGeometry>("DecenzaDE1", 1, 0, "PipeSphereGeometry");
+    qmlRegisterType<PipeCylinderGeometry>("Decenza", 1, 0, "PipeCylinderGeometry");
+    qmlRegisterType<PipeElbowGeometry>("Decenza", 1, 0, "PipeElbowGeometry");
+    qmlRegisterType<PipeCapGeometry>("Decenza", 1, 0, "PipeCapGeometry");
+    qmlRegisterType<PipeSphereGeometry>("Decenza", 1, 0, "PipeSphereGeometry");
 #endif
 
     // Register DocumentFormatter for rich text editing in layout editor
-    qmlRegisterType<DocumentFormatter>("DecenzaDE1", 1, 0, "DocumentFormatter");
+    qmlRegisterType<DocumentFormatter>("Decenza", 1, 0, "DocumentFormatter");
 
     checkpoint("Context properties & type registration");
 
     // Load main QML file (QTP0001 NEW policy uses /qt/qml/ prefix)
-    const QUrl url(u"qrc:/qt/qml/DecenzaDE1/qml/main.qml"_s);
+    const QUrl url(u"qrc:/qt/qml/Decenza/qml/main.qml"_s);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
         &app, [url, &checkpoint](QObject *obj, const QUrl &objUrl) {
@@ -1020,7 +1222,7 @@ int main(int argc, char *argv[])
                 }
             }, Qt::QueuedConnection);
 
-        const QUrl ghcUrl(u"qrc:/qt/qml/DecenzaDE1/qml/simulator/GHCSimulatorWindow.qml"_s);
+        const QUrl ghcUrl(u"qrc:/qt/qml/Decenza/qml/simulator/GHCSimulatorWindow.qml"_s);
         ghcEngine.load(ghcUrl);
     }
 #endif

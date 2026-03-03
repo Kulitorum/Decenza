@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
-import DecenzaDE1
+import Decenza
 import "../.."
 
 Item {
@@ -115,7 +115,7 @@ Item {
                 anchors.fill: parent
                 active: Settings.hasQuick3D && root.screensaverSubtype === "pipes" && root.isCompact
                 visible: root.screensaverSubtype === "pipes"
-                source: "qrc:/qt/qml/DecenzaDE1/qml/components/PipesScreensaver.qml"
+                source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
                 onLoaded: item.running = Qt.binding(function() {
                     return visible && compactContent.visible
                 })
@@ -126,7 +126,7 @@ Item {
                 anchors.fill: parent
                 active: root.screensaverSubtype === "shotmap" && root.isCompact
                 visible: root.screensaverSubtype === "shotmap"
-                source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapScreensaver.qml"
+                source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
                 onLoaded: {
                     item.running = Qt.binding(function() {
                         return visible && compactContent.visible
@@ -206,7 +206,7 @@ Item {
                 anchors.fill: parent
                 active: Settings.hasQuick3D && root.screensaverSubtype === "pipes" && !root.isCompact
                 visible: root.screensaverSubtype === "pipes"
-                source: "qrc:/qt/qml/DecenzaDE1/qml/components/PipesScreensaver.qml"
+                source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
                 onLoaded: item.running = Qt.binding(function() {
                     return visible && fullContent.visible
                 })
@@ -217,7 +217,7 @@ Item {
                 anchors.fill: parent
                 active: root.screensaverSubtype === "shotmap" && !root.isCompact
                 visible: root.screensaverSubtype === "shotmap"
-                source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapScreensaver.qml"
+                source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
                 onLoaded: {
                     item.running = Qt.binding(function() {
                         return visible && fullContent.visible

@@ -2413,7 +2413,7 @@ QString ShotHistoryStorage::exportShotData(qint64 shotId)
     QString output;
     QTextStream stream(&output);
 
-    stream << "=== Decenza DE1 Shot Export ===" << Qt::endl;
+    stream << "=== Decenza Shot Export ===" << Qt::endl;
     stream << "Shot ID: " << record.summary.id << Qt::endl;
     stream << "UUID: " << record.summary.uuid << Qt::endl;
     stream << "Date: " << QDateTime::fromSecsSinceEpoch(record.summary.timestamp).toString(Qt::ISODate) << Qt::endl;

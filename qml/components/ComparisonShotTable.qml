@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 // Transposed comparison table: rows = metrics + phases, columns = shots.
 // Phase rows are tappable toggles that show/hide vertical phase lines on the graph.

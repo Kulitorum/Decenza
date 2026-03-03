@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 // Button with required accessibility - enforces accessibleName at compile time
 Button {

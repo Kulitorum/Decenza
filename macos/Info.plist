@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>Decenza</string>
     <key>CFBundleExecutable</key>
-    <string>Decenza_DE1</string>
+    <string>Decenza</string>
     <key>CFBundleIdentifier</key>
     <string>io.github.kulitorum.decenza</string>
     <key>CFBundleName</key>

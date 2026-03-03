@@ -129,7 +129,7 @@ jobs:
           find build -name "*.aab" -type f 2>/dev/null || true
 
           # Look for versioned APK first (from build.gradle hook)
-          APK_PATH=$(find build -name "Decenza_DE1_${VERSION}.apk" -type f 2>/dev/null | head -1)
+          APK_PATH=$(find build -name "Decenza_${VERSION}.apk" -type f 2>/dev/null | head -1)
 
           # Fallback: signed APK
           if [ -z "$APK_PATH" ]; then
@@ -162,7 +162,7 @@ jobs:
             APKSIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name "apksigner" -not -name "*.bat" -type f | sort -V | tail -1)
 
             if [ -n "$APKSIGNER" ]; then
-              SIGNED_APK="$(dirname $APK)/Decenza_DE1_${VERSION}.apk"
+              SIGNED_APK="$(dirname $APK)/Decenza_${VERSION}.apk"
               $APKSIGNER sign \
                 --ks "$ANDROID_KEYSTORE_PATH" \
                 --ks-key-alias "de1-key" \
@@ -183,7 +183,7 @@ jobs:
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Decenza_DE1-Android-arm64
+          name: Decenza-Android-arm64
           path: ${{ steps.signed_apk.outputs.apk_path || steps.apk.outputs.apk_path }}
           retention-days: 1
           overwrite: true

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 // Displays crosshair values for shot comparison (up to 3 shots).
 // One row per visible shot: date+time label followed by colored-dot metric pairs.

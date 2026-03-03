@@ -143,7 +143,7 @@ jobs:
 
       - name: Bundle Qt frameworks
         run: |
-          APP_PATH="build/macos/Release/Decenza_DE1.app"
+          APP_PATH="build/macos/Release/Decenza.app"
           echo "Running macdeployqt on: $APP_PATH"
 
           # macdeployqt bundles Qt frameworks and fixes library paths
@@ -157,7 +157,7 @@ jobs:
           KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          APP_PATH="build/macos/Release/Decenza_DE1.app"
+          APP_PATH="build/macos/Release/Decenza.app"
 
           # Unlock keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -179,10 +179,10 @@ jobs:
       - name: Create DMG
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
 
-          # Find the built app (named Decenza_DE1.app)
-          APP_PATH="build/macos/Release/Decenza_DE1.app"
+          # Find the built app (named Decenza.app)
+          APP_PATH="build/macos/Release/Decenza.app"
           echo "Looking for app at: $APP_PATH"
 
           if [ ! -d "$APP_PATH" ]; then
@@ -213,7 +213,7 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
 
           # Unlock keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -230,7 +230,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
 
           echo "Submitting for notarization..."
           xcrun notarytool submit "$DMG_NAME" \
@@ -247,8 +247,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Decenza_DE1-macOS
-          path: Decenza_DE1_v*.dmg
+          name: Decenza-macOS
+          path: Decenza_v*.dmg
           retention-days: 1
           overwrite: true
 
@@ -258,7 +258,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          DMG_NAME="Decenza_DE1_v${VERSION}_macos.dmg"
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
 
           # Find the release (by tag or latest)
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then

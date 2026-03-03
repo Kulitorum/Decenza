@@ -46,7 +46,7 @@ QString ShotServer::generateUploadPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Upload APK - Decenza DE1</title>
+    <title>Upload APK - Decenza</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -195,7 +195,7 @@ QString ShotServer::generateUploadPage() const
             <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
                 <div class="upload-icon">&#128230;</div>
                 <div class="upload-text">Click or drag APK file here</div>
-                <div class="upload-hint">Decenza_DE1_*.apk</div>
+                <div class="upload-hint">Decenza_*.apk</div>
             </div>
             <input type="file" id="fileInput" accept=".apk" onchange="handleFile(this.files[0])">
             <div class="file-info" id="fileInfo">
@@ -482,7 +482,7 @@ QString ShotServer::generateMediaUploadPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Upload Screensaver Media - Decenza DE1</title>
+    <title>Upload Screensaver Media - Decenza</title>
     <style>
         :root {
             --bg: #0d1117;

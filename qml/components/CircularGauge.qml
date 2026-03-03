@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
-import DecenzaDE1
+import Decenza
 
 Item {
     id: root
