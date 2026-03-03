@@ -759,6 +759,14 @@ if(APPLE AND NOT IOS)
     )
 endif()
 
+# Linux: executable output collides with QML module directory (both named "Decenza")
+# when building in-tree with Ninja. Redirect executable to bin/ subdirectory.
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    set_target_properties(Decenza PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+endif()
+
 # Windows installer - generate version.iss for Inno Setup
 if(WIN32)
     configure_file(

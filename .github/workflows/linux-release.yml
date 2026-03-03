@@ -107,7 +107,7 @@ jobs:
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          cp build/Decenza AppDir/usr/bin/
+          cp build/bin/Decenza AppDir/usr/bin/
           cp decenza.desktop AppDir/usr/share/applications/
           cp decenza.png AppDir/usr/share/icons/hicolor/256x256/apps/
 
