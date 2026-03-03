@@ -1,6 +1,6 @@
 # Building Decenza on Raspberry Pi 5
 
-This guide covers building and running Decenza DE1 on a Raspberry Pi 5.
+This guide covers building and running Decenza on a Raspberry Pi 5.
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ Build time: ~10 minutes with `-j2`
 
 ```bash
 cd ~/Decenza/build
-./Decenza_DE1 -platform eglfs
+./Decenza -platform eglfs
 ```
 
 The `eglfs` platform renders directly to the framebuffer, which is ideal for kiosk/embedded use.
@@ -93,14 +93,14 @@ sudo nano /etc/systemd/system/decenza.service
 
 ```ini
 [Unit]
-Description=Decenza DE1
+Description=Decenza
 After=network.target
 
 [Service]
 Type=simple
 User=pi
 Environment=QT_QPA_PLATFORM=eglfs
-ExecStart=/home/pi/Decenza/build/Decenza_DE1
+ExecStart=/home/pi/Decenza/build/Decenza
 Restart=on-failure
 RestartSec=5
 
@@ -135,12 +135,12 @@ If the app fails with "no Qt platform plugin":
 
 ```bash
 # Check available platforms
-./Decenza_DE1 -platform help
+./Decenza -platform help
 
 # Try different platforms
-./Decenza_DE1 -platform eglfs    # Direct framebuffer (recommended)
-./Decenza_DE1 -platform linuxfb  # Fallback framebuffer
-./Decenza_DE1 -platform vnc      # VNC server (access remotely)
+./Decenza -platform eglfs    # Direct framebuffer (recommended)
+./Decenza -platform linuxfb  # Fallback framebuffer
+./Decenza -platform vnc      # VNC server (access remotely)
 ```
 
 ### BLE permissions
@@ -148,7 +148,7 @@ If the app fails with "no Qt platform plugin":
 For full Bluetooth functionality:
 
 ```bash
-sudo setcap 'cap_net_admin+eip' ~/Decenza/build/Decenza_DE1
+sudo setcap 'cap_net_admin+eip' ~/Decenza/build/Decenza
 ```
 
 Or run as root (not recommended for production).

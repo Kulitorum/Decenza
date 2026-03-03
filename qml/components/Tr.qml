@@ -1,5 +1,5 @@
 import QtQuick
-import DecenzaDE1
+import Decenza
 
 // Translatable text component
 // Usage: Tr { key: "settings.title"; fallback: "Settings" }

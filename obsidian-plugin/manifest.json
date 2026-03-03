@@ -1,9 +1,9 @@
 {
     "id": "decenza-de1",
-    "name": "Decenza DE1 Espresso",
+    "name": "Decenza Espresso",
     "version": "0.1.0",
     "minAppVersion": "1.0.0",
     "author": "Decenza",
-    "description": "Display espresso shot data from a Decenza DE1 controller on your local network.",
+    "description": "Display espresso shot data from a Decenza controller on your local network.",
     "isDesktopOnly": false
 }

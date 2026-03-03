@@ -725,7 +725,7 @@ void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     // Attribution headers for OpenRouter leaderboard
     req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
-    req.setRawHeader("X-Title", "Decenza DE1");
+    req.setRawHeader("X-Title", "Decenza");
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
     QByteArray body = QJsonDocument(requestBody).toJson();
@@ -836,7 +836,7 @@ void OpenRouterProvider::testConnection()
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
     req.setRawHeader("HTTP-Referer", "https://github.com/Kulitorum/Decenza");
-    req.setRawHeader("X-Title", "Decenza DE1");
+    req.setRawHeader("X-Title", "Decenza");
     req.setTransferTimeout(TEST_TIMEOUT_MS);
     // Disable HTTP/2 -- Qt's HTTP/2 layer intercepts 401 as an auth challenge
     // instead of passing the response body through, breaking custom auth schemes

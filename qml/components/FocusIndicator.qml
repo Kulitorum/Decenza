@@ -1,5 +1,5 @@
 import QtQuick
-import DecenzaDE1
+import Decenza
 
 Rectangle {
     id: focusIndicator

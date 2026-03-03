@@ -214,7 +214,7 @@ void LocationProvider::reverseGeocode(double lat, double lon)
                       .arg(lon, 0, 'f', 6);
 
     QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza_DE1/1.0 (espresso app)");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza/1.0 (espresso app)");
 
     qDebug() << "LocationProvider: Reverse geocoding...";
 
@@ -331,7 +331,7 @@ void LocationProvider::forwardGeocode(const QString& city)
                       .arg(encodedCity);
 
     QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza_DE1/1.0 (espresso app)");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza/1.0 (espresso app)");
 
     qDebug() << "LocationProvider: Forward geocoding:" << city;
 

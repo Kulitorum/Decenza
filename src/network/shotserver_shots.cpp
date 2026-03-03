@@ -189,7 +189,7 @@ QString ShotServer::generateShotListPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Shot History - Decenza DE1</title>
+    <title>Shot History - Decenza</title>
     <style>
         :root {
             --bg: #0d1117;
@@ -577,7 +577,7 @@ QString ShotServer::generateShotListPage() const
     html += QString(R"HTML(<body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="logo">&#9749; Decenza DE1</a>
+            <a href="/" class="logo">&#9749; Decenza</a>
             <div class="header-right">
                 <span class="shot-count">%1 shots</span>)HTML").arg(m_storage->totalShots());
 
@@ -1156,7 +1156,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>%1 - Decenza DE1</title>
+    <title>%1 - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>)HTML" R"HTML(
     <style>
         :root {
@@ -2289,7 +2289,7 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Compare Shots - Decenza DE1</title>
+    <title>Compare Shots - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         :root {
@@ -3098,7 +3098,7 @@ QString ShotServer::generateDebugPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Debugging Tools - Decenza DE1</title>
+    <title>Debugging Tools - Decenza</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>if (typeof Chart === "undefined") document.getElementById("memoryBody").innerHTML = "<p style='color:#8b949e;padding:1em'>Chart.js failed to load (no internet?). Memory data is still available via <code>/api/memory</code>.</p>";</script>
     <style>

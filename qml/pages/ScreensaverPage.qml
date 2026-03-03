@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtMultimedia
-import DecenzaDE1
+import Decenza
 import "../components"
 
 // Screensaver modes:
@@ -272,7 +272,7 @@ Page {
         active: Settings.hasQuick3D && isPipesMode
         visible: isPipesMode
         z: 0
-        source: "qrc:/qt/qml/DecenzaDE1/qml/components/PipesScreensaver.qml"
+        source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
         onLoaded: item.running = Qt.binding(function() { return isPipesMode && screensaverPage.visible })
     }
 

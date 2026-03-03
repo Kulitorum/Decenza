@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 // Round icon button with consistent styling
 // Use text property for text/emoji icons, or icon.source for image icons

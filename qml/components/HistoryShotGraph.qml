@@ -1,6 +1,6 @@
 import QtQuick
 import QtCharts
-import DecenzaDE1
+import Decenza
 
 ChartView {
     id: chart

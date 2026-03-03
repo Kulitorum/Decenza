@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 Item {
     id: root
@@ -301,7 +301,7 @@ Item {
         anchors.fill: parent
         active: Settings.hasQuick3D && mapShape === "globe"
         visible: mapShape === "globe"
-        source: "qrc:/qt/qml/DecenzaDE1/qml/components/ShotMapGlobe.qml"
+        source: "qrc:/qt/qml/Decenza/qml/components/ShotMapGlobe.qml"
         onLoaded: {
             item.shots = Qt.binding(function() { return root.shots })
             item.mapTexture = Qt.binding(function() { return root.mapTexture })

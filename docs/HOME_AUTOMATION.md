@@ -1,6 +1,6 @@
 # Home Automation Integration
 
-Decenza DE1 supports home automation integration via MQTT and REST API. This allows you to:
+Decenza supports home automation integration via MQTT and REST API. This allows you to:
 
 - Monitor machine state and telemetry in your home automation dashboard
 - Wake/sleep the machine remotely (e.g., turn on when your alarm goes off)

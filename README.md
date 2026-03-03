@@ -1,10 +1,20 @@
-# Decenza DE1
+# Decenza
 
 A modern Qt/QML controller application for the Decent DE1 espresso machine with Bluetooth LE connectivity.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-blue)
 ![Qt](https://img.shields.io/badge/Qt-6.8+-green)
 ![License](https://img.shields.io/badge/license-LGPL--3.0-orange)
+
+## Developer Note (Qt Creator)
+
+The executable target name is `Decenza` (renamed from `Decenza_DE1`).
+
+If Qt Creator shows `No executable specified` after pulling changes:
+
+1. Run CMake reconfigure (or delete/recreate the build directory).
+2. Open `Projects > Run`.
+3. Select/add the `Decenza` Run configuration.
 
 ## Features
 
@@ -130,7 +140,7 @@ cmake -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x.x/gcc_64 ..
 cmake --build . --parallel
 
 # Run
-./Decenza_DE1
+./Decenza
 ```
 
 ## Project Structure
@@ -224,4 +234,4 @@ This application implements the DE1 Bluetooth LE protocol based on publicly avai
 
 ## Disclaimer
 
-Decenza DE1 is an independent, community-developed application and is not affiliated with, endorsed by, or supported by Decent Espresso. "Decent" and "DE1" are trademarks of Decent Espresso.
+Decenza is an independent, community-developed application and is not affiliated with, endorsed by, or supported by Decent Espresso. "Decent" and "DE1" are trademarks of Decent Espresso.

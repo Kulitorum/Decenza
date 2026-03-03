@@ -189,7 +189,7 @@ def codepoints_to_filename(cps: list[str]) -> str:
 def download_svg(url: str) -> bytes | None:
     """Download SVG from URL, return bytes or None on failure."""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "DecenzaDE1-EmojiDownloader/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "Decenza-EmojiDownloader/1.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = resp.read()
             if b"<svg" in data.lower():

@@ -83,7 +83,7 @@ void CrashReporter::submitReport(const QString& crashLog,
     // Create request
     QNetworkRequest request{QUrl(API_URL)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("User-Agent", QString("Decenza-DE1/%1").arg(VERSION_STRING).toUtf8());
+    request.setRawHeader("User-Agent", QString("Decenza/%1").arg(VERSION_STRING).toUtf8());
 
     // Send POST request
     QNetworkReply* reply = m_networkManager.post(request, data);

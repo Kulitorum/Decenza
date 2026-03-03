@@ -7,7 +7,7 @@
         <file>qml/components/ProfileGraph.qml</file>
         <file>qml/components/ShotGraph.qml</file>
         <file>qml/components/StatusBar.qml</file>
-        <file>qml/DecenzaDE1/qmldir</file>
+        <file>qml/Decenza/qmldir</file>
         <file>qml/designer/DE1AppStubs.qml</file>
         <file>qml/main.qml</file>
         <file>qml/pages/EspressoPage.qml</file>

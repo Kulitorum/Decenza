@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 ComboBox {
     id: control

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 // Displays inspect-crosshair values (time + colored dots) when user taps the graph.
 // Uses opacity (not visible) to prevent layout shift.

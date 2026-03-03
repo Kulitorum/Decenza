@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
-import DecenzaDE1
+import Decenza
 import "../.."
 
 Item {

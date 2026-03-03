@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Decenza DE1 Build Script
+# Decenza Build Script
 # usage: ./build.sh --target <OSX|ANDROID> [--debug]
 
 # Default values
@@ -137,7 +137,7 @@ if [[ "$OS" == "Darwin" ]]; then
     if [ $? -eq 0 ]; then
         echo "Build successful!"
         if [[ "$TARGET" == "OSX" ]]; then
-            echo "Artifact location: $abs_build_dir/Decenza_DE1.app"
+            echo "Artifact location: $abs_build_dir/Decenza.app"
         elif [[ "$TARGET" == "ANDROID" ]]; then
             # APK location is deep in android-build folder
             artifact=$(find . -name "*.apk" | head -1)

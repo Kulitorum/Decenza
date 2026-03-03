@@ -1,7 +1,7 @@
 # Project Context
 
 ## Purpose
-Decenza DE1 is a cross-platform controller application for the Decent Espresso DE1 espresso machine. It communicates with the machine over Bluetooth Low Energy (BLE) to manage espresso extraction profiles, steaming, hot water, and flushing. It also integrates with various Bluetooth scales for stop-at-weight functionality, uploads shots to visualizer.coffee, and provides a rich QML-based UI for real-time shot graphing and profile editing.
+Decenza is a cross-platform controller application for the Decent Espresso DE1 espresso machine. It communicates with the machine over Bluetooth Low Energy (BLE) to manage espresso extraction profiles, steaming, hot water, and flushing. It also integrates with various Bluetooth scales for stop-at-weight functionality, uploads shots to visualizer.coffee, and provides a rich QML-based UI for real-time shot graphing and profile editing.
 
 ## Tech Stack
 - **Language**: C++17
@@ -62,7 +62,7 @@ Full build commands for all platforms are documented in `claude.md` under "Comma
 - **Android**: Built via Qt Creator's `androiddeployqt`; signed with keystore; outputs APK and AAB
 - **Automation**: A `build.sh` script is available in the root directory for CLI builds:
   - `./build.sh --target <OSX|ANDROID> [--debug]`
-- **Output**: `build/<config>/Decenza_DE1.exe` (Windows), `build/<config>/Decenza_DE1.app` (macOS)
+- **Output**: `build/<config>/Decenza.exe` (Windows), `build/<config>/Decenza.app` (macOS)
 
 ## Domain Context
 - **DE1 machine**: Decent Espresso DE1 is a high-end espresso machine with BLE connectivity, controllable extraction profiles (pressure/flow/temperature curves), and built-in sensors

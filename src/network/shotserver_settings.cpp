@@ -99,7 +99,7 @@ QString ShotServer::generateSettingsPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI and Web Service Connections - Decenza DE1</title>
+    <title>AI and Web Service Connections - Decenza</title>
     <style>
         :root {
             --bg: #0d1117;

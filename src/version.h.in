@@ -1,6 +1,6 @@
 #pragma once
 // Auto-generated from version.h.in - do not edit directly
-// Edit version in CMakeLists.txt: project(Decenza_DE1 VERSION x.y.z)
+// Edit version in CMakeLists.txt: project(Decenza VERSION x.y.z)
 
 #define VERSION_MAJOR @PROJECT_VERSION_MAJOR@
 #define VERSION_MINOR @PROJECT_VERSION_MINOR@

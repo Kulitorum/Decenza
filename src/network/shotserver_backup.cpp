@@ -586,7 +586,7 @@ QString ShotServer::generateRestorePage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Restore Backup - Decenza DE1</title>
+    <title>Restore Backup - Decenza</title>
     <style>
 )HTML";
     html += WEB_CSS_VARIABLES;

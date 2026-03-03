@@ -38,7 +38,7 @@ Bottom of the left column in `SettingsDataTab.qml`, below the existing "Your Dat
 ## What Gets Wiped (in order)
 
 1. **QSettings** (`"DecentEspresso", "DE1Qt"`) — `m_settings.clear()` — favourites, presets, theme, all preferences
-2. **Default QSettings** (`"DecentEspresso", "Decenza DE1"`) — `QSettings().clear()` — secondary store (AI, location, profilestorage)
+2. **Default QSettings** (`"DecentEspresso", "Decenza"`) — `QSettings().clear()` — secondary store (AI, location, profilestorage)
 3. **Shot database** — delete `AppDataLocation/shots.db`, `-wal`, `-shm`
 4. **Profiles** — delete `AppDataLocation/profiles/` recursively
 5. **Widget library** — delete `AppDataLocation/library/` recursively

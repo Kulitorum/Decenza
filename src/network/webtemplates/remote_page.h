@@ -9,7 +9,7 @@ inline constexpr const char* WEB_REMOTE_PAGE = R"HTML(
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Remote Control - Decenza DE1</title>
+    <title>Remote Control - Decenza</title>
     <style>
         :root {
             --bg: #0d1117;

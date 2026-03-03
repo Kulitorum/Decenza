@@ -12,7 +12,7 @@
 #include <QLocale>
 #include <cmath>
 
-const QString WeatherManager::USER_AGENT = QStringLiteral("DecenzaDE1/1.0 (github.com/Kulitorum/de1-qt)");
+const QString WeatherManager::USER_AGENT = QStringLiteral("Decenza/1.0 (github.com/Kulitorum/de1-qt)");
 
 // ─── HourlyForecast ──────────────────────────────────────────────────────────
 

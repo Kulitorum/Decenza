@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DecenzaDE1
+import Decenza
 
 /**
  * StepSlider - A Slider that steps by stepSize when the track is clicked,

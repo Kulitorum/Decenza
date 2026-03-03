@@ -13,7 +13,7 @@ export class DecenzaSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl("h2", { text: "Decenza DE1 Settings" });
+        containerEl.createEl("h2", { text: "Decenza Settings" });
 
         new Setting(containerEl)
             .setName("Server URL")

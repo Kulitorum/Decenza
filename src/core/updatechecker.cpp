@@ -108,7 +108,7 @@ void UpdateChecker::checkForUpdates()
 
     QUrl url(GITHUB_API_URL.arg(GITHUB_REPO));
     QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza-DE1");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
     request.setRawHeader("Accept", "application/vnd.github.v3+json");
 
     m_currentReply = m_network->get(request);
@@ -197,7 +197,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     if (buildMatch.hasMatch()) {
         m_latestBuildNumber = buildMatch.captured(1).toInt();
     } else {
-        // Fallback: extract from APK filename pattern (Decenza_DE1_X.Y.Z.apk where Z might be build)
+        // Fallback: extract from APK filename pattern (Decenza_X.Y.Z.apk where Z might be build)
         m_latestBuildNumber = extractBuildNumber(tagName);
     }
 
@@ -355,7 +355,7 @@ void UpdateChecker::startDownload()
         return;
     }
 
-    QString filename = QString("Decenza_DE1_%1.apk").arg(m_latestVersion);
+    QString filename = QString("Decenza_%1.apk").arg(m_latestVersion);
     QString fullPath = savePath + "/" + filename;
 
     // Remove existing file (may still be held by PackageInstaller)
@@ -377,7 +377,7 @@ void UpdateChecker::startDownload()
     qDebug() << "UpdateChecker: Downloading" << m_downloadUrl << "to" << fullPath;
 
     QNetworkRequest request(m_downloadUrl);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza-DE1");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
     m_currentReply = m_network->get(request);
@@ -586,7 +586,7 @@ void UpdateChecker::onPeriodicCheck()
     // Check for updates silently
     QUrl url(GITHUB_API_URL.arg(GITHUB_REPO));
     QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza-DE1");
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
     request.setRawHeader("Accept", "application/vnd.github.v3+json");
 
     QNetworkReply* reply = m_network->get(request);

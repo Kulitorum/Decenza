@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 /**
  * RecipeRow - A label + content row for the Recipe Editor

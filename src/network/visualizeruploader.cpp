@@ -569,7 +569,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
 QJsonObject VisualizerUploader::buildAppInfoJson()
 {
     QJsonObject app;
-    app["app_name"] = "Decenza DE1";
+    app["app_name"] = "Decenza";
     app["app_version"] = VERSION_STRING;
     return app;
 }

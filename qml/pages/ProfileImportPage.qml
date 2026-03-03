@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 import "../components"
 
 Page {

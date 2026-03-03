@@ -137,7 +137,7 @@ jobs:
           @"
           #define BuildNumber "$BUILD_NUM"
           #define VersionNumber "$VERSION"
-          #define TargetName "Decenza_DE1"
+          #define TargetName "Decenza"
           #define TargetArch "x64"
           #define TargetProduct "Decenza"
           #define TargetCompany "Decenza"
@@ -174,7 +174,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Decenza_DE1-Windows-Installer
+          name: Decenza-Windows-Installer
           path: installer/Output/*.exe
           retention-days: 1
           overwrite: true
@@ -186,7 +186,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          INSTALLER="installer/Output/Decenza_DE1_v${VERSION}_winx64_installer.exe"
+          INSTALLER="installer/Output/Decenza_v${VERSION}_winx64_installer.exe"
 
           # Find the release (by tag or latest)
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then

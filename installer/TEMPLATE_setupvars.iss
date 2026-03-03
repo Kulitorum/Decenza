@@ -4,7 +4,7 @@
 ; Source code directory
 #define SourceDir "C:\CODE\de1-qt"
 
-; Build directory (where Decenza_DE1.exe is located after build)
+; Build directory (where Decenza.exe is located after build)
 #define AppBuildDir "C:\CODE\de1-qt\build\Desktop_Qt_6_10_1_MSVC2022_64bit-Release"
 
 ; Deploy directory (created automatically during installer build)

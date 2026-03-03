@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza_DE1 VERSION 1.5.6 LANGUAGES CXX)
+project(Decenza VERSION 1.5.6 LANGUAGES CXX)
+
+message(STATUS "Developer note: executable target is now 'Decenza'. If Qt Creator shows 'No executable specified', re-run CMake and select the 'Decenza' Run configuration.")
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -393,14 +395,14 @@ qt_add_resources(RESOURCES resources/resources.qrc)
 qt_add_resources(RESOURCES resources/emoji.qrc)
 
 # Main executable
-qt_add_executable(Decenza_DE1
+qt_add_executable(Decenza
     ${SOURCES}
     ${HEADERS}
     ${RESOURCES}
 )
 
 # Link libraries
-target_link_libraries(Decenza_DE1 PRIVATE
+target_link_libraries(Decenza PRIVATE
     Qt6::Core
     Qt6::CorePrivate
     Qt6::Gui
@@ -420,32 +422,32 @@ target_link_libraries(Decenza_DE1 PRIVATE
 
 # Link SerialPort only on desktop (not available on Android/iOS)
 if(NOT ANDROID AND NOT IOS)
-    target_link_libraries(Decenza_DE1 PRIVATE Qt6::SerialPort)
+    target_link_libraries(Decenza PRIVATE Qt6::SerialPort)
 endif()
 
 # Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
 # statically linked (avoids duplicate SHA1 symbols), non-SSL on mobile
 if(NOT ANDROID AND NOT IOS)
-    target_link_libraries(Decenza_DE1 PRIVATE paho-mqtt3as-static)
+    target_link_libraries(Decenza PRIVATE paho-mqtt3as-static)
 else()
-    target_link_libraries(Decenza_DE1 PRIVATE paho-mqtt3a-static)
+    target_link_libraries(Decenza PRIVATE paho-mqtt3a-static)
 endif()
 
 # Link OpenSSL (non-Android, non-iOS; Android uses add_android_openssl_libraries below)
 if(NOT ANDROID AND NOT IOS)
-    target_link_libraries(Decenza_DE1 PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(Decenza PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 # Link psapi on Windows (for GetProcessMemoryInfo in MemoryMonitor)
 if(WIN32)
-    target_link_libraries(Decenza_DE1 PRIVATE psapi)
+    target_link_libraries(Decenza PRIVATE psapi)
 endif()
 
 # Optionally link Quick3D and add 3D screensaver sources
 if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
-    target_link_libraries(Decenza_DE1 PRIVATE Qt6::Quick3D)
-    target_compile_definitions(Decenza_DE1 PRIVATE ENABLE_QUICK3D)
-    target_sources(Decenza_DE1 PRIVATE
+    target_link_libraries(Decenza PRIVATE Qt6::Quick3D)
+    target_compile_definitions(Decenza PRIVATE ENABLE_QUICK3D)
+    target_sources(Decenza PRIVATE
         src/screensaver/pipegeometry.cpp
         src/screensaver/pipegeometry.h
     )
@@ -453,14 +455,14 @@ endif()
 
 # iOS/macOS: Use Darwin multimedia and location permission plugins
 if(IOS OR APPLE)
-    qt_import_plugins(Decenza_DE1
+    qt_import_plugins(Decenza
         INCLUDE_BY_TYPE multimedia Qt6::QDarwinMediaPlugin
         INCLUDE_BY_TYPE permissions Qt6::QDarwinLocationPermissionPlugin
     )
 endif()
 
 # Include directories
-target_include_directories(Decenza_DE1 PRIVATE
+target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}  # For version.h
 )
@@ -626,8 +628,8 @@ if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     )
 endif()
 
-qt_add_qml_module(Decenza_DE1
-    URI DecenzaDE1
+qt_add_qml_module(Decenza
+    URI Decenza
     VERSION 1.1
     QML_FILES ${QML_FILES}
     NO_GENERATE_EXTRA_QMLDIRS
@@ -635,7 +637,7 @@ qt_add_qml_module(Decenza_DE1
 
 # Compile CRT shader for GPU effect (requires ShaderTools)
 if(Qt6ShaderTools_FOUND)
-    qt_add_shaders(Decenza_DE1 "crt_shaders"
+    qt_add_shaders(Decenza "crt_shaders"
         BATCHABLE
         PREFIX "/"
         FILES
@@ -666,28 +668,28 @@ add_custom_target(apply_version_code ALL
     BYPRODUCTS ${VERSION_CODE_CPP}
     COMMENT "Applying version code..."
 )
-add_dependencies(Decenza_DE1 apply_version_code)
+add_dependencies(Decenza apply_version_code)
 
 # Add generated version_code.cpp to the build (recompiled every build, triggers relink)
-target_sources(Decenza_DE1 PRIVATE ${VERSION_CODE_CPP})
+target_sources(Decenza PRIVATE ${VERSION_CODE_CPP})
 set_source_files_properties(${VERSION_CODE_CPP} PROPERTIES GENERATED TRUE)
 
 # Force QML resource rebuild when source files change
 # NOTE: Disabled - defeats QML caching which slows page loads
 # Re-enable temporarily if QML changes aren't being picked up
-# set(QML_RCC_CPP "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc/qrc_Decenza_DE1_raw_qml_0.cpp")
+# set(QML_RCC_CPP "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc/qrc_Decenza_raw_qml_0.cpp")
 # add_custom_target(qml_force_rebuild ALL
 #     COMMAND ${CMAKE_COMMAND} -E rm -f ${QML_RCC_CPP}
 #     COMMENT "Invalidating QML resources for rebuild..."
 # )
-# add_dependencies(Decenza_DE1 qml_force_rebuild)
+# add_dependencies(Decenza qml_force_rebuild)
 
 # Also add QML files as sources so IDE can find them
-set_property(TARGET Decenza_DE1 APPEND PROPERTY SOURCES ${QML_FILES})
+set_property(TARGET Decenza APPEND PROPERTY SOURCES ${QML_FILES})
 
 # Android deployment
 if(ANDROID)
-    set_target_properties(Decenza_DE1 PROPERTIES
+    set_target_properties(Decenza PROPERTIES
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
         # Note: versionCode and versionName are managed by ApplyVersionCode.cmake
         # at build time (updates both AndroidManifest.xml and version_code.cpp in sync).
@@ -695,12 +697,12 @@ if(ANDROID)
         # and diverges from version_code.cpp on rebuilds without reconfigure.
     )
     # Add OpenSSL libraries for HTTPS support
-    add_android_openssl_libraries(Decenza_DE1)
+    add_android_openssl_libraries(Decenza)
 endif()
 
 # iOS deployment
 if(IOS)
-    set_target_properties(Decenza_DE1 PROPERTIES
+    set_target_properties(Decenza PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${CMAKE_PROJECT_VERSION}"
@@ -717,7 +719,7 @@ if(IOS)
         XCODE_ATTRIBUTE_DWARF_DSYM_FOLDER_PATH "$(CONFIGURATION_BUILD_DIR)"
     )
     # Add iOS asset catalog for app icon
-    target_sources(Decenza_DE1 PRIVATE
+    target_sources(Decenza PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets"
     )
     set_source_files_properties(
@@ -725,7 +727,7 @@ if(IOS)
         PROPERTIES MACOSX_PACKAGE_LOCATION Resources
     )
     # Link iOS frameworks required for multimedia (AVFoundation backend)
-    target_link_libraries(Decenza_DE1 PRIVATE
+    target_link_libraries(Decenza PRIVATE
         "-framework AVFoundation"
         "-framework CoreMedia"
         "-framework CoreVideo"
@@ -733,7 +735,7 @@ if(IOS)
         "-framework AudioToolbox"
     )
     # Link CoreBluetooth for native scale BLE transport
-    target_link_libraries(Decenza_DE1 PRIVATE
+    target_link_libraries(Decenza PRIVATE
         "-framework CoreBluetooth"
     )
 endif()
@@ -741,17 +743,17 @@ endif()
 # macOS deployment
 if(APPLE AND NOT IOS)
     # Link CoreBluetooth for native scale BLE transport on macOS
-    target_link_libraries(Decenza_DE1 PRIVATE
+    target_link_libraries(Decenza PRIVATE
         "-framework CoreBluetooth"
     )
-    set_target_properties(Decenza_DE1 PROPERTIES
+    set_target_properties(Decenza PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist"
         MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
     )
     # Add macOS app icon to bundle
     set(MACOS_ICON "${CMAKE_CURRENT_SOURCE_DIR}/macos/AppIcon.icns")
-    target_sources(Decenza_DE1 PRIVATE ${MACOS_ICON})
+    target_sources(Decenza PRIVATE ${MACOS_ICON})
     set_source_files_properties(${MACOS_ICON} PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources
     )

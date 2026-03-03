@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 FocusScope {
     id: root

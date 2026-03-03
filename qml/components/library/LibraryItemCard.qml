@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
-import DecenzaDE1
+import Decenza
 import "../layout" as LayoutComponents
 import "../layout/items" as LayoutItems
 

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 // A reusable row component showing profile name with an info button
 // Used in list contexts where profiles are displayed

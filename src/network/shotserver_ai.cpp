@@ -18,7 +18,7 @@ QString ShotServer::generateAIConversationsPage() const
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI Conversations - Decenza DE1</title>
+    <title>AI Conversations - Decenza</title>
     <style>
         :root {
             --bg: #0d1117;

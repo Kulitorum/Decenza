@@ -98,7 +98,7 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep "project(Decenza_DE1 VERSION" CMakeLists.txt | sed 's/.*VERSION \([0-9.]*\).*/\1/')
+          VERSION=$(grep "project(Decenza VERSION" CMakeLists.txt | sed 's/.*VERSION \([0-9.]*\).*/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building version: $VERSION"
 
@@ -107,7 +107,7 @@ jobs:
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-          cp build/Decenza_DE1 AppDir/usr/bin/
+          cp build/Decenza AppDir/usr/bin/
           cp decenza.desktop AppDir/usr/share/applications/
           cp decenza.png AppDir/usr/share/icons/hicolor/256x256/apps/
 
@@ -137,13 +137,13 @@ jobs:
 
       - name: Rename AppImage
         run: |
-          mv Decenza_DE1-x86_64.AppImage Decenza_DE1_${{ steps.version.outputs.version }}-x86_64.AppImage
+          mv Decenza-x86_64.AppImage Decenza_${{ steps.version.outputs.version }}-x86_64.AppImage
 
       - name: Upload AppImage as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Decenza_DE1-Linux-x86_64
-          path: Decenza_DE1_${{ steps.version.outputs.version }}-x86_64.AppImage
+          name: Decenza-Linux-x86_64
+          path: Decenza_${{ steps.version.outputs.version }}-x86_64.AppImage
           retention-days: 1
           overwrite: true
 
@@ -171,5 +171,5 @@ jobs:
 
           # Upload the AppImage
           gh release upload "$TAG_NAME" \
-            "Decenza_DE1_${{ steps.version.outputs.version }}-x86_64.AppImage" \
+            "Decenza_${{ steps.version.outputs.version }}-x86_64.AppImage" \
             --clobber

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import DecenzaDE1
+import Decenza
 
 // Tappable legend items that toggle curve visibility on the graph.
 // Persists toggle state to Settings.

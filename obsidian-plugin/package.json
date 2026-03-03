@@ -1,7 +1,7 @@
 {
     "name": "obsidian-decenza-de1",
     "version": "0.1.0",
-    "description": "Obsidian plugin for Decenza DE1 espresso shot data",
+    "description": "Obsidian plugin for Decenza espresso shot data",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs",
