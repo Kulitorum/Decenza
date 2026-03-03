@@ -16,7 +16,9 @@
 #include <mach/mach.h>
 #endif
 
-#if defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#elif defined(Q_OS_LINUX)
 #include <QFile>
 #include <QTextStream>
 #endif
@@ -83,7 +85,14 @@ quint64 MemoryMonitor::readRss() const
         return info.phys_footprint;  // phys_footprint is the "real" memory cost (compressed + swapped), more accurate than resident_size
     qWarning("[Memory] task_info failed: %d", kr);
     return 0;
-#elif defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+#elif defined(Q_OS_ANDROID)
+    // VmRSS from /proc/self/status is unreliable on Android (SELinux policy may
+    // zero it out). Use android.os.Debug.getNativeHeapAllocatedSize() which
+    // reports the native (C++) heap reliably via the Android runtime.
+    jlong nativeBytes = QJniObject::callStaticMethod<jlong>(
+        "android/os/Debug", "getNativeHeapAllocatedSize");
+    return static_cast<quint64>(nativeBytes);
+#elif defined(Q_OS_LINUX)
     QFile f("/proc/self/status");
     if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&f);
