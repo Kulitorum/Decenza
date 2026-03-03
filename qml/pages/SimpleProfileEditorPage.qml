@@ -402,7 +402,7 @@ Page {
                                 id: profileTempSlider
                                 Layout.fillWidth: true; valueColor: Theme.temperatureColor
                                 accessibleName: "Profile temperature"
-                                from: 70; to: 100; stepSize: 0.1
+                                from: 70; to: 100; stepSize: 0.1; suffix: " °C"
                                 value: val(recipe.pourTemperature, 90)
                                 onValueModified: function(newValue) { updateProfileTemp(Math.round(newValue * 10) / 10) }
                             }
@@ -446,15 +446,15 @@ Page {
 
                                 // Time
                                 Text { text: TranslationManager.translate("simpleProfile.time", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                ValueInput { Layout.fillWidth: true; accessibleName: "Preinfusion time"; from: 0; to: 60; stepSize: 1; value: val(recipe.preinfusionTime, 20); onValueModified: function(newValue) { updateRecipe("preinfusionTime", Math.round(newValue)) } }
+                                ValueInput { Layout.fillWidth: true; accessibleName: "Preinfusion time"; from: 0; to: 60; stepSize: 1; suffix: " s"; value: val(recipe.preinfusionTime, 20); onValueModified: function(newValue) { updateRecipe("preinfusionTime", Math.round(newValue)) } }
 
                                 // Flow rate
                                 Text { text: TranslationManager.translate("simpleProfile.flowRate", "Flow rate"); font: Theme.captionFont; color: Theme.flowColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: "Preinfusion flow rate"; from: 1; to: 10; stepSize: 0.1; value: val(recipe.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { updateRecipe("preinfusionFlowRate", Math.round(newValue * 10) / 10) } }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: "Preinfusion flow rate"; from: 1; to: 10; stepSize: 0.1; suffix: " mL/s"; value: val(recipe.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { updateRecipe("preinfusionFlowRate", Math.round(newValue * 10) / 10) } }
 
                                 // Pressure
                                 Text { text: TranslationManager.translate("simpleProfile.pressure", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: "Preinfusion stop pressure"; from: 0.5; to: 8; stepSize: 0.1; value: val(recipe.preinfusionStopPressure, 4.0); onValueModified: function(newValue) { updateRecipe("preinfusionStopPressure", Math.round(newValue * 10) / 10) } }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: "Preinfusion stop pressure"; from: 0.5; to: 8; stepSize: 0.1; suffix: " bar"; value: val(recipe.preinfusionStopPressure, 4.0); onValueModified: function(newValue) { updateRecipe("preinfusionStopPressure", Math.round(newValue * 10) / 10) } }
                             }
                         }
 
@@ -492,7 +492,7 @@ Page {
 
                                 // Time
                                 Text { text: TranslationManager.translate("simpleProfile.holdTime", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                ValueInput { Layout.fillWidth: true; accessibleName: "Hold time"; from: 0; to: 60; stepSize: 1; value: val(recipe.holdTime, 10); onValueModified: function(newValue) { updateRecipe("holdTime", Math.round(newValue)) } }
+                                ValueInput { Layout.fillWidth: true; accessibleName: "Hold time"; from: 0; to: 60; stepSize: 1; suffix: " s"; value: val(recipe.holdTime, 10); onValueModified: function(newValue) { updateRecipe("holdTime", Math.round(newValue)) } }
 
                                 // Flow: holdFlow + limit pressure
                                 // Pressure: limit flow + espressoPressure
@@ -501,7 +501,7 @@ Page {
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.flowColor
                                     accessibleName: isFlow ? "Hold flow" : "Flow limiter"
-                                    from: isFlow ? 0.1 : 0; to: 8; stepSize: 0.1
+                                    from: isFlow ? 0.1 : 0; to: 8; stepSize: 0.1; suffix: " mL/s"
                                     value: isFlow ? val(recipe.holdFlow, 2.2) : val(recipe.limiterValue, 3.5)
                                     onValueModified: function(newValue) { isFlow
                                         ? updateRecipe("holdFlow", Math.round(newValue * 10) / 10)
@@ -513,7 +513,7 @@ Page {
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.pressureColor
                                     accessibleName: isFlow ? "Pressure limiter" : "Hold pressure"
-                                    from: isFlow ? 0 : 1; to: 12; stepSize: 0.1
+                                    from: isFlow ? 0 : 1; to: 12; stepSize: 0.1; suffix: " bar"
                                     value: isFlow ? val(recipe.limiterValue, 3.5) : val(recipe.espressoPressure, 8.4)
                                     onValueModified: function(newValue) { isFlow
                                         ? updateRecipe("limiterValue", Math.round(newValue * 10) / 10)
@@ -556,14 +556,14 @@ Page {
 
                                 // Time
                                 Text { text: TranslationManager.translate("simpleProfile.declineTime", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                ValueInput { Layout.fillWidth: true; accessibleName: "Decline time"; from: 0; to: 60; stepSize: 1; value: val(recipe.simpleDeclineTime, 30); onValueModified: function(newValue) { updateRecipe("simpleDeclineTime", Math.round(newValue)) } }
+                                ValueInput { Layout.fillWidth: true; accessibleName: "Decline time"; from: 0; to: 60; stepSize: 1; suffix: " s"; value: val(recipe.simpleDeclineTime, 30); onValueModified: function(newValue) { updateRecipe("simpleDeclineTime", Math.round(newValue)) } }
 
                                 // End value: flow has flowEnd (mL/s), pressure has pressureEnd (bar)
                                 Text { text: isFlow ? TranslationManager.translate("simpleProfile.endFlow", "Flow") : TranslationManager.translate("simpleProfile.endPressure", "Pressure"); font: Theme.captionFont; color: isFlow ? Theme.flowColor : Theme.pressureColor }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: isFlow ? Theme.flowColor : Theme.pressureColor
                                     accessibleName: isFlow ? "Decline end flow" : "Decline pressure"
-                                    from: 0; to: isFlow ? 8 : 12; stepSize: 0.1
+                                    from: 0; to: isFlow ? 8 : 12; stepSize: 0.1; suffix: isFlow ? " mL/s" : " bar"
                                     value: isFlow ? val(recipe.flowEnd, 1.8) : val(recipe.pressureEnd, 6.0)
                                     onValueModified: function(newValue) { isFlow
                                         ? updateRecipe("flowEnd", Math.round(newValue * 10) / 10)
@@ -595,11 +595,11 @@ Page {
 
                                 // Dose
                                 Text { text: TranslationManager.translate("simpleProfile.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Dose"; from: 3; to: 40; stepSize: 0.1; value: val(recipe.dose, 18); onValueModified: function(newValue) { updateRecipe("dose", Math.round(newValue * 10) / 10) } }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Dose"; from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: val(recipe.dose, 18); onValueModified: function(newValue) { updateRecipe("dose", Math.round(newValue * 10) / 10) } }
 
                                 // Weight
                                 Text { text: TranslationManager.translate("simpleProfile.weight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Target weight"; from: 0; to: 100; stepSize: 0.1; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Target weight"; from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
 
                                 Text {
                                     Layout.fillWidth: true
@@ -764,7 +764,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: val(recipe.tempStart, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Start temperature"; from: 70; to: 100; stepSize: 0.1; value: val(recipe.tempStart, 90); onValueModified: function(newValue) { updateRecipe("tempStart", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Start temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempStart, 90); onValueModified: function(newValue) { updateRecipe("tempStart", Math.round(newValue * 10) / 10) } }
                 }
 
                 // 1: Preinfuse
@@ -777,7 +777,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: val(recipe.tempPreinfuse, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Preinfuse temperature"; from: 70; to: 100; stepSize: 0.1; value: val(recipe.tempPreinfuse, 90); onValueModified: function(newValue) { updateRecipe("tempPreinfuse", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Preinfuse temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempPreinfuse, 90); onValueModified: function(newValue) { updateRecipe("tempPreinfuse", Math.round(newValue * 10) / 10) } }
                 }
 
                 // 2: Hold / Rise and Hold
@@ -790,7 +790,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: val(recipe.tempHold, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: isFlow ? "Hold temperature" : "Rise and hold temperature"; from: 70; to: 100; stepSize: 0.1; value: val(recipe.tempHold, 90); onValueModified: function(newValue) { updateRecipe("tempHold", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: isFlow ? "Hold temperature" : "Rise and hold temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempHold, 90); onValueModified: function(newValue) { updateRecipe("tempHold", Math.round(newValue * 10) / 10) } }
                 }
 
                 // 3: Decline
@@ -803,7 +803,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: val(recipe.tempDecline, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Decline temperature"; from: 70; to: 100; stepSize: 0.1; value: val(recipe.tempDecline, 90); onValueModified: function(newValue) { updateRecipe("tempDecline", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Decline temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempDecline, 90); onValueModified: function(newValue) { updateRecipe("tempDecline", Math.round(newValue * 10) / 10) } }
                 }
 
                 AccessibleButton {

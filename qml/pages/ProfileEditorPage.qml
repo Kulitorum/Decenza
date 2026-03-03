@@ -483,7 +483,7 @@ Page {
                 }
                 ValueInput {
                     Layout.fillWidth: true; valueColor: Theme.temperatureColor
-                    accessibleName: "Global temperature"; from: 70; to: 100; stepSize: 0.5
+                    accessibleName: "Global temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"
                     value: { stepVersion; return profile && profile.steps.length > 0 ? profile.steps[0].temperature : 93 }
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
@@ -521,7 +521,7 @@ Page {
                     spacing: Theme.scaled(2)
                     ValueInput {
                         Layout.fillWidth: true; valueColor: Theme.weightColor
-                        accessibleName: "Recommended dose"; from: 5; to: 100; stepSize: 0.1
+                        accessibleName: "Recommended dose"; from: 5; to: 100; stepSize: 0.1; suffix: " g"
                         value: { stepVersion; return profile ? (profile.recommended_dose || 18) : 18 }
                         onValueModified: function(newValue) { if (profile) { profile.recommended_dose = Math.round(newValue * 10) / 10; uploadProfile() } }
                     }
@@ -586,7 +586,7 @@ Page {
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.temperatureColor
                     accessibleName: TranslationManager.translate("profileEditor.preheatTankAccessible", "Preheat water tank temperature")
-                    from: 0; to: 45; stepSize: 1
+                    from: 0; to: 45; stepSize: 1; suffix: " °C"
                     value: { stepVersion; return profile ? (profile.tank_desired_water_temperature || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
@@ -620,11 +620,11 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtVolume", "Stop at volume (mL)"); font: Theme.captionFont; color: Theme.flowColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
+                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtVolume", "Stop at volume"); font: Theme.captionFont; color: Theme.flowColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.afterPreinfusionStopAccessible", "After preinfusion, stop the shot at volume")
-                    from: 0; to: 500; stepSize: 1
+                    from: 0; to: 500; stepSize: 1; suffix: " mL"
                     value: { stepVersion; return profile ? (profile.target_volume || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
@@ -643,15 +643,15 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtWeight", "Stop at weight (g)"); font: Theme.captionFont; color: Theme.weightColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
+                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtWeight", "Stop at weight"); font: Theme.captionFont; color: Theme.weightColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.weightColor
                     accessibleName: TranslationManager.translate("profileEditor.stopAtWeightAccessible", "Stop at weight")
-                    from: 0; to: 100; stepSize: 0.5
+                    from: 0; to: 100; stepSize: 0.1; suffix: " g"
                     value: { stepVersion; return profile ? (profile.target_weight || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
-                            profile.target_weight = Math.round(newValue * 2) / 2
+                            profile.target_weight = Math.round(newValue * 10) / 10
                             if (newValue > 0) {
                                 profile.stop_at_type = "weight"
                             }
@@ -670,7 +670,7 @@ Page {
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.limitFlowRangeAccessible", "Limit flow range for pressure steps")
-                    from: 0; to: 8; stepSize: 0.1
+                    from: 0; to: 8; stepSize: 0.1; suffix: " mL/s"
                     value: { stepVersion; return profile ? (profile.maximum_flow_range_advanced || 0.6) : 0.6 }
                     onValueModified: function(newValue) {
                         if (profile) {
@@ -691,7 +691,7 @@ Page {
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.pressureColor
                     accessibleName: TranslationManager.translate("profileEditor.limitPressureRangeAccessible", "Limit pressure range for flow steps")
-                    from: 0; to: 8; stepSize: 0.1
+                    from: 0; to: 8; stepSize: 0.1; suffix: " bar"
                     value: { stepVersion; return profile ? (profile.maximum_pressure_range_advanced || 0.6) : 0.6 }
                     onValueModified: function(newValue) {
                         if (profile) {
@@ -1125,7 +1125,7 @@ Page {
                 }
 
                 // Temperature
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Step temperature"; from: 70; to: 100; stepSize: 0.1; value: stepVersion >= 0 && step ? step.temperature : 93; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(newValue * 10) / 10; uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Step temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: stepVersion >= 0 && step ? step.temperature : 93; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(newValue * 10) / 10; uploadProfile() } } }
 
                 // Sensor toggle
                 Text { text: TranslationManager.translate("profileEditor.sensor", "Sensor"); font: Theme.captionFont; color: Theme.textSecondaryColor }
@@ -1196,6 +1196,7 @@ Page {
                     valueColor: step && step.pump === "flow" ? Theme.flowColor : Theme.pressureColor
                     accessibleName: step && step.pump === "flow" ? "Flow goal" : "Pressure goal"
                     from: 0; to: step && step.pump === "flow" ? 8 : 12; stepSize: 0.1
+                    suffix: step && step.pump === "flow" ? " mL/s" : " bar"
                     value: { var v = stepVersion; return step ? (step.pump === "flow" ? step.flow : step.pressure) : 0 }
                     onValueModified: function(newValue) {
                         if (profile && selectedStepIndex >= 0) {
@@ -1248,24 +1249,25 @@ Page {
                 }
 
                 // Max duration
-                Text { text: TranslationManager.translate("profileEditor.maxDuration", "Duration (seconds)"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { Layout.fillWidth: true; accessibleName: "Max duration"; from: 0; to: 120; stepSize: 1; value: stepVersion >= 0 && step ? step.seconds : 30; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].seconds = Math.round(newValue); uploadProfile() } } }
+                Text { text: TranslationManager.translate("profileEditor.maxDuration", "Duration"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                ValueInput { Layout.fillWidth: true; accessibleName: "Max duration"; from: 0; to: 120; stepSize: 1; suffix: " s"; value: stepVersion >= 0 && step ? step.seconds : 30; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].seconds = Math.round(newValue); uploadProfile() } } }
 
                 // Max volume
-                Text { text: TranslationManager.translate("profileEditor.maxVolume", "Volume (mL)"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: "Max volume"; from: 0; to: 500; stepSize: 1; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue); uploadProfile() } } }
+                Text { text: TranslationManager.translate("profileEditor.maxVolume", "Volume"); font: Theme.captionFont; color: Theme.flowColor }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: "Max volume"; from: 0; to: 500; stepSize: 1; suffix: " mL"; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue); uploadProfile() } } }
 
                 // Max weight (independent, app-side exit)
-                Text { text: TranslationManager.translate("profileEditor.maxWeight", "Weight (g)"); font: Theme.captionFont; color: Theme.weightColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Max weight"; from: 0; to: 100; stepSize: 0.5; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 2) / 2; uploadProfile() } } }
+                Text { text: TranslationManager.translate("profileEditor.maxWeight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Max weight"; from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10; uploadProfile() } } }
 
                 // Flow/Pressure limit (opposite of goal in section 2)
-                Text { text: step && step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit (mL/s)") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit (bar)"); font: Theme.captionFont; color: step && step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor }
+                Text { text: step && step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit"); font: Theme.captionFont; color: step && step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor }
                 ValueInput {
                     Layout.fillWidth: true
                     valueColor: step && step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor
                     accessibleName: step && step.pump === "pressure" ? "Flow limit" : "Pressure limit"
                     from: 0; to: step && step.pump === "pressure" ? 8 : 12; stepSize: 0.1
+                    suffix: step && step.pump === "pressure" ? " mL/s" : " bar"
                     value: { var v = stepVersion; return step ? (step.max_flow_or_pressure || 0) : 0 }
                     onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].max_flow_or_pressure = Math.round(newValue * 10) / 10; uploadProfile() } }
                 }
@@ -1312,6 +1314,7 @@ Page {
                         accessibleName: "Exit value"
                         from: 0; to: { if (!step) return 12; switch (step.exit_type) { case "flow_over": case "flow_under": return 8; default: return 12 } }
                         stepSize: 0.1
+                        suffix: step && (step.exit_type === "flow_over" || step.exit_type === "flow_under") ? " mL/s" : " bar"
                         value: { var v = stepVersion; if (!step) return 0; switch (step.exit_type) { case "pressure_over": return step.exit_pressure_over || 0; case "pressure_under": return step.exit_pressure_under || 0; case "flow_over": return step.exit_flow_over || 0; case "flow_under": return step.exit_flow_under || 0; default: return 0 } }
                         onValueModified: function(newValue) {
                             if (!profile || selectedStepIndex < 0) return
