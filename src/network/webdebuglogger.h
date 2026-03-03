@@ -50,7 +50,7 @@ private:
 
     mutable QMutex m_mutex;
     QStringList m_lines;
-    int m_maxLines = 1000;  // Ring buffer size
+    int m_maxLines = 500;   // Ring buffer size
     QElapsedTimer m_timer;
     QDateTime m_startTime;
 

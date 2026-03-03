@@ -3192,15 +3192,9 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         if (deltaTime > 0 && deltaTime < 1.0) {
             m_machineState->onFlowSample(sample.groupFlow, deltaTime);
 
-            // Shadow: feed FlowScale in parallel when a physical scale is active.
-            // When FlowScale IS the active scale, MachineState already feeds it,
-            // so only feed here when using a physical scale (to avoid double-counting).
-            // Only runs when useFlowScale is enabled (virtual scale preference).
-            if (m_flowScale && m_settings && m_settings->useFlowScale() &&
-                m_bleManager && m_bleManager->scaleDevice() &&
-                m_bleManager->scaleDevice()->isConnected()) {
-                m_flowScale->addFlowSample(sample.groupFlow, deltaTime);
-            }
+            // Note: FlowScale is fed by MachineState when it is the active scale (no physical scale).
+            // Shadow feeding when a physical scale is present was only used for FlowScale Compare
+            // logging and has been removed to reduce main-thread load on slow devices.
         }
     }
     m_lastSampleTime = sample.timer;
@@ -3347,8 +3341,12 @@ void MainController::onScaleWeightChanged(double weight) {
 
     // FlowScale comparison logging: log both physical scale and FlowScale estimated weight
     // during espresso extraction to validate puck absorption model.
-    // Only logs when useFlowScale is enabled to avoid confusing 0.0g entries.
-    if (m_flowScale && m_extractionStarted && m_settings && m_settings->useFlowScale()) {
+    // Disabled when a physical BT scale is connected - the comparison logging is not needed
+    // and running it at 5Hz on the main thread adds load on slow devices.
+    bool btScaleConnected = m_bleManager && m_bleManager->scaleDevice() &&
+                            m_bleManager->scaleDevice()->isConnected();
+    if (m_flowScale && m_extractionStarted && m_settings && m_settings->useFlowScale() &&
+        !btScaleConnected) {
         MachineState::Phase phase = m_machineState->phase();
         if (phase == MachineState::Phase::Preinfusion ||
             phase == MachineState::Phase::Pouring ||

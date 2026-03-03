@@ -1191,15 +1191,13 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     }
     else if (path == "/api/debug/file") {
-        // Return persisted log file content (survives crashes)
+        // Return persisted log file content (survives crashes), with memory snapshot appended
         QJsonObject result;
-        if (WebDebugLogger::instance()) {
-            result["log"] = WebDebugLogger::instance()->getPersistedLog();
-            result["path"] = WebDebugLogger::instance()->logFilePath();
-        } else {
-            result["log"] = "";
-            result["path"] = "";
-        }
+        QString log = WebDebugLogger::instance() ? WebDebugLogger::instance()->getPersistedLog() : QString();
+        if (m_memoryMonitor)
+            log += m_memoryMonitor->toSummaryString();
+        result["log"] = log;
+        result["path"] = WebDebugLogger::instance() ? WebDebugLogger::instance()->logFilePath() : QString();
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
     }
     else if (path == "/api/power" || path == "/api/power/status") {

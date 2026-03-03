@@ -191,7 +191,7 @@ void Settings::setScaleName(const QString& name) {
 
 // FlowScale
 bool Settings::useFlowScale() const {
-    return m_settings.value("flow/useFlowScale", true).toBool();
+    return m_settings.value("flow/useFlowScale", false).toBool();
 }
 
 void Settings::setUseFlowScale(bool enabled) {

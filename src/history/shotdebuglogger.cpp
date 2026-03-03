@@ -124,6 +124,7 @@ void ShotDebugLogger::appendLog(const QString& category, const QString& message)
 {
     QMutexLocker locker(&m_mutex);
     if (!m_capturing) return;
+    if (m_logLines.size() >= 2000) return;
 
     m_logLines << QString("[%1] %2 %3").arg(formatTime(), category, message);
 }

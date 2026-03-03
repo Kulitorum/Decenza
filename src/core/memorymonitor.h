@@ -38,6 +38,7 @@ public:
     quint64 startupRssBytes() const { return m_startupRss; }
 
     QJsonObject toJson() const;
+    QString toSummaryString() const;
 
 signals:
     void sampleTaken();

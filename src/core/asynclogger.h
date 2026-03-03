@@ -24,7 +24,11 @@ public:
     static void uninstall();
 
 private:
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    static constexpr int BUFFER_SIZE = 512;
+#else
     static constexpr int BUFFER_SIZE = 4096;
+#endif
 
     struct LogEntry {
         QtMsgType type;

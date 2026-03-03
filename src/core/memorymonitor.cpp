@@ -63,7 +63,26 @@ void MemoryMonitor::takeSample()
 
     double rssMB = rss / (1024.0 * 1024.0);
     double peakMB = m_peakRss / (1024.0 * 1024.0);
+
+#ifdef Q_OS_ANDROID
+    {
+        QJniObject runtime = QJniObject::callStaticObjectMethod(
+            "java/lang/Runtime", "getRuntime", "()Ljava/lang/Runtime;");
+        if (runtime.isValid()) {
+            jlong total = runtime.callMethod<jlong>("totalMemory");
+            jlong free  = runtime.callMethod<jlong>("freeMemory");
+            jlong max   = runtime.callMethod<jlong>("maxMemory");
+            double javaUsedMB = (total - free) / (1024.0 * 1024.0);
+            double javaMaxMB  = max / (1024.0 * 1024.0);
+            qDebug("[Memory] RSS: %.1f MB  Java heap: %.1f / %.1f MB  QObjects: %d  peak: %.1f MB",
+                   rssMB, javaUsedMB, javaMaxMB, objCount, peakMB);
+        } else {
+            qDebug("[Memory] RSS: %.1f MB, QObjects: %d, peak: %.1f MB", rssMB, objCount, peakMB);
+        }
+    }
+#else
     qDebug("[Memory] RSS: %.1f MB, QObjects: %d, peak: %.1f MB", rssMB, objCount, peakMB);
+#endif
 
     emit sampleTaken();
 }
@@ -218,6 +237,60 @@ double MemoryMonitor::peakRssMB() const
 double MemoryMonitor::startupRssMB() const
 {
     return m_startupRss / (1024.0 * 1024.0);
+}
+
+QString MemoryMonitor::toSummaryString() const
+{
+    qint64 uptimeMin = m_uptime.elapsed() / 60000;
+    QString out;
+    QTextStream s(&out);
+
+    s << "\n=== MEMORY SNAPSHOT (at download time) ===\n";
+    s << QString("Uptime: %1h %2m\n").arg(uptimeMin / 60).arg(uptimeMin % 60);
+    s << QString("RSS: %1 MB  peak: %2 MB  startup: %3 MB\n")
+             .arg(currentRssMB(), 0, 'f', 1)
+             .arg(peakRssMB(), 0, 'f', 1)
+             .arg(startupRssMB(), 0, 'f', 1);
+    s << QString("QObjects: %1\n").arg(m_lastQObjectCount);
+
+    // Top 20 classes sorted by count, with delta vs baseline
+    if (!m_classCounts.isEmpty()) {
+        QVector<QPair<QString, int>> sorted;
+        sorted.reserve(m_classCounts.size());
+        for (auto it = m_classCounts.constBegin(); it != m_classCounts.constEnd(); ++it)
+            sorted.append({it.key(), it.value()});
+        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+            return a.second > b.second;
+        });
+        const auto& deltaBase = m_baselineCaptured ? m_baselineClassCounts : m_prevClassCounts;
+        s << "Top QObject classes (count / delta vs startup):\n";
+        int limit = qMin(sorted.size(), 20);
+        for (int i = 0; i < limit; ++i) {
+            int delta = sorted[i].second - deltaBase.value(sorted[i].first, 0);
+            s << QString("  %1  (%2%3)  %4\n")
+                     .arg(sorted[i].second, 5)
+                     .arg(delta >= 0 ? "+" : "")
+                     .arg(delta)
+                     .arg(sorted[i].first);
+        }
+    }
+
+    // Last 20 samples
+    if (!m_samples.isEmpty()) {
+        s << "Recent samples (time / QObjects / RSS MB):\n";
+        int start = qMax(0, m_samples.size() - 20);
+        for (int i = start; i < m_samples.size(); ++i) {
+            const auto& sample = m_samples[i];
+            QDateTime dt = QDateTime::fromMSecsSinceEpoch(sample.timestampMs);
+            s << QString("  [%1]  QObj=%2  RSS=%3 MB\n")
+                     .arg(dt.toString("HH:mm:ss"))
+                     .arg(sample.qobjectCount)
+                     .arg(sample.rssBytes / (1024.0 * 1024.0), 0, 'f', 1);
+        }
+    }
+    s << "===========================================\n";
+
+    return out;
 }
 
 QJsonObject MemoryMonitor::toJson() const

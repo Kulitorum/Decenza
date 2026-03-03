@@ -209,7 +209,7 @@ ApplicationWindow {
                 var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (currentPage !== "steamPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
-                    pageStack.replace(steamPage)
+                    pageStack.replace(null, steamPage)
                 }
             }
         }
@@ -1584,11 +1584,11 @@ ApplicationWindow {
             // Return to saved page if set, otherwise go to idlePage
             if (root.returnToPageName === "postShotReviewPage") {
                 var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-                pageStack.replace(idlePage)
+                pageStack.replace(null, idlePage)
                 pageStack.push(postShotReviewPage, { editShotId: shotId })
             } else {
                 if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
-                    pageStack.replace(idlePage)
+                    pageStack.replace(null, idlePage)
                 }
             }
 
@@ -2066,26 +2066,26 @@ ApplicationWindow {
                 phase === MachineStateType.Phase.Pouring ||
                 phase === MachineStateType.Phase.Ending) {
                 if (currentPage !== "espressoPage" && !pageStack.busy) {
-                    pageStack.replace(espressoPage)
+                    pageStack.replace(null, espressoPage)
                 }
             } else if (phase === MachineStateType.Phase.Steaming) {
                 if (currentPage !== "steamPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
-                    pageStack.replace(steamPage)
+                    pageStack.replace(null, steamPage)
                 }
             } else if (phase === MachineStateType.Phase.HotWater) {
                 if (currentPage !== "hotWaterPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
-                    pageStack.replace(hotWaterPage)
+                    pageStack.replace(null, hotWaterPage)
                 }
             } else if (phase === MachineStateType.Phase.Flushing) {
                 if (currentPage !== "flushPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
-                    pageStack.replace(flushPage)
+                    pageStack.replace(null, flushPage)
                 }
             } else if (phase === MachineStateType.Phase.Descaling) {
                 if (currentPage !== "descalingPage" && !pageStack.busy) {
-                    pageStack.replace(descalingPage)
+                    pageStack.replace(null, descalingPage)
                 }
             } else if (phase === MachineStateType.Phase.Cleaning) {
                 // For now, cleaning uses the built-in machine routine
@@ -2136,7 +2136,7 @@ ApplicationWindow {
         if ((currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage") &&
             root.returnToPageName === "postShotReviewPage") {
             var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-            pageStack.replace(idlePage)
+            pageStack.replace(null, idlePage)
             pageStack.push(postShotReviewPage, { editShotId: shotId })
             root.returnToPageName = ""
             root.returnToShotId = 0
@@ -2144,7 +2144,7 @@ ApplicationWindow {
         }
 
         if (currentPage !== "idlePage") {
-            pageStack.replace(idlePage)
+            pageStack.replace(null, idlePage)
         }
         // Clear return tracking when going to idle from non-operation pages
         root.returnToPageName = ""
@@ -2154,21 +2154,21 @@ ApplicationWindow {
     function goToEspresso() {
         if (!startNavigation()) return
         if (pageStack.currentItem && pageStack.currentItem.objectName !== "espressoPage") {
-            pageStack.replace(espressoPage)
+            pageStack.replace(null, espressoPage)
         }
     }
 
     function goToSteam() {
         if (!startNavigation()) return
         if (pageStack.currentItem && pageStack.currentItem.objectName !== "steamPage") {
-            pageStack.replace(steamPage)
+            pageStack.replace(null, steamPage)
         }
     }
 
     function goToHotWater() {
         if (!startNavigation()) return
         if (pageStack.currentItem && pageStack.currentItem.objectName !== "hotWaterPage") {
-            pageStack.replace(hotWaterPage)
+            pageStack.replace(null, hotWaterPage)
         }
     }
 
@@ -2265,7 +2265,7 @@ ApplicationWindow {
     function goToShotMetadata(shotId) {
         if (!startNavigation()) return
         // Put idlePage on the stack so back button returns to idle, not the mid-shot graph
-        pageStack.replace(idlePage)
+        pageStack.replace(null, idlePage)
         pageStack.push(postShotReviewPage, { editShotId: shotId || 0 })
     }
 
@@ -2343,7 +2343,7 @@ ApplicationWindow {
         // For "disabled" mode, ScreensaverPage keeps the screen on and uses a
         // full-opacity black overlay to simulate screen-off (avoids EGL surface
         // loss on Samsung tablets, QTBUG-45019)
-        pageStack.replace(screensaverPage)
+        pageStack.replace(null, screensaverPage)
     }
 
     function goToIdleFromScreensaver() {
@@ -2355,7 +2355,7 @@ ApplicationWindow {
         root.sleepCountdownStayAwake = 0  // Already satisfied unless auto-wake sets it
         console.log("Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
                     " pendingPopups=" + pendingPopups.length)
-        pageStack.replace(idlePage)
+        pageStack.replace(null, idlePage)
         // Show any popups that arrived during screensaver
         if (pendingPopups.length > 0) {
             Qt.callLater(root.showNextPendingPopup)

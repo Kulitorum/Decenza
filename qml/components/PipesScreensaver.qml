@@ -48,6 +48,19 @@ Item {
         initializePipes()
     }
 
+    Component.onDestruction: {
+        // Explicitly destroy null-parent instances — they are outside the QObject tree
+        // and won't be freed automatically when this component is destroyed
+        for (var i = 0; i < cylinderEntries.length; i++) {
+            if (cylinderEntries[i]) cylinderEntries[i].destroy()
+        }
+        for (var j = 0; j < sphereEntries.length; j++) {
+            if (sphereEntries[j]) sphereEntries[j].destroy()
+        }
+        cylinderEntries = []
+        sphereEntries = []
+    }
+
     // Recovery: if running/visible changes after Component.onCompleted,
     // ensure pipe generation starts when conditions are met
     onRunningChanged: {

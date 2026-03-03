@@ -866,7 +866,8 @@ int main(int argc, char *argv[])
                 if (mainController.mqttClient()) {
                     mainController.mqttClient()->onScaleConnectedChanged(true);
                 }
-                qDebug() << "Scale connected - switched to physical scale";
+                settings.setUseFlowScale(false);
+                qDebug() << "Scale connected - switched to physical scale, disabled FlowScale";
             } else if (physicalScale) {
                 // Scale disconnected - fall back to FlowScale
                 machineState.setScale(&flowScale);

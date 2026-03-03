@@ -33,34 +33,73 @@ Item {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
-    // Trigger counter to force re-evaluation of resolvedText
+    // Trigger counter to force re-evaluation of resolvedText (only used for %TIME%/%DATE%)
     property int _refreshTick: 0
 
-    // Variable substitution - explicit dependency references so QML tracks changes
+    // Precomputed flags: which live data categories does this item's template use?
+    // These depend only on `content` so they evaluate once at layout load, not at 5 Hz.
+    readonly property bool _needsMachineData: content.indexOf("%TEMP%") >= 0
+        || content.indexOf("%STEAM_TEMP%") >= 0
+        || content.indexOf("%PRESSURE%") >= 0
+        || content.indexOf("%FLOW%") >= 0
+        || content.indexOf("%WATER%") >= 0
+        || content.indexOf("%STATE%") >= 0
+        || content.indexOf("%CONNECTED%") >= 0
+        || content.indexOf("%MACHINE_CONNECTED%") >= 0
+        || content.indexOf("%MACHINE_READY%") >= 0
+        || content.indexOf("%DEVICES%") >= 0
+
+    readonly property bool _needsScaleData: content.indexOf("%WEIGHT%") >= 0
+        || content.indexOf("%SHOT_TIME%") >= 0
+        || content.indexOf("%VOLUME%") >= 0
+        || content.indexOf("%POUR_VOLUME%") >= 0
+        || content.indexOf("%PREINFUSION_VOLUME%") >= 0
+        || content.indexOf("%SCALE_CONNECTED%") >= 0
+        || content.indexOf("%DEVICES%") >= 0
+
+    readonly property bool _needsControllerData: content.indexOf("%TARGET_WEIGHT%") >= 0
+        || content.indexOf("%PROFILE%") >= 0
+        || content.indexOf("%TARGET_TEMP%") >= 0
+        || content.indexOf("%RATIO%") >= 0
+        || content.indexOf("%DOSE%") >= 0
+
+    readonly property bool _needsScaleDevice: content.indexOf("%SCALE%") >= 0
+        || content.indexOf("%SCALE_CONNECTED%") >= 0
+        || content.indexOf("%DEVICES%") >= 0
+
+    readonly property bool _needsSettingsData: content.indexOf("%GRIND%") >= 0
+        || content.indexOf("%GRINDER%") >= 0
+
+    // Variable substitution - only tracks the live properties this item actually uses.
+    // Items showing static values (e.g. %PROFILE%) no longer re-evaluate at 5 Hz.
     readonly property string resolvedText: {
-        // Reference dependencies to establish QML bindings
+        var _c = content  // direct dependency so content changes always trigger re-evaluation
         var _tick = _refreshTick
-        var _c = content
-        if (typeof DE1Device !== "undefined") {
+        if (_needsMachineData && typeof DE1Device !== "undefined") {
             void(DE1Device.temperature); void(DE1Device.steamTemperature)
             void(DE1Device.pressure); void(DE1Device.flow)
             void(DE1Device.waterLevel); void(DE1Device.waterLevelMl)
-            void(DE1Device.stateString)
+            void(DE1Device.stateString); void(DE1Device.connected)
         }
-        if (typeof MachineState !== "undefined") {
+        if (_needsScaleData && typeof MachineState !== "undefined") {
             void(MachineState.scaleWeight); void(MachineState.shotTime)
             void(MachineState.cumulativeVolume)
             void(MachineState.preinfusionVolume); void(MachineState.pourVolume)
         }
-        if (typeof MainController !== "undefined") {
+        if ((_needsMachineData || _needsScaleData) && typeof MachineState !== "undefined") {
+            void(MachineState.phase)
+        }
+        if (_needsControllerData && typeof MainController !== "undefined") {
             void(MainController.targetWeight); void(MainController.currentProfileName)
             void(MainController.profileTargetTemperature)
             void(MainController.brewByRatio); void(MainController.brewByRatioDose)
         }
-        if (typeof DE1Device !== "undefined") void(DE1Device.connected)
-        if (typeof MachineState !== "undefined") void(MachineState.phase)
-        if (typeof ScaleDevice !== "undefined" && ScaleDevice) { void(ScaleDevice.name); void(ScaleDevice.connected) }
-        if (typeof Settings !== "undefined") { void(Settings.dyeGrinderSetting); void(Settings.dyeGrinderModel) }
+        if (_needsScaleDevice && typeof ScaleDevice !== "undefined" && ScaleDevice) {
+            void(ScaleDevice.name); void(ScaleDevice.connected)
+        }
+        if (_needsSettingsData && typeof Settings !== "undefined") {
+            void(Settings.dyeGrinderSetting); void(Settings.dyeGrinderModel)
+        }
         return substituteVariables(_c)
     }
 
