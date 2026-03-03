@@ -21,8 +21,13 @@ Item {
     property color valueColor: Theme.textColor
     property color accentColor: Theme.primaryColor
 
-    // Geared mode - horizontal drag changes value, vertical drag from drag start selects step multiplier:
-    // 0–50 px = ×1 (base stepSize), 50–100 px = ×10, 100+ px = ×100
+    // Geared mode: horizontal drag adjusts value, vertical displacement from the gear-reference
+    // point selects the step multiplier (boundaries are scaled: sc(50) px per gear level):
+    //   0 – sc(50) px  = ×1 (base stepSize)
+    //   sc(50) – sc(100) px = ×10
+    //   sc(100)+ px    = ×100
+    // In the inline handler the gear reference is established when horizontal commitment is
+    // confirmed (not at the original touch-down). In the popup it is the original press position.
     property bool geared: stepSize > 0
 
     // Scale mode - when true, uses Theme.scaledBase() for consistent size across pages
@@ -349,7 +354,7 @@ Item {
                 }
             }
 
-            // Gear indicator + step label — rendered in overlay to the right of the widget
+            // Gear selector — rendered in overlay to the right of the widget while dragging
             Loader {
                 active: valueDragArea.isDragging
                 sourceComponent: Item {

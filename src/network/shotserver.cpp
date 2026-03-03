@@ -438,11 +438,13 @@ void ShotServer::stop()
         auto themeCopy = m_sseThemeClients;
         m_sseThemeClients.clear();
         for (QTcpSocket* s : themeCopy) s->close();
-        // Don't call t->stop() on individual timers — pointers may be dangling if
-        // cleanupStaleConnections() previously scheduled a socket for deleteLater()
-        // without disconnected() firing synchronously. The socket deletion destroys
-        // the child timer, leaving a stale pointer in the map.
-        // All remaining valid timers will be destroyed with m_server below.
+        // Stop all remaining keep-alive timers and clear the map.
+        // All entries here have valid timer pointers: dangling-pointer entries (sockets that
+        // went through cleanupStaleConnections) were already removed from the map by that
+        // function before calling deleteLater(). Sockets that disconnected normally were
+        // removed by onDisconnected(). So every pointer remaining in the map is live.
+        for (QTimer* t : std::as_const(m_keepAliveTimers))
+            t->stop();
         m_keepAliveTimers.clear();
         m_server->close();
         delete m_server;

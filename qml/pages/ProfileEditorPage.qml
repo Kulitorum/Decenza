@@ -487,7 +487,7 @@ Page {
                     value: { stepVersion; return profile && profile.steps.length > 0 ? profile.steps[0].temperature : 93 }
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
-                            var rounded = Math.round(newValue * 2) / 2
+                            var rounded = Math.round(newValue * 10) / 10
                             var delta = rounded - profile.steps[0].temperature
                             for (var i = 0; i < profile.steps.length; i++) {
                                 profile.steps[i].temperature += delta
