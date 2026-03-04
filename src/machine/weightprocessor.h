@@ -69,6 +69,11 @@ private:
     bool m_oscillationDetected = false;  // true while waiting for scale to re-settle after oscillation
     int m_settleCount = 0;               // consecutive near-zero readings since oscillation detected
 
+    // De-jitter: compensates for main thread event batching (see processWeight comments)
+    qint64 m_lastWallClockMs = 0;       // Wall-clock time of last processWeight() call
+    qint64 m_lastSampleTs = 0;          // Last synthetic timestamp assigned to a sample
+    int m_estimatedIntervalMs = 0;      // Calibrated from non-batched gaps (0 = uncalibrated)
+
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;
     qint64 m_lastLowFlowLogMs = 0;

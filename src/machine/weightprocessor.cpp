@@ -18,11 +18,43 @@ WeightProcessor::WeightProcessor(QObject* parent)
 
 void WeightProcessor::processWeight(double weight)
 {
-    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    qint64 wallClock = QDateTime::currentMSecsSinceEpoch();
+
+    // De-jitter: BLE events arrive on the main thread via QueuedConnection, and when
+    // the main thread is busy (QML rendering), multiple events queue up and are
+    // delivered in a burst. The worker thread processes them all within ~1ms, so
+    // wall-clock timestamps cluster together. This makes LSLR see dt≈0 and return 0,
+    // blinding SAW for the entire pour.
+    //
+    // Fix: detect batching (gap < 20ms) and assign synthetic timestamps spaced by
+    // the calibrated scale interval. Non-batched events calibrate the interval via
+    // exponential moving average, so this adapts to any scale rate (10Hz, 5Hz, 2Hz).
+    qint64 sinceLast = m_lastWallClockMs > 0 ? (wallClock - m_lastWallClockMs) : -1;
+    m_lastWallClockMs = wallClock;
+
+    qint64 sampleTs;
+    if (sinceLast < 0 || sinceLast > 20) {
+        // First call or non-batched: use wall-clock, and calibrate interval estimate
+        sampleTs = wallClock;
+        if (sinceLast > 20 && sinceLast < 2000) {
+            // EMA with alpha=0.3 for smooth calibration (ignores gaps > 2s as reconnects)
+            if (m_estimatedIntervalMs == 0)
+                m_estimatedIntervalMs = (int)sinceLast;
+            else
+                m_estimatedIntervalMs = (int)(0.7 * m_estimatedIntervalMs + 0.3 * sinceLast);
+        }
+    } else if (m_estimatedIntervalMs > 0) {
+        // Batched (< 20ms since last) and calibrated: spread using estimated interval
+        sampleTs = m_lastSampleTs + m_estimatedIntervalMs;
+    } else {
+        // Batched but uncalibrated: use wall-clock (safe fallback, same as before)
+        sampleTs = wallClock;
+    }
+    m_lastSampleTs = sampleTs;
 
     // Record sample for LSLR (1-second rolling window)
-    m_weightSamples.append({now, weight});
-    while (!m_weightSamples.isEmpty() && (now - m_weightSamples.first().timestamp) > 1000) {
+    m_weightSamples.append({sampleTs, weight});
+    while (!m_weightSamples.isEmpty() && (sampleTs - m_weightSamples.first().timestamp) > 1000) {
         m_weightSamples.removeFirst();
     }
 
@@ -81,26 +113,26 @@ void WeightProcessor::processWeight(double weight)
 
     if (!m_tareComplete) {
         // Throttle warning to every 5s to avoid log spam at 5Hz
-        if (now - m_lastTareWarnMs >= 5000) {
+        if (wallClock - m_lastTareWarnMs >= 5000) {
             qWarning() << "[SAW-Worker] Active but tare not complete - skipping SAW, weight=" << weight;
-            m_lastTareWarnMs = now;
+            m_lastTareWarnMs = wallClock;
         }
         return;
     }
 
     // Sanity check: unreasonable weight early in extraction (likely untared cup)
     if (m_extractionStartTime > 0) {
-        double extractionTime = (now - m_extractionStartTime) / 1000.0;
+        double extractionTime = (wallClock - m_extractionStartTime) / 1000.0;
         if (extractionTime < 3.0 && weight > 50.0) return;
     }
 
     // Stop-at-weight check (requires valid flow rate for drip prediction)
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort < 0.5) {
         // Throttle this log to every 5s
-        if (now - m_lastLowFlowLogMs >= 5000) {
+        if (wallClock - m_lastLowFlowLogMs >= 5000) {
             qDebug() << "[SAW-Worker] Flow too low for SAW check: flowShort=" << flowRateShort
                      << "weight=" << weight << "target=" << m_targetWeight;
-            m_lastLowFlowLogMs = now;
+            m_lastLowFlowLogMs = wallClock;
         }
     }
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
@@ -174,13 +206,16 @@ void WeightProcessor::startExtraction()
     m_settleCount = 0;
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
+    m_lastWallClockMs = 0;
+    m_lastSampleTs = 0;
+    // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
 
 void WeightProcessor::stopExtraction()
 {
     m_active = false;
 
-    // Log measured scale reporting rate — captured in shot debug log.
+    // Log measured scale reporting rate and de-jitter state — captured in shot debug log.
     // Helps diagnose SAW issues on slow-reporting scales (Bookoo ~2Hz, etc.).
     if (m_weightSamples.size() >= 3) {
         qint64 span = m_weightSamples.last().timestamp - m_weightSamples.first().timestamp;
@@ -188,7 +223,8 @@ void WeightProcessor::stopExtraction()
             double avgIntervalMs = span / (double)(m_weightSamples.size() - 1);
             qDebug() << "[Weight-Worker] Scale interval: avg" << (int)avgIntervalMs << "ms"
                      << "(" << QString::number(1000.0 / avgIntervalMs, 'f', 1) << "Hz)"
-                     << "over" << m_weightSamples.size() << "samples (last 1s)";
+                     << "over" << m_weightSamples.size() << "samples (last 1s)"
+                     << "| de-jitter calibrated:" << m_estimatedIntervalMs << "ms";
         }
     }
 
@@ -202,6 +238,8 @@ void WeightProcessor::resetForRetare()
     m_extractionStartTime = QDateTime::currentMSecsSinceEpoch();
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();
+    m_lastWallClockMs = 0;
+    m_lastSampleTs = 0;
     qDebug() << "[SAW-Worker] Reset for auto-retare";
 }
 

@@ -354,15 +354,14 @@ void BatteryManager::applySmartCharging() {
     // If we commanded the port ON but Android reports DISCHARGING, the DE1 USB port
     // is not delivering power despite our instruction. Possible causes:
     //   • The DE1 went to sleep and cut the USB port (most common overnight)
+    //   • The DE1 temporarily cut USB power to prioritise its own hardware (heater, etc.)
     //   • A BLE write silently failed and the DE1 never received the command
     //   • The physical cable between the tablet and DE1 was disconnected
     //
-    // We check on the very next 60-second cycle after enabling the port. 60 seconds
-    // is comfortably longer than the round-trip time for: BLE write → DE1 processes
-    // command → port switches on → tablet hardware detects USB power → Android updates
-    // the sticky ACTION_BATTERY_CHANGED intent. If we still see DISCHARGING after all
-    // that, the port genuinely did not come on and we should retry and warn immediately.
-    // The downside of acting quickly is at most one extra BLE command — harmless.
+    // We retry the BLE command immediately on the first failed check, but wait for
+    // 5 consecutive failures (~5 min) before alerting the user. The DE1 can legally
+    // cut USB power for short periods (e.g. during preheating), so a single transient
+    // DISCHARGING reading is not worth a popup. Five minutes of sustained no-power is.
     //
     // This block is Android-only; m_androidBatteryStatus stays -1 on other platforms.
     if (m_androidBatteryStatus != -1) {
@@ -375,35 +374,33 @@ void BatteryManager::applySmartCharging() {
         if (shouldChargerBeOn && portActuallyOff) {
             m_chargingMismatchCount++;
 
-            // On the first failed check after enabling the port, act immediately.
-            // No grace period — 60 s is already enough time for the command to take effect.
-            if (m_chargingMismatchCount == 1) {
-                qWarning() << "BatteryManager: ALERT - charger commanded ON but DE1 USB port is"
-                           << "not delivering power (battery=" << m_batteryPercent
-                           << "%). DE1 may have gone to sleep. Forcing retry.";
-                m_device->setUsbChargerOn(true, true);
+            // Retry the BLE command every cycle while the mismatch persists.
+            m_device->setUsbChargerOn(true, true);
+
+            if (m_chargingMismatchCount < 5) {
+                // Transient or DE1-initiated — log but don't alert yet.
+                qWarning() << "BatteryManager: charger ON but port not delivering power"
+                           << "(battery=" << m_batteryPercent << "%, cycle"
+                           << m_chargingMismatchCount << "of 5). Retrying.";
+            } else {
+                // 5+ consecutive minutes with no USB power — alert the user.
+                qWarning() << "BatteryManager: ALERT - DE1 USB power mismatch for"
+                           << m_chargingMismatchCount << "min, battery=" << m_batteryPercent << "%";
                 if (!m_chargingMismatch) {
                     m_chargingMismatch = true;
                     emit chargingMismatchDetected();
                 }
-            } else {
-                // Retry is already in flight from the first check. Keep warning each
-                // cycle so the problem is visible in logs while it persists.
-                qWarning() << "BatteryManager: DE1 USB power mismatch ongoing -"
-                           << m_chargingMismatchCount << "min, battery=" << m_batteryPercent << "%";
             }
         } else {
             // Charging is working as expected (or we deliberately have the port off).
             if (m_chargingMismatch) {
-                if (m_chargingMismatchCount > 1) {
-                    qDebug() << "BatteryManager: Charging mismatch resolved after"
-                             << m_chargingMismatchCount << "min — initial BLE command may have failed and been retried";
-                } else {
-                    qDebug() << "BatteryManager: Charging mismatch resolved after"
-                             << m_chargingMismatchCount << "min";
-                }
+                qDebug() << "BatteryManager: Charging mismatch resolved after"
+                         << m_chargingMismatchCount << "min";
                 m_chargingMismatch = false;
                 emit chargingMismatchResolved();
+            } else if (m_chargingMismatchCount > 0) {
+                qDebug() << "BatteryManager: Transient power interruption cleared after"
+                         << m_chargingMismatchCount << "min (no alert shown)";
             }
             m_chargingMismatchCount = 0;
         }
