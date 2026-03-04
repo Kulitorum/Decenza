@@ -427,6 +427,11 @@ void MachineState::onScaleWeightChanged(double weight) {
     if (m_waitingForTare && qAbs(weight) < 1.0) {
         m_waitingForTare = false;
         m_tareCompleted = true;
+        if (m_tareTimeoutTimer) {
+            m_tareTimeoutTimer->stop();
+            delete m_tareTimeoutTimer;
+            m_tareTimeoutTimer = nullptr;
+        }
         emit tareCompleted();
     }
 
@@ -731,7 +736,7 @@ void MachineState::tareScale() {
         // preventing spurious tareCompleted() from stale timers.
         if (m_tareTimeoutTimer) {
             m_tareTimeoutTimer->stop();
-            m_tareTimeoutTimer->deleteLater();
+            delete m_tareTimeoutTimer;
         }
         m_tareTimeoutTimer = new QTimer(this);
         m_tareTimeoutTimer->setSingleShot(true);
