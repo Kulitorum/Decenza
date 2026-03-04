@@ -17,6 +17,10 @@
 #include <QCoreApplication>
 #endif
 
+#ifdef Q_OS_IOS
+#include "iosbrightness.h"
+#endif
+
 // New unified S3 bucket structure
 const QString ScreensaverVideoManager::BASE_URL =
     "https://decent-de1-media.s3.eu-north-1.amazonaws.com";
@@ -148,13 +152,11 @@ void ScreensaverVideoManager::setKeepScreenOn(bool on)
 
 void ScreensaverVideoManager::restoreScreenBrightness()
 {
+    qDebug() << "[Screensaver] Restoring screen brightness to system default";
 #ifdef Q_OS_ANDROID
     QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
         QJniObject activity = QNativeInterface::QAndroidApplication::context();
-        if (!activity.isValid()) {
-//            qWarning() << "[Screensaver] Failed to get Android activity for brightness restore";
-            return;
-        }
+        if (!activity.isValid()) return;
 
         QJniObject window = activity.callObjectMethod(
             "getWindow", "()Landroid/view/Window;");
@@ -162,17 +164,62 @@ void ScreensaverVideoManager::restoreScreenBrightness()
             QJniObject layoutParams = window.callObjectMethod(
                 "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
             if (layoutParams.isValid()) {
-                // Set screen brightness to -1.0f (use system default)
                 layoutParams.setField<jfloat>("screenBrightness", -1.0f);
                 window.callMethod<void>("setAttributes",
                     "(Landroid/view/WindowManager$LayoutParams;)V",
                     layoutParams.object());
-//                qDebug() << "[Screensaver] Screen brightness restored to system default";
             }
         }
     });
+#elif defined(Q_OS_IOS)
+    ios_restoreScreenBrightness();
+#endif
+}
+
+void ScreensaverVideoManager::setScreenDimming(int dimPercent)
+{
+    // Map dim percent to screen brightness:
+    //   0%    → system default (restore)
+    //   1-99% → 1.0 down to ~0.01 (linear)
+    //   100%  → 0.01 (minimum, not off — avoids EGL surface issues)
+    float brightness;
+    if (dimPercent <= 0) {
+        brightness = -1.0f;  // System default (Android), or restore saved (iOS)
+    } else {
+        int clamped = qMin(dimPercent, 99);
+        brightness = 1.0f - (clamped / 100.0f);
+        if (brightness < 0.01f)
+            brightness = 0.01f;
+    }
+
+    qDebug() << "[Screensaver] setScreenDimming: dim=" << dimPercent << "% brightness=" << brightness;
+
+#ifdef Q_OS_ANDROID
+    QNativeInterface::QAndroidApplication::runOnAndroidMainThread([brightness]() {
+        QJniObject activity = QNativeInterface::QAndroidApplication::context();
+        if (!activity.isValid()) return;
+
+        QJniObject window = activity.callObjectMethod(
+            "getWindow", "()Landroid/view/Window;");
+        if (!window.isValid()) return;
+
+        QJniObject layoutParams = window.callObjectMethod(
+            "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
+        if (layoutParams.isValid()) {
+            layoutParams.setField<jfloat>("screenBrightness", brightness);
+            window.callMethod<void>("setAttributes",
+                "(Landroid/view/WindowManager$LayoutParams;)V",
+                layoutParams.object());
+        }
+    });
+#elif defined(Q_OS_IOS)
+    if (brightness < 0) {
+        ios_restoreScreenBrightness();
+    } else {
+        ios_setScreenBrightness(brightness);
+    }
 #else
-//    qDebug() << "[Screensaver] Restore screen brightness not available on this platform";
+    Q_UNUSED(dimPercent)
 #endif
 }
 

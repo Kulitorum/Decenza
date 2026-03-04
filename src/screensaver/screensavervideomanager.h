@@ -213,6 +213,9 @@ public slots:
     // Restore screen brightness (after disabled mode wake)
     void restoreScreenBrightness();
 
+    // Set real screen dimming via Android brightness API (0=no dim, 100=minimum brightness)
+    void setScreenDimming(int dimPercent);
+
     // Category management
     void refreshCategories();
 

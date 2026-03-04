@@ -2332,9 +2332,9 @@ ApplicationWindow {
         }
 
         // Navigate to screensaver page for all modes (including "disabled")
-        // For "disabled" mode, ScreensaverPage keeps the screen on and uses a
-        // full-opacity black overlay to simulate screen-off (avoids EGL surface
-        // loss on Samsung tablets, QTBUG-45019)
+        // For "disabled" mode, ScreensaverPage dims the backlight to minimum
+        // and shows a black overlay. We keep FLAG_KEEP_SCREEN_ON set to avoid
+        // potential EGL surface issues (QTBUG-132085 class of bugs).
         pageStack.replace(null, screensaverPage)
     }
 

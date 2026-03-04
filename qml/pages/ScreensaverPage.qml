@@ -38,13 +38,14 @@ Page {
                     "videos:", isVideosMode, "pipes:", isPipesMode, "flipclock:", isFlipClockMode,
                     "disabled:", isDisabledMode)
         if (isDisabledMode) {
-            // Simulate screen-off with black overlay instead of actually turning
-            // off the screen. Letting Android turn off the display destroys the
-            // EGL surface on Samsung tablets (QTBUG-45019), causing a blank screen
-            // on wake. Keep the screen on and use full-opacity dim overlay instead.
+            // Dim backlight to minimum (1%) and show black overlay.
+            // We keep FLAG_KEEP_SCREEN_ON set to avoid potential EGL surface
+            // destruction on some Android devices (QTBUG-132085 class of issues).
+            console.log("[Screensaver] Disabled mode: dimming backlight to minimum")
             dimBehavior.enabled = false
             dimOverlay.opacity = 1
             dimBehavior.enabled = true
+            ScreensaverManager.setScreenDimming(100)
         }
         if (isVideosMode) {
             playNextMedia()
@@ -56,7 +57,12 @@ Page {
     }
 
     function applyDim() {
+        console.log("[Screensaver] Applying dim:", ScreensaverManager.dimPercent + "% (delay was",
+                    ScreensaverManager.dimDelayMinutes, "min)")
         dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
+        ScreensaverManager.setScreenDimming(ScreensaverManager.dimPercent)
+        // Stop unnecessary animations to save power once dimmed
+        gradientAnimation.running = false
     }
 
     function startDimming() {
@@ -85,10 +91,11 @@ Page {
             }
         }
         function onDimPercentChanged() {
-            if (isDisabledMode) return  // Disabled mode keeps overlay at 100%
+            if (isDisabledMode) return  // Disabled mode keeps brightness at minimum
             if (ScreensaverManager.dimPercent === 0) {
                 dimTimer.stop()
                 dimOverlay.opacity = 0
+                ScreensaverManager.setScreenDimming(0)
             } else if (dimOverlay.opacity > 0) {
                 applyDim()
             } else {
@@ -239,8 +246,9 @@ Page {
 
             onStatusChanged: {
                 if (status === Image.Ready && useFirstImage && source.toString().length > 0) {
-                    // Image loaded, start display timer
-                    imageDisplayTimer.restart()
+                    // Image loaded — only cycle if there are multiple items to show
+                    if (ScreensaverManager.itemCount > 1 || ScreensaverManager.personalMediaCount > 1)
+                        imageDisplayTimer.restart()
                 }
             }
         }
@@ -258,8 +266,8 @@ Page {
 
             onStatusChanged: {
                 if (status === Image.Ready && !useFirstImage && source.toString().length > 0) {
-                    // Image loaded, start display timer
-                    imageDisplayTimer.restart()
+                    if (ScreensaverManager.itemCount > 1 || ScreensaverManager.personalMediaCount > 1)
+                        imageDisplayTimer.restart()
                 }
             }
         }
@@ -327,6 +335,7 @@ Page {
             }
 
             NumberAnimation on gradientHue {
+                id: gradientAnimation
                 from: 0
                 to: 1
                 duration: 30000
@@ -506,13 +515,15 @@ Page {
 
     // Clean up media when page is being removed
     StackView.onRemoved: {
+        console.log("[Screensaver] Waking: restoring brightness and cleaning up")
         mediaPlayer.stop()
         imageDisplayTimer.stop()
         dimTimer.stop()
         dimBehavior.enabled = false
         dimOverlay.opacity = 0
         dimBehavior.enabled = true
-        // Re-enable keep-screen-on when leaving screensaver
+        // Restore screen brightness and keep-screen-on when leaving screensaver
+        ScreensaverManager.restoreScreenBrightness()
         ScreensaverManager.setKeepScreenOn(true)
     }
 

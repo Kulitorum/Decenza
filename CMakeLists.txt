@@ -279,10 +279,11 @@ if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
     )
 endif()
 
-# Native CoreBluetooth transport (iOS and macOS)
+# Native CoreBluetooth transport and iOS brightness helpers
 if(APPLE)
     list(APPEND SOURCES
         src/ble/transport/corebluetooth/corebluetoothscalebletransport.mm
+        src/screensaver/iosbrightness.mm
     )
 endif()
 
@@ -336,6 +337,7 @@ set(HEADERS
     src/controllers/directcontroller.h
     src/controllers/shottimingcontroller.h
     src/screensaver/screensavervideomanager.h
+    src/screensaver/iosbrightness.h
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
     src/network/visualizeruploader.h
