@@ -146,4 +146,8 @@ private:
     // shouldChargerBeOn=true but android=DISCHARGING.
     int  m_chargingMismatchCount = 0;
     bool m_chargingMismatch      = false;  // true while mismatch signal is active
+
+    // Throttle the periodic status log to every 5th cycle (~5 min at 60s intervals).
+    // State-change logs (threshold crossings, mismatch alerts) always print immediately.
+    int m_logCycleCount = 0;
 };

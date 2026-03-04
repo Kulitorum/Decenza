@@ -348,20 +348,6 @@ ApplicationWindow {
     // No timer needed — page transitions are instant (empty Transition{}),
     // so Qt.callLater suffices to let the event loop finish the replace().
 
-    // Periodic timer to keep steam heater on when idle
-    // The DE1 may have an internal timeout that reduces steam heater power after some idle time.
-    // This timer resends the steam settings every 60 seconds to maintain target temperature.
-    Timer {
-        id: steamHeaterTimer
-        interval: 60000  // Every 60 seconds
-        running: Settings.keepSteamHeaterOn && !Settings.steamDisabled &&
-                 DE1Device.connected &&
-                 (MachineState.phase === MachineStateType.Phase.Idle ||
-                  MachineState.phase === MachineStateType.Phase.Ready)
-        repeat: true
-        onTriggered: MainController.applySteamSettings()
-    }
-
     // Track if we were just steaming (for auto-flush timer)
     property bool wasSteaming: false
 

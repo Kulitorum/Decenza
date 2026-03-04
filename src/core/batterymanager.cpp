@@ -317,12 +317,17 @@ void BatteryManager::applySmartCharging() {
     case 4: androidPlugged = "WIRELESS";  break;
     }
 
-    qDebug() << "BatteryManager: battery=" << m_batteryPercent
-             << "% mode=" << modeName
-             << "charger=" << (shouldChargerBeOn ? "ON" : "OFF")
-             << "discharging=" << m_discharging
-             << "android=" << androidStatus
-             << "plugged=" << androidPlugged;
+    // Log every 5th cycle (~5 min) to reduce noise. State-change logs above
+    // (threshold crossings, mismatch alerts) always print immediately.
+    if (++m_logCycleCount >= 5) {
+        m_logCycleCount = 0;
+        qDebug() << "BatteryManager: battery=" << m_batteryPercent
+                 << "% mode=" << modeName
+                 << "charger=" << (shouldChargerBeOn ? "ON" : "OFF")
+                 << "discharging=" << m_discharging
+                 << "android=" << androidStatus
+                 << "plugged=" << androidPlugged;
+    }
 
     // ── Step 3: send the command to the DE1 ──────────────────────────────────
     //
