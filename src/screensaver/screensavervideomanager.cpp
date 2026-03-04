@@ -165,16 +165,22 @@ void ScreensaverVideoManager::restoreScreenBrightness()
 
         QJniObject window = activity.callObjectMethod(
             "getWindow", "()Landroid/view/Window;");
-        if (window.isValid()) {
-            QJniObject layoutParams = window.callObjectMethod(
-                "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
-            if (layoutParams.isValid()) {
-                layoutParams.setField<jfloat>("screenBrightness", -1.0f);
-                window.callMethod<void>("setAttributes",
-                    "(Landroid/view/WindowManager$LayoutParams;)V",
-                    layoutParams.object());
-            }
+        if (!window.isValid()) {
+            qWarning() << "[Screensaver] restoreScreenBrightness: window not valid";
+            return;
         }
+
+        QJniObject layoutParams = window.callObjectMethod(
+            "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
+        if (!layoutParams.isValid()) {
+            qWarning() << "[Screensaver] restoreScreenBrightness: layoutParams not valid";
+            return;
+        }
+
+        layoutParams.setField<jfloat>("screenBrightness", -1.0f);
+        window.callMethod<void>("setAttributes",
+            "(Landroid/view/WindowManager$LayoutParams;)V",
+            layoutParams.object());
 
         QJniEnvironment env;
         if (env.checkAndClearExceptions()) {
@@ -221,12 +227,15 @@ void ScreensaverVideoManager::setScreenDimming(int dimPercent)
 
         QJniObject layoutParams = window.callObjectMethod(
             "getAttributes", "()Landroid/view/WindowManager$LayoutParams;");
-        if (layoutParams.isValid()) {
-            layoutParams.setField<jfloat>("screenBrightness", brightness);
-            window.callMethod<void>("setAttributes",
-                "(Landroid/view/WindowManager$LayoutParams;)V",
-                layoutParams.object());
+        if (!layoutParams.isValid()) {
+            qWarning() << "[Screensaver] setScreenDimming: layoutParams not valid";
+            return;
         }
+
+        layoutParams.setField<jfloat>("screenBrightness", brightness);
+        window.callMethod<void>("setAttributes",
+            "(Landroid/view/WindowManager$LayoutParams;)V",
+            layoutParams.object());
 
         QJniEnvironment env;
         if (env.checkAndClearExceptions()) {

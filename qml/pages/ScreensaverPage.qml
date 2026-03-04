@@ -40,7 +40,7 @@ Page {
         if (isDisabledMode) {
             // Dim backlight to minimum (1%) and show black overlay.
             // We keep FLAG_KEEP_SCREEN_ON set to avoid potential EGL surface
-            // destruction on some Android devices (QTBUG-132085 class of issues).
+            // destruction on some Android devices (QTBUG-45019 class of issues).
             console.log("[Screensaver] Disabled mode: dimming backlight to minimum")
             dimBehavior.enabled = false
             dimOverlay.opacity = 1

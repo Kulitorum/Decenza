@@ -49,8 +49,9 @@ void ios_checkAndRestoreBrightness()
         qDebug() << "[Screensaver] iOS: recovering brightness after crash:" << brightness;
         dispatch_async(dispatch_get_main_queue(), ^{
             [UIScreen mainScreen].brightness = brightness;
+            // Clear persisted key only after brightness is actually restored
+            [[NSUserDefaults standardUserDefaults] removeObjectForKey:kSavedBrightnessKey];
         });
-        [[NSUserDefaults standardUserDefaults] removeObjectForKey:kSavedBrightnessKey];
     }
 }
 
