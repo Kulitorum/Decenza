@@ -149,6 +149,13 @@ gh release edit vX.Y.Z --draft=false --prerelease
 ```
 **Note:** Do NOT delete the GitHub Release — only the tag. The release persists and CI will upload new artifacts to it. Draft releases are invisible to users and the auto-update system, so the `--draft=false` step is mandatory.
 
+### Promoting a pre-release to stable
+When promoting a pre-release to a full release, you must also set it as "latest" — GitHub does not do this automatically:
+```bash
+gh release edit vX.Y.Z --prerelease=false --latest
+```
+Without `--latest`, the previous stable release remains the "latest" and the auto-update system won't see the new version.
+
 ### Updating Release Notes
 ```bash
 gh release edit vX.Y.Z --notes "$(cat <<'EOF'
