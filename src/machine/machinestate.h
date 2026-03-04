@@ -153,6 +153,7 @@ private:
     bool m_stopAtTimeTriggered = false;
     bool m_tareCompleted = false;
     bool m_waitingForTare = false;  // True after tare sent, waiting for scale to report ~0g
+    QTimer* m_tareTimeoutTimer = nullptr;
 
     // Cached flow rates from WeightProcessor (updated via signal from worker thread)
     double m_cachedFlowRate = 0.0;
