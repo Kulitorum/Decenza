@@ -665,7 +665,7 @@ QString ShotServer::generateSettingsPage() const
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('visualizerStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
-            } catch (e) { showSectionStatus('visualizerStatus', 'Network error', true); }
+            } catch (e) { showSectionStatus('visualizerStatus', e.message || 'Network error', true); }
             btn.disabled = false; btn.textContent = 'Save';
         }
 
@@ -684,7 +684,7 @@ QString ShotServer::generateSettingsPage() const
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('visualizerStatus', r.message, !r.success);
-            } catch (e) { showSectionStatus('visualizerStatus', 'Network error', true); }
+            } catch (e) { showSectionStatus('visualizerStatus', e.message || 'Network error', true); }
             btn.disabled = false; btn.textContent = 'Test Connection';
         }
 
@@ -710,7 +710,7 @@ QString ShotServer::generateSettingsPage() const
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('aiStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
-            } catch (e) { showSectionStatus('aiStatus', 'Network error', true); }
+            } catch (e) { showSectionStatus('aiStatus', e.message || 'Network error', true); }
             btn.disabled = false; btn.textContent = 'Save';
         }
 
@@ -735,7 +735,7 @@ QString ShotServer::generateSettingsPage() const
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('aiStatus', r.message, !r.success);
-            } catch (e) { showSectionStatus('aiStatus', 'Network error', true); }
+            } catch (e) { showSectionStatus('aiStatus', e.message || 'Network error', true); }
             btn.disabled = false; btn.textContent = 'Test Connection';
         }
 )HTML" R"HTML(
@@ -763,7 +763,7 @@ QString ShotServer::generateSettingsPage() const
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('mqttStatusText', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
-            } catch (e) { showSectionStatus('mqttStatusText', 'Network error', true); }
+            } catch (e) { showSectionStatus('mqttStatusText', e.message || 'Network error', true); }
             btn.disabled = false; btn.textContent = 'Save';
         }
 
@@ -804,7 +804,7 @@ QString ShotServer::generateSettingsPage() const
                         r.message || (wasConnect ? 'Connection failed' : 'Disconnect failed'));
                 }
             } catch (e) {
-                updateMqttStatusUI(false, 'Network error');
+                updateMqttStatusUI(false, e.message || 'Network error');
             }
             btn.disabled = false;
             pollMqttStatus();
@@ -819,7 +819,7 @@ QString ShotServer::generateSettingsPage() const
                 const r = await resp.json();
                 btn.textContent = r.success ? 'Published!' : 'Failed';
                 setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000);
-            } catch (e) { btn.textContent = 'Failed'; setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000); }
+            } catch (e) { btn.textContent = e.message || 'Failed'; setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000); }
             btn.disabled = false;
         }
 

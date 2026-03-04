@@ -222,6 +222,10 @@ public:
     // Update shot metadata (for editing existing shots)
     Q_INVOKABLE bool updateShotMetadata(qint64 shotId, const QVariantMap& metadata);
 
+    // Thread-safe metadata update: caller provides their own connection.
+    // Safe to call from any thread (does not use m_db). Returns true on success.
+    static bool updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata);
+
     // Async version: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
 
