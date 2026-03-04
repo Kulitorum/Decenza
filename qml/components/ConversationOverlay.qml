@@ -27,6 +27,7 @@ Rectangle {
     property string overlayTitle: TranslationManager.translate("conversation.title", "AI Conversation")
     property bool isMistakeShot: false
     property string historicalContext: ""
+    property bool contextLoading: false
     property string shotDebugLog: ""
     // Saved context for re-fetching shot history after conversation clear
     property string savedBeanBrand: ""
@@ -80,6 +81,7 @@ Rectangle {
         overlay.savedBeanType = beanType || ""
         overlay.savedProfileName = profileName || ""
         overlay.historicalContext = ""
+        overlay.contextLoading = true
         MainController.aiManager.requestRecentShotContext(
             overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, shotId)
 
@@ -112,6 +114,7 @@ Rectangle {
         target: MainController.aiManager
         function onRecentShotContextReady(context) {
             overlay.historicalContext = context
+            overlay.contextLoading = false
         }
     }
 
@@ -217,6 +220,7 @@ Rectangle {
                                     // Re-fetch historical context on background thread
                                     if (overlay.shotId > 0) {
                                         overlay.historicalContext = ""
+                                        overlay.contextLoading = true
                                         MainController.aiManager.requestRecentShotContext(
                                             overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, overlay.shotId)
                                     }
@@ -408,7 +412,8 @@ Rectangle {
                                      ? TranslationManager.translate("conversation.placeholder.withshot", "Ask about this shot...")
                                      : TranslationManager.translate("conversation.placeholder", "Ask a follow-up question...")
                         enabled: MainController.aiManager && MainController.aiManager.conversation &&
-                                 !MainController.aiManager.conversation.busy
+                                 !MainController.aiManager.conversation.busy &&
+                                 !overlay.contextLoading
 
                         Keys.onReturnPressed: sendFollowUp()
                         Keys.onEnterPressed: sendFollowUp()
@@ -479,7 +484,8 @@ Rectangle {
                             anchors.fill: parent
                             enabled: conversationInput.text.length > 0 &&
                                      MainController.aiManager && MainController.aiManager.conversation &&
-                                     !MainController.aiManager.conversation.busy
+                                     !MainController.aiManager.conversation.busy &&
+                                     !overlay.contextLoading
                             onClicked: conversationInput.sendFollowUp()
                         }
                     }

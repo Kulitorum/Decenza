@@ -1081,6 +1081,9 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
     const QString dbPath = m_shotHistory->databasePath();
     QPointer<MainController> self(this);
 
+    // NOTE: QPointer `self` is only dereferenced inside the QueuedConnection callback,
+    // which runs on the main thread. The background thread captures it by value but
+    // never dereferences it directly.
     QThread* thread = QThread::create([self, dbPath, shotId]() {
         const QString connName = QString("load_meta_%1")
             .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
@@ -1092,7 +1095,7 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
             if (db.open())
                 record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
             else
-                qWarning() << "loadShotWithMetadata: Failed to open DB";
+                qWarning() << "loadShotWithMetadata: Failed to open DB:" << db.lastError().text();
         }
         QSqlDatabase::removeDatabase(connName);
 
@@ -1108,7 +1111,8 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
 
 void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord) {
     if (shotRecord.summary.id <= 0) {
-        qWarning() << "loadShotWithMetadata: Shot not found with id:" << shotId;
+        qWarning() << "applyLoadedShotMetadata: Shot not found or DB open failed for id:" << shotId;
+        emit shotMetadataLoaded(shotId, false);
         return;
     }
 
@@ -1181,6 +1185,8 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
             uploadCurrentProfile();
         }
     }
+
+    emit shotMetadataLoaded(shotId, true);
 }
 
 void MainController::refreshProfiles() {

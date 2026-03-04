@@ -264,6 +264,9 @@ signals:
     // Shot aborted because saved scale is not connected
     void shotAbortedNoScale();
 
+    // Shot metadata loaded from history (for async loadShotWithMetadata)
+    void shotMetadataLoaded(qint64 shotId, bool success);
+
     // Auto-wake: emitted when scheduled wake time is reached
     void autoWakeTriggered();
 

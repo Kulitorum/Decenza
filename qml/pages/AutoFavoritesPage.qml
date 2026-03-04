@@ -9,6 +9,18 @@ Page {
     objectName: "autoFavoritesPage"
     background: Rectangle { color: Theme.backgroundColor }
 
+    property bool _waitingForShotLoad: false
+
+    // Wait for async loadShotWithMetadata to complete before popping
+    Connections {
+        target: MainController
+        enabled: autoFavoritesPage._waitingForShotLoad
+        function onShotMetadataLoaded(shotId, success) {
+            autoFavoritesPage._waitingForShotLoad = false
+            pageStack.pop()
+        }
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("autofavorites.title", "Auto-Favorites")
         loadFavorites()
@@ -387,10 +399,10 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: loadButton
                             onAccessibleClicked: {
-                                MainController.loadShotWithMetadata(model.shotId)
                                 if (Settings.autoFavoritesOpenBrewSettings)
                                     root.pendingBrewDialog = true
-                                pageStack.pop()
+                                autoFavoritesPage._waitingForShotLoad = true
+                                MainController.loadShotWithMetadata(model.shotId)
                             }
                         }
                     }

@@ -27,6 +27,17 @@ Page {
     property bool hasMoreShots: true
     property bool isLoadingMore: false
     property int filteredTotalCount: 0
+    property bool _waitingForShotLoad: false
+
+    // Wait for async loadShotWithMetadata to complete before popping
+    Connections {
+        target: MainController
+        enabled: shotHistoryPage._waitingForShotLoad
+        function onShotMetadataLoaded(shotId, success) {
+            shotHistoryPage._waitingForShotLoad = false
+            pageStack.pop()
+        }
+    }
 
     // External filter passed from other pages (e.g., AutoFavoritesPage "Show" button)
     property var initialFilter: null
@@ -712,8 +723,8 @@ Page {
                             id: loadArea
                             anchors.fill: parent
                             onClicked: {
+                                shotHistoryPage._waitingForShotLoad = true
                                 MainController.loadShotWithMetadata(model.id)
-                                pageStack.pop()
                             }
                         }
                     }

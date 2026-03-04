@@ -312,6 +312,114 @@ void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
     m_shotHistory = storage;
 }
 
+// File-scope helper: runs on background thread, returns (timestamp, fullShot) pairs.
+// Extracted from requestRecentShotContext to reduce lambda nesting.
+static QList<QPair<qint64, QVariantMap>> loadQualifiedShots(
+    const QString& dbPath, const QString& connName,
+    const QString& beanBrand, const QString& beanType,
+    const QString& profileName, int excludeShotId)
+{
+    QList<QPair<qint64, QVariantMap>> qualifiedShots;
+
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+        db.setDatabaseName(dbPath);
+        if (!db.open()) {
+            qWarning() << "AIManager::requestRecentShotContext: Failed to open DB:" << db.lastError().text();
+            // Fall through with empty qualifiedShots; signal will emit empty context
+        } else {
+            // 1. Look up the current shot's timestamp
+            qint64 shotTimestamp = 0;
+            {
+                QSqlQuery q(db);
+                q.prepare("SELECT timestamp FROM shots WHERE id = ?");
+                q.bindValue(0, static_cast<qint64>(excludeShotId));
+                if (!q.exec()) {
+                    qWarning() << "AIManager::requestRecentShotContext: timestamp query failed:" << q.lastError().text();
+                } else if (q.next()) {
+                    shotTimestamp = q.value(0).toLongLong();
+                } else {
+                    qDebug() << "AIManager::requestRecentShotContext: no shot found for excludeShotId=" << excludeShotId;
+                }
+            }
+
+            if (shotTimestamp > 0) {
+                // 2. Query candidates: same bean/profile, up to 3 weeks before this shot
+                qint64 dateFrom = shotTimestamp - 21 * 24 * 3600;
+                QStringList conditions;
+                QVariantList bindValues;
+                if (!beanBrand.isEmpty()) { conditions << "bean_brand = ?"; bindValues << beanBrand; }
+                if (!beanType.isEmpty()) { conditions << "bean_type = ?"; bindValues << beanType; }
+                if (!profileName.isEmpty()) { conditions << "profile_name = ?"; bindValues << profileName; }
+                conditions << "timestamp >= ?" << "timestamp <= ?";
+                bindValues << dateFrom << shotTimestamp;
+
+                QString sql = "SELECT id, timestamp, profile_name, duration_seconds, final_weight "
+                              "FROM shots WHERE " + conditions.join(" AND ") +
+                              " ORDER BY timestamp DESC LIMIT 6";
+
+                QSqlQuery q(db);
+                q.prepare(sql);
+                for (int i = 0; i < bindValues.size(); ++i)
+                    q.bindValue(i, bindValues[i]);
+
+                struct Candidate { qint64 id; qint64 timestamp; QString profileName; double duration; double finalWeight; };
+                QList<Candidate> candidates;
+                if (q.exec()) {
+                    while (q.next()) {
+                        candidates.append({q.value(0).toLongLong(), q.value(1).toLongLong(),
+                                           q.value(2).toString(), q.value(3).toDouble(), q.value(4).toDouble()});
+                    }
+                } else {
+                    qWarning() << "AIManager::requestRecentShotContext: candidate query failed:" << q.lastError().text();
+                }
+
+                qDebug() << "AIManager::requestRecentShotContext: excludeShotId=" << excludeShotId
+                         << "shotTimestamp=" << QDateTime::fromSecsSinceEpoch(shotTimestamp).toString("yyyy-MM-dd HH:mm")
+                         << "filter: bean=" << beanBrand << beanType << "profile=" << profileName
+                         << "candidates=" << candidates.size();
+
+                // 3. Filter and load full records for up to 3 qualifying shots
+                int included = 0;
+                for (const auto& c : candidates) {
+                    if (included >= 3) break;
+
+                    if (c.id == excludeShotId) {
+                        qDebug() << "  Shot id=" << c.id << "-> SKIPPED (current shot)";
+                        continue;
+                    }
+
+                    // Lightweight mistake check (duration < 10s or weight < 5g)
+                    if (c.duration < 10.0 || c.finalWeight < 5.0) {
+                        qDebug() << "  Shot id=" << c.id << "-> SKIPPED (mistake)";
+                        continue;
+                    }
+
+                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, c.id);
+                    QVariantMap fullShot = ShotHistoryStorage::convertShotRecord(record);
+                    if (fullShot.isEmpty()) {
+                        qWarning() << "  Shot id=" << c.id << "-> SKIPPED (convertShotRecord returned empty)";
+                        continue;
+                    }
+
+                    // Check targetWeight-based mistake filter (needs full record)
+                    double targetWeight = fullShot.value("targetWeight", 0.0).toDouble();
+                    if (targetWeight > 0.0 && c.finalWeight < targetWeight / 3.0) {
+                        qDebug() << "  Shot id=" << c.id << "-> SKIPPED (mistake, weight < 1/3 target)";
+                        continue;
+                    }
+
+                    qDebug() << "  Shot id=" << c.id << "-> INCLUDED";
+                    qualifiedShots.append({c.timestamp, std::move(fullShot)});
+                    ++included;
+                }
+            }
+        }
+    }
+    QSqlDatabase::removeDatabase(connName);
+    return qualifiedShots;
+}
+
 void AIManager::requestRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId)
 {
     if (!m_shotHistory || (beanBrand.isEmpty() && profileName.isEmpty())) {
@@ -324,127 +432,14 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     ++m_contextSerial;
     int serial = m_contextSerial;
 
+    // NOTE: QPointer `self` is only dereferenced inside the QueuedConnection callback,
+    // which runs on the main thread. The background thread captures it by value but
+    // never dereferences it directly.
     QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
         const QString connName = QString("ai_context_%1")
             .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
-        // Collect qualifying shots on background thread; summarization runs on main thread
-        // (ShotSummarizer is owned by AIManager and must not be accessed from background thread)
-        QList<QPair<qint64, QVariantMap>> qualifiedShots;  // timestamp, fullShot
-
-        {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
-            db.setDatabaseName(dbPath);
-            if (!db.open()) {
-                qWarning() << "AIManager::requestRecentShotContext: Failed to open DB";
-                // db goes out of scope at block end, then removeDatabase is safe
-            } else {
-                // 1. Look up the current shot's timestamp
-                qint64 shotTimestamp = 0;
-                {
-                    QSqlQuery q(db);
-                    q.prepare("SELECT timestamp FROM shots WHERE id = ?");
-                    q.bindValue(0, static_cast<qint64>(excludeShotId));
-                    if (q.exec() && q.next())
-                        shotTimestamp = q.value(0).toLongLong();
-                }
-
-                if (shotTimestamp > 0) {
-                    // 2. Query candidates: same bean/profile, up to 3 weeks before this shot
-                    qint64 dateFrom = shotTimestamp - 21 * 24 * 3600;
-                    QStringList conditions;
-                    QVariantList bindValues;
-                    if (!beanBrand.isEmpty()) {
-                        conditions << "bean_brand = ?";
-                        bindValues << beanBrand;
-                    }
-                    if (!beanType.isEmpty()) {
-                        conditions << "bean_type = ?";
-                        bindValues << beanType;
-                    }
-                    if (!profileName.isEmpty()) {
-                        conditions << "profile_name = ?";
-                        bindValues << profileName;
-                    }
-                    conditions << "timestamp >= ?" << "timestamp <= ?";
-                    bindValues << dateFrom << shotTimestamp;
-
-                    QString sql = "SELECT id, timestamp, profile_name, duration_seconds, final_weight, dose_weight "
-                                  "FROM shots WHERE " + conditions.join(" AND ") +
-                                  " ORDER BY timestamp DESC LIMIT 6";
-
-                    QSqlQuery q(db);
-                    q.prepare(sql);
-                    for (int i = 0; i < bindValues.size(); ++i)
-                        q.bindValue(i, bindValues[i]);
-
-                    struct Candidate {
-                        qint64 id;
-                        qint64 timestamp;
-                        QString profileName;
-                        double duration;
-                        double finalWeight;
-                        double doseWeight;
-                    };
-                    QList<Candidate> candidates;
-                    if (q.exec()) {
-                        while (q.next()) {
-                            candidates.append({
-                                q.value(0).toLongLong(),
-                                q.value(1).toLongLong(),
-                                q.value(2).toString(),
-                                q.value(3).toDouble(),
-                                q.value(4).toDouble(),
-                                q.value(5).toDouble()
-                            });
-                        }
-                    } else {
-                        qWarning() << "AIManager::requestRecentShotContext: candidate query failed:" << q.lastError().text();
-                    }
-
-                    qDebug() << "AIManager::requestRecentShotContext: excludeShotId=" << excludeShotId
-                             << "shotTimestamp=" << QDateTime::fromSecsSinceEpoch(shotTimestamp).toString("yyyy-MM-dd HH:mm")
-                             << "filter: bean=" << beanBrand << beanType << "profile=" << profileName
-                             << "candidates=" << candidates.size();
-
-                    // 3. Filter and load full records for up to 3 qualifying shots
-                    int included = 0;
-                    for (const auto& c : candidates) {
-                        if (included >= 3) break;
-
-                        QString shotDate = QDateTime::fromSecsSinceEpoch(c.timestamp).toString("yyyy-MM-dd HH:mm");
-
-                        if (c.id == excludeShotId) {
-                            qDebug() << "  Shot id=" << c.id << "date=" << shotDate << "profile=" << c.profileName << "-> SKIPPED (current shot)";
-                            continue;
-                        }
-
-                        // Inline isMistakeShot check (duration < 10s or weight < 5g)
-                        if (c.duration < 10.0 || c.finalWeight < 5.0) {
-                            qDebug() << "  Shot id=" << c.id << "date=" << shotDate << "profile=" << c.profileName << "-> SKIPPED (mistake)";
-                            continue;
-                        }
-
-                        qDebug() << "  Shot id=" << c.id << "date=" << shotDate << "profile=" << c.profileName << "-> INCLUDED";
-
-                        ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, c.id);
-                        QVariantMap fullShot = ShotHistoryStorage::convertShotRecord(record);
-                        if (fullShot.isEmpty()) continue;
-
-                        // Check targetWeight-based mistake filter (needs full record)
-                        double targetWeight = fullShot.value("targetWeight", 0.0).toDouble();
-                        if (targetWeight > 0.0 && c.finalWeight < targetWeight / 3.0) {
-                            qDebug() << "  Shot id=" << c.id << "date=" << shotDate << "-> SKIPPED (mistake, weight < 1/3 target)";
-                            continue;
-                        }
-
-                        qualifiedShots.append({c.timestamp, std::move(fullShot)});
-                        ++included;
-                    }
-                }
-            }
-        }
-        QSqlDatabase::removeDatabase(connName);
+        auto qualifiedShots = loadQualifiedShots(dbPath, connName, beanBrand, beanType, profileName, excludeShotId);
 
         // Summarization runs on main thread (ShotSummarizer is owned by AIManager)
         QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots)]() {
