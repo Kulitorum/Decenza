@@ -26,6 +26,7 @@
 #include <QTextStream>
 #include <QThread>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QPointer>
 #include <tuple>
 #include <QDateTime>
