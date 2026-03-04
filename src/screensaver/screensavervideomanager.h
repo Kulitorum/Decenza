@@ -122,6 +122,9 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(bool pipesShowClock READ pipesShowClock WRITE setPipesShowClock NOTIFY pipesShowClockChanged)
     Q_PROPERTY(bool attractorShowClock READ attractorShowClock WRITE setAttractorShowClock NOTIFY attractorShowClockChanged)
 
+    // Hardware video decoder availability (false when only emulator/software decoders found)
+    Q_PROPERTY(bool hasHardwareVideoDecoder READ hasHardwareVideoDecoder CONSTANT)
+
     // Rate limiting (after cache clear)
     Q_PROPERTY(bool isRateLimited READ isRateLimited NOTIFY rateLimitedChanged)
     Q_PROPERTY(int rateLimitMinutesRemaining READ rateLimitMinutesRemaining NOTIFY rateLimitedChanged)
@@ -179,6 +182,9 @@ public:
     QString shotMapTexture() const { return m_shotMapTexture; }
     bool shotMapShowClock() const { return m_shotMapShowClock; }
     bool shotMapShowProfiles() const { return m_shotMapShowProfiles; }
+
+    // Hardware video decoder detection
+    bool hasHardwareVideoDecoder() const;
 
     // Rate limiting
     bool isRateLimited() const;

@@ -1065,6 +1065,77 @@ void ScreensaverVideoManager::clearCacheWithRateLimit()
     }
 }
 
+bool ScreensaverVideoManager::hasHardwareVideoDecoder() const
+{
+#ifdef Q_OS_ANDROID
+    QJniEnvironment env;
+
+    // Get MediaCodecList with ALL_CODECS
+    QJniObject codecList("android/media/MediaCodecList", "(I)V", 1); // ALL_CODECS = 1
+    if (!codecList.isValid()) {
+        qWarning() << "[Screensaver] Failed to create MediaCodecList";
+        return true; // Assume available if we can't check
+    }
+
+    QJniObject codecInfos = codecList.callObjectMethod(
+        "getCodecInfos", "()[Landroid/media/MediaCodecInfo;");
+    if (!codecInfos.isValid()) {
+        qWarning() << "[Screensaver] Failed to get codec infos";
+        return true;
+    }
+
+    auto infosArray = codecInfos.object<jobjectArray>();
+    jsize count = env->GetArrayLength(infosArray);
+
+    for (jsize i = 0; i < count; i++) {
+        QJniObject info = QJniObject::fromLocalRef(env->GetObjectArrayElement(infosArray, i));
+        if (!info.isValid()) continue;
+
+        // Skip encoders, we only care about decoders
+        if (info.callMethod<jboolean>("isEncoder")) continue;
+
+        QJniObject nameObj = info.callObjectMethod("getName", "()Ljava/lang/String;");
+        if (!nameObj.isValid()) continue;
+        QString name = nameObj.toString();
+
+        // Check if this decoder handles video/avc (H.264)
+        QJniObject types = info.callObjectMethod(
+            "getSupportedTypes", "()[Ljava/lang/String;");
+        if (!types.isValid()) continue;
+
+        auto typesArray = types.object<jobjectArray>();
+        jsize typeCount = env->GetArrayLength(typesArray);
+        bool handlesH264 = false;
+        for (jsize j = 0; j < typeCount; j++) {
+            QJniObject typeStr = QJniObject::fromLocalRef(env->GetObjectArrayElement(typesArray, j));
+            if (typeStr.isValid() && typeStr.toString().contains("avc", Qt::CaseInsensitive)) {
+                handlesH264 = true;
+                break;
+            }
+        }
+        if (!handlesH264) continue;
+
+        // isHardwareAccelerated() is unreliable — c2.goldfish.* (emulator) reports true.
+        // Filter by name: skip known software/emulator decoders.
+        bool isSoftware = name.startsWith("c2.goldfish.") ||
+                          name.startsWith("c2.android.") ||
+                          name.startsWith("OMX.google.");
+        qDebug() << "[Screensaver] H.264 decoder:" << name
+                 << "hwAccel:" << info.callMethod<jboolean>("isHardwareAccelerated")
+                 << "software:" << isSoftware;
+        if (!isSoftware) {
+            return true;
+        }
+    }
+
+    // No hardware H.264 decoder found — software-only (e.g. emulator)
+    qWarning() << "[Screensaver] No hardware H.264 decoder found — video playback disabled";
+    return false;
+#else
+    return true; // Desktop/iOS always have hardware decoders
+#endif
+}
+
 bool ScreensaverVideoManager::isRateLimited() const
 {
     if (!m_rateLimitedUntil.isValid()) {

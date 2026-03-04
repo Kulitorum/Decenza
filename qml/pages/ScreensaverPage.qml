@@ -32,6 +32,8 @@ Page {
     property string lastFailedSource: ""
     property string currentImageSource: ""
     property bool useFirstImage: true  // Toggle for cross-fade between two images
+    // No hardware video decoder (e.g. Android emulator) — skip all videos
+    property bool videoDecoderBroken: !ScreensaverManager.hasHardwareVideoDecoder
 
     Component.onCompleted: {
         console.log("[ScreensaverPage] Loaded, type:", screensaverType,
@@ -111,6 +113,8 @@ Page {
         }
     }
 
+    property int videoSkipCount: 0  // Guard against deep recursion when skipping broken videos
+
     function playNextMedia() {
         if (!ScreensaverManager.enabled) {
             return
@@ -124,6 +128,7 @@ Page {
                 // Display image with cross-fade transition
                 mediaPlayer.stop()
                 mediaPlaying = true
+                videoSkipCount = 0
 
                 // Load into the inactive image, then cross-fade
                 if (useFirstImage) {
@@ -133,6 +138,21 @@ Page {
                 }
                 currentImageSource = source
                 // Cross-fade will be triggered when image loads (onStatusChanged)
+            } else if (videoDecoderBroken) {
+                // No hardware decoder — skip videos, try next item (might be an image)
+                videoSkipCount++
+                if (videoSkipCount > ScreensaverManager.itemCount + 5) {
+                    // All catalog items are videos — no playable content, auto-wake
+                    console.warn("[Screensaver] No playable content (no hardware decoder) — auto-waking")
+                    videoSkipCount = 0
+                    mediaPlaying = false
+                    isCurrentItemImage = false
+                    wake()
+                    return
+                }
+                ScreensaverManager.markVideoPlayed(source)
+                playNextMedia()
+                return
             } else {
                 // Play video - reset image state
                 imageDisplayTimer.stop()
@@ -141,12 +161,17 @@ Page {
                 imageDisplay1.source = ""
                 imageDisplay2.source = ""
                 mediaPlaying = true
+                videoSkipCount = 0
                 mediaPlayer.source = source
                 mediaPlayer.play()
             }
         } else {
             mediaPlaying = false
             isCurrentItemImage = false
+            if (videoDecoderBroken) {
+                console.warn("[Screensaver] No content available (no hardware decoder) — auto-waking")
+                wake()
+            }
         }
     }
 
@@ -492,6 +517,10 @@ Page {
     Keys.onPressed: wake()
 
     function wake() {
+        mediaPlayer.stop()
+        mediaPlayer.source = ""
+        mediaPlaying = false
+
         // Wake up the DE1, or try to reconnect if disconnected
         if (DE1Device.connected) {
             DE1Device.wakeUp()
@@ -517,6 +546,8 @@ Page {
     StackView.onRemoved: {
         console.log("[Screensaver] Waking: restoring brightness and cleaning up")
         mediaPlayer.stop()
+        mediaPlayer.source = ""
+        mediaPlaying = false
         imageDisplayTimer.stop()
         dimTimer.stop()
         dimBehavior.enabled = false
