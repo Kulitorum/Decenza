@@ -1209,15 +1209,22 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
         QBuffer zipBuffer;
         zipBuffer.open(QIODevice::WriteOnly);
+        bool zipOk = false;
         {
             QZipWriter writer(&zipBuffer);
             writer.setCompressionPolicy(QZipWriter::AlwaysCompress);
             writer.addFile("debug.log", log.toUtf8());
+            zipOk = (writer.status() == QZipWriter::NoError);
             writer.close();
         }
 
-        sendResponse(socket, 200, "application/zip", zipBuffer.data(),
-                     "Content-Disposition: attachment; filename=\"debug.zip\"\r\n");
+        if (zipOk) {
+            sendResponse(socket, 200, "application/zip", zipBuffer.data(),
+                         "Content-Disposition: attachment; filename=\"debug.zip\"\r\n");
+        } else {
+            qWarning() << "ShotServer: QZipWriter failed to create debug ZIP";
+            sendResponse(socket, 500, "text/plain", "Failed to create ZIP file");
+        }
     }
     else if (path == "/api/power" || path == "/api/power/status") {
         // Return current power state
