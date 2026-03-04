@@ -16,6 +16,7 @@ static void storeDE1AddressForShutdown(const QString& address) {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
+        qWarning() << "[BLE DE1] storeDE1AddressForShutdown: Android context is invalid";
         return;
     }
 
@@ -34,6 +35,7 @@ static void clearDE1AddressForShutdown() {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
+        qWarning() << "[BLE DE1] clearDE1AddressForShutdown: Android context is invalid";
         return;
     }
 
@@ -51,6 +53,7 @@ static void startBleConnectionService() {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
+        qWarning() << "[BLE DE1] startBleConnectionService: Android context is invalid";
         return;
     }
 
@@ -68,6 +71,7 @@ static void stopBleConnectionService() {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
+        qWarning() << "[BLE DE1] stopBleConnectionService: Android context is invalid";
         return;
     }
 
@@ -94,12 +98,17 @@ BleTransport::BleTransport(QObject* parent)
             m_writePending = false;
             if (m_lastCommand && m_writeRetryCount < MAX_WRITE_RETRIES) {
                 m_writeRetryCount++;
+                log(QString("Write timeout, retrying %1/%2 (uuid=%3)")
+                    .arg(m_writeRetryCount).arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
                 QTimer::singleShot(100, this, [this]() {
                     if (m_lastCommand) {
                         m_lastCommand();
                     }
                 });
             } else {
+                log(QString("Write FAILED after %1 retries (uuid=%2, %3 bytes)")
+                    .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid).arg(m_lastWriteData.size()));
+                emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
                 m_lastCommand = nullptr;
                 m_writeRetryCount = 0;
                 processCommandQueue();  // Move on to next command
@@ -120,6 +129,7 @@ BleTransport::BleTransport(QObject* parent)
                 m_controller = nullptr;
             }
             if (!setupController(m_pendingDevice)) {
+                log("Retry abandoned - failed to create BLE controller");
                 m_pendingDevice = QBluetoothDeviceInfo();
                 return;
             }
@@ -164,6 +174,9 @@ void BleTransport::subscribe(const QBluetoothUuid& uuid) {
         QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
     if (notification.isValid()) {
         m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
+    } else {
+        log(QString("subscribe(%1) FAILED - CCCD descriptor not found")
+            .arg(uuid.toString().mid(1, 8)));
     }
 }
 
@@ -261,9 +274,11 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
 
     log(QString("Connecting to DE1 at %1").arg(deviceId));
 
-    if (!setupController(device)) return;
+    if (!setupController(device)) {
+        m_pendingDevice = QBluetoothDeviceInfo();
+        return;
+    }
 
-    log("Calling connectToDevice on controller...");
     m_controller->connectToDevice();
 }
 
@@ -275,11 +290,12 @@ void BleTransport::onControllerConnected() {
     // Request a shorter BLE connection interval to reduce post-GC-pause delivery latency.
     // Default interval is ~30-50ms; HIGH priority is 7.5-15ms. See issue #342.
     const QString addr = m_controller->remoteAddress().toString();
-    QJniObject::callStaticMethod<jboolean>(
+    jboolean result = QJniObject::callStaticMethod<jboolean>(
         "io/github/kulitorum/decenza_de1/BleHelper",
         "requestHighConnectionPriority",
         "(Ljava/lang/String;)Z",
         QJniObject::fromString(addr).object());
+    log(QString("requestHighConnectionPriority: %1").arg(result ? "success" : "failed"));
 #endif
     m_controller->discoverServices();
 }
@@ -357,12 +373,17 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                         m_writeTimeoutTimer.stop();
                         if (m_lastCommand && m_writeRetryCount < MAX_WRITE_RETRIES) {
                             m_writeRetryCount++;
+                            log(QString("CharacteristicWriteError, retrying %1/%2 (uuid=%3)")
+                                .arg(m_writeRetryCount).arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
                             QTimer::singleShot(100, this, [this]() {
                                 if (m_lastCommand) {
                                     m_lastCommand();
                                 }
                             });
                         } else {
+                            log(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2)")
+                                .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
+                            emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
                             m_lastCommand = nullptr;
                             m_writeRetryCount = 0;
                             processCommandQueue();
@@ -370,11 +391,14 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                     } else {
                         emit errorOccurred(QString("Service error: %1").arg(error));
                     }
+                } else {
+                    log(QString("Descriptor error (suppressed): %1").arg(static_cast<int>(error)));
                 }
             }, qc);
             m_service->discoverDetails();
         } else {
             log("ERROR: createServiceObject() returned null for DE1 service UUID");
+            emit errorOccurred("Failed to initialize DE1 service - try reconnecting");
         }
     }
 }
@@ -383,8 +407,8 @@ void BleTransport::onServiceDiscoveryFinished() {
     if (!m_service) {
         // Retry logic - Android sometimes returns wrong/cached services
         m_retryCount++;
-        log("DE1 service not found after discovery, scheduling retry");
         if (m_retryCount <= MAX_RETRIES && m_pendingDevice.isValid()) {
+            log(QString("DE1 service not found after discovery, scheduling retry %1/%2").arg(m_retryCount).arg(MAX_RETRIES));
             if (m_controller) {
                 m_controller->disconnectFromDevice();
             }

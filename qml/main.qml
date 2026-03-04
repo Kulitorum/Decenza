@@ -283,6 +283,10 @@ ApplicationWindow {
     // Defer scale dialogs until machine reaches Ready (event-driven, not timer-based)
     property bool scaleDialogDeferred: false
 
+    // Shared translation strings for dialog buttons
+    Tr { id: trCommonOk; key: "common.button.ok"; fallback: "OK"; visible: false }
+    Tr { id: trCommonDismissDialog; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
+
     // Popup queue: popups that arrived during screensaver, shown after wake
     property var pendingPopups: []
 
@@ -1044,10 +1048,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkBle; key: "common.button.ok"; fallback: "OK"; visible: false }
-                text: trOkBle.text
-                accessibleName: trDismissDialogBle.text
-                Tr { id: trDismissDialogBle; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: bleErrorDialog.close()
             }
@@ -1136,10 +1138,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkFlow; key: "common.button.ok"; fallback: "OK"; visible: false }
-                Tr { id: trDismissFlow; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
-                text: trOkFlow.text
-                accessibleName: trDismissFlow.text
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: flowScaleDialog.close()
             }
@@ -1192,10 +1192,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkScaleDisc; key: "common.button.ok"; fallback: "OK"; visible: false }
-                Tr { id: trDismissScaleDisc; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
-                text: trOkScaleDisc.text
-                accessibleName: trDismissScaleDisc.text
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: scaleDisconnectedDialog.close()
             }
@@ -1229,7 +1227,6 @@ ApplicationWindow {
 
         Tr { id: trNoScaleTitle; key: "main.dialog.noScale.title"; fallback: "Shot Stopped"; visible: false }
         Tr { id: trNoScaleAnnounce; key: "main.dialog.noScale.announce"; fallback: "Shot stopped. Scale is not connected."; visible: false }
-        Tr { id: trNoScaleMessage; key: "main.dialog.noScale.message"; fallback: "Your saved scale is not connected.\n\nPlease turn on your scale and wait for it to connect before starting a shot.\n\nTo use the app without a scale, go to Settings \u2192 Bluetooth and tap \u0022Forget Scale\u0022."; visible: false }
 
         onOpened: {
             if (AccessibilityManager.enabled) {
@@ -1247,19 +1244,17 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
-            Text {
-                text: trNoScaleMessage.text
+            Tr {
+                key: "main.dialog.noScale.message"
+                fallback: "Your saved scale is not connected.\n\nPlease turn on your scale and wait for it to connect before starting a shot.\n\nTo use the app without a scale, go to Settings \u2192 Bluetooth and tap \u0022Forget Scale\u0022."
                 wrapMode: Text.Wrap
                 width: parent.width
                 font: Theme.bodyFont
-                color: Theme.textColor
             }
 
             AccessibleButton {
-                Tr { id: trOkNoScale; key: "common.button.ok"; fallback: "OK"; visible: false }
-                Tr { id: trDismissNoScale; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
-                text: trOkNoScale.text
-                accessibleName: trDismissNoScale.text
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: noScaleAbortDialog.close()
             }
@@ -1310,13 +1305,12 @@ ApplicationWindow {
                 fallback: "Smart charging is set to ON but the tablet is not receiving power from the DE1.\n\nPossible causes:\n\u2022 DE1 went to sleep and cut its USB port\n\u2022 BLE command failed \u2014 retrying automatically\n\u2022 USB cable is disconnected"
                 wrapMode: Text.Wrap
                 width: parent.width
+                font: Theme.bodyFont
             }
 
             AccessibleButton {
-                Tr { id: trOkCharging; key: "common.button.ok"; fallback: "OK"; visible: false }
-                Tr { id: trDismissCharging; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
-                text: trOkCharging.text
-                accessibleName: trDismissCharging.text
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: chargingMismatchDialog.close()
             }
@@ -1388,9 +1382,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkRefill; key: "common.button.ok"; fallback: "OK"; visible: false }
                 Tr { id: trDismissRefill; key: "main.accessibility.dismissRefillWarning"; fallback: "Dismiss refill warning"; visible: false }
-                text: trOkRefill.text
+                text: trCommonOk.text
                 accessibleName: trDismissRefill.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: refillDialog.close()
