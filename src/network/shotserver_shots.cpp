@@ -3609,19 +3609,23 @@ R"HTML(        /* --- Memory section --- */
 
         function clearLog() {
             fetch("/api/debug/clear", { method: "POST" })
-                .then(function() {
-                    container.innerHTML = "";
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error " + r.status);
+                    container.textContent = "";
                     lastIndex = 0;
-                });
+                })
+                .catch(function(e) { alert("Clear failed: " + e.message); });
         }
 
         function clearAll() {
             if (confirm("Clear both live log and saved log file?")) {
                 fetch("/api/debug/clearall", { method: "POST" })
-                    .then(function() {
-                        container.innerHTML = "";
+                    .then(function(r) {
+                        if (!r.ok) throw new Error("Server error " + r.status);
+                        container.textContent = "";
                         lastIndex = 0;
-                    });
+                    })
+                    .catch(function(e) { alert("Clear failed: " + e.message); });
             }
         }
 
@@ -3643,7 +3647,10 @@ R"HTML(        /* --- Memory section --- */
 
         function loadPersistedLog() {
             fetch("/api/debug/file")
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error " + r.status);
+                    return r.json();
+                })
                 .then(function(data) {
                     if (data.log) {
                         container.innerHTML = "";
@@ -3660,7 +3667,8 @@ R"HTML(        /* --- Memory section --- */
                     } else {
                         alert("No saved log file found");
                     }
-                });
+                })
+                .catch(function(e) { alert("Load failed: " + e.message); });
         }
 
         // Poll every 500ms
