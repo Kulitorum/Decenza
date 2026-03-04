@@ -1269,9 +1269,6 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         onClosed: root.showNextPendingPopup()
 
-        Accessible.role: Accessible.Dialog
-        Accessible.name: "Charging not detected"
-
         background: Rectangle {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
@@ -1281,6 +1278,8 @@ ApplicationWindow {
 
         contentItem: ColumnLayout {
             spacing: Theme.spacingMedium
+            Accessible.role: Accessible.Dialog
+            Accessible.name: "Charging not detected"
 
             Text {
                 text: "Charging Not Detected"
