@@ -75,7 +75,7 @@ Rectangle {
         )
 
         // Fetch recent shot history as context on a background thread.
-        // Result arrives via recentShotContextReady signal → Connections handler above.
+        // Result arrives via recentShotContextReady signal → Connections handler below.
         overlay.savedBeanBrand = beanBrand || ""
         overlay.savedBeanType = beanType || ""
         overlay.savedProfileName = profileName || ""

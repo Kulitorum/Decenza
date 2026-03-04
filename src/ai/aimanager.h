@@ -193,6 +193,9 @@ private:
     QString m_lastSystemPrompt;
     QString m_lastUserPrompt;
 
+    // Serial counter for requestRecentShotContext (discard stale results)
+    int m_contextSerial = 0;
+
 public:
     void reloadConversations() { loadConversationIndex(); }
 private:
