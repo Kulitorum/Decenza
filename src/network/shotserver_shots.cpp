@@ -1120,7 +1120,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     };
     QString phaseData = phasesToJson(shot["phases"].toList());
 
-    return QString(R"HTML(
+    QString html = QString(R"HTML(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2068,7 +2068,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     </script>
 </body>
 </html>
-)HTML")
+)HTML";
+    return html
     .arg(tempOverride > 0
          ? shot["profileName"].toString().toHtmlEscaped() + QString(" (%1\u00B0C)").arg(tempOverride, 0, 'f', 0)
          : shot["profileName"].toString().toHtmlEscaped())
@@ -2226,7 +2227,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
     shotInfoJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
     phasesJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
 
-    return QString(R"HTML(
+    QString html = QString(R"HTML(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3004,7 +3005,8 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
     </script>
 </body>
 </html>
-)HTML").arg(QString::number(shots.size()), datasets, shotInfoJson, phasesJson);
+)HTML";
+    return html.arg(QString::number(shots.size()), datasets, shotInfoJson, phasesJson);
 }
 
 
