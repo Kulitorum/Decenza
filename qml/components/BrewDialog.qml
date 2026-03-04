@@ -572,7 +572,7 @@ Dialog {
                 // Visual indicator showing profile default
                 Text {
                     visible: Math.abs(root.targetValue - root.profileTargetWeight) > 0.1
-                    text: qsTr("Profile: %1g").arg(root.profileTargetWeight.toFixed(0))
+                    text: TranslationManager.translate("brewDialog.profileDefault", "Profile: %1g").arg(root.profileTargetWeight.toFixed(0))
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(11)
                     font.italic: true
@@ -580,7 +580,7 @@ Dialog {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: qsTr("Profile default yield: %1 grams").arg(root.profileTargetWeight.toFixed(0))
+                    Accessible.name: TranslationManager.translate("brewDialog.profileDefaultAccessible", "Profile default yield: %1 grams").arg(root.profileTargetWeight.toFixed(0))
                 }
             }
 

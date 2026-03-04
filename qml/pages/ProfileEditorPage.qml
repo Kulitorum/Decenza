@@ -406,7 +406,7 @@ Page {
     }
 
     // Profile Settings Popup
-    Popup {
+    Dialog {
         id: profileSettingsPopup
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -414,7 +414,7 @@ Page {
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         padding: Theme.scaled(15)
         modal: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         onOpened: {
             profileNameField.text = profile ? profile.title : ""
@@ -552,7 +552,7 @@ Page {
     }
 
     // Limits Popup
-    Popup {
+    Dialog {
         id: limitsPopup
         parent: Overlay.overlay
         x: (parent.width - width) / 2
@@ -560,7 +560,7 @@ Page {
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(450))
         padding: Theme.scaled(15)
         modal: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         background: Rectangle {
             color: Theme.surfaceColor

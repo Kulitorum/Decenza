@@ -368,11 +368,12 @@ Item {
     }
 
     // Release notes popup
-    Popup {
+    Dialog {
         id: releaseNotesPopup
         modal: true
         dim: true
         anchors.centerIn: parent
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         width: Math.min(600, updateTab.width - 40)
         height: Math.min(400, updateTab.height - 40)
         padding: 0

@@ -847,14 +847,14 @@ Page {
 
 
     // Edit Pitcher Popup (rename/delete)
-    Popup {
+    Dialog {
         id: editPitcherPopup
         x: (parent.width - width) / 2
         y: editPitcherPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool editPitcherPopupAtTop: false
         onOpened: {
@@ -964,14 +964,14 @@ Page {
     }
 
     // Add Pitcher Dialog
-    Popup {
+    Dialog {
         id: addPitcherDialog
         x: (parent.width - width) / 2
         y: addPitcherDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool addPitcherDialogAtTop: false
         onOpened: {

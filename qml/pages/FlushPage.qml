@@ -502,13 +502,14 @@ Page {
 
 
     // Edit preset popup
-    Popup {
+    Dialog {
         id: editPresetPopup
         x: (parent.width - width) / 2
         y: editPresetPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool editPresetPopupAtTop: false
         onOpened: {
@@ -613,13 +614,14 @@ Page {
     }
 
     // Add preset dialog
-    Popup {
+    Dialog {
         id: addPresetDialog
         x: (parent.width - width) / 2
         y: addPresetDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool addPresetDialogAtTop: false
         onOpened: {

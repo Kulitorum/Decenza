@@ -1288,7 +1288,7 @@ KeyboardAwareContainer {
         }
 
         // Prevent closing while restore is running
-        closePolicy: dataTab.restoreInProgress ? Popup.NoAutoClose : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
+        closePolicy: dataTab.restoreInProgress ? Dialog.NoAutoClose : (Dialog.CloseOnEscape | Dialog.CloseOnPressOutside)
 
         onClosed: {
             if (!dataTab.restoreInProgress) {

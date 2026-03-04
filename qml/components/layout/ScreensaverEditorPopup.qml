@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import Decenza
 import ".."
 
-Popup {
+Dialog {
     id: popup
 
     property string itemId: ""
@@ -42,7 +42,7 @@ Popup {
     }
 
     modal: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
     padding: Theme.spacingMedium
 
     parent: Overlay.overlay
@@ -83,12 +83,12 @@ Popup {
         Text {
             text: {
                 switch (popup.itemType) {
-                    case "screensaverFlipClock": return "Flip Clock Settings"
-                    case "screensaverPipes": return "3D Pipes Settings"
-                    case "screensaverAttractor": return "Attractors Settings"
-                    case "screensaverShotMap": return "Shot Map Settings"
-                    case "lastShot": return "Last Shot Settings"
-                    default: return "Screensaver Settings"
+                    case "screensaverFlipClock": return TranslationManager.translate("screensaverEditor.title.flipClock", "Flip Clock Settings")
+                    case "screensaverPipes": return TranslationManager.translate("screensaverEditor.title.pipes", "3D Pipes Settings")
+                    case "screensaverAttractor": return TranslationManager.translate("screensaverEditor.title.attractor", "Attractors Settings")
+                    case "screensaverShotMap": return TranslationManager.translate("screensaverEditor.title.shotMap", "Shot Map Settings")
+                    case "lastShot": return TranslationManager.translate("screensaverEditor.title.lastShot", "Last Shot Settings")
+                    default: return TranslationManager.translate("screensaverEditor.title.default", "Screensaver Settings")
                 }
             }
             font.family: Theme.titleFont.family
@@ -113,7 +113,7 @@ Popup {
             visible: popup.itemType === "screensaverFlipClock"
 
             Text {
-                text: "Size"
+                text: TranslationManager.translate("screensaverEditor.label.size", "Size")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
             }
@@ -123,7 +123,7 @@ Popup {
                 spacing: Theme.spacingSmall
 
                 Text {
-                    text: "Small"
+                    text: TranslationManager.translate("screensaverEditor.size.small", "Small")
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                 }
@@ -139,7 +139,7 @@ Popup {
                 }
 
                 Text {
-                    text: "Large"
+                    text: TranslationManager.translate("screensaverEditor.size.large", "Large")
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                 }
@@ -153,7 +153,7 @@ Popup {
             visible: popup.itemType === "screensaverShotMap"
 
             Text {
-                text: "Width"
+                text: TranslationManager.translate("screensaverEditor.label.width", "Width")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
             }
@@ -163,7 +163,7 @@ Popup {
                 spacing: Theme.spacingSmall
 
                 Text {
-                    text: "Narrow"
+                    text: TranslationManager.translate("screensaverEditor.width.narrow", "Narrow")
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                 }
@@ -179,7 +179,7 @@ Popup {
                 }
 
                 Text {
-                    text: "Wide"
+                    text: TranslationManager.translate("screensaverEditor.width.wide", "Wide")
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                 }
@@ -193,7 +193,7 @@ Popup {
             visible: popup.itemType === "screensaverShotMap"
 
             Text {
-                text: "Background"
+                text: TranslationManager.translate("screensaverEditor.label.background", "Background")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
             }
@@ -254,7 +254,7 @@ Popup {
             visible: popup.itemType === "lastShot"
 
             Text {
-                text: "Width"
+                text: TranslationManager.translate("screensaverEditor.label.width", "Width")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
             }
@@ -293,7 +293,7 @@ Popup {
             visible: popup.itemType === "lastShot"
 
             Text {
-                text: "Show axis labels"
+                text: TranslationManager.translate("screensaverEditor.label.showAxisLabels", "Show axis labels")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
                 Layout.fillWidth: true
@@ -311,7 +311,7 @@ Popup {
             visible: popup.itemType === "lastShot"
 
             Text {
-                text: "Show frame labels"
+                text: TranslationManager.translate("screensaverEditor.label.showFrameLabels", "Show frame labels")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
                 Layout.fillWidth: true
@@ -326,7 +326,7 @@ Popup {
         // No settings message for screensavers without options
         Text {
             visible: !popup.hasSettings
-            text: "No additional settings for this screensaver."
+            text: TranslationManager.translate("screensaverEditor.noSettings", "No additional settings for this screensaver.")
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
             Layout.fillWidth: true
@@ -349,13 +349,13 @@ Popup {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Cancel"
+                Accessible.name: TranslationManager.translate("common.button.cancel", "Cancel")
                 Accessible.focusable: true
                 Accessible.onPressAction: cancelArea.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
-                    text: "Cancel"
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
                     font: Theme.bodyFont
                     color: Theme.textColor
                     Accessible.ignored: true
@@ -375,13 +375,13 @@ Popup {
                 visible: popup.hasSettings
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Save"
+                Accessible.name: TranslationManager.translate("common.button.save", "Save")
                 Accessible.focusable: true
                 Accessible.onPressAction: saveArea.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
-                    text: "Save"
+                    text: TranslationManager.translate("common.button.save", "Save")
                     font: Theme.bodyFont
                     color: "white"
                     Accessible.ignored: true

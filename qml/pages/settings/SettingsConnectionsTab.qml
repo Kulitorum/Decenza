@@ -8,10 +8,11 @@ Item {
     id: connectionsTab
 
     // Share Log Dialog
-    Popup {
+    Dialog {
         id: shareLogDialog
         modal: true
         anchors.centerIn: parent
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         width: Math.min(parent.width * 0.85, Theme.scaled(400))
         padding: 0
 

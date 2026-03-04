@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import Decenza
 import ".."
 
-Popup {
+Dialog {
     id: popup
 
     property string itemId: ""
@@ -25,7 +25,7 @@ Popup {
     signal saved()
 
     modal: true
-    closePolicy: Popup.CloseOnEscape
+    closePolicy: Dialog.CloseOnEscape
     padding: Theme.spacingSmall
 
     // Wide popup at top of window to avoid keyboard
@@ -1026,13 +1026,13 @@ Popup {
                 color: cancelMa.pressed ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
                 border.color: Theme.borderColor; border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: "Cancel"
+                Accessible.name: TranslationManager.translate("common.button.cancel", "Cancel")
                 Accessible.focusable: true
                 Accessible.onPressAction: cancelMa.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
-                    text: "Cancel"
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
                     color: Theme.textColor
                     font: Theme.captionFont
                     Accessible.ignored: true
@@ -1047,13 +1047,13 @@ Popup {
                 radius: Theme.scaled(6)
                 color: saveMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 Accessible.role: Accessible.Button
-                Accessible.name: "Save"
+                Accessible.name: TranslationManager.translate("common.button.save", "Save")
                 Accessible.focusable: true
                 Accessible.onPressAction: saveMa.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
-                    text: "Save"
+                    text: TranslationManager.translate("common.button.save", "Save")
                     color: "white"
                     font: Theme.captionFont
                     Accessible.ignored: true
@@ -1064,7 +1064,7 @@ Popup {
     }
 
     // === Color picker popup (deferred via Loader) ===
-    Popup {
+    Dialog {
         id: colorPickerPopup
         property string mode: "text"  // "text" or "bg"
         property color initialColor: "#ffffff"
@@ -1072,7 +1072,7 @@ Popup {
 
         parent: Overlay.overlay
         modal: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         padding: Theme.spacingMedium
 
         x: Theme.spacingSmall

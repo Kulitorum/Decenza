@@ -906,14 +906,14 @@ Page {
     }
 
     // API Key missing popup
-    Popup {
+    Dialog {
         id: apiKeyPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
         modal: true
         dim: true
         padding: Theme.scaled(20)
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1009,14 +1009,14 @@ Page {
     }
 
     // All translated popup
-    Popup {
+    Dialog {
         id: allTranslatedPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
         modal: true
         dim: true
         padding: Theme.scaled(20)
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1075,14 +1075,14 @@ Page {
     }
 
     // Clear AI translations confirmation popup
-    Popup {
+    Dialog {
         id: clearAiPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
         modal: true
         dim: true
         padding: Theme.scaled(20)
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         background: Rectangle {
             color: Theme.surfaceColor

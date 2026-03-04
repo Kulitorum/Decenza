@@ -112,6 +112,7 @@ BleTransport::BleTransport(QObject* parent)
     m_retryTimer.setInterval(RETRY_DELAY_MS);
     connect(&m_retryTimer, &QTimer::timeout, this, [this]() {
         if (m_pendingDevice.isValid()) {
+            log(QString("Service discovery retry %1/%2").arg(m_retryCount).arg(MAX_RETRIES));
             // Clean up before retry
             if (m_controller) {
                 m_controller->disconnectFromDevice();
@@ -246,11 +247,17 @@ bool BleTransport::isConnected() const {
 // -- BLE-specific public API --
 
 void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
+    QString deviceId = device.address().isNull()
+        ? device.deviceUuid().toString()
+        : device.address().toString();
+
     if (isConnected()) {
+        log(QString("connectToDevice() skipped - already connected to %1").arg(deviceId));
         return;
     }
 
     if (m_controller) {
+        log("Cleaning up previous controller before new connection");
         disconnect();
     }
 
@@ -259,7 +266,15 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_retryCount = 0;
     m_retryTimer.stop();
 
+    log(QString("Connecting to DE1 at %1").arg(deviceId));
+
     m_controller = QLowEnergyController::createCentral(device, this);
+
+    if (!m_controller) {
+        log("ERROR: Failed to create BLE controller!");
+        emit errorOccurred("Failed to create BLE controller");
+        return;
+    }
 
     // Use Qt::QueuedConnection for all BLE signals - fixes iOS CoreBluetooth threading
     // issues where callbacks arrive on CoreBluetooth thread and cause re-entrancy/crash
@@ -274,13 +289,29 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
             this, &BleTransport::onServiceDiscovered, qc);
     connect(m_controller, &QLowEnergyController::discoveryFinished,
             this, &BleTransport::onServiceDiscoveryFinished, qc);
+    // Log all controller state changes for debugging
+    connect(m_controller, &QLowEnergyController::stateChanged, this, [this](QLowEnergyController::ControllerState state) {
+        QString stateName;
+        switch (state) {
+            case QLowEnergyController::UnconnectedState: stateName = "Unconnected"; break;
+            case QLowEnergyController::ConnectingState: stateName = "Connecting"; break;
+            case QLowEnergyController::ConnectedState: stateName = "Connected"; break;
+            case QLowEnergyController::DiscoveringState: stateName = "Discovering"; break;
+            case QLowEnergyController::DiscoveredState: stateName = "Discovered"; break;
+            case QLowEnergyController::ClosingState: stateName = "Closing"; break;
+            default: stateName = QString::number(static_cast<int>(state)); break;
+        }
+        this->log(QString("Controller state: %1").arg(stateName));
+    }, qc);
 
+    log("Calling connectToDevice on controller...");
     m_controller->connectToDevice();
 }
 
 // -- Private slots --
 
 void BleTransport::onControllerConnected() {
+    log("Controller connected, starting service discovery");
 #ifdef Q_OS_ANDROID
     // Request a shorter BLE connection interval to reduce post-GC-pause delivery latency.
     // Default interval is ~30-50ms; HIGH priority is 7.5-15ms. See issue #342.
@@ -295,6 +326,7 @@ void BleTransport::onControllerConnected() {
 }
 
 void BleTransport::onControllerDisconnected() {
+    log("Controller disconnected");
 #ifdef Q_OS_ANDROID
     clearDE1AddressForShutdown();
     stopBleConnectionService();
@@ -311,40 +343,26 @@ void BleTransport::onControllerDisconnected() {
 }
 
 void BleTransport::onControllerError(QLowEnergyController::Error error) {
-    QString errorMsg;
+    QString errorName;
     switch (error) {
-        case QLowEnergyController::UnknownError:
-            errorMsg = "Unknown error";
-            break;
-        case QLowEnergyController::UnknownRemoteDeviceError:
-            errorMsg = "Remote device not found";
-            break;
-        case QLowEnergyController::NetworkError:
-            errorMsg = "Network error";
-            break;
-        case QLowEnergyController::InvalidBluetoothAdapterError:
-            errorMsg = "Invalid Bluetooth adapter";
-            break;
-        case QLowEnergyController::ConnectionError:
-            errorMsg = "Connection error";
-            break;
-        case QLowEnergyController::AdvertisingError:
-            errorMsg = "Advertising error";
-            break;
-        case QLowEnergyController::RemoteHostClosedError:
-            errorMsg = "Remote host closed connection";
-            break;
-        case QLowEnergyController::AuthorizationError:
-            errorMsg = "Authorization error";
-            break;
-        default:
-            errorMsg = "Bluetooth error";
-            break;
+        case QLowEnergyController::UnknownError: errorName = "UnknownError"; break;
+        case QLowEnergyController::UnknownRemoteDeviceError: errorName = "UnknownRemoteDeviceError"; break;
+        case QLowEnergyController::NetworkError: errorName = "NetworkError"; break;
+        case QLowEnergyController::InvalidBluetoothAdapterError: errorName = "InvalidBluetoothAdapterError"; break;
+        case QLowEnergyController::ConnectionError: errorName = "ConnectionError"; break;
+        case QLowEnergyController::AdvertisingError: errorName = "AdvertisingError"; break;
+        case QLowEnergyController::RemoteHostClosedError: errorName = "RemoteHostClosedError"; break;
+        case QLowEnergyController::AuthorizationError: errorName = "AuthorizationError"; break;
+        case QLowEnergyController::MissingPermissionsError: errorName = "MissingPermissionsError"; break;
+        default: errorName = QString::number(static_cast<int>(error)); break;
     }
-    emit errorOccurred(errorMsg);
+    QString msg = QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName);
+    log(msg);
+    emit errorOccurred(msg);
 }
 
 void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
+    log(QString("Service discovered: %1%2").arg(uuid.toString(), uuid == DE1::SERVICE_UUID ? " (DE1)" : ""));
     if (uuid == DE1::SERVICE_UUID) {
         m_service = m_controller->createServiceObject(uuid, this);
         if (m_service) {
@@ -394,17 +412,20 @@ void BleTransport::onServiceDiscoveryFinished() {
     if (!m_service) {
         // Retry logic - Android sometimes returns wrong/cached services
         m_retryCount++;
+        log(QString("DE1 service not found, retry %1/%2").arg(m_retryCount).arg(MAX_RETRIES));
         if (m_retryCount <= MAX_RETRIES && m_pendingDevice.isValid()) {
             if (m_controller) {
                 m_controller->disconnectFromDevice();
             }
             m_retryTimer.start();
         } else {
+            log("DE1 service not found after all retries");
             emit errorOccurred("DE1 service not found after " + QString::number(MAX_RETRIES) + " retries. Try toggling Bluetooth off/on.");
             m_pendingDevice = QBluetoothDeviceInfo();
             disconnect();
         }
     } else {
+        log("Service discovery complete - DE1 service found");
         // Success - clear pending device
         m_pendingDevice = QBluetoothDeviceInfo();
         m_retryCount = 0;
@@ -446,6 +467,12 @@ void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, co
 }
 
 // -- Private helpers --
+
+void BleTransport::log(const QString& message) {
+    QString msg = QString("[BLE DE1] ") + message;
+    qDebug().noquote() << msg;
+    emit logMessage(msg);
+}
 
 void BleTransport::setupService() {
     if (!m_service) return;
