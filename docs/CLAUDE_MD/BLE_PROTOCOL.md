@@ -3,7 +3,7 @@
 - DE1 Service: `0000A000-...`
 - Command queue prevents BLE overflow (50ms between writes)
 - Shot samples at ~5Hz during extraction
-- Profile upload: header (5 bytes) + frames (8 bytes each)
+- Profile upload: header (5 bytes) + frames (8 bytes each) + extension frames (8 bytes, frame number + 32 for limiters) + tail frame (8 bytes)
 - USB charger control: MMR address `0x803854` (1=on, 0=off)
 - DE1 has 10-minute timeout that auto-enables charger; must resend command every 60s
 
@@ -19,18 +19,23 @@ BLE writes can fail or hang. The implementation includes retry logic similar to 
 
 **Error Logging (captured in shot debug log):**
 ```
-DE1Device: BLE write TIMEOUT after 5000 ms - uuid: 0000a00f data: 0102...
-DE1Device: Retrying after timeout (1/3)
-DE1Device: Write FAILED (timeout) after 3 retries - uuid: 0000a00f data: 0102...
+Write timeout, retrying 1/3 (uuid=0000a00f)
+Write FAILED after 3 retries (uuid=0000a00f, 8 bytes)
 ```
 
 **Key UUIDs:**
+- `0000a001` = Version
 - `0000a002` = RequestedState
+- `0000a005` = ReadFromMMR
+- `0000a006` = WriteToMMR
+- `0000a009` = FWMapRequest (firmware update)
 - `0000a00b` = ShotSettings (steam, hot water, flush settings)
 - `0000a00d` = ShotSample (real-time shot data ~5Hz)
 - `0000a00e` = StateInfo
 - `0000a00f` = HeaderWrite (profile header)
 - `0000a010` = FrameWrite (profile frames)
+- `0000a011` = WaterLevels
+- `0000a012` = Calibration
 
 **Comparison to de1app:**
 - de1app uses soft 1-second fallback timer (just retries queue)
