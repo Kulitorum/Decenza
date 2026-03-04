@@ -638,13 +638,14 @@ Page {
 
 
     // Edit vessel preset popup
-    Popup {
+    Dialog {
         id: editVesselPopup
         x: (parent.width - width) / 2
         y: editVesselPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool editVesselPopupAtTop: false
         onOpened: {
@@ -749,13 +750,14 @@ Page {
     }
 
     // Add vessel dialog
-    Popup {
+    Dialog {
         id: addVesselDialog
         x: (parent.width - width) / 2
         y: addVesselDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool addVesselDialogAtTop: false
         onOpened: {

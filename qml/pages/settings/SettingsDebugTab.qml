@@ -288,10 +288,11 @@ Item {
             }
 
             // Profile conversion result dialog
-            Popup {
+            Dialog {
                 id: profileConvertResultDialog
                 modal: true
                 dim: true
+                closePolicy: Dialog.CloseOnEscape
                 anchors.centerIn: Overlay.overlay
                 padding: Theme.scaled(24)
 
@@ -434,10 +435,11 @@ Item {
             }
 
             // Import result feedback dialog
-            Popup {
+            Dialog {
                 id: importResultDialog
                 modal: true
                 dim: true
+                closePolicy: Dialog.CloseOnEscape
                 anchors.centerIn: Overlay.overlay
                 padding: Theme.scaled(24)
 

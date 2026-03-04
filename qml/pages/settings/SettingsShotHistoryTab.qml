@@ -135,8 +135,8 @@ KeyboardAwareContainer {
                     }
 
                     AccessibleButton {
-                        text: "Cancel"
-                        accessibleName: "Cancel import"
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("settings.shotHistory.accessibility.cancelImport", "Cancel import")
                         Layout.alignment: Qt.AlignRight
                         onClicked: {
                             if (MainController.shotImporter) {
@@ -230,11 +230,11 @@ KeyboardAwareContainer {
         }
 
         // Extracting popup - shows during ZIP extraction
-        Popup {
+        Dialog {
             id: extractingPopup
             modal: true
             dim: true
-            closePolicy: Popup.NoAutoClose
+            closePolicy: Dialog.NoAutoClose
             anchors.centerIn: Overlay.overlay
             padding: Theme.scaled(24)
 
@@ -286,10 +286,11 @@ KeyboardAwareContainer {
         }
 
         // Import result feedback dialog
-        Popup {
+        Dialog {
             id: importResultDialog
             modal: true
             dim: true
+            closePolicy: Dialog.CloseOnEscape
             anchors.centerIn: Overlay.overlay
             padding: Theme.scaled(24)
 

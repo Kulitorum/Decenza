@@ -196,7 +196,8 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 ### QML
 - Files: `PascalCase.qml`
 - IDs/properties: `camelCase`
-- Use `Theme.qml` singleton for all styling
+- Use `Theme.qml` singleton for all styling — never hardcode colors, font sizes, spacing, or radii. Use `Theme.textColor`, `Theme.bodyFont`, `Theme.subtitleFont`, `Theme.spacingMedium`, `Theme.cardRadius`, etc.
+- All user-visible text must be internationalized. Use `TranslationManager.translate("section.key", "Fallback text")` for property bindings and inline expressions. Use the `Tr` component for standalone visible text (`Tr { key: "section.name"; fallback: "English text" }`). For text used in properties via `Tr`, use a hidden instance: `Tr { id: trMyLabel; key: "my.key"; fallback: "Label"; visible: false }` then `text: trMyLabel.text`. Reuse existing keys like `common.button.ok` and `common.accessibility.dismissDialog` where applicable.
 - Use `StyledTextField` instead of `TextField` to avoid Material floating label
 - `ActionButton` dims icon (50% opacity) and text (secondary color) when disabled
 - `native` is a reserved JavaScript keyword - use `nativeName` instead

@@ -219,7 +219,12 @@ void DE1Device::connectToDevice(const QString& address) {
 
 void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
     // Don't reconnect if already connected or connecting
-    if (isConnected() || m_connecting) {
+    if (isConnected()) {
+        qDebug() << "DE1Device::connectToDevice skipped - already connected";
+        return;
+    }
+    if (m_connecting) {
+        qDebug() << "DE1Device::connectToDevice skipped - already connecting";
         return;
     }
 

@@ -64,6 +64,8 @@ private slots:
     void processCommandQueue();
 
 private:
+    void log(const QString& message);
+    bool setupController(const QBluetoothDeviceInfo& device);
     void setupService();
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
     void queueCommand(std::function<void()> command);

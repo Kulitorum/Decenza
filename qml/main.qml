@@ -283,6 +283,10 @@ ApplicationWindow {
     // Defer scale dialogs until machine reaches Ready (event-driven, not timer-based)
     property bool scaleDialogDeferred: false
 
+    // Shared translation strings for dialog buttons
+    Tr { id: trCommonOk; key: "common.button.ok"; fallback: "OK"; visible: false }
+    Tr { id: trCommonDismissDialog; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
+
     // Popup queue: popups that arrived during screensaver, shown after wake
     property var pendingPopups: []
 
@@ -971,11 +975,12 @@ ApplicationWindow {
     }
 
     // Global error dialog for BLE issues
-    Popup {
+    Dialog {
         id: bleErrorDialog
         modal: true
         dim: true
         anchors.centerIn: parent
+        closePolicy: Dialog.CloseOnEscape
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
         onClosed: root.showNextPendingPopup()
@@ -1043,10 +1048,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkBle; key: "common.button.ok"; fallback: "OK"; visible: false }
-                text: trOkBle.text
-                accessibleName: trDismissDialogBle.text
-                Tr { id: trDismissDialogBle; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: bleErrorDialog.close()
             }
@@ -1090,11 +1093,12 @@ ApplicationWindow {
     }
 
     // FlowScale fallback dialog (no scale found at startup)
-    Popup {
+    Dialog {
         id: flowScaleDialog
         modal: true
         dim: true
         anchors.centerIn: parent
+        closePolicy: Dialog.CloseOnEscape
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
         onClosed: root.showNextPendingPopup()
@@ -1134,10 +1138,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkFlow; key: "common.button.ok"; fallback: "OK"; visible: false }
-                Tr { id: trDismissFlow; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
-                text: trOkFlow.text
-                accessibleName: trDismissFlow.text
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: flowScaleDialog.close()
             }
@@ -1145,11 +1147,12 @@ ApplicationWindow {
     }
 
     // Scale disconnected dialog
-    Popup {
+    Dialog {
         id: scaleDisconnectedDialog
         modal: true
         dim: true
         anchors.centerIn: parent
+        closePolicy: Dialog.CloseOnEscape
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
         onClosed: root.showNextPendingPopup()
@@ -1189,10 +1192,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkScaleDisc; key: "common.button.ok"; fallback: "OK"; visible: false }
-                Tr { id: trDismissScaleDisc; key: "common.accessibility.dismissDialog"; fallback: "Dismiss dialog"; visible: false }
-                text: trOkScaleDisc.text
-                accessibleName: trDismissScaleDisc.text
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: scaleDisconnectedDialog.close()
             }
@@ -1207,13 +1208,14 @@ ApplicationWindow {
         }
     }
 
-    Popup {
+    Dialog {
         id: noScaleAbortDialog
         modal: true
         dim: true
         anchors.centerIn: parent
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
+        closePolicy: Dialog.CloseOnEscape
         onClosed: root.showNextPendingPopup()
 
         background: Rectangle {
@@ -1223,9 +1225,12 @@ ApplicationWindow {
             border.color: Theme.errorColor
         }
 
+        Tr { id: trNoScaleTitle; key: "main.dialog.noScale.title"; fallback: "Shot Stopped"; visible: false }
+        Tr { id: trNoScaleAnnounce; key: "main.dialog.noScale.announce"; fallback: "Shot stopped. Scale is not connected."; visible: false }
+
         onOpened: {
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce("Shot stopped. Scale is not connected.", true)
+                AccessibilityManager.announce(trNoScaleAnnounce.text, true)
             }
         }
 
@@ -1233,23 +1238,23 @@ ApplicationWindow {
             spacing: Theme.spacingMedium
 
             Text {
-                text: "Shot Stopped"
+                text: trNoScaleTitle.text
                 font: Theme.subtitleFont
                 color: Theme.textColor
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
-            Text {
-                text: "Your saved scale is not connected.\n\nPlease turn on your scale and wait for it to connect before starting a shot.\n\nTo use the app without a scale, go to Settings \u2192 Bluetooth and tap \"Forget Scale\"."
+            Tr {
+                key: "main.dialog.noScale.message"
+                fallback: "Your saved scale is not connected.\n\nPlease turn on your scale and wait for it to connect before starting a shot.\n\nTo use the app without a scale, go to Settings \u2192 Bluetooth and tap \u0022Forget Scale\u0022."
                 wrapMode: Text.Wrap
                 width: parent.width
                 font: Theme.bodyFont
-                color: Theme.textColor
             }
 
             AccessibleButton {
-                text: "OK"
-                accessibleName: "Dismiss dialog"
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: noScaleAbortDialog.close()
             }
@@ -1259,14 +1264,14 @@ ApplicationWindow {
     // Charging mismatch warning dialog
     // Shown when smart charging commands the DE1 USB port ON but Android still reports
     // DISCHARGING — the port is not delivering power (DE1 asleep, BLE command failed, cable issue).
-    Popup {
+    Dialog {
         id: chargingMismatchDialog
         modal: true
         dim: true
         anchors.centerIn: parent
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
-        closePolicy: Popup.CloseOnEscape
+        closePolicy: Dialog.CloseOnEscape
         onClosed: root.showNextPendingPopup()
 
         background: Rectangle {
@@ -1276,35 +1281,37 @@ ApplicationWindow {
             border.color: "white"
         }
 
-        contentItem: ColumnLayout {
+        Tr { id: trChargingMismatchTitle; key: "main.dialog.chargingMismatch.title"; fallback: "Charging Not Detected"; visible: false }
+        Tr { id: trChargingMismatchAnnounce; key: "main.dialog.chargingMismatch.announce"; fallback: "Warning: Charging not detected"; visible: false }
+
+        onOpened: {
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trChargingMismatchAnnounce.text, true)
+            }
+        }
+
+        contentItem: Column {
             spacing: Theme.spacingMedium
-            Accessible.role: Accessible.Dialog
-            Accessible.name: "Charging not detected"
 
             Text {
-                text: "Charging Not Detected"
-                font.family: Theme.headingFont.family
-                font.pixelSize: Theme.headingFont.pixelSize
-                font.bold: true
+                text: trChargingMismatchTitle.text
+                font: Theme.subtitleFont
                 color: Theme.textColor
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                Accessible.ignored: true
+                anchors.horizontalCenter: parent.horizontalCenter
             }
 
-            Text {
-                text: "Smart charging is set to ON but the tablet is not receiving power from the DE1.\n\nPossible causes:\n• DE1 went to sleep and cut its USB port\n• BLE command failed — retrying automatically\n• USB cable is disconnected"
+            Tr {
+                key: "main.dialog.chargingMismatch.message"
+                fallback: "Smart charging is set to ON but the tablet is not receiving power from the DE1.\n\nPossible causes:\n\u2022 DE1 went to sleep and cut its USB port\n\u2022 BLE command failed \u2014 retrying automatically\n\u2022 USB cable is disconnected"
                 wrapMode: Text.Wrap
+                width: parent.width
                 font: Theme.bodyFont
-                color: Theme.textColor
-                Layout.fillWidth: true
-                Accessible.ignored: true
             }
 
             AccessibleButton {
-                text: "OK"
-                accessibleName: "Dismiss charging warning"
-                Layout.alignment: Qt.AlignHCenter
+                text: trCommonOk.text
+                accessibleName: trCommonDismissDialog.text
+                anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: chargingMismatchDialog.close()
             }
         }
@@ -1330,13 +1337,13 @@ ApplicationWindow {
     }
 
     // Water tank refill dialog
-    Popup {
+    Dialog {
         id: refillDialog
         modal: true
         dim: true
         anchors.centerIn: parent
         width: Theme.dialogWidth + 2 * padding
-        closePolicy: Popup.NoAutoClose
+        closePolicy: Dialog.NoAutoClose
         padding: Theme.dialogPadding
         onClosed: root.showNextPendingPopup()
 
@@ -1375,9 +1382,8 @@ ApplicationWindow {
             }
 
             AccessibleButton {
-                Tr { id: trOkRefill; key: "common.button.ok"; fallback: "OK"; visible: false }
                 Tr { id: trDismissRefill; key: "main.accessibility.dismissRefillWarning"; fallback: "Dismiss refill warning"; visible: false }
-                text: trOkRefill.text
+                text: trCommonOk.text
                 accessibleName: trDismissRefill.text
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: refillDialog.close()
@@ -1400,11 +1406,12 @@ ApplicationWindow {
 
 
     // Update notification dialog
-    Popup {
+    Dialog {
         id: updateDialog
         modal: true
         dim: true
         anchors.centerIn: parent
+        closePolicy: Dialog.CloseOnEscape
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
         onClosed: root.showNextPendingPopup()
@@ -1750,13 +1757,13 @@ ApplicationWindow {
     }
 
     // First-run welcome dialog
-    Popup {
+    Dialog {
         id: firstRunDialog
         modal: true
         dim: true
         anchors.centerIn: parent
         width: Theme.dialogWidth + 2 * padding
-        closePolicy: Popup.NoAutoClose
+        closePolicy: Dialog.NoAutoClose
         padding: Theme.dialogPadding
 
         background: Rectangle {
@@ -1802,13 +1809,13 @@ ApplicationWindow {
     }
 
     // Storage setup dialog (Android 11+ - request MANAGE_EXTERNAL_STORAGE permission)
-    Popup {
+    Dialog {
         id: storageSetupDialog
         modal: true
         dim: true
         anchors.centerIn: parent
         width: Theme.dialogWidth + 2 * padding
-        closePolicy: Popup.NoAutoClose
+        closePolicy: Dialog.NoAutoClose
         padding: Theme.dialogPadding
 
         background: Rectangle {
@@ -2886,14 +2893,14 @@ ApplicationWindow {
     }
 
     // Empty database + backups exist: ask user if they want to restore
-    Popup {
+    Dialog {
         id: emptyDatabaseDialog
         modal: true
         dim: true
         anchors.centerIn: parent
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
-        closePolicy: Popup.NoAutoClose
+        closePolicy: Dialog.NoAutoClose
 
         background: Rectangle {
             color: Theme.surfaceColor

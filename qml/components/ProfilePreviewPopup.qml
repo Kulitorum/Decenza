@@ -116,7 +116,7 @@ Dialog {
                 radius: width / 2
                 color: closeMouseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : "transparent"
                 Accessible.role: Accessible.Button
-                Accessible.name: "Close preview"
+                Accessible.name: TranslationManager.translate("common.accessibility.closePreview", "Close preview")
                 Accessible.focusable: true
                 Accessible.onPressAction: closeMouseArea.clicked(null)
 

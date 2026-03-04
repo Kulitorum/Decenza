@@ -327,14 +327,14 @@ KeyboardAwareContainer {
             }
 
             // Map Test Popup
-            Popup {
+            Dialog {
                 id: mapTestPopup
                 parent: Overlay.overlay
                 anchors.centerIn: parent
                 width: Math.min(parent.width * 0.9, Theme.scaled(800))
                 height: Math.min(parent.height * 0.8, Theme.scaled(500))
                 modal: true
-                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
                 background: Rectangle {
                     color: Theme.backgroundColor
@@ -983,7 +983,7 @@ KeyboardAwareContainer {
     }
 
     // Heater Calibration Warning Dialog
-    Popup {
+    Dialog {
         id: calibrationWarningDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -991,6 +991,7 @@ KeyboardAwareContainer {
         modal: true
         dim: true
         padding: Theme.scaled(20)
+        closePolicy: Dialog.CloseOnEscape
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1043,7 +1044,7 @@ KeyboardAwareContainer {
     }
 
     // Heater Calibration Popup
-    Popup {
+    Dialog {
         id: calibrationPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -1052,7 +1053,7 @@ KeyboardAwareContainer {
         modal: true
         dim: true
         padding: Theme.scaled(20)
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         onOpened: heaterIdleTempSlider.forceActiveFocus()
 
         background: Rectangle {

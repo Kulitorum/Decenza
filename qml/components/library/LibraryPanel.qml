@@ -249,7 +249,7 @@ Rectangle {
                     parent: Overlay.overlay
                     anchors.centerIn: parent
                     padding: Theme.scaled(4)
-                    closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+                    closePolicy: Dialog.CloseOnPressOutside | Dialog.CloseOnEscape
 
                     background: Rectangle {
                         color: Theme.surfaceColor
@@ -788,11 +788,11 @@ Rectangle {
     }
 
     // Delete confirmation dialog
-    Popup {
+    Dialog {
         id: deleteConfirm
         anchors.centerIn: parent
         modal: true
-        closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+        closePolicy: Dialog.CloseOnPressOutside | Dialog.CloseOnEscape
         padding: Theme.scaled(16)
 
         background: Rectangle {
@@ -807,8 +807,8 @@ Rectangle {
 
             Text {
                 text: activeTab === "community"
-                    ? "Delete from server?"
-                    : "Delete this library entry?"
+                    ? TranslationManager.translate("library.dialog.deleteFromServer", "Delete from server?")
+                    : TranslationManager.translate("library.dialog.deleteEntry", "Delete this library entry?")
                 color: Theme.textColor
                 font: Theme.subtitleFont
             }
@@ -818,14 +818,14 @@ Rectangle {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
-                    text: "Cancel"
-                    accessibleName: "Cancel deletion"
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("library.accessibility.cancelDeletion", "Cancel deletion")
                     onClicked: deleteConfirm.close()
                 }
 
                 AccessibleButton {
-                    text: "Delete"
-                    accessibleName: "Confirm delete"
+                    text: TranslationManager.translate("common.button.delete", "Delete")
+                    accessibleName: TranslationManager.translate("library.accessibility.confirmDelete", "Confirm delete")
                     onClicked: {
                         if (activeTab === "community") {
                             LibrarySharing.deleteFromServer(WidgetLibrary.selectedEntryId)

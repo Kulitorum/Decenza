@@ -340,7 +340,7 @@ Item {
     }
 
     // Delete confirmation popup
-    Popup {
+    Dialog {
         id: deleteConfirmPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -348,7 +348,7 @@ Item {
         modal: true
         dim: true
         padding: Theme.spacingMedium
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -434,7 +434,7 @@ Item {
     }
 
     // Submission result popup
-    Popup {
+    Dialog {
         id: submitResultPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -442,7 +442,7 @@ Item {
         modal: true
         dim: true
         padding: Theme.spacingMedium
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool isSuccess: false
         property string message: ""

@@ -524,6 +524,7 @@ Rectangle {
         padding: 0
 
         background: Rectangle {
+            implicitHeight: 0  // Break Material style binding loop on Dialog.implicitHeight
             color: Theme.surfaceColor
             radius: Theme.cardRadius
             border.width: 1

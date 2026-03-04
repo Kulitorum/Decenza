@@ -893,13 +893,14 @@ Page {
     }
 
     // Add Preset Popup
-    Popup {
+    Dialog {
         id: savePresetDialog
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2 - popupKeyboardOffset
         padding: 20
         modal: true
         focus: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property string suggestedName: ""  // Set before opening to pre-fill
 
@@ -1000,13 +1001,14 @@ Page {
     }
 
     // Edit Preset Popup
-    Popup {
+    Dialog {
         id: editPresetDialog
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2 - popupKeyboardOffset
         padding: 20
         modal: true
         focus: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         onOpened: {
             popupKeyboardOffset = shotMetadataPage.height * 0.25

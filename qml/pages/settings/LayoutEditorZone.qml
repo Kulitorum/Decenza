@@ -372,7 +372,7 @@ Rectangle {
                     parent: Overlay.overlay
                     anchors.centerIn: parent
                     padding: Theme.scaled(4)
-                    closePolicy: Popup.CloseOnPressOutside | Popup.CloseOnEscape
+                    closePolicy: Dialog.CloseOnPressOutside | Dialog.CloseOnEscape
 
                     background: Rectangle {
                         color: Theme.surfaceColor
