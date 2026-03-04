@@ -74,12 +74,13 @@ Rectangle {
             profileName || ""
         )
 
-        // Always fetch recent shot history as context (even for existing conversations,
-        // since trimHistory() may have reduced prior shots to one-line summaries)
+        // Fetch recent shot history as context on a background thread.
+        // Result arrives via recentShotContextReady signal → Connections handler above.
         overlay.savedBeanBrand = beanBrand || ""
         overlay.savedBeanType = beanType || ""
         overlay.savedProfileName = profileName || ""
-        overlay.historicalContext = MainController.aiManager.getRecentShotContext(
+        overlay.historicalContext = ""
+        MainController.aiManager.requestRecentShotContext(
             overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, shotId)
 
         // Format shot timestamp as human-readable label for AI display
@@ -104,6 +105,14 @@ Rectangle {
         overlay.isMistakeShot = isMistake
         overlay.shotDebugLog = shotData.debugLog || ""
         overlay.open()
+    }
+
+    // Receive async historical context from background thread
+    Connections {
+        target: MainController.aiManager
+        function onRecentShotContextReady(context) {
+            overlay.historicalContext = context
+        }
     }
 
     // Consume ALL mouse/touch events - prevent pass-through to background
@@ -205,9 +214,10 @@ Rectangle {
                             onClicked: {
                                 if (MainController.aiManager) {
                                     MainController.aiManager.clearCurrentConversation()
-                                    // Re-fetch historical context so next message includes prior shots
+                                    // Re-fetch historical context on background thread
                                     if (overlay.shotId > 0) {
-                                        overlay.historicalContext = MainController.aiManager.getRecentShotContext(
+                                        overlay.historicalContext = ""
+                                        MainController.aiManager.requestRecentShotContext(
                                             overlay.savedBeanBrand, overlay.savedBeanType, overlay.savedProfileName, overlay.shotId)
                                     }
                                 }

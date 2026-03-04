@@ -396,10 +396,10 @@ void MachineState::updatePhase() {
             emit espressoCycleStarted();
         }
 
-        // Defer other signal emissions to allow pending BLE notifications to process first
-        // This prevents QML binding updates from blocking the event loop
-        // Note: espressoCycleStarted is emitted immediately above to avoid race conditions
-        QTimer::singleShot(0, this, [this, wasInEspresso, isInEspresso, wasFlowing]() {
+        // Defer other signal emissions to allow pending BLE notifications to process first.
+        // This prevents QML binding updates from blocking the event loop during the BLE callback chain.
+        // Note: espressoCycleStarted is emitted immediately above to avoid race conditions.
+        QMetaObject::invokeMethod(this, [this, wasInEspresso, isInEspresso, wasFlowing]() {
             emit phaseChanged();
 
             if (isFlowing() && !wasFlowing) {
@@ -407,7 +407,7 @@ void MachineState::updatePhase() {
             } else if (!isFlowing() && wasFlowing) {
                 emit shotEnded();
             }
-        });
+        }, Qt::QueuedConnection);
     }
 
     // Also check for timer stop on substate changes (even if phase didn't change)

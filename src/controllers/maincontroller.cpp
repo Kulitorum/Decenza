@@ -24,6 +24,9 @@
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
+#include <QThread>
+#include <QSqlDatabase>
+#include <QPointer>
 #include <tuple>
 #include <QDateTime>
 #include <QJsonDocument>
@@ -80,22 +83,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     , m_profileStorage(profileStorage)
     , m_networkManager(networkManager)
 {
-    // Set up delayed settings timer (1 second after connection)
-    // The initial settings from DE1Device use hardcoded values; we need to send
-    // user settings quickly to set the correct steam temperature for keepHeaterOn.
-    m_settingsTimer.setSingleShot(true);
-    m_settingsTimer.setInterval(1000);
-    connect(&m_settingsTimer, &QTimer::timeout, this, &MainController::applyAllSettings);
-
     // Connect to shot sample updates
     if (m_device) {
         connect(m_device, &DE1Device::shotSampleReceived,
                 this, &MainController::onShotSampleReceived);
 
-        // Start delayed settings timer after device initial settings complete
-        connect(m_device, &DE1Device::initialSettingsComplete, this, [this]() {
-            m_settingsTimer.start();
-        });
+        // Apply user settings immediately after device sends its initial (hardcoded) settings.
+        // BleTransport's FIFO queue guarantees our writes follow the initial writes.
+        connect(m_device, &DE1Device::initialSettingsComplete,
+                this, &MainController::applyAllSettings);
     }
 
     // Send water refill level to machine when setting changes
@@ -1081,8 +1077,36 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
         return;
     }
 
-    // Get full shot record from history
-    ShotRecord shotRecord = m_shotHistory->getShotRecord(shotId);
+    // Load shot record on a background thread to avoid blocking the UI
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<MainController> self(this);
+
+    QThread* thread = QThread::create([self, dbPath, shotId]() {
+        const QString connName = QString("load_meta_%1")
+            .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+
+        ShotRecord record;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+            db.setDatabaseName(dbPath);
+            if (db.open())
+                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            else
+                qWarning() << "loadShotWithMetadata: Failed to open DB";
+        }
+        QSqlDatabase::removeDatabase(connName);
+
+        // Apply metadata on main thread (interacts with QML state and BLE)
+        QMetaObject::invokeMethod(qApp, [self, shotId, record = std::move(record)]() {
+            if (self) self->applyLoadedShotMetadata(shotId, record);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord) {
     if (shotRecord.summary.id <= 0) {
         qWarning() << "loadShotWithMetadata: Shot not found with id:" << shotId;
         return;

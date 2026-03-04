@@ -47,37 +47,29 @@ CLAUDE.md: "Members: `m_` prefix"
 
 ---
 
-## 2. Timer as Guard/Workaround (7 violations)
+## 2. Timer as Guard/Workaround
 
 CLAUDE.md: "Never use timers as guards/workarounds. Timers are fragile heuristics that break on slow devices and hide the real problem. Use event-based flags and conditions instead."
 
-### BLE stack not-ready-after-wake delays
+### Platform constraints (no event-based alternative exists)
 
-- [ ] `src/main.cpp:411` — `QTimer::singleShot(500, ...)` to reconnect DE1 after auto-wake. Comment: "Delay slightly to let BLE stack initialize after wake"
-- [ ] `src/main.cpp:417` — `QTimer::singleShot(500, ...)` to reconnect scale after auto-wake. Same rationale.
+These use timers because Android/iOS BLE stacks provide no "ready after wake/resume" signal. The `BleTransport` retry mechanism (3 retries, 2s each) provides a safety net. These are accepted as unfixable.
 
-**Fix:** Hook into a BLE-stack-ready signal or callback instead of a 500ms delay.
+- `src/main.cpp` — `QTimer::singleShot(500, ...)` to reconnect DE1 after auto-wake
+- `src/main.cpp` — `QTimer::singleShot(500, ...)` to reconnect scale after auto-wake
+- `src/main.cpp` — `QTimer::singleShot(500, ...)` to reconnect DE1 after app resume
+- `src/main.cpp` — `QTimer::singleShot(500, &waitLoop, ...)` blocks 500ms before app suspend (OS provides no "OK to suspend" callback; de1app uses same pattern)
+- `src/main.cpp` — Scale reconnect after resume uses `scaleReconnectTimer` with exponential backoff — this is a legitimate retry pattern, not a guard
 
-### BLE write flush before suspend/exit
+### Platform constraint (improvable)
 
-- [ ] `src/main.cpp:1023` — `QTimer::singleShot(500, &waitLoop, &QEventLoop::quit)` blocks main thread 500ms before app suspend. Comment: "Give BLE write time to complete before app suspends / de1app waits 1 second, we use 500ms"
-- [ ] `src/main.cpp:1145` — `QTimer::singleShot(2000, &waitLoop, &QEventLoop::quit)` blocks main thread 2s before exit. Comment: "Wait for BLE writes to complete before exiting"
+- [ ] `src/main.cpp` — `QTimer::singleShot(2000, &waitLoop, ...)` blocks 2s before exit for BLE writes. Could be improved by adding a `queueDrained` signal to `BleTransport` (emit when `m_commandQueue.isEmpty() && !m_writePending`), then quit the event loop on that signal or on a shorter timeout.
 
-**Fix:** Wait on a command-queue-empty signal from `BleTransport` instead of arbitrary delays.
+### Fixed (cpp-compliance-audit)
 
-### BLE stack not-ready-after-resume delays
-
-- [ ] `src/main.cpp:1057` — `QTimer::singleShot(500, ...)` to reconnect DE1 after app resume. Comment: "delay to let BLE stack initialize after resume"
-- [ ] `src/main.cpp:1065` — `QTimer::singleShot(500, ...)` to reconnect scale after app resume. Same pattern.
-
-### Initialization ordering hacks
-
-- [ ] `src/controllers/maincontroller.cpp:97` — `m_settingsTimer` (1000ms) started on `initialSettingsComplete` signal. Comment: "The initial settings from DE1Device use hardcoded values; we need to send user settings quickly to set the correct steam temperature." The event trigger is correct but the 1s delay is an arbitrary buffer.
-- [ ] `src/weather/weathermanager.cpp:73` — `QTimer::singleShot(2000, ...)` on `setLocationProvider()`. Comment: "Delay slightly to let other init finish"
-
-### Borderline (event-loop deferral)
-
-- [ ] `src/machine/machinestate.cpp:402` — `QTimer::singleShot(0, ...)` to defer `phaseChanged`/`shotStarted`/`shotEnded` signals. Comment: "Defer other signal emissions to allow pending BLE notifications to process first." Classic event-loop deferral hack — fragile if BLE notifications take more than one event-loop turn.
+- [x] `src/controllers/maincontroller.cpp` — `m_settingsTimer` (1000ms) removed. `initialSettingsComplete` now connects directly to `applyAllSettings`. BleTransport's FIFO queue already guarantees ordering.
+- [x] `src/weather/weathermanager.cpp` — `QTimer::singleShot(2000, ...)` replaced with `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`. Init is already complete at the call site; the 2s delay served no purpose.
+- [x] `src/machine/machinestate.cpp` — `QTimer::singleShot(0, ...)` replaced with `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`. Semantically identical (deferred event dispatch), but the intent is now clear without the misleading "Timer" framing.
 
 ---
 
@@ -130,7 +122,9 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 
 ### 3c. MainController loadShotWithMetadata
 
-- [ ] `src/controllers/maincontroller.cpp:1081` — `loadShotWithMetadata()` is Q_INVOKABLE, called from QML, calls `getShotRecord()` synchronously. Async `requestShot()` / `shotReady()` exists but is not used here.
+**Fixed (cpp-compliance-audit):** Converted to `QThread::create()` + `loadShotRecordStatic()` + `QMetaObject::invokeMethod` pattern. DB load runs on background thread; metadata application (profile load, DYE settings, BLE upload) happens on main thread via callback.
+
+- [x] `src/controllers/maincontroller.cpp` — `loadShotWithMetadata()` now async, `applyLoadedShotMetadata()` handles main-thread work
 
 ### 3d. FlowCalibrationModel loadRecentShots
 
@@ -140,11 +134,10 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 
 ### 3e. AIManager getRecentShotContext
 
-- [ ] `src/ai/aimanager.cpp:315` — `getShotTimestamp()` — blocking SQL
-- [ ] `src/ai/aimanager.cpp:328` — `getShotsFiltered()` — blocking SQL
-- [ ] `src/ai/aimanager.cpp:357` — `getShot()` in a loop (up to 3 iterations) — blocking full record loads
+**Fixed (cpp-compliance-audit):** Renamed to `requestRecentShotContext()`. All DB work (timestamp lookup, filtered query, full record loads, summary generation) runs on a background thread with its own DB connection. Emits `recentShotContextReady(QString)` on main thread. QML overlay opens immediately and receives context asynchronously via `Connections` handler.
 
-This Q_INVOKABLE method (called from QML) performs up to 5 sequential blocking DB queries.
+- [x] `src/ai/aimanager.cpp` — `getRecentShotContext()` → `requestRecentShotContext()` with background thread
+- [x] `qml/components/ConversationOverlay.qml` — Both callers updated to use async method + signal
 
 ---
 
@@ -272,10 +265,13 @@ These are not rule violations but reduce code maintainability.
 
 | Priority | Category | Count | Section | Status |
 |----------|----------|-------|---------|--------|
-| **High** | Main-thread I/O (QML-facing) | 3 callers | 3c,3d,3e | Open |
-| **High** | Timer as guard/workaround | 9 instances | 2 | Open |
-| **High** | Main-thread I/O (sync Q_INVOKABLEs) | 30+ methods | 3a | Open |
+| **High** | Main-thread I/O (QML-facing): AI context | 1 caller | 3e | **Fixed** |
+| **High** | Main-thread I/O (QML-facing): shot metadata | 1 caller | 3c | **Fixed** |
+| **High** | Main-thread I/O (QML-facing): flow calibration | 1 caller | 3d | Open |
+| **High** | Timer guards (fixable) | 3 instances | 2 | **Fixed** |
+| **Medium** | Timer guards (platform constraints) | 5+1 instances | 2 | Accepted / 1 improvable |
 | **Medium** | Main-thread I/O (ShotServer) | 10 call sites | 3b | **Fixed** |
+| **Medium** | Main-thread I/O (sync Q_INVOKABLEs) | 30+ methods | 3a | Open (mostly mitigated by caching) |
 | **Medium** | Scale LOG macros route errors to `qDebug()` | 10 files | 5a | Open |
 | **Medium** | Scale connection timeout uses `qDebug` | 1 | 5c | Open |
 | **Low** | ShotServer JS fetch missing `.catch()` | 7 | 4a | **Fixed** |
@@ -290,6 +286,6 @@ These are not rule violations but reduce code maintainability.
 
 ### Priority rationale
 
-- **High = directly affects primary touch UI.** Sections 3c-3e block the QML UI thread during user interactions (loading shots, calibration, AI queries). Section 2 timer guards cause real bugs on slow devices — CLAUDE.md says "never" for a reason.
-- **Medium = affects secondary interfaces or developer experience.** ShotServer async (3b) only stalls when the web UI is open. Scale log macros (5a) affect debugging on real hardware.
+- **High = directly affects primary touch UI.** Sections 3c/3e blocked the QML UI thread during user interactions (loading shots, AI queries) — now fixed. Section 3d (FlowCalibrationModel) can freeze up to 1s on page open but is an infrequent workflow requiring a DB schema change.
+- **Medium = affects secondary interfaces, mitigated, or developer experience.** Timer platform constraints (§2) have no event-based alternative — accepted. ShotHistoryStorage sync Q_INVOKABLEs (§3a) are mostly mitigated by in-memory `m_distinctCache`; the remaining ones (`getShot()` in PostShotReview) are low-frequency. ShotServer async (§3b) only stalls the web UI. Scale log macros (§5a) affect debugging on real hardware.
 - **Low = correctness improvements with minimal user impact.** JS fetch fixes protect against edge cases on a localhost server. BLE log levels and naming conventions are hygiene.

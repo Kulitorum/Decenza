@@ -67,10 +67,9 @@ void WeatherManager::setLocationProvider(LocationProvider* provider)
         connect(m_locationProvider, &LocationProvider::locationChanged,
                 this, &WeatherManager::onLocationChanged);
 
-        // If location is already available, fetch immediately
+        // If location is already available (cached from previous session), fetch on next event loop tick
         if (m_locationProvider->hasLocation()) {
-            // Delay slightly to let other init finish
-            QTimer::singleShot(2000, this, &WeatherManager::onLocationChanged);
+            QMetaObject::invokeMethod(this, &WeatherManager::onLocationChanged, Qt::QueuedConnection);
         }
     }
 }
