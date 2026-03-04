@@ -762,7 +762,7 @@ int main(int argc, char *argv[])
 #ifndef Q_OS_IOS
         // Don't connect via BLE if already connected via USB
         if (usbManager.isDe1Connected()) {
-            qDebug() << "de1Discovered: skipping BLE connect - USB already connected";
+            qDebug().noquote() << "[BLE DE1] de1Discovered: skipping BLE connect - USB already connected";
             return;
         }
 #endif
