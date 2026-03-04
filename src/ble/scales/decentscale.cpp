@@ -1,6 +1,5 @@
 #include "decentscale.h"
 #include "../protocol/de1characteristics.h"
-#include "../../core/memorymonitor.h"
 #include <algorithm>
 #include <QDateTime>
 #include <QTimer>
@@ -159,9 +158,6 @@ void DecentScale::onCharacteristicChanged(const QBluetoothUuid& characteristicUu
     if (characteristicUuid == Scale::Decent::READ) {
         parseWeightData(value);
     }
-    // Track incoming BLE notification count for Java heap attribution.
-    // Logged alongside heartbeat delta every 10s.
-    ++m_notificationCount;
 }
 
 void DecentScale::parseWeightData(const QByteArray& data) {
@@ -288,20 +284,6 @@ void DecentScale::startHeartbeat() {
         connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
             if (m_characteristicsReady) {
                 sendHeartbeat();
-                // Log cumulative Java heap delta every 10 heartbeats (10s)
-                if (++m_heartbeatLogCounter >= 10) {
-                    qint64 heapNow = MemoryMonitor::readJavaHeapUsed();
-                    qint64 delta = heapNow - m_lastHeapSnapshot;
-                    if (m_lastHeapSnapshot > 0 && delta != 0) {
-                        qDebug("[JavaHeap-Heartbeat] 10s: delta=%+.1f KB  now=%.2f MB"
-                               "  (10 HB writes + %d BLE notifs)",
-                               delta / 1024.0, heapNow / (1024.0 * 1024.0),
-                               m_notificationCount);
-                    }
-                    m_lastHeapSnapshot = heapNow;
-                    m_heartbeatLogCounter = 0;
-                    m_notificationCount = 0;
-                }
             }
         });
     }

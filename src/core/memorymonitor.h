@@ -29,10 +29,6 @@ public:
 
     void setEngine(QQmlApplicationEngine* engine) { m_engine = engine; }
 
-    // Returns Java heap used in bytes (Android only, 0 on other platforms).
-    // Static so BatteryManager, DecentScale, etc. can call it for delta logging.
-    static qint64 readJavaHeapUsed();
-
     double currentRssMB() const;
     double peakRssMB() const;
     double startupRssMB() const;
@@ -57,8 +53,6 @@ private:
 
     QQmlApplicationEngine* m_engine = nullptr;
     QTimer m_timer;
-    QTimer m_javaHeapTimer;      // Fast 10s timer for Java heap delta tracking
-    qint64 m_lastJavaHeapBytes = 0;  // For delta computation
     QElapsedTimer m_uptime;
 
     QVector<MemorySample> m_samples;

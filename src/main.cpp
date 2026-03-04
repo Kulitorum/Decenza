@@ -633,6 +633,13 @@ int main(int argc, char *argv[])
             idleGcTimer->start();  // Schedule proactive GC if still idle in 30s
         }
     });
+
+    // Set idle heap utilization at startup — the app starts idle and onFlowingEnded()
+    // won't fire until the first shot ends. Without this, ART uses its default (0.75)
+    // and BLE stack garbage accumulates for a long time before GC triggers.
+    QJniObject::callStaticMethod<void>(
+        "io/github/kulitorum/decenza_de1/BleHelper",
+        "idleGc", "()V");
 #endif
 
     checkpoint("WeightProcessor wiring");

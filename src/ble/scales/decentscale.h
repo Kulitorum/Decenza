@@ -51,7 +51,4 @@ private:
     qint64 m_lastNotificationEnableMs = 0;
     qint64 m_lastScalePacketMs = 0;
     QTimer* m_heartbeatTimer = nullptr;
-    int m_heartbeatLogCounter = 0;   // Throttle Java heap delta logging (every 10 beats)
-    int m_notificationCount = 0;     // BLE notifications received in current 10s window
-    qint64 m_lastHeapSnapshot = 0;   // Last Java heap reading for delta computation
 };
