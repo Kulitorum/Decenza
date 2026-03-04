@@ -106,7 +106,7 @@ BleTransport::BleTransport(QObject* parent)
                     }
                 });
             } else {
-                log(QString("Write FAILED after %1 retries (uuid=%2, %3 bytes)")
+                warn(QString("Write FAILED after %1 retries (uuid=%2, %3 bytes)")
                     .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid).arg(m_lastWriteData.size()));
                 emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
                 m_lastCommand = nullptr;
@@ -129,7 +129,7 @@ BleTransport::BleTransport(QObject* parent)
                 m_controller = nullptr;
             }
             if (!setupController(m_pendingDevice)) {
-                log("Retry abandoned - failed to create BLE controller");
+                warn("Retry abandoned - failed to create BLE controller");
                 m_pendingDevice = QBluetoothDeviceInfo();
                 return;
             }
@@ -175,7 +175,7 @@ void BleTransport::subscribe(const QBluetoothUuid& uuid) {
     if (notification.isValid()) {
         m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
     } else {
-        log(QString("subscribe(%1) FAILED - CCCD descriptor not found")
+        warn(QString("subscribe(%1) FAILED - CCCD descriptor not found")
             .arg(uuid.toString().mid(1, 8)));
     }
 }
@@ -342,7 +342,7 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
         default:
             errorName = QString::number(static_cast<int>(error)); userMessage = "Connection error"; break;
     }
-    log(QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName));
+    warn(QString("!!! CONTROLLER ERROR: %1 !!!").arg(errorName));
     emit errorOccurred(userMessage);
 }
 
@@ -381,7 +381,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                                 }
                             });
                         } else {
-                            log(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2)")
+                            warn(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2)")
                                 .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
                             emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
                             m_lastCommand = nullptr;
@@ -397,7 +397,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
             }, qc);
             m_service->discoverDetails();
         } else {
-            log("ERROR: createServiceObject() returned null for DE1 service UUID");
+            warn("ERROR: createServiceObject() returned null for DE1 service UUID");
             emit errorOccurred("Failed to initialize DE1 service - try reconnecting");
         }
     }
@@ -469,10 +469,16 @@ void BleTransport::log(const QString& message) {
     emit logMessage(msg);
 }
 
+void BleTransport::warn(const QString& message) {
+    QString msg = QString("[BLE DE1] ") + message;
+    qWarning().noquote() << msg;
+    emit logMessage(msg);
+}
+
 bool BleTransport::setupController(const QBluetoothDeviceInfo& device) {
     m_controller = QLowEnergyController::createCentral(device, this);
     if (!m_controller) {
-        log("ERROR: Failed to create BLE controller!");
+        warn("ERROR: Failed to create BLE controller!");
         emit errorOccurred("Failed to create BLE controller");
         return false;
     }

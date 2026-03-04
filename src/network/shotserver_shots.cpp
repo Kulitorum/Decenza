@@ -45,8 +45,11 @@ QString ShotServer::generateIndexPage() const
 
 QString ShotServer::generateShotListPage() const
 {
-    QVariantList shots = m_storage->getShots(0, 1000);  // Get more shots for filtering
+    return generateShotListPage(m_storage->getShots(0, 1000));
+}
 
+QString ShotServer::generateShotListPage(const QVariantList& shots) const
+{
     QString rows;
     for (const QVariant& v : std::as_const(shots)) {
         QVariantMap shot = v.toMap();
@@ -706,14 +709,16 @@ QString ShotServer::generateShotListPage() const
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ids: selectedShots })
-            }).then(function(resp) { return resp.json(); })
-              .then(function(data) {
+            }).then(function(resp) {
+                if (!resp.ok) throw new Error("Server error (" + resp.status + ")");
+                return resp.json();
+            }).then(function(data) {
                 if (data.deleted > 0) {
                     window.location.reload();
                 } else {
                     alert("Failed to delete shots.");
                 }
-            }).catch(function() { alert("Failed to delete shots."); });
+            }).catch(function(e) { alert("Failed to delete shots: " + e.message); });
         }
 
 )HTML";
@@ -843,12 +848,15 @@ QString ShotServer::generateShotListPage() const
 
         function loadSavedSearches() {
             fetch('/api/saved-searches')
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('Server error (' + r.status + ')');
+                    return r.json();
+                })
                 .then(function(data) {
                     savedSearches = data.searches || [];
                     updateSavedUI();
                 })
-                .catch(function() {});
+                .catch(function(e) { console.warn('loadSavedSearches:', e.message); });
         }
 
         function saveSearch() {
@@ -859,14 +867,16 @@ QString ShotServer::generateShotListPage() const
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ search: text })
-            }).then(function(r) { return r.json(); })
-              .then(function(data) {
+            }).then(function(r) {
+                if (!r.ok) throw new Error('Server error (' + r.status + ')');
+                return r.json();
+            }).then(function(data) {
                 if (data.success) {
                     savedSearches.push(text);
                     updateSavedUI();
                     updateSaveButton();
                 }
-            }).catch(function() {});
+            }).catch(function(e) { console.warn('saveSearch:', e.message); });
         }
 
         function deleteSavedSearch(text) {
@@ -874,15 +884,17 @@ QString ShotServer::generateShotListPage() const
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ search: text })
-            }).then(function(r) { return r.json(); })
-              .then(function(data) {
+            }).then(function(r) {
+                if (!r.ok) throw new Error('Server error (' + r.status + ')');
+                return r.json();
+            }).then(function(data) {
                 if (data.success) {
                     var idx = savedSearches.indexOf(text);
                     if (idx >= 0) savedSearches.splice(idx, 1);
                     updateSavedUI();
                     updateSaveButton();
                 }
-            }).catch(function() {});
+            }).catch(function(e) { console.warn('deleteSavedSearch:', e.message); });
         }
 
         function applySavedSearch(text) {
@@ -1016,7 +1028,10 @@ QString ShotServer::generateShotListPage() const
 
         function fetchPowerState() {
             fetch("/api/power/status")
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error (" + r.status + ")");
+                    return r.json();
+                })
                 .then(function(data) { powerState = data; updatePowerButton(); })
                 .catch(function() {});
         }
@@ -1024,8 +1039,12 @@ QString ShotServer::generateShotListPage() const
         function togglePower() {
             var action = powerState.awake ? "sleep" : "wake";
             fetch("/api/power/" + action)
-                .then(function(r) { return r.json(); })
-                .then(function() { setTimeout(fetchPowerState, 1000); });
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error (" + r.status + ")");
+                    return r.json();
+                })
+                .then(function() { setTimeout(fetchPowerState, 1000); })
+                .catch(function(e) { console.warn("togglePower:", e.message); });
         }
 
         fetchPowerState();
@@ -1045,7 +1064,12 @@ QString ShotServer::generateShotListPage() const
 
 QString ShotServer::generateShotDetailPage(qint64 shotId) const
 {
-    QVariantMap shot = m_storage->getShot(shotId);
+    return generateShotDetailPage(shotId, m_storage->getShot(shotId));
+}
+
+QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& shot) const
+{
+    Q_UNUSED(shotId)
     if (shot.isEmpty()) {
         return QStringLiteral("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Not Found</title></head>"
                   "<body style=\"background:#0d1117;color:#fff;font-family:sans-serif;padding:2rem;\">"
@@ -1767,8 +1791,10 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
-            }).then(function(r) { return r.json(); })
-            .then(function(result) {
+            }).then(function(r) {
+                if (!r.ok) throw new Error('Server error (' + r.status + ')');
+                return r.json();
+            }).then(function(result) {
                 if (result.success) {
                     window.location.reload();
                 } else {
@@ -2103,15 +2129,22 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
         }
         function fetchPowerState() {
             fetch("/api/power/status")
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error (" + r.status + ")");
+                    return r.json();
+                })
                 .then(function(data) { powerState = data; updatePowerButton(); })
                 .catch(function() {});
         }
         function togglePower() {
             var action = powerState.awake ? "sleep" : "wake";
             fetch("/api/power/" + action)
-                .then(function(r) { return r.json(); })
-                .then(function() { setTimeout(fetchPowerState, 1000); });
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error (" + r.status + ")");
+                    return r.json();
+                })
+                .then(function() { setTimeout(fetchPowerState, 1000); })
+                .catch(function(e) { console.warn("togglePower:", e.message); });
         }
         fetchPowerState();
         var pwrTimer2 = setInterval(fetchPowerState, 5000);
@@ -2171,9 +2204,11 @@ QString ShotServer::generateShotDetailPage(qint64 shotId) const
 
 QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
 {
-    // Batch-load all shots in one pass (avoids per-shot QVariantMap conversion)
-    QList<ShotRecord> shots = m_storage->getShotsForComparison(shotIds);
+    return generateComparisonPage(m_storage->getShotsForComparison(shotIds));
+}
 
+QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
+{
     if (shots.size() < 2) {
         return QStringLiteral("<!DOCTYPE html><html><body>Not enough valid shots to compare</body></html>");
     }
@@ -3062,15 +3097,22 @@ QString ShotServer::generateComparisonPage(const QList<qint64>& shotIds) const
         }
         function fetchPowerState() {
             fetch("/api/power/status")
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error (" + r.status + ")");
+                    return r.json();
+                })
                 .then(function(data) { powerState = data; updatePowerButton(); })
                 .catch(function() {});
         }
         function togglePower() {
             var action = powerState.awake ? "sleep" : "wake";
             fetch("/api/power/" + action)
-                .then(function(r) { return r.json(); })
-                .then(function() { setTimeout(fetchPowerState, 1000); });
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error (" + r.status + ")");
+                    return r.json();
+                })
+                .then(function() { setTimeout(fetchPowerState, 1000); })
+                .catch(function(e) { console.warn("togglePower:", e.message); });
         }
         fetchPowerState();
         var pwrTimer3 = setInterval(fetchPowerState, 5000);
@@ -3582,7 +3624,10 @@ R"HTML(        /* --- Memory section --- */
 
         function fetchLogs() {
             fetch("/api/debug?after=" + lastIndex)
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error("Server error (" + r.status + ")");
+                    return r.json();
+                })
                 .then(function(data) {
                     if (data.lines && data.lines.length > 0) {
                         var html = "";
@@ -3596,7 +3641,8 @@ R"HTML(        /* --- Memory section --- */
                     }
                     lastIndex = data.lastIndex;
                     lineCountEl.textContent = lastIndex + " lines";
-                });
+                })
+                .catch(function(e) { console.warn("fetchLogs:", e.message); });
         }
 
         function toggleAutoScroll() {

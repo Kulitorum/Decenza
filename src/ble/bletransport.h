@@ -65,6 +65,7 @@ private slots:
 
 private:
     void log(const QString& message);
+    void warn(const QString& message);
     bool setupController(const QBluetoothDeviceInfo& device);
     void setupService();
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);

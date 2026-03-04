@@ -557,6 +557,7 @@ QString ShotServer::generateSettingsPage() const
         async function loadSettings() {
             try {
                 const resp = await fetch('/api/settings');
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const data = await resp.json();
 
                 document.getElementById('visualizerUsername').value = data.visualizerUsername || '';
@@ -661,6 +662,7 @@ QString ShotServer::generateSettingsPage() const
                         visualizerPassword: document.getElementById('visualizerPassword').value
                     })
                 });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('visualizerStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
             } catch (e) { showSectionStatus('visualizerStatus', 'Network error', true); }
@@ -679,6 +681,7 @@ QString ShotServer::generateSettingsPage() const
                         password: document.getElementById('visualizerPassword').value
                     })
                 });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('visualizerStatus', r.message, !r.success);
             } catch (e) { showSectionStatus('visualizerStatus', 'Network error', true); }
@@ -704,6 +707,7 @@ QString ShotServer::generateSettingsPage() const
                         ollamaModel: document.getElementById('ollamaModel').value
                     })
                 });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('aiStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
             } catch (e) { showSectionStatus('aiStatus', 'Network error', true); }
@@ -728,6 +732,7 @@ QString ShotServer::generateSettingsPage() const
                         ollamaModel: document.getElementById('ollamaModel').value
                     })
                 });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('aiStatus', r.message, !r.success);
             } catch (e) { showSectionStatus('aiStatus', 'Network error', true); }
@@ -755,6 +760,7 @@ QString ShotServer::generateSettingsPage() const
                         mqttHomeAssistantDiscovery: document.getElementById('mqttHomeAssistantDiscovery').checked
                     })
                 });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 showSectionStatus('mqttStatusText', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
             } catch (e) { showSectionStatus('mqttStatusText', 'Network error', true); }
@@ -791,6 +797,7 @@ QString ShotServer::generateSettingsPage() const
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
                 if (!r.success) {
                     updateMqttStatusUI(wasConnect ? false : true,
@@ -808,8 +815,9 @@ QString ShotServer::generateSettingsPage() const
             btn.disabled = true; btn.textContent = 'Publishing...';
             try {
                 const resp = await fetch('/api/settings/mqtt/publish-discovery', { method: 'POST' });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
                 const r = await resp.json();
-                btn.textContent = (resp.ok && r.success) ? 'Published!' : 'Failed';
+                btn.textContent = r.success ? 'Published!' : 'Failed';
                 setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000);
             } catch (e) { btn.textContent = 'Failed'; setTimeout(() => { btn.textContent = 'Publish Discovery'; }, 2000); }
             btn.disabled = false;

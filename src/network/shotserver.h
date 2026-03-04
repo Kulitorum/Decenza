@@ -20,6 +20,7 @@
 #include <memory>
 
 class ShotHistoryStorage;
+struct ShotRecord;
 class DE1Device;
 class MachineState;
 class ScreensaverVideoManager;
@@ -118,8 +119,11 @@ private:
     QString getLocalIpAddress() const;
     QString generateIndexPage() const;
     QString generateShotListPage() const;
+    QString generateShotListPage(const QVariantList& shots) const;
     QString generateShotDetailPage(qint64 shotId) const;
+    QString generateShotDetailPage(qint64 shotId, const QVariantMap& shot) const;
     QString generateComparisonPage(const QList<qint64>& shotIds) const;
+    QString generateComparisonPage(const QList<ShotRecord>& shots) const;
     QString generateDebugPage() const;
     QString generateUploadPage() const;
     void handleUpload(QTcpSocket* socket, const QByteArray& request);

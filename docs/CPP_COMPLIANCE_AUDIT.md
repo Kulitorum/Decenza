@@ -109,17 +109,22 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 
 ### 3b. ShotServer synchronous DB calls in HTTP handlers
 
-`ShotServer` lives on the main thread (created in `MainController` constructor). All request handlers block the main thread:
+`ShotServer` lives on the main thread (created in `MainController` constructor). All request handlers were blocking the main thread.
 
-- [ ] `src/network/shotserver.cpp:887` — `getShot()` in profile.json download handler
-- [ ] `src/network/shotserver.cpp:916` — `getShots(0, 1000)` in `/api/shots` handler
-- [ ] `src/network/shotserver.cpp:945` — `updateShotMetadata()` in POST handler
-- [ ] `src/network/shotserver.cpp:955` — `getShot()` in GET `/api/shot/:id` handler
-- [ ] `src/network/shotserver.cpp:973` — `deleteShot()` in a loop in batch delete handler
-- [ ] `src/network/shotserver.cpp:980` — `checkpoint()` + `sendFile()` blocks while reading entire DB file
-- [ ] `src/network/shotserver.cpp:1355` — `createBackup()` + `sendFile()` in backup download handler
-- [ ] `src/network/shotserver_shots.cpp:48` — `getShots(0, 1000)` in `generateShotListPage()`
-- [ ] `src/network/shotserver_shots.cpp:1048` — `getShot()` in `generateShotDetailPage()`
+**Fixed (cpp-compliance-audit):** Converted all route handlers to use `QThread::create()` + `QPointer<QTcpSocket>` + `QMetaObject::invokeMethod` pattern:
+
+- [x] `src/network/shotserver.cpp` — `getShot()` in profile.json download handler → background thread with `loadShotRecordStatic()`
+- [x] `src/network/shotserver.cpp` — `getShots(0, 1000)` in `/api/shots` handler → background thread with inline SQL
+- [x] `src/network/shotserver.cpp` — `updateShotMetadata()` in POST handler → background thread with inline SQL
+- [x] `src/network/shotserver.cpp` — `getShot()` in GET `/api/shot/:id` handler → background thread with `loadShotRecordStatic()`
+- [x] `src/network/shotserver.cpp` — `deleteShot()` in batch delete handler → background thread with inline SQL
+- [x] `src/network/shotserver.cpp` — `checkpoint()` + `sendFile()` in DB download → background thread
+- [x] `src/network/shotserver.cpp` — `createBackup()` + `sendFile()` in backup download → background thread with `createBackupStatic()`
+- [x] `src/network/shotserver.cpp` — Shot list page route → background thread for data fetch
+- [x] `src/network/shotserver.cpp` — Shot detail page route → background thread with `loadShotRecordStatic()`
+- [x] `src/network/shotserver.cpp` — Comparison page route → background thread with `loadShotRecordStatic()` loop
+
+**Note:** `generateShotListPage()`, `generateShotDetailPage()`, and `generateComparisonPage()` now have overloads accepting pre-fetched data. The sync overloads remain for backward compatibility but route handlers use the async path.
 
 **Note:** `shotserver_backup.cpp:479` correctly uses `QThread::create()` for its WAL checkpoint — not a violation.
 
@@ -151,44 +156,44 @@ CLAUDE.md: "Every `fetch()` must have a `.catch()` handler. Never leave a fetch 
 
 All in `src/network/shotserver_shots.cpp`:
 
-- [ ] Line 1026 — `togglePower()` (shot list page) — no `.catch()`
-- [ ] Line 2112 — `togglePower()` (shot detail page) — no `.catch()` (duplicate)
-- [ ] Line 3071 — `togglePower()` (comparison page) — no `.catch()` (duplicate)
-- [ ] Line 3248 — `fetchLogs()` — no `.catch()`
-- [ ] Line 3275 — `clearLog()` — no `.catch()`
-- [ ] Line 3284 — `clearAll()` — no `.catch()`
-- [ ] Line 3310 — `loadPersistedLog()` — no `.catch()`
+- [x] Line 1026 — `togglePower()` (shot list page) — added `.catch()` *(fixed in cpp-compliance-audit)*
+- [x] Line 2112 — `togglePower()` (shot detail page) — added `.catch()` *(fixed in cpp-compliance-audit)*
+- [x] Line 3071 — `togglePower()` (comparison page) — added `.catch()` *(fixed in cpp-compliance-audit)*
+- [x] Line 3584 — `fetchLogs()` — added `.catch()` *(fixed in cpp-compliance-audit)*
+- [x] Line 3275 — `clearLog()` — already had `.catch()` (audit was stale)
+- [x] Line 3284 — `clearAll()` — already had `.catch()` (audit was stale)
+- [x] Line 3310 — `loadPersistedLog()` — already had `.catch()` (audit was stale)
 
 ### 4b. Missing `r.ok` check before `.json()`
 
 CLAUDE.md: "Check `r.ok` before `r.json()` in fetch chains. Non-2xx responses with non-JSON bodies will throw on `.json()` and produce a misleading error."
 
-**In `src/network/shotserver_shots.cpp`:**
+**In `src/network/shotserver_shots.cpp`:** *(all fixed in cpp-compliance-audit)*
 
-- [ ] Line 705 — `deleteSelected()` — `resp.json()` without `r.ok` check
-- [ ] Line 845 — `loadSavedSearches()` — `r.json()` without `r.ok` check
-- [ ] Line 858 — `saveSearch()` — `r.json()` without `r.ok` check
-- [ ] Line 873 — `deleteSavedSearch()` — `r.json()` without `r.ok` check
-- [ ] Line 1018 — `fetchPowerState()` (shot list) — `r.json()` without `r.ok` check
-- [ ] Line 1026 — `togglePower()` (shot list) — `r.json()` without `r.ok` check
-- [ ] Line 1766 — metadata save (shot detail) — `r.json()` without `r.ok` check
-- [ ] Line 2105 — `fetchPowerState()` (shot detail) — `r.json()` without `r.ok` check (duplicate)
-- [ ] Line 2112 — `togglePower()` (shot detail) — `r.json()` without `r.ok` check (duplicate)
-- [ ] Line 3064 — `fetchPowerState()` (comparison) — `r.json()` without `r.ok` check (duplicate)
-- [ ] Line 3071 — `togglePower()` (comparison) — `r.json()` without `r.ok` check (duplicate)
-- [ ] Line 3248 — `fetchLogs()` — `r.json()` without `r.ok` check
-- [ ] Line 3310 — `loadPersistedLog()` — `r.json()` without `r.ok` check
+- [x] Line 705 — `deleteSelected()` — added `r.ok` check
+- [x] Line 845 — `loadSavedSearches()` — added `r.ok` check
+- [x] Line 858 — `saveSearch()` — added `r.ok` check
+- [x] Line 873 — `deleteSavedSearch()` — added `r.ok` check
+- [x] Line 1018 — `fetchPowerState()` (shot list) — added `r.ok` check
+- [x] Line 1026 — `togglePower()` (shot list) — added `r.ok` check
+- [x] Line 1766 — metadata save (shot detail) — added `r.ok` check
+- [x] Line 2105 — `fetchPowerState()` (shot detail) — added `r.ok` check
+- [x] Line 2112 — `togglePower()` (shot detail) — added `r.ok` check
+- [x] Line 3064 — `fetchPowerState()` (comparison) — added `r.ok` check
+- [x] Line 3071 — `togglePower()` (comparison) — added `r.ok` check
+- [x] Line 3584 — `fetchLogs()` — added `r.ok` check
+- [x] Line 3310 — `loadPersistedLog()` — already had `r.ok` check (audit was stale)
 
-**In `src/network/shotserver_settings.cpp`:**
+**In `src/network/shotserver_settings.cpp`:** *(all fixed in cpp-compliance-audit)*
 
-- [ ] Line 559 — `loadSettings()` — `await resp.json()` without `resp.ok` check (has try/catch but no HTTP status check)
-- [ ] Line 656 — `saveVisualizer()` — `await resp.json()` without `resp.ok` check
-- [ ] Line 674 — `testVisualizer()` — `await resp.json()` without `resp.ok` check
-- [ ] Line 693 — `saveAi()` — `await resp.json()` without `resp.ok` check
-- [ ] Line 717 — `testAi()` — `await resp.json()` without `resp.ok` check
-- [ ] Line 742 — `saveMqtt()` — `await resp.json()` without `resp.ok` check
-- [ ] Line 789 — `connectMqtt()` — `await resp.json()` without `resp.ok` check
-- [ ] Line 810 — `publishDiscovery()` — `resp.ok` checked after `.json()`, not before (non-JSON error body would still throw)
+- [x] Line 559 — `loadSettings()` — added `resp.ok` check
+- [x] Line 656 — `saveVisualizer()` — added `resp.ok` check
+- [x] Line 674 — `testVisualizer()` — added `resp.ok` check
+- [x] Line 693 — `saveAi()` — added `resp.ok` check
+- [x] Line 717 — `testAi()` — added `resp.ok` check
+- [x] Line 742 — `saveMqtt()` — added `resp.ok` check
+- [x] Line 789 — `connectMqtt()` — added `resp.ok` check
+- [x] Line 810 — `publishDiscovery()` — moved `resp.ok` check before `.json()`
 
 **Compliant examples (for reference):**
 - `shotserver_shots.cpp:3293` — `downloadLog()` — correctly checks `r.ok` before `r.json()`
@@ -221,19 +226,19 @@ All scale implementations define a single LOG macro that maps everything (includ
 
 **Fix:** Add a `*_WARN` macro mapping to `qWarning()` for each scale, or use dual macros (`*_LOG` / `*_ERR`).
 
-### 5b. BLE write timeout has zero logging (`bletransport.cpp`)
+### 5b. BLE write timeout logging uses `qDebug` instead of `qWarning` (`bletransport.cpp`)
 
-CLAUDE.md documents these specific log messages:
-```
-DE1Device: BLE write TIMEOUT after 5000 ms - uuid: 0000a00f data: 0102...
-DE1Device: Retrying after timeout (1/3)
-DE1Device: Write FAILED (timeout) after 3 retries - uuid: 0000a00f data: 0102...
-```
+**Note:** The original audit was stale — logging IS present via `log()` calls (e.g., "Write timeout, retrying 1/3", "Write FAILED after 3 retries", "!!! CONTROLLER ERROR: ... !!!"). However, `log()` routed all messages through `qDebug()`.
 
-**None of these messages exist in the code.** The timeout lambda (`src/ble/bletransport.cpp:92-108`) and errorOccurred handler (`src/ble/bletransport.cpp:303-335`) contain no `qDebug()` or `qWarning()` calls at all.
+**Fix applied (cpp-compliance-audit):** Added `warn()` method using `qWarning()` and switched all error paths to use it:
 
-- [ ] `src/ble/bletransport.cpp:92-108` — Timeout lambda: no logging on timeout, retry, or max-retry-failure
-- [ ] `src/ble/bletransport.cpp:303-335` — `onControllerError()`: emits signal but no `qWarning()` log
+- [x] `src/ble/bletransport.cpp` — Write FAILED after retries: `log()` → `warn()`
+- [x] `src/ble/bletransport.cpp` — `onControllerError()`: `log()` → `warn()`
+- [x] `src/ble/bletransport.cpp` — CharacteristicWriteError FAILED: `log()` → `warn()`
+- [x] `src/ble/bletransport.cpp` — createServiceObject null: `log()` → `warn()`
+- [x] `src/ble/bletransport.cpp` — Failed to create BLE controller: `log()` → `warn()`
+- [x] `src/ble/bletransport.cpp` — Retry abandoned: `log()` → `warn()`
+- [x] `src/ble/bletransport.cpp` — subscribe FAILED (CCCD not found): `log()` → `warn()`
 
 ### 5c. Scale connection timeout uses `qDebug` not `qWarning`
 
@@ -267,10 +272,11 @@ These are not rule violations but reduce code maintainability.
 
 | Priority | Category | Count | Section | Status |
 |----------|----------|-------|---------|--------|
-| **High** | Main-thread I/O | 30+ methods, 6 call sites | 3 | Open |
-| **High** | ShotServer JS fetch missing `.catch()` | 7 | 4a | Open |
-| **High** | ShotServer JS fetch missing `r.ok` check | 21 | 4b | Open |
-| **High** | BLE write timeout has zero logging | 2 handlers | 5b | Open |
+| **High** | Main-thread I/O (ShotServer) | 10 call sites | 3b | **Fixed** |
+| **High** | Main-thread I/O (remaining) | 3c-3e | 3a,3c,3d,3e | Open |
+| **High** | ShotServer JS fetch missing `.catch()` | 7 | 4a | **Fixed** |
+| **High** | ShotServer JS fetch missing `r.ok` check | 21 | 4b | **Fixed** |
+| **High** | BLE write timeout logging level | 7 paths | 5b | **Fixed** |
 | **Medium** | Timer as guard/workaround | 9 instances | 2 | Open |
 | **Medium** | Scale LOG macros route errors to `qDebug()` | 10 files | 5a | Open |
 | **Medium** | Scale connection timeout uses `qDebug` | 1 | 5c | Open |
