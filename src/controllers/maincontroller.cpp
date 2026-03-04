@@ -3343,10 +3343,14 @@ void MainController::onScaleWeightChanged(double weight) {
     // during espresso extraction to validate puck absorption model.
     // Disabled when a physical BT scale is connected - the comparison logging is not needed
     // and running it at 5Hz on the main thread adds load on slow devices.
+    // Also disabled in simulator mode - SimulatedScale isn't a BT scale so btScaleConnected
+    // would be false, but FlowScale never receives flow samples there (raw/est always 0).
     bool btScaleConnected = m_bleManager && m_bleManager->scaleDevice() &&
                             m_bleManager->scaleDevice()->isConnected();
+    bool simulatorScaleActive = m_machineState->scale() &&
+                                m_machineState->scale()->type() == "simulated";
     if (m_flowScale && m_extractionStarted && m_settings && m_settings->useFlowScale() &&
-        !btScaleConnected) {
+        !btScaleConnected && !simulatorScaleActive) {
         MachineState::Phase phase = m_machineState->phase();
         if (phase == MachineState::Phase::Preinfusion ||
             phase == MachineState::Phase::Pouring ||

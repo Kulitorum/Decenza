@@ -33,8 +33,9 @@ class Settings;
 // we commanded). If we have told the DE1 to enable its USB port but Android reports
 // the tablet is still DISCHARGING, that means the DE1's port isn't delivering power —
 // likely because the DE1 went to sleep and cut the port, or a BLE write silently failed.
-// We act on the very first failed 60-second check — 60 s is already more than enough
-// time for the BLE command → DE1 → USB port → Android battery intent round trip.
+// We retry the BLE command immediately but wait for 5 consecutive failed 60-second
+// checks (~5 min) before alerting the user, since the DE1 can temporarily cut USB
+// power for its own hardware needs (e.g. during preheating).
 
 class BatteryManager : public QObject {
     Q_OBJECT
@@ -93,7 +94,7 @@ signals:
     void chargingModeChanged();
 
     // Emitted when we have commanded the DE1 USB port ON but Android has reported
-    // DISCHARGING (port not delivering power) on the first 60-second check after enabling.
+    // DISCHARGING (port not delivering power) for 5 consecutive 60-second checks (~5 min).
     // Connect in QML to show the user a visible warning.
     void chargingMismatchDetected();
 
