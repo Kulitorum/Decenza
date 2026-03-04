@@ -272,17 +272,24 @@ These are not rule violations but reduce code maintainability.
 
 | Priority | Category | Count | Section | Status |
 |----------|----------|-------|---------|--------|
-| **High** | Main-thread I/O (ShotServer) | 10 call sites | 3b | **Fixed** |
-| **High** | Main-thread I/O (remaining) | 3c-3e | 3a,3c,3d,3e | Open |
-| **High** | ShotServer JS fetch missing `.catch()` | 7 | 4a | **Fixed** |
-| **High** | ShotServer JS fetch missing `r.ok` check | 21 | 4b | **Fixed** |
-| **High** | BLE write timeout logging level | 7 paths | 5b | **Fixed** |
-| **Medium** | Timer as guard/workaround | 9 instances | 2 | Open |
+| **High** | Main-thread I/O (QML-facing) | 3 callers | 3c,3d,3e | Open |
+| **High** | Timer as guard/workaround | 9 instances | 2 | Open |
+| **High** | Main-thread I/O (sync Q_INVOKABLEs) | 30+ methods | 3a | Open |
+| **Medium** | Main-thread I/O (ShotServer) | 10 call sites | 3b | **Fixed** |
 | **Medium** | Scale LOG macros route errors to `qDebug()` | 10 files | 5a | Open |
 | **Medium** | Scale connection timeout uses `qDebug` | 1 | 5c | Open |
+| **Low** | ShotServer JS fetch missing `.catch()` | 7 | 4a | **Fixed** |
+| **Low** | ShotServer JS fetch missing `r.ok` check | 21 | 4b | **Fixed** |
+| **Low** | BLE write timeout logging level | 7 paths | 5b | **Fixed** |
 | **Low** | Slot naming convention | ~20 slots across 11 files | 1a | Open |
 | **Low** | Class naming (USBManager) | 1 | 1b | Open |
 | **Low** | Member variable missing `m_` prefix | 1 | 1c | Open |
 | **Low** | Class/filename spelling inconsistency | 1 | 1d | Open |
 | **Low** | Dead / commented-out code | 3 areas | 6 | Open |
 | **Low** | Commented-out log statement | 1 | 5d | Open |
+
+### Priority rationale
+
+- **High = directly affects primary touch UI.** Sections 3c-3e block the QML UI thread during user interactions (loading shots, calibration, AI queries). Section 2 timer guards cause real bugs on slow devices — CLAUDE.md says "never" for a reason.
+- **Medium = affects secondary interfaces or developer experience.** ShotServer async (3b) only stalls when the web UI is open. Scale log macros (5a) affect debugging on real hardware.
+- **Low = correctness improvements with minimal user impact.** JS fetch fixes protect against edge cases on a localhost server. BLE log levels and naming conventions are hygiene.
