@@ -11,7 +11,8 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
 {
     loadSettings();
     initTts();
-    initTickSound();
+    if (m_enabled && m_tickEnabled)
+        initTickSound();
 }
 
 AccessibilityManager::~AccessibilityManager()
@@ -164,6 +165,9 @@ void AccessibilityManager::setTickSoundIndex(int index)
     saveSettings();
     emit tickSoundIndexChanged();
 
+    if (!m_tickSounds[0])
+        initTickSound();
+
     // Play the selected sound immediately (all sounds are pre-loaded)
     int idx = index - 1;
     if (idx >= 0 && idx < 4 && m_tickSounds[idx] && m_tickSounds[idx]->status() == QSoundEffect::Ready) {
@@ -264,6 +268,9 @@ void AccessibilityManager::announceLabel(const QString& text)
 void AccessibilityManager::playTick()
 {
     if (m_shuttingDown || !m_enabled || !m_tickEnabled) return;
+
+    if (!m_tickSounds[0])
+        initTickSound();
 
     int idx = m_tickSoundIndex - 1;  // Convert 1-4 to 0-3
     if (idx >= 0 && idx < 4 && m_tickSounds[idx] && m_tickSounds[idx]->status() == QSoundEffect::Ready) {

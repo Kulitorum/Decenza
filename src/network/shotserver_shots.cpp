@@ -3626,16 +3626,15 @@ R"HTML(        /* --- Memory section --- */
         }
 
         function downloadLog() {
-            fetch("/api/debug/file")
+            fetch("/api/debug/file/zip")
                 .then(function(r) {
                     if (!r.ok) throw new Error("Server error " + r.status);
-                    return r.json();
+                    return r.blob();
                 })
-                .then(function(data) {
-                    var blob = new Blob([data.log || ""], {type: "text/plain"});
+                .then(function(blob) {
                     var a = document.createElement("a");
                     a.href = URL.createObjectURL(blob);
-                    a.download = "debug.log";
+                    a.download = "debug.zip";
                     a.click();
                     URL.revokeObjectURL(a.href);
                 })
