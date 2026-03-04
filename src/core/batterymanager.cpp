@@ -1,4 +1,5 @@
 #include "batterymanager.h"
+#include "memorymonitor.h"
 #include "settings.h"
 #include "../ble/de1device.h"
 #include <QDebug>
@@ -111,7 +112,16 @@ void BatteryManager::setChargingMode(int mode) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::checkBattery() {
+    qint64 heapBefore = MemoryMonitor::readJavaHeapUsed();
+
     int newPercent = readPlatformBatteryPercent();
+
+    qint64 heapAfter = MemoryMonitor::readJavaHeapUsed();
+    qint64 delta = heapAfter - heapBefore;
+    if (delta != 0) {
+        qDebug("[JavaHeap-BatteryMgr] readBattery delta=%+.1f KB (now=%.2f MB)",
+               delta / 1024.0, heapAfter / (1024.0 * 1024.0));
+    }
 
     if (newPercent != m_batteryPercent) {
         m_batteryPercent = newPercent;

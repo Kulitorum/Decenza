@@ -32,6 +32,25 @@ MemoryMonitor::MemoryMonitor(QObject* parent)
     connect(&m_timer, &QTimer::timeout, this, &MemoryMonitor::takeSample);
     m_timer.start();
 
+#ifdef Q_OS_ANDROID
+    // Fast Java heap delta logger — 10s interval gives ~6× better resolution than
+    // the main 60s sample. Logs only when Java heap has changed, so idle periods
+    // with no allocations produce no output. This is temporary debugging to find
+    // the source of ~0.6 MB/min idle Java heap growth.
+    m_lastJavaHeapBytes = readJavaHeapUsed();
+    m_javaHeapTimer.setInterval(10000);
+    connect(&m_javaHeapTimer, &QTimer::timeout, this, [this]() {
+        qint64 now = readJavaHeapUsed();
+        qint64 delta = now - m_lastJavaHeapBytes;
+        if (delta != 0) {
+            qDebug("[JavaHeap-10s] used=%.2f MB  delta=%+.1f KB",
+                   now / (1024.0 * 1024.0), delta / 1024.0);
+        }
+        m_lastJavaHeapBytes = now;
+    });
+    m_javaHeapTimer.start();
+#endif
+
     // Take initial sample
     takeSample();
 }
@@ -85,6 +104,20 @@ void MemoryMonitor::takeSample()
 #endif
 
     emit sampleTaken();
+}
+
+qint64 MemoryMonitor::readJavaHeapUsed()
+{
+#ifdef Q_OS_ANDROID
+    QJniObject runtime = QJniObject::callStaticObjectMethod(
+        "java/lang/Runtime", "getRuntime", "()Ljava/lang/Runtime;");
+    if (runtime.isValid()) {
+        jlong total = runtime.callMethod<jlong>("totalMemory");
+        jlong free  = runtime.callMethod<jlong>("freeMemory");
+        return static_cast<qint64>(total - free);
+    }
+#endif
+    return 0;
 }
 
 quint64 MemoryMonitor::readRss() const
