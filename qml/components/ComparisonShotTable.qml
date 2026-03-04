@@ -34,9 +34,13 @@ ColumnLayout {
             case "rating":    return (info.enjoyment || 0) + "%"
             case "bean": {
                 var bean = (info.beanBrand || "") + (info.beanType ? " " + info.beanType : "")
-                var grind = info.grinderSetting || ""
-                if (bean && grind) return bean + " (" + grind + ")"
-                return bean || (grind ? "(" + grind + ")" : "\u2014")
+                return bean || "\u2014"
+            }
+            case "grind": {
+                var grinder = info.grinderModel || ""
+                var setting = info.grinderSetting || ""
+                if (grinder && setting) return grinder + " @ " + setting
+                return grinder || setting || "\u2014"
             }
             case "roast": {
                 var parts = []
@@ -77,6 +81,7 @@ ColumnLayout {
         { key: "ratio",    label: "Ratio"     },
         { key: "rating",   label: "Rating"    },
         { key: "bean",     label: "Bean"      },
+        { key: "grind",   label: "Grinder"   },
         { key: "roast",    label: "Roast"     },
         { key: "tdsEy",    label: "TDS/EY"   },
         { key: "barista",  label: "Barista"   },
