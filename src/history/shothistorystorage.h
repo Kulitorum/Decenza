@@ -208,6 +208,9 @@ public:
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
 
+    // Convert ShotRecord to QVariantMap (shared by getShot, requestShot, ShotServer, AIManager)
+    static QVariantMap convertShotRecord(const ShotRecord& record);
+
     // Thread-safe shot save: opens a temporary connection, does all INSERTs + WAL checkpoint.
     // Safe to call from any thread (does not use m_db). Returns shotId or -1 on failure.
     static qint64 saveShotStatic(const QString& dbPath, const ShotSaveData& data);
@@ -358,9 +361,6 @@ private:
                                           const QVariantMap& filter);
     // Helper to apply smart sorting for grinder settings
     void sortGrinderSettings(QStringList& settings);
-
-    // Convert ShotRecord to QVariantMap (shared by getShot, requestShot, and ShotServer)
-    static QVariantMap convertShotRecord(const ShotRecord& record);
 
     // Backfill beverage_type from profile_json for existing rows
     void backfillBeverageType();
