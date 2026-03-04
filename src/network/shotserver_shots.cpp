@@ -2994,7 +2994,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
         });
 
         // === Power toggle ===
-)HTML";
+)HTML");
     html += WEB_JS_POWER_CONTROL;
     html += R"HTML(
 
