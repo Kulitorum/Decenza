@@ -727,7 +727,16 @@ void MachineState::tareScale() {
         // (e.g., scale disconnects, or tare fails). Forcing tareCompleted=true
         // on timeout is an intentional trade-off: proceeding with potentially
         // untared weight is less harmful than permanently blocking SAW for the shot.
-        QTimer::singleShot(6000, this, [this]() {
+        // Uses a named timer so a second tareScale() call cancels the first timeout,
+        // preventing spurious tareCompleted() from stale timers.
+        if (m_tareTimeoutTimer) {
+            m_tareTimeoutTimer->stop();
+            m_tareTimeoutTimer->deleteLater();
+        }
+        m_tareTimeoutTimer = new QTimer(this);
+        m_tareTimeoutTimer->setSingleShot(true);
+        connect(m_tareTimeoutTimer, &QTimer::timeout, this, [this]() {
+            m_tareTimeoutTimer = nullptr;
             if (m_waitingForTare) {
                 qWarning() << "Tare timeout: scale didn't report ~0g within 6s";
                 m_waitingForTare = false;
@@ -735,6 +744,7 @@ void MachineState::tareScale() {
                 emit tareCompleted();
             }
         });
+        m_tareTimeoutTimer->start(6000);
     }
 }
 
