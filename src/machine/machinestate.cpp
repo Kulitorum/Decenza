@@ -427,11 +427,8 @@ void MachineState::onScaleWeightChanged(double weight) {
     if (m_waitingForTare && qAbs(weight) < 1.0) {
         m_waitingForTare = false;
         m_tareCompleted = true;
-        if (m_tareTimeoutTimer) {
+        if (m_tareTimeoutTimer)
             m_tareTimeoutTimer->stop();
-            delete m_tareTimeoutTimer;
-            m_tareTimeoutTimer = nullptr;
-        }
         emit tareCompleted();
     }
 
@@ -732,24 +729,25 @@ void MachineState::tareScale() {
         // (e.g., scale disconnects, or tare fails). Forcing tareCompleted=true
         // on timeout is an intentional trade-off: proceeding with potentially
         // untared weight is less harmful than permanently blocking SAW for the shot.
-        // Uses a named timer so a second tareScale() call cancels the first timeout,
-        // preventing spurious tareCompleted() from stale timers.
-        if (m_tareTimeoutTimer) {
-            m_tareTimeoutTimer->stop();
-            delete m_tareTimeoutTimer;
+        // Created once and reused — start() auto-cancels any pending timeout.
+        if (!m_tareTimeoutTimer) {
+            m_tareTimeoutTimer = new QTimer(this);
+            m_tareTimeoutTimer->setSingleShot(true);
+            m_tareTimeoutTimer->setInterval(6000);
+            connect(m_tareTimeoutTimer, &QTimer::timeout, this, [this]() {
+                // m_waitingForTare is cleared by onScaleWeightChanged() when tare
+                // succeeds before timeout — this guard prevents spurious tareCompleted().
+                if (m_waitingForTare) {
+                    qWarning() << "Tare timeout: scale didn't report ~0g within 6s";
+                    m_waitingForTare = false;
+                    m_tareCompleted = true;
+                    emit tareCompleted();
+                }
+            });
+        } else {
+            qDebug() << "=== TARE: Cancelling previous tare timeout (re-tare requested) ===";
         }
-        m_tareTimeoutTimer = new QTimer(this);
-        m_tareTimeoutTimer->setSingleShot(true);
-        connect(m_tareTimeoutTimer, &QTimer::timeout, this, [this]() {
-            m_tareTimeoutTimer = nullptr;
-            if (m_waitingForTare) {
-                qWarning() << "Tare timeout: scale didn't report ~0g within 6s";
-                m_waitingForTare = false;
-                m_tareCompleted = true;
-                emit tareCompleted();
-            }
-        });
-        m_tareTimeoutTimer->start(6000);
+        m_tareTimeoutTimer->start();
     }
 }
 
