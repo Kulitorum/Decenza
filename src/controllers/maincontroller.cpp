@@ -3347,7 +3347,7 @@ void MainController::onScaleWeightChanged(double weight) {
     // would be false, but FlowScale never receives flow samples there (raw/est always 0).
     bool btScaleConnected = m_bleManager && m_bleManager->scaleDevice() &&
                             m_bleManager->scaleDevice()->isConnected();
-    bool simulatorScaleActive = m_machineState && m_machineState->scale() &&
+    bool simulatorScaleActive = m_machineState->scale() &&
                                 m_machineState->scale()->type() == "simulated";
     if (m_flowScale && m_extractionStarted && m_settings && m_settings->useFlowScale() &&
         !btScaleConnected && !simulatorScaleActive) {

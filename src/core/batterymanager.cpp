@@ -371,17 +371,19 @@ void BatteryManager::applySmartCharging() {
         const bool androidDischarging = (m_androidBatteryStatus == 3);
         const bool portActuallyOff = androidDischarging || (m_androidPlugged == 0);
 
+        constexpr int kMismatchAlertThreshold = 5;  // ~5 min at 60s intervals
+
         if (shouldChargerBeOn && portActuallyOff) {
             m_chargingMismatchCount++;
 
             // Retry the BLE command every cycle while the mismatch persists.
             m_device->setUsbChargerOn(true, true);
 
-            if (m_chargingMismatchCount < 5) {
+            if (m_chargingMismatchCount < kMismatchAlertThreshold) {
                 // Transient or DE1-initiated — log but don't alert yet.
                 qWarning() << "BatteryManager: charger ON but port not delivering power"
                            << "(battery=" << m_batteryPercent << "%, cycle"
-                           << m_chargingMismatchCount << "of 5). Retrying.";
+                           << m_chargingMismatchCount << "of" << kMismatchAlertThreshold << "). Retrying.";
             } else {
                 // 5+ consecutive minutes with no USB power — alert the user.
                 qWarning() << "BatteryManager: ALERT - DE1 USB power mismatch for"

@@ -29,26 +29,43 @@ void WeightProcessor::processWeight(double weight)
     // Fix: detect batching (gap < 20ms) and assign synthetic timestamps spaced by
     // the calibrated scale interval. Non-batched events calibrate the interval via
     // exponential moving average, so this adapts to any scale rate (10Hz, 5Hz, 2Hz).
+    constexpr qint64 kBatchThresholdMs = 20;    // Below this, events are batched
+    constexpr qint64 kReconnectGapMs = 2000;    // Above this, ignore as reconnect
+    constexpr double kEmaAlpha = 0.3;           // Smoothing factor for interval estimate
+
     qint64 sinceLast = m_lastWallClockMs > 0 ? (wallClock - m_lastWallClockMs) : -1;
     m_lastWallClockMs = wallClock;
 
     qint64 sampleTs;
-    if (sinceLast < 0 || sinceLast > 20) {
+    if (sinceLast < 0 || sinceLast > kBatchThresholdMs) {
         // First call or non-batched: use wall-clock, and calibrate interval estimate
         sampleTs = wallClock;
-        if (sinceLast > 20 && sinceLast < 2000) {
-            // EMA with alpha=0.3 for smooth calibration (ignores gaps > 2s as reconnects)
+        // Ensure monotonicity: a batch may have pushed synthetic timestamps ahead of
+        // wall-clock. Clamping prevents LSLR from seeing non-monotonic time data.
+        if (m_lastSampleTs > 0 && sampleTs < m_lastSampleTs) {
+            qDebug() << "[SAW-Worker] De-jitter: wall-clock" << wallClock
+                     << "behind last synthetic" << m_lastSampleTs
+                     << "— clamping to preserve monotonicity";
+            sampleTs = m_lastSampleTs + 1;
+        }
+        if (sinceLast > kBatchThresholdMs && sinceLast < kReconnectGapMs) {
+            // EMA calibration (ignores gaps > 2s as reconnects)
             if (m_estimatedIntervalMs == 0)
-                m_estimatedIntervalMs = (int)sinceLast;
+                m_estimatedIntervalMs = static_cast<int>(sinceLast);
             else
-                m_estimatedIntervalMs = (int)(0.7 * m_estimatedIntervalMs + 0.3 * sinceLast);
+                m_estimatedIntervalMs = static_cast<int>((1.0 - kEmaAlpha) * m_estimatedIntervalMs + kEmaAlpha * sinceLast);
         }
     } else if (m_estimatedIntervalMs > 0) {
         // Batched (< 20ms since last) and calibrated: spread using estimated interval
         sampleTs = m_lastSampleTs + m_estimatedIntervalMs;
     } else {
-        // Batched but uncalibrated: use wall-clock (safe fallback, same as before)
+        // Batched but uncalibrated: use wall-clock (LSLR may see dt≈0 until calibrated)
         sampleTs = wallClock;
+        if (m_active && !m_uncalibratedBatchWarned) {
+            qWarning() << "[SAW-Worker] De-jitter: batched event before calibration"
+                       << "— LSLR may return 0 until a non-batched gap is observed";
+            m_uncalibratedBatchWarned = true;
+        }
     }
     m_lastSampleTs = sampleTs;
 
@@ -71,7 +88,7 @@ void WeightProcessor::processWeight(double weight)
     if (m_weightSamples.size() >= 3) {
         qint64 spanOf3 = m_weightSamples.last().timestamp
                          - m_weightSamples[m_weightSamples.size() - 3].timestamp;
-        shortWindowMs = qBound(500, (int)spanOf3 + 50, 1000);
+        shortWindowMs = qBound(500, static_cast<int>(spanOf3) + 50, 1000);
     }
     double flowRateShort = computeLSLR(shortWindowMs);
 
@@ -123,7 +140,11 @@ void WeightProcessor::processWeight(double weight)
     // Sanity check: unreasonable weight early in extraction (likely untared cup)
     if (m_extractionStartTime > 0) {
         double extractionTime = (wallClock - m_extractionStartTime) / 1000.0;
-        if (extractionTime < 3.0 && weight > 50.0) return;
+        if (extractionTime < 3.0 && weight > 50.0) {
+            qWarning() << "[SAW-Worker] Sanity check: weight" << weight
+                       << "g at" << extractionTime << "s into extraction — skipping SAW (likely untared cup)";
+            return;
+        }
     }
 
     // Stop-at-weight check (requires valid flow rate for drip prediction)
@@ -208,6 +229,7 @@ void WeightProcessor::startExtraction()
     m_lastLowFlowLogMs = 0;
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
+    m_uncalibratedBatchWarned = false;
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
 }
 
@@ -220,8 +242,8 @@ void WeightProcessor::stopExtraction()
     if (m_weightSamples.size() >= 3) {
         qint64 span = m_weightSamples.last().timestamp - m_weightSamples.first().timestamp;
         if (span > 0) {
-            double avgIntervalMs = span / (double)(m_weightSamples.size() - 1);
-            qDebug() << "[Weight-Worker] Scale interval: avg" << (int)avgIntervalMs << "ms"
+            double avgIntervalMs = span / static_cast<double>(m_weightSamples.size() - 1);
+            qDebug() << "[Weight-Worker] Scale interval: avg" << static_cast<int>(avgIntervalMs) << "ms"
                      << "(" << QString::number(1000.0 / avgIntervalMs, 'f', 1) << "Hz)"
                      << "over" << m_weightSamples.size() << "samples (last 1s)"
                      << "| de-jitter calibrated:" << m_estimatedIntervalMs << "ms";
