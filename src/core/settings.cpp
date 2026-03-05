@@ -21,6 +21,9 @@ Settings::Settings(QObject* parent)
     , m_settings("DecentEspresso", "DE1Qt")
     , m_use12HourTime(QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive))
 {
+    qDebug() << "Settings: system time format =" << QLocale::system().timeFormat(QLocale::ShortFormat)
+             << "-> use12HourTime =" << m_use12HourTime;
+
     // Initialize default pitcher presets if none exist
     if (!m_settings.contains("steam/pitcherPresets")) {
         QJsonArray defaultPresets;
