@@ -241,9 +241,6 @@ public:
 
     bool use12HourTime() const { return m_use12HourTime; }
 
-    // Time format string respecting OS 12h/24h preference (e.g., "HH:mm" or "h:mm AP")
-    QString timeFormat() const { return m_use12HourTime ? QStringLiteral("h:mm AP") : QStringLiteral("HH:mm"); }
-
     // Machine settings
     QString machineAddress() const;
     void setMachineAddress(const QString& address);
