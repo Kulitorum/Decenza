@@ -717,6 +717,30 @@ void MqttClient::publishHomeAssistantDiscovery()
         publishDiscoveryConfig("sensor", "state", config);
     }
 
+    // Phase sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Phase";
+        config["state_topic"] = baseTopic + "/phase";
+        config["icon"] = "mdi:coffee-maker-outline";
+        config["unique_id"] = QString("de1_%1_phase").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "phase", config);
+    }
+
+    // Substate sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Substate";
+        config["state_topic"] = baseTopic + "/substate";
+        config["icon"] = "mdi:information-outline";
+        config["unique_id"] = QString("de1_%1_substate").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "substate", config);
+    }
+
     // Head temperature sensor
     {
         QJsonObject config;
@@ -741,6 +765,20 @@ void MqttClient::publishHomeAssistantDiscovery()
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
         publishDiscoveryConfig("sensor", "temperature_mix", config);
+    }
+
+    // Steam temperature sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Steam Temperature";
+        config["state_topic"] = baseTopic + "/temperature/steam";
+        config["device_class"] = "temperature";
+        config["unit_of_measurement"] = "\u00B0C";
+        config["icon"] = "mdi:water-boiler";
+        config["unique_id"] = QString("de1_%1_temp_steam").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "temperature_steam", config);
     }
 
     // Pressure sensor
@@ -780,6 +818,20 @@ void MqttClient::publishHomeAssistantDiscovery()
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
         publishDiscoveryConfig("sensor", "weight", config);
+    }
+
+    // Target weight sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Target Weight";
+        config["state_topic"] = baseTopic + "/target_weight";
+        config["device_class"] = "weight";
+        config["unit_of_measurement"] = "g";
+        config["icon"] = "mdi:scale-balance";
+        config["unique_id"] = QString("de1_%1_target_weight").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "target_weight", config);
     }
 
     // Water level sensor
