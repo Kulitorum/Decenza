@@ -2,6 +2,7 @@
 #include "../history/shothistorystorage.h"
 
 #include <QDateTime>
+#include <QLocale>
 #include <QSqlDatabase>
 #include <QThread>
 #include <algorithm>
@@ -423,7 +424,8 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
 
     // Format date
     QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.timestamp);
-    result["dateTime"] = dt.toString("MMM d, HH:mm");
+    static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
+    result["dateTime"] = dt.toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm");
 
     // Ratio
     if (shot.doseWeight > 0) {

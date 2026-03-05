@@ -233,7 +233,7 @@ Rectangle {
             "%TARGET_WEIGHT%": "36.0", "%VOLUME%": "42",
             "%PROFILE%": "Profile", "%STATE%": "Idle",
             "%TARGET_TEMP%": "93.0", "%SCALE%": "Scale",
-            "%TIME%": Qt.formatTime(new Date(), "hh:mm"),
+            "%TIME%": Qt.formatTime(new Date(), Settings.use12HourTime ? "h:mmap" : "hh:mm"),
             "%DATE%": Qt.formatDate(new Date(), "yyyy-MM-dd"),
             "%RATIO%": "2.0", "%DOSE%": "18.0",
             "%CONNECTED%": "Online", "%CONNECTED_COLOR%": "",

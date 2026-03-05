@@ -29,6 +29,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QLocale>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QStandardPaths>
@@ -291,7 +292,8 @@ static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
         row["drinkTds"] = query.value(15).toDouble();
         row["drinkEy"] = query.value(16).toDouble();
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
-        row["dateTime"] = dt.toString("yyyy-MM-dd HH:mm");
+        static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
+        row["dateTime"] = dt.toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
         result.append(row);
     }
     return true;

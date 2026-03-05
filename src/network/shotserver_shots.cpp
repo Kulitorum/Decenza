@@ -22,6 +22,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QLocale>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QStandardPaths>
@@ -118,7 +119,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         rows += QString(R"HTML(
             <div class="shot-card" onclick="toggleSelect(%1, this)" data-id="%1"
                  data-profile="%2" data-brand="%3" data-coffee="%4" data-rating="%5"
-                 data-ratio="%6" data-duration="%7" data-date="%8" data-dose="%9" data-yield="%10"
+                 data-ratio="%6" data-duration="%7" data-date="%17" data-dose="%9" data-yield="%10"
                  data-tds="%15" data-ey="%16">
                 <a href="/shot/%1" onclick="event.stopPropagation()" style="text-decoration:none;color:inherit;display:block;">
                     <div class="shot-header">
@@ -171,7 +172,8 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .arg(yieldDisplay)                  // %13 (yield with target)
         .arg(beanDisplay)                   // %14 (beans with grind)
         .arg(drinkTds, 0, 'f', 2)           // %15
-        .arg(drinkEy, 0, 'f', 2);           // %16
+        .arg(drinkEy, 0, 'f', 2)            // %16
+        .arg(shot["timestamp"].toLongLong()); // %17 (epoch for sorting)
     }
 
     // Build HTML in chunks to avoid MSVC string literal size limit
@@ -809,7 +811,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                 var aVal, bVal;
                 var field = currentSort.field;
                 var dir = currentSort.dir === 'asc' ? 1 : -1;
-                if (field === 'date') { aVal = a.dataset.date || ''; bVal = b.dataset.date || ''; return dir * aVal.localeCompare(bVal); }
+                if (field === 'date') { aVal = parseInt(a.dataset.date) || 0; bVal = parseInt(b.dataset.date) || 0; return dir * (aVal - bVal); }
                 else if (field === 'profile') { aVal = (a.dataset.profile || '').toLowerCase(); bVal = (b.dataset.profile || '').toLowerCase(); return dir * aVal.localeCompare(bVal); }
                 else if (field === 'brand') { aVal = (a.dataset.brand || '').toLowerCase(); bVal = (b.dataset.brand || '').toLowerCase(); return dir * aVal.localeCompare(bVal); }
                 else if (field === 'coffee') { aVal = (a.dataset.coffee || '').toLowerCase(); bVal = (b.dataset.coffee || '').toLowerCase(); return dir * aVal.localeCompare(bVal); }
@@ -2156,8 +2158,9 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
     for (const ShotRecord& shot : std::as_const(shots)) {
         QString color = shotColors[shotIndex % shotColors.size()];
         QString name = shot.summary.profileName;
+        static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
         QDateTime dt = QDateTime::fromSecsSinceEpoch(shot.summary.timestamp);
-        QString date = dt.toString("yyyy-MM-dd HH:mm");
+        QString date = dt.toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
         QString label = QString("%1 (%2)").arg(name, date);
         QString dashPattern = shotDashPatterns[shotIndex % shotDashPatterns.size()];
 
