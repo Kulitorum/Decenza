@@ -116,6 +116,12 @@ signals:
     void errorOccurred(const QString& message);
 
     /**
+     * Emitted when the command queue is empty and no write is pending.
+     * Used at app exit to know when sleep commands have been sent.
+     */
+    void queueDrained();
+
+    /**
      * Emitted for debug/diagnostic logging.
      * @param message Log text to be captured by ShotDebugLogger.
      */

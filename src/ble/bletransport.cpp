@@ -459,6 +459,9 @@ void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, co
 
     emit writeComplete(c.uuid(), value);
     processCommandQueue();
+
+    if (!m_writePending && m_commandQueue.isEmpty())
+        emit queueDrained();
 }
 
 // -- Private helpers --

@@ -1,6 +1,6 @@
 # CLAUDE.md C++ Compliance Audit
 
-Last updated: 2026-03-04 (originally audited 2026-03-01)
+Last updated: 2026-03-05 (originally audited 2026-03-01)
 
 This document tracks C++ code violations of the conventions defined in CLAUDE.md.
 Work through each category and check off items as they are fixed.
@@ -73,7 +73,7 @@ These use timers because Android/iOS BLE stacks provide no "ready after wake/res
 
 ### Platform constraint (improvable)
 
-- [ ] `src/main.cpp:1501` — `QTimer::singleShot(2000, &waitLoop, ...)` blocks 2s before exit for BLE writes. Could be improved by adding a `queueDrained` signal to `BleTransport` (emit when `m_commandQueue.isEmpty() && !m_writePending`), then quit the event loop on that signal or on a shorter timeout.
+- [x] `src/main.cpp:1501` — `QTimer::singleShot(2000, &waitLoop, ...)` replaced with `DE1Transport::queueDrained` signal. Event loop quits when queue drains or on 2s safety timeout. Scale-only exit uses 500ms wait (no command queue). *(fixed in cpp-compliance-audit-3a)*
 
 ### Fixed (cpp-compliance-audit)
 
@@ -95,16 +95,16 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 
 **Confirmed called from QML on the main thread (2026-03-04 re-audit):**
 
-| Method | QML Callers |
-|--------|-------------|
-| `getShots()` | `LastShotItem.qml` |
-| `getShot()` | `PostShotReviewPage.qml` |
-| `getDistinctBeanBrands()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` |
-| `getDistinctBeanTypesForBrand()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` |
-| `getDistinctGrinders()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` |
-| `getDistinctGrinderSettingsForGrinder()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` |
-| `getDistinctBaristas()` | `PostShotReviewPage.qml`, `BeanInfoPage.qml` |
-| `updateVisualizerInfo()` | `PostShotReviewPage.qml`, `ShotDetailPage.qml` |
+| Method | QML Callers | Status |
+|--------|-------------|--------|
+| `getShots()` | `LastShotItem.qml` | **Fixed** (PR #362) — uses `requestMostRecentShotId()` |
+| `getShot()` | `PostShotReviewPage.qml` | **Fixed** (PR #362) — uses `editShotData` + `Object.assign` |
+| `getDistinctBeanBrands()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback only on cold cache |
+| `getDistinctBeanTypesForBrand()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback on filtered cache miss |
+| `getDistinctGrinders()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback only on cold cache |
+| `getDistinctGrinderSettingsForGrinder()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback on filtered cache miss |
+| `getDistinctBaristas()` | `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback only on cold cache |
+| `updateVisualizerInfo()` | `PostShotReviewPage.qml`, `ShotDetailPage.qml` | **Fixed** (PR #362) — uses `requestUpdateVisualizerInfo()` |
 
 **Declared synchronous but no direct QML callers found (called from C++ or unused):**
 
@@ -124,10 +124,10 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 - [ ] `importDatabase(...)` — blocking full DB import; has async `requestImportDatabase()`
 
 **Mitigating factors:**
-- The `getDistinct*()` methods have an in-memory cache (`m_distinctCache`), so repeat calls are fast. First call after cache invalidation still hits SQLite on the main thread.
-- Async counterparts exist for many methods but QML callers are not consistently using them.
+- The `getDistinct*()` methods have an in-memory cache (`m_distinctCache`) pre-warmed asynchronously at init and refreshed async on invalidation. Sync fallback only occurs on filtered cache miss (composite keys like `bean_type:<brand>`), which are fast indexed queries cached after first access.
+- `getShots()`, `getShot()`, and `updateVisualizerInfo()` QML callers have been fully migrated to async counterparts.
 
-**Recommendation:** Migrate the 8 confirmed QML callers to use async counterparts. Where no async version exists (e.g., `updateVisualizerInfo()`), add one following the `requestShot()` pattern. The `getDistinct*()` methods are lower priority due to caching.
+**Remaining work:** The `getDistinct*()` filtered cache-miss sync fallback is the only remaining gap. Low priority — the queries are fast (single-column DISTINCT with WHERE on indexed column) and cached until the next invalidation.
 
 ### 3b. ShotServer synchronous DB calls in HTTP handlers
 
@@ -302,8 +302,8 @@ These areas were verified clean on 2026-03-04:
 | **High** | Main-thread I/O (QML-facing): shot metadata | 1 caller | 3c | **Fixed** |
 | **High** | Main-thread I/O (QML-facing): flow calibration | 1 caller | 3d | **Fixed** |
 | **High** | Timer guards (fixable) | 3 instances | 2 | **Fixed** |
-| **Medium** | Main-thread I/O (QML sync callers) | 8 confirmed callers | 3a | Open — migrate to async counterparts |
-| **Medium** | Timer guards (platform constraints) | 5+1 instances | 2 | Accepted / 1 improvable |
+| **Medium** | Main-thread I/O (QML sync callers) | 8 confirmed callers | 3a | **Mostly fixed** (PR #362) — 3 fully async, 5 mitigated via cache |
+| **Medium** | Timer guards (platform constraints) | 5+1 instances | 2 | Accepted / 1 **Fixed** (queueDrained) |
 | **Medium** | Main-thread I/O (ShotServer) | 10 call sites | 3b | **Fixed** |
 | **Medium** | Scale LOG macros route errors to `qDebug()` | 10 files | 5a | **Fixed** |
 | **Medium** | Scale connection timeout uses `qDebug` | 1 | 5c | **Fixed** |
@@ -321,11 +321,10 @@ These areas were verified clean on 2026-03-04:
 ### Priority rationale
 
 - **High = directly affects primary touch UI.** Sections 3c/3d/3e blocked the QML UI thread during user interactions (loading shots, flow calibration, AI queries) — all now fixed.
-- **Medium = affects secondary interfaces, mitigated, or developer experience.** Section 3a has 8 confirmed QML callers still using synchronous methods on the main thread — these should be migrated to async counterparts but are partially mitigated by `m_distinctCache` for the `getDistinct*()` family. Timer platform constraints (§2) have no event-based alternative — accepted. ShotServer async (§3b) only stalls the web UI. Scale log macros (§5a) and connection timeout (§5c) now use `qWarning()` for errors.
+- **Medium = affects secondary interfaces, mitigated, or developer experience.** Section 3a had 8 confirmed QML callers — 3 fully migrated to async (PR #362), 5 `getDistinct*()` methods mitigated via async cache pre-warming with sync fallback only on filtered cache miss. Timer platform constraints (§2) have no event-based alternative — accepted. ShotServer async (§3b) only stalls the web UI. Scale log macros (§5a) and connection timeout (§5c) now use `qWarning()` for errors.
 - **Low = correctness improvements with minimal user impact.** JS fetch fixes protect against edge cases on a localhost server. BLE log levels, naming conventions, and dead code removal are hygiene.
 
 ### Recommended next steps
 
-1. **Migrate QML sync callers to async** (§3a, Medium priority): The 8 confirmed QML callers of synchronous `ShotHistoryStorage` methods should switch to their `request*()` counterparts. Where no async version exists (e.g., `updateVisualizerInfo()`), add one. This is the largest remaining compliance gap with real user impact (UI jank on slower devices).
-2. **Add `queueDrained` signal** (§2, Medium): Would allow replacing the 2s exit timer with an event-driven approach.
-3. **Slot naming cleanup** (§1a, Low): Rename timer/signal-connected slots to `on*` pattern. Skip public API slots where the convention reads poorly.
+1. **Slot naming cleanup** (§1a, Low): Rename timer/signal-connected slots to `on*` pattern. Skip public API slots where the convention reads poorly.
+2. **Dead code cleanup** (§6, Low): Remove commented-out debug logs and disabled provider entries.
