@@ -296,7 +296,6 @@ Item {
                 anchors.centerIn: Overlay.overlay
                 padding: Theme.scaled(24)
 
-                property string title: ""
                 property string message: ""
                 property bool isError: false
 
@@ -443,7 +442,6 @@ Item {
                 anchors.centerIn: Overlay.overlay
                 padding: Theme.scaled(24)
 
-                property string title: ""
                 property string message: ""
                 property bool isError: false
 
