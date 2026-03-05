@@ -38,7 +38,9 @@ export interface ShotSummary {
 export interface ShotDetail extends ShotSummary {
     roastDate: string;
     roastLevel: string;
+    grinderBrand: string;
     grinderModel: string;
+    grinderBurrs: string;
     drinkTds: number;
     drinkEy: number;
     espressoNotes: string;

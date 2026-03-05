@@ -1,4 +1,5 @@
 #include "shothistorystorage.h"
+#include "core/grinderaliases.h"
 #include "models/shotdatamodel.h"
 #include "profile/profile.h"
 #include "network/visualizeruploader.h"
@@ -133,7 +134,9 @@ bool ShotHistoryStorage::createTables()
             bean_type TEXT,
             roast_date TEXT,
             roast_level TEXT,
+            grinder_brand TEXT,
             grinder_model TEXT,
+            grinder_burrs TEXT,
             grinder_setting TEXT,
             drink_tds REAL,
             drink_ey REAL,
@@ -199,7 +202,9 @@ bool ShotHistoryStorage::createTables()
             bean_brand,
             bean_type,
             profile_name,
+            grinder_brand,
             grinder_model,
+            grinder_burrs,
             content='shots',
             content_rowid='id'
         )
@@ -213,24 +218,24 @@ bool ShotHistoryStorage::createTables()
     // Triggers for FTS sync
     query.exec(R"(
         CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
-            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_model);
+            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
         END
     )");
 
     query.exec(R"(
         CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
-            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_model);
+            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
         END
     )");
 
     query.exec(R"(
         CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
-            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_model);
-            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_model)
-            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_model);
+            INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+            VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
+            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+            VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
         END
     )");
 
@@ -238,7 +243,7 @@ bool ShotHistoryStorage::createTables()
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_timestamp ON shots(timestamp DESC)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_profile ON shots(profile_name)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_bean ON shots(bean_brand, bean_type)");
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_grinder ON shots(grinder_model)");
+    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_grinder ON shots(grinder_brand, grinder_model)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_enjoyment ON shots(enjoyment)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shot_phases_shot ON shot_phases(shot_id)");
 
@@ -492,6 +497,86 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 7;
     }
 
+    // Migration 8: Add grinder_brand and grinder_burrs columns, backfill from alias lookup, rebuild FTS
+    if (currentVersion < 8) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 8 (structured grinder fields)";
+        m_db.transaction();
+
+        if (!hasColumn("shots", "grinder_brand"))
+            query.exec("ALTER TABLE shots ADD COLUMN grinder_brand TEXT");
+        if (!hasColumn("shots", "grinder_burrs"))
+            query.exec("ALTER TABLE shots ADD COLUMN grinder_burrs TEXT");
+
+        // Backfill: parse existing grinder_model through alias lookup
+        QSqlQuery readQuery(m_db);
+        readQuery.prepare("SELECT id, grinder_model FROM shots WHERE grinder_model IS NOT NULL AND grinder_model != ''");
+        if (readQuery.exec()) {
+            QSqlQuery updateQuery(m_db);
+            updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? WHERE id = ?");
+            int backfillCount = 0;
+
+            while (readQuery.next()) {
+                qint64 id = readQuery.value(0).toLongLong();
+                QString rawModel = readQuery.value(1).toString();
+                auto result = GrinderAliases::lookup(rawModel);
+                if (result.found) {
+                    updateQuery.bindValue(0, result.brand);
+                    updateQuery.bindValue(1, result.model);
+                    updateQuery.bindValue(2, result.stockBurrs);
+                    updateQuery.bindValue(3, id);
+                    updateQuery.exec();
+                    backfillCount++;
+                }
+            }
+            qDebug() << "ShotHistoryStorage: Migration 8 backfilled" << backfillCount << "shots with structured grinder data";
+        }
+
+        // Rebuild FTS to include grinder_brand and grinder_burrs
+        query.exec("DROP TRIGGER IF EXISTS shots_ai");
+        query.exec("DROP TRIGGER IF EXISTS shots_ad");
+        query.exec("DROP TRIGGER IF EXISTS shots_au");
+        query.exec("DROP TABLE IF EXISTS shots_fts");
+
+        query.exec(R"(
+            CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
+                espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs,
+                content='shots', content_rowid='id'
+            )
+        )");
+
+        query.exec(R"(
+            CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
+                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
+            END
+        )");
+        query.exec(R"(
+            CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
+                INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
+            END
+        )");
+        query.exec(R"(
+            CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
+                INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
+                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
+            END
+        )");
+
+        // Rebuild FTS index
+        query.exec(R"(
+            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+            SELECT id, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs FROM shots
+        )");
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (8)");
+        m_db.commit();
+        currentVersion = 8;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -607,7 +692,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.beanType = metadata.beanType;
     data.roastDate = metadata.roastDate;
     data.roastLevel = metadata.roastLevel;
+    data.grinderBrand = metadata.grinderBrand;
     data.grinderModel = metadata.grinderModel;
+    data.grinderBurrs = metadata.grinderBurrs;
     data.grinderSetting = metadata.grinderSetting;
     data.drinkTds = metadata.drinkTds;
     data.drinkEy = metadata.drinkEy;
@@ -712,7 +799,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     uuid, timestamp, profile_name, profile_json, beverage_type,
                     duration_seconds, final_weight, dose_weight,
                     bean_brand, bean_type, roast_date, roast_level,
-                    grinder_model, grinder_setting,
+                    grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
                     temperature_override, yield_override
@@ -720,7 +807,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
                     :bean_brand, :bean_type, :roast_date, :roast_level,
-                    :grinder_model, :grinder_setting,
+                    :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override
@@ -739,7 +826,9 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":bean_type", data.beanType);
             query.bindValue(":roast_date", data.roastDate);
             query.bindValue(":roast_level", data.roastLevel);
+            query.bindValue(":grinder_brand", data.grinderBrand);
             query.bindValue(":grinder_model", data.grinderModel);
+            query.bindValue(":grinder_burrs", data.grinderBurrs);
             query.bindValue(":grinder_setting", data.grinderSetting);
             query.bindValue(":drink_tds", data.drinkTds);
             query.bindValue(":drink_ey", data.drinkEy);
@@ -958,7 +1047,9 @@ ShotFilter ShotHistoryStorage::parseFilterMap(const QVariantMap& filterMap)
     filter.profileName = filterMap.value("profileName").toString();
     filter.beanBrand = filterMap.value("beanBrand").toString();
     filter.beanType = filterMap.value("beanType").toString();
+    filter.grinderBrand = filterMap.value("grinderBrand").toString();
     filter.grinderModel = filterMap.value("grinderModel").toString();
+    filter.grinderBurrs = filterMap.value("grinderBurrs").toString();
     filter.grinderSetting = filterMap.value("grinderSetting").toString();
     filter.roastLevel = filterMap.value("roastLevel").toString();
     filter.minEnjoyment = filterMap.value("minEnjoyment", -1).toInt();
@@ -998,9 +1089,17 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
         conditions << "bean_type = ?";
         bindValues << filter.beanType;
     }
+    if (!filter.grinderBrand.isEmpty()) {
+        conditions << "grinder_brand = ?";
+        bindValues << filter.grinderBrand;
+    }
     if (!filter.grinderModel.isEmpty()) {
         conditions << "grinder_model = ?";
         bindValues << filter.grinderModel;
+    }
+    if (!filter.grinderBurrs.isEmpty()) {
+        conditions << "grinder_burrs = ?";
+        bindValues << filter.grinderBurrs;
     }
     if (!filter.grinderSetting.isEmpty()) {
         conditions << "grinder_setting = ?";
@@ -1447,7 +1546,9 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["beverageType"] = record.summary.beverageType;
     result["roastDate"] = record.roastDate;
     result["roastLevel"] = record.roastLevel;
+    result["grinderBrand"] = record.grinderBrand;
     result["grinderModel"] = record.grinderModel;
+    result["grinderBurrs"] = record.grinderBurrs;
     result["grinderSetting"] = record.grinderSetting;
     result["drinkTds"] = record.drinkTds;
     result["drinkEy"] = record.drinkEy;
@@ -1513,7 +1614,7 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
         SELECT id, uuid, timestamp, profile_name, profile_json,
                duration_seconds, final_weight, dose_weight,
                bean_brand, bean_type, roast_date, roast_level,
-               grinder_model, grinder_setting,
+               grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type
@@ -1538,23 +1639,25 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
     record.summary.beanType = query.value(9).toString();
     record.roastDate = query.value(10).toString();
     record.roastLevel = query.value(11).toString();
-    record.grinderModel = query.value(12).toString();
-    record.grinderSetting = query.value(13).toString();
-    record.drinkTds = query.value(14).toDouble();
-    record.drinkEy = query.value(15).toDouble();
-    record.summary.enjoyment = query.value(16).toInt();
-    record.espressoNotes = query.value(17).toString();
-    record.beanNotes = query.value(18).toString();
-    record.barista = query.value(19).toString();
-    record.profileNotes = query.value(20).toString();
-    record.visualizerId = query.value(21).toString();
-    record.visualizerUrl = query.value(22).toString();
-    record.debugLog = query.value(23).toString();
+    record.grinderBrand = query.value(12).toString();
+    record.grinderModel = query.value(13).toString();
+    record.grinderBurrs = query.value(14).toString();
+    record.grinderSetting = query.value(15).toString();
+    record.drinkTds = query.value(16).toDouble();
+    record.drinkEy = query.value(17).toDouble();
+    record.summary.enjoyment = query.value(18).toInt();
+    record.espressoNotes = query.value(19).toString();
+    record.beanNotes = query.value(20).toString();
+    record.barista = query.value(21).toString();
+    record.profileNotes = query.value(22).toString();
+    record.visualizerId = query.value(23).toString();
+    record.visualizerUrl = query.value(24).toString();
+    record.debugLog = query.value(25).toString();
 
     // Load overrides (always have values, default to 0 if database has NULL for old records)
-    record.temperatureOverride = query.value(24).toDouble();  // toDouble() returns 0.0 for NULL
-    record.yieldOverride = query.value(25).toDouble();  // toDouble() returns 0.0 for NULL
-    record.summary.beverageType = query.value(26).toString();
+    record.temperatureOverride = query.value(26).toDouble();  // toDouble() returns 0.0 for NULL
+    record.yieldOverride = query.value(27).toDouble();  // toDouble() returns 0.0 for NULL
+    record.summary.beverageType = query.value(28).toString();
 
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
@@ -1605,7 +1708,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         SELECT id, uuid, timestamp, profile_name, profile_json,
                duration_seconds, final_weight, dose_weight,
                bean_brand, bean_type, roast_date, roast_level,
-               grinder_model, grinder_setting,
+               grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
                temperature_override, yield_override, beverage_type
@@ -1633,21 +1736,23 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.summary.beanType = query.value(9).toString();
     record.roastDate = query.value(10).toString();
     record.roastLevel = query.value(11).toString();
-    record.grinderModel = query.value(12).toString();
-    record.grinderSetting = query.value(13).toString();
-    record.drinkTds = query.value(14).toDouble();
-    record.drinkEy = query.value(15).toDouble();
-    record.summary.enjoyment = query.value(16).toInt();
-    record.espressoNotes = query.value(17).toString();
-    record.beanNotes = query.value(18).toString();
-    record.barista = query.value(19).toString();
-    record.profileNotes = query.value(20).toString();
-    record.visualizerId = query.value(21).toString();
-    record.visualizerUrl = query.value(22).toString();
-    record.debugLog = query.value(23).toString();
-    record.temperatureOverride = query.value(24).toDouble();
-    record.yieldOverride = query.value(25).toDouble();
-    record.summary.beverageType = query.value(26).toString();
+    record.grinderBrand = query.value(12).toString();
+    record.grinderModel = query.value(13).toString();
+    record.grinderBurrs = query.value(14).toString();
+    record.grinderSetting = query.value(15).toString();
+    record.drinkTds = query.value(16).toDouble();
+    record.drinkEy = query.value(17).toDouble();
+    record.summary.enjoyment = query.value(18).toInt();
+    record.espressoNotes = query.value(19).toString();
+    record.beanNotes = query.value(20).toString();
+    record.barista = query.value(21).toString();
+    record.profileNotes = query.value(22).toString();
+    record.visualizerId = query.value(23).toString();
+    record.visualizerUrl = query.value(24).toString();
+    record.debugLog = query.value(25).toString();
+    record.temperatureOverride = query.value(26).toDouble();
+    record.yieldOverride = query.value(27).toDouble();
+    record.summary.beverageType = query.value(28).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {
@@ -1824,7 +1929,8 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         UPDATE shots SET
             bean_brand = :bean_brand, bean_type = :bean_type,
             roast_date = :roast_date, roast_level = :roast_level,
-            grinder_model = :grinder_model, grinder_setting = :grinder_setting,
+            grinder_brand = :grinder_brand, grinder_model = :grinder_model,
+            grinder_burrs = :grinder_burrs, grinder_setting = :grinder_setting,
             drink_tds = :drink_tds, drink_ey = :drink_ey,
             enjoyment = :enjoyment, espresso_notes = :espresso_notes,
             barista = :barista, dose_weight = :dose_weight,
@@ -1840,7 +1946,9 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     query.bindValue(":bean_type", metadata.value("beanType").toString());
     query.bindValue(":roast_date", metadata.value("roastDate").toString());
     query.bindValue(":roast_level", metadata.value("roastLevel").toString());
+    query.bindValue(":grinder_brand", metadata.value("grinderBrand").toString());
     query.bindValue(":grinder_model", metadata.value("grinderModel").toString());
+    query.bindValue(":grinder_burrs", metadata.value("grinderBurrs").toString());
     query.bindValue(":grinder_setting", metadata.value("grinderSetting").toString());
     query.bindValue(":drink_tds", metadata.value("drinkTds").toDouble());
     query.bindValue(":drink_ey", metadata.value("drinkEy").toDouble());
@@ -2104,14 +2212,16 @@ QVariantList ShotHistoryStorage::getAutoFavorites(const QString& groupBy, int ma
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type, "
                         "COALESCE(profile_name, '') AS gb_profile_name, "
+                        "COALESCE(grinder_brand, '') AS gb_grinder_brand, "
                         "COALESCE(grinder_model, '') AS gb_grinder_model, "
                         "COALESCE(grinder_setting, '') AS gb_grinder_setting";
         groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, ''), "
-                       "COALESCE(profile_name, ''), COALESCE(grinder_model, ''), "
-                       "COALESCE(grinder_setting, '')";
+                       "COALESCE(profile_name, ''), COALESCE(grinder_brand, ''), "
+                       "COALESCE(grinder_model, ''), COALESCE(grinder_setting, '')";
         joinConditions = "COALESCE(s.bean_brand, '') = g.gb_bean_brand "
                          "AND COALESCE(s.bean_type, '') = g.gb_bean_type "
                          "AND COALESCE(s.profile_name, '') = g.gb_profile_name "
+                         "AND COALESCE(s.grinder_brand, '') = g.gb_grinder_brand "
                          "AND COALESCE(s.grinder_model, '') = g.gb_grinder_model "
                          "AND COALESCE(s.grinder_setting, '') = g.gb_grinder_setting";
     } else {
@@ -2129,7 +2239,8 @@ QVariantList ShotHistoryStorage::getAutoFavorites(const QString& groupBy, int ma
     // We need to match the shot table back to the grouped results to get the full shot data
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
-        "s.grinder_model, s.grinder_setting, s.dose_weight, s.final_weight, "
+        "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
+        "s.dose_weight, s.final_weight, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "INNER JOIN ("
@@ -2158,7 +2269,9 @@ QVariantList ShotHistoryStorage::getAutoFavorites(const QString& groupBy, int ma
         entry["profileName"] = query.value("profile_name").toString();
         entry["beanBrand"] = query.value("bean_brand").toString();
         entry["beanType"] = query.value("bean_type").toString();
+        entry["grinderBrand"] = query.value("grinder_brand").toString();
         entry["grinderModel"] = query.value("grinder_model").toString();
+        entry["grinderBurrs"] = query.value("grinder_burrs").toString();
         entry["grinderSetting"] = query.value("grinder_setting").toString();
         entry["doseWeight"] = query.value("dose_weight").toDouble();
         entry["finalWeight"] = query.value("final_weight").toDouble();
@@ -2200,14 +2313,16 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type, "
                         "COALESCE(profile_name, '') AS gb_profile_name, "
+                        "COALESCE(grinder_brand, '') AS gb_grinder_brand, "
                         "COALESCE(grinder_model, '') AS gb_grinder_model, "
                         "COALESCE(grinder_setting, '') AS gb_grinder_setting";
         groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, ''), "
-                       "COALESCE(profile_name, ''), COALESCE(grinder_model, ''), "
-                       "COALESCE(grinder_setting, '')";
+                       "COALESCE(profile_name, ''), COALESCE(grinder_brand, ''), "
+                       "COALESCE(grinder_model, ''), COALESCE(grinder_setting, '')";
         joinConditions = "COALESCE(s.bean_brand, '') = g.gb_bean_brand "
                          "AND COALESCE(s.bean_type, '') = g.gb_bean_type "
                          "AND COALESCE(s.profile_name, '') = g.gb_profile_name "
+                         "AND COALESCE(s.grinder_brand, '') = g.gb_grinder_brand "
                          "AND COALESCE(s.grinder_model, '') = g.gb_grinder_model "
                          "AND COALESCE(s.grinder_setting, '') = g.gb_grinder_setting";
     } else {
@@ -2223,7 +2338,8 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
 
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
-        "s.grinder_model, s.grinder_setting, s.dose_weight, s.final_weight, "
+        "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
+        "s.dose_weight, s.final_weight, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
         "INNER JOIN ("
@@ -2257,7 +2373,9 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                         entry["profileName"] = query.value("profile_name").toString();
                         entry["beanBrand"] = query.value("bean_brand").toString();
                         entry["beanType"] = query.value("bean_type").toString();
+                        entry["grinderBrand"] = query.value("grinder_brand").toString();
                         entry["grinderModel"] = query.value("grinder_model").toString();
+                        entry["grinderBurrs"] = query.value("grinder_burrs").toString();
                         entry["grinderSetting"] = query.value("grinder_setting").toString();
                         entry["doseWeight"] = query.value("dose_weight").toDouble();
                         entry["finalWeight"] = query.value("final_weight").toDouble();
@@ -2296,6 +2414,7 @@ QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& group
                                                             const QString& beanBrand,
                                                             const QString& beanType,
                                                             const QString& profileName,
+                                                            const QString& grinderBrand,
                                                             const QString& grinderModel,
                                                             const QString& grinderSetting)
 {
@@ -2320,6 +2439,7 @@ QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& group
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
         addCondition("profile_name", profileName);
+        addCondition("grinder_brand", grinderBrand);
         addCondition("grinder_model", grinderModel);
         addCondition("grinder_setting", grinderSetting);
     } else {
@@ -2385,6 +2505,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                           const QString& beanBrand,
                                                           const QString& beanType,
                                                           const QString& profileName,
+                                                          const QString& grinderBrand,
                                                           const QString& grinderModel,
                                                           const QString& grinderSetting)
 {
@@ -2414,6 +2535,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
         addCondition("profile_name", profileName);
+        addCondition("grinder_brand", grinderBrand);
         addCondition("grinder_model", grinderModel);
         addCondition("grinder_setting", grinderSetting);
     } else {
@@ -2541,7 +2663,9 @@ QString ShotHistoryStorage::exportShotData(qint64 shotId)
     stream << Qt::endl;
 
     stream << "--- Grinder ---" << Qt::endl;
+    stream << "Brand: " << record.grinderBrand << Qt::endl;
     stream << "Model: " << record.grinderModel << Qt::endl;
+    stream << "Burrs: " << record.grinderBurrs << Qt::endl;
     stream << "Setting: " << record.grinderSetting << Qt::endl;
     stream << Qt::endl;
 
@@ -2897,11 +3021,12 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
             INSERT INTO shots (uuid, timestamp, profile_name, profile_json, beverage_type,
                 duration_seconds, final_weight, dose_weight,
                 bean_brand, bean_type, roast_date, roast_level,
-                grinder_model, grinder_setting, drink_tds, drink_ey,
+                grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+                drink_tds, drink_ey,
                 enjoyment, espresso_notes, bean_notes, barista,
                 profile_notes, visualizer_id, visualizer_url, debug_log,
                 temperature_override, yield_override)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         )");
 
         insert.addBindValue(uuid);
@@ -2916,7 +3041,9 @@ bool ShotHistoryStorage::importDatabase(const QString& filePath, bool merge)
         insert.addBindValue(srcShots.value("bean_type"));
         insert.addBindValue(srcShots.value("roast_date"));
         insert.addBindValue(srcShots.value("roast_level"));
+        insert.addBindValue(srcShots.value("grinder_brand"));
         insert.addBindValue(srcShots.value("grinder_model"));
+        insert.addBindValue(srcShots.value("grinder_burrs"));
         insert.addBindValue(srcShots.value("grinder_setting"));
         insert.addBindValue(srcShots.value("drink_tds"));
         insert.addBindValue(srcShots.value("drink_ey"));
@@ -3236,11 +3363,12 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     INSERT INTO shots (uuid, timestamp, profile_name, profile_json, beverage_type,
                         duration_seconds, final_weight, dose_weight,
                         bean_brand, bean_type, roast_date, roast_level,
-                        grinder_model, grinder_setting, drink_tds, drink_ey,
+                        grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+                        drink_tds, drink_ey,
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
                         temperature_override, yield_override)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -3256,7 +3384,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcShots.value("bean_type"));
                 insert.addBindValue(srcShots.value("roast_date"));
                 insert.addBindValue(srcShots.value("roast_level"));
+                insert.addBindValue(srcShots.value("grinder_brand"));
                 insert.addBindValue(srcShots.value("grinder_model"));
+                insert.addBindValue(srcShots.value("grinder_burrs"));
                 insert.addBindValue(srcShots.value("grinder_setting"));
                 insert.addBindValue(srcShots.value("drink_tds"));
                 insert.addBindValue(srcShots.value("drink_ey"));
@@ -3454,7 +3584,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             uuid, timestamp, profile_name, profile_json, beverage_type,
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_date, roast_level,
-            grinder_model, grinder_setting,
+            grinder_brand, grinder_model, grinder_burrs, grinder_setting,
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
             temperature_override, yield_override
@@ -3462,7 +3592,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_date, :roast_level,
-            :grinder_model, :grinder_setting,
+            :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
             :temperature_override, :yield_override
@@ -3481,7 +3611,9 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":bean_type", record.summary.beanType);
     query.bindValue(":roast_date", record.roastDate);
     query.bindValue(":roast_level", record.roastLevel);
+    query.bindValue(":grinder_brand", record.grinderBrand);
     query.bindValue(":grinder_model", record.grinderModel);
+    query.bindValue(":grinder_burrs", record.grinderBurrs);
     query.bindValue(":grinder_setting", record.grinderSetting);
     query.bindValue(":drink_tds", record.drinkTds);
     query.bindValue(":drink_ey", record.drinkEy);
@@ -3582,6 +3714,88 @@ QStringList ShotHistoryStorage::getDistinctBeanTypesForBrand(const QString& bean
         QString value = query.value(0).toString();
         if (!value.isEmpty())
             results << value;
+    }
+
+    m_distinctCache.insert(cacheKey, results);
+    return results;
+}
+
+QStringList ShotHistoryStorage::getDistinctGrinderBrands()
+{
+    const QString cacheKey = "grinder_brand";
+    if (m_distinctCache.contains(cacheKey))
+        return m_distinctCache.value(cacheKey);
+
+    QStringList results;
+    if (!m_ready) return results;
+
+    QSqlQuery query(m_db);
+    query.prepare("SELECT DISTINCT grinder_brand FROM shots "
+                  "WHERE grinder_brand IS NOT NULL AND grinder_brand != '' "
+                  "ORDER BY grinder_brand");
+    if (query.exec()) {
+        while (query.next()) {
+            QString value = query.value(0).toString();
+            if (!value.isEmpty())
+                results << value;
+        }
+    }
+
+    m_distinctCache.insert(cacheKey, results);
+    return results;
+}
+
+QStringList ShotHistoryStorage::getDistinctGrinderModelsForBrand(const QString& grinderBrand)
+{
+    if (grinderBrand.isEmpty())
+        return getDistinctGrinders();
+
+    const QString cacheKey = "grinder_model:" + grinderBrand;
+    if (m_distinctCache.contains(cacheKey))
+        return m_distinctCache.value(cacheKey);
+
+    QStringList results;
+    if (!m_ready) return results;
+
+    QSqlQuery query(m_db);
+    query.prepare("SELECT DISTINCT grinder_model FROM shots "
+                  "WHERE grinder_brand = ? AND grinder_model IS NOT NULL AND grinder_model != '' "
+                  "ORDER BY grinder_model");
+    query.bindValue(0, grinderBrand);
+    if (query.exec()) {
+        while (query.next()) {
+            QString value = query.value(0).toString();
+            if (!value.isEmpty())
+                results << value;
+        }
+    }
+
+    m_distinctCache.insert(cacheKey, results);
+    return results;
+}
+
+QStringList ShotHistoryStorage::getDistinctGrinderBurrsForModel(const QString& grinderBrand, const QString& grinderModel)
+{
+    const QString cacheKey = "grinder_burrs:" + grinderBrand + ":" + grinderModel;
+    if (m_distinctCache.contains(cacheKey))
+        return m_distinctCache.value(cacheKey);
+
+    QStringList results;
+    if (!m_ready) return results;
+
+    QSqlQuery query(m_db);
+    query.prepare("SELECT DISTINCT grinder_burrs FROM shots "
+                  "WHERE grinder_brand = ? AND grinder_model = ? "
+                  "AND grinder_burrs IS NOT NULL AND grinder_burrs != '' "
+                  "ORDER BY grinder_burrs");
+    query.bindValue(0, grinderBrand);
+    query.bindValue(1, grinderModel);
+    if (query.exec()) {
+        while (query.next()) {
+            QString value = query.value(0).toString();
+            if (!value.isEmpty())
+                results << value;
+        }
     }
 
     m_distinctCache.insert(cacheKey, results);
@@ -3702,6 +3916,68 @@ void ShotHistoryStorage::refreshTotalShots()
             }
         }, Qt::QueuedConnection);
     });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+int ShotHistoryStorage::countShotsWithGrinder(const QString& brand, const QString& model)
+{
+    if (!m_ready) return 0;
+
+    QSqlQuery query(m_db);
+    query.prepare("SELECT COUNT(*) FROM shots WHERE grinder_brand = ? AND grinder_model = ?");
+    query.bindValue(0, brand);
+    query.bindValue(1, model);
+    if (query.exec() && query.next())
+        return query.value(0).toInt();
+    return 0;
+}
+
+void ShotHistoryStorage::requestUpdateGrinderFields(const QString& oldBrand, const QString& oldModel,
+                                                     const QString& newBrand, const QString& newModel,
+                                                     const QString& newBurrs)
+{
+    if (!m_ready) {
+        emit grinderFieldsUpdated(0);
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = std::make_shared<bool>(false);
+    connect(this, &QObject::destroyed, this, [destroyed]() { *destroyed = true; });
+
+    QThread* thread = QThread::create([this, dbPath, oldBrand, oldModel, newBrand, newModel, newBurrs, destroyed]() {
+        int count = 0;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "grinder_update_" + QString::number(reinterpret_cast<quintptr>(QThread::currentThread())));
+            db.setDatabaseName(dbPath);
+            if (db.open()) {
+                QSqlQuery(db).exec("PRAGMA busy_timeout = 5000");
+                QSqlQuery query(db);
+                query.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? "
+                              "WHERE grinder_brand = ? AND grinder_model = ?");
+                query.bindValue(0, newBrand);
+                query.bindValue(1, newModel);
+                query.bindValue(2, newBurrs);
+                query.bindValue(3, oldBrand);
+                query.bindValue(4, oldModel);
+                if (query.exec())
+                    count = query.numRowsAffected();
+                else
+                    qWarning() << "ShotHistoryStorage: Failed to bulk update grinder fields:" << query.lastError().text();
+                db.close();
+            }
+            QSqlDatabase::removeDatabase("grinder_update_" + QString::number(reinterpret_cast<quintptr>(QThread::currentThread())));
+        }
+
+        QMetaObject::invokeMethod(this, [this, count, destroyed]() {
+            if (*destroyed) return;
+            invalidateDistinctCache();
+            emit grinderFieldsUpdated(count);
+            qDebug() << "ShotHistoryStorage: Updated grinder fields for" << count << "shots";
+        }, Qt::QueuedConnection);
+    });
+
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }

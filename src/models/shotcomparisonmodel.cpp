@@ -211,7 +211,9 @@ void ShotComparisonModel::scheduleLoad()
                     shot.beanType = record.summary.beanType;
                     shot.roastDate = record.roastDate;
                     shot.roastLevel = record.roastLevel;
+                    shot.grinderBrand = record.grinderBrand;
                     shot.grinderModel = record.grinderModel;
+                    shot.grinderBurrs = record.grinderBurrs;
                     shot.grinderSetting = record.grinderSetting;
                     shot.duration = record.summary.duration;
                     shot.doseWeight = record.summary.doseWeight;
@@ -408,7 +410,9 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["beanType"] = shot.beanType;
     result["roastDate"] = shot.roastDate;
     result["roastLevel"] = shot.roastLevel;
+    result["grinderBrand"] = shot.grinderBrand;
     result["grinderModel"] = shot.grinderModel;
+    result["grinderBurrs"] = shot.grinderBurrs;
     result["grinderSetting"] = shot.grinderSetting;
     result["duration"] = shot.duration;
     result["doseWeight"] = shot.doseWeight;

@@ -130,7 +130,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.beanType = metadata.beanType;
     summary.roastDate = metadata.roastDate;
     summary.roastLevel = metadata.roastLevel;
+    summary.grinderBrand = metadata.grinderBrand;
     summary.grinderModel = metadata.grinderModel;
+    summary.grinderBurrs = metadata.grinderBurrs;
     summary.grinderSetting = metadata.grinderSetting;
     summary.drinkTds = metadata.drinkTds;
     summary.drinkEy = metadata.drinkEy;
@@ -290,7 +292,9 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     summary.beanBrand = shotData.value("beanBrand").toString();
     summary.beanType = shotData.value("beanType").toString();
     summary.roastLevel = shotData.value("roastLevel").toString();
+    summary.grinderBrand = shotData.value("grinderBrand").toString();
     summary.grinderModel = shotData.value("grinderModel").toString();
+    summary.grinderBurrs = shotData.value("grinderBurrs").toString();
     summary.grinderSetting = shotData.value("grinderSetting").toString();
     summary.drinkTds = shotData.value("drinkTds", 0.0).toDouble();
     summary.drinkEy = shotData.value("drinkEy", 0.0).toDouble();
@@ -430,8 +434,12 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (!summary.roastDate.isEmpty()) out << ", roasted " << summary.roastDate;
         out << "\n";
     }
-    if (!summary.grinderModel.isEmpty()) {
-        out << "- **Grinder**: " << summary.grinderModel;
+    if (!summary.grinderBrand.isEmpty() || !summary.grinderModel.isEmpty()) {
+        QString grinderStr = summary.grinderBrand.isEmpty() ? summary.grinderModel
+            : (summary.grinderModel.isEmpty() ? summary.grinderBrand
+               : summary.grinderBrand + " " + summary.grinderModel);
+        out << "- **Grinder**: " << grinderStr;
+        if (!summary.grinderBurrs.isEmpty()) out << " with " << summary.grinderBurrs;
         if (!summary.grinderSetting.isEmpty()) out << " @ " << summary.grinderSetting;
         out << "\n";
     }

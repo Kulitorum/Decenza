@@ -1139,7 +1139,9 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         m_settings->setDyeBeanType(shotRecord.summary.beanType);
         m_settings->setDyeRoastDate(shotRecord.roastDate);
         m_settings->setDyeRoastLevel(shotRecord.roastLevel);
+        m_settings->setDyeGrinderBrand(shotRecord.grinderBrand);
         m_settings->setDyeGrinderModel(shotRecord.grinderModel);
+        m_settings->setDyeGrinderBurrs(shotRecord.grinderBurrs);
         m_settings->setDyeGrinderSetting(shotRecord.grinderSetting);
         m_settings->setDyeBarista(shotRecord.barista);
 
@@ -2841,7 +2843,9 @@ void MainController::onShotEnded() {
     metadata.beanType = m_settings->dyeBeanType();
     metadata.roastDate = m_settings->dyeRoastDate();
     metadata.roastLevel = m_settings->dyeRoastLevel();
+    metadata.grinderBrand = m_settings->dyeGrinderBrand();
     metadata.grinderModel = m_settings->dyeGrinderModel();
+    metadata.grinderBurrs = m_settings->dyeGrinderBurrs();
     metadata.grinderSetting = m_settings->dyeGrinderSetting();
     metadata.beanWeight = m_settings->dyeBeanWeight();
     metadata.drinkWeight = m_settings->dyeDrinkWeight();
@@ -2983,7 +2987,9 @@ void MainController::uploadPendingShot() {
     metadata.beanType = m_settings->dyeBeanType();
     metadata.roastDate = m_settings->dyeRoastDate();
     metadata.roastLevel = m_settings->dyeRoastLevel();
+    metadata.grinderBrand = m_settings->dyeGrinderBrand();
     metadata.grinderModel = m_settings->dyeGrinderModel();
+    metadata.grinderBurrs = m_settings->dyeGrinderBurrs();
     metadata.grinderSetting = m_settings->dyeGrinderSetting();
     metadata.beanWeight = m_settings->dyeBeanWeight();
     metadata.drinkWeight = m_settings->dyeDrinkWeight();
@@ -3126,7 +3132,9 @@ void MainController::generateFakeShotData() {
             metadata.beanType = m_settings->dyeBeanType();
             metadata.roastDate = m_settings->dyeRoastDate();
             metadata.roastLevel = m_settings->dyeRoastLevel();
+            metadata.grinderBrand = m_settings->dyeGrinderBrand();
             metadata.grinderModel = m_settings->dyeGrinderModel();
+            metadata.grinderBurrs = m_settings->dyeGrinderBurrs();
             metadata.grinderSetting = m_settings->dyeGrinderSetting();
             metadata.beanWeight = m_pendingShotDoseWeight;
             metadata.drinkWeight = m_settings->dyeDrinkWeight();

@@ -29,8 +29,10 @@ Dialog {
     property double profileTargetWeight: MainController.profileTargetWeight
     property bool targetManuallySet: false
 
-    // Grinder and grind setting
+    // Grinder fields
+    property string grinderBrand: ""
     property string grinderModel: ""
+    property string grinderBurrs: ""
     property string grindSetting: ""
 
     // Bean and profile
@@ -73,22 +75,40 @@ Dialog {
         }
     }
 
-    // Combine grinder suggestions from history + current bean preset
-    function getGrinderSuggestions() {
-        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinders() : []
-        // Add current bean grinder if not in list
-        if (Settings.dyeGrinderModel.length > 0 && suggestions.indexOf(Settings.dyeGrinderModel) === -1) {
-            suggestions.unshift(Settings.dyeGrinderModel)  // Add at beginning
+    function getGrinderBrandSuggestions() {
+        var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderBrands() : []
+        var known = Settings.knownGrinderBrands()
+        var merged = history.slice()
+        for (var i = 0; i < known.length; i++) {
+            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
         }
-        return suggestions
+        return merged
     }
 
-    // Combine grind setting suggestions from history (filtered by grinder) + current bean preset
+    function getGrinderModelSuggestions() {
+        var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderModelsForBrand(root.grinderBrand) : []
+        var known = Settings.knownGrinderModels(root.grinderBrand)
+        var merged = history.slice()
+        for (var i = 0; i < known.length; i++) {
+            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
+        }
+        return merged
+    }
+
+    function getGrinderBurrsSuggestions() {
+        var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderBurrsForModel(root.grinderBrand, root.grinderModel) : []
+        var known = Settings.suggestedBurrs(root.grinderBrand, root.grinderModel)
+        var merged = history.slice()
+        for (var i = 0; i < known.length; i++) {
+            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
+        }
+        return merged
+    }
+
     function getGrinderSettingSuggestions() {
         var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(root.grinderModel) : []
-        // Add current bean grind setting if not in list
         if (Settings.dyeGrinderSetting.length > 0 && suggestions.indexOf(Settings.dyeGrinderSetting) === -1) {
-            suggestions.unshift(Settings.dyeGrinderSetting)  // Add at beginning
+            suggestions.unshift(Settings.dyeGrinderSetting)
         }
         return suggestions
     }
@@ -144,7 +164,9 @@ Dialog {
 
         // Use DYE fields for dose and grind (source of truth)
         doseValue = Settings.dyeBeanWeight > 0 ? Settings.dyeBeanWeight : 18.0
+        grinderBrand = Settings.dyeGrinderBrand
         grinderModel = Settings.dyeGrinderModel
+        grinderBurrs = Settings.dyeGrinderBurrs
         grindSetting = Settings.dyeGrinderSetting
         beanBrand = Settings.dyeBeanBrand
         beanType = Settings.dyeBeanType
@@ -593,7 +615,7 @@ Dialog {
                 }
             }
 
-            // Grinder and setting input
+            // Grinder brand and model
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)
@@ -604,19 +626,59 @@ Dialog {
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
                     Layout.preferredWidth: Theme.scaled(75)
-                    Accessible.ignored: true  // Label for sighted users; inputs have accessibleName
+                    Accessible.ignored: true
                 }
 
                 SuggestionField {
-                    id: grinderInput
+                    id: grinderBrandInput
                     Layout.fillWidth: true
                     Layout.preferredWidth: Theme.scaled(120)
-                    label: ""  // Empty label - the "Grinder:" label already provides context
+                    label: ""
+                    accessibleName: TranslationManager.translate("brewDialog.grinderBrand", "Grinder brand")
+                    text: root.grinderBrand
+                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderBrandSuggestions() : []
+                    onTextEdited: function(t) { root.grinderBrand = t }
+                }
+
+                SuggestionField {
+                    id: grinderModelInput
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: Theme.scaled(120)
+                    label: ""
                     accessibleName: TranslationManager.translate("brewDialog.grinderModel", "Grinder model")
                     text: root.grinderModel
-                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderSuggestions() : []
-                    onTextEdited: function(t) { root.grinderModel = t }
-                    // Note: No inputFocused signal needed here since BrewDialog doesn't use keyboard offset
+                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderModelSuggestions() : []
+                    onTextEdited: function(t) {
+                        root.grinderModel = t
+                        var burrs = Settings.suggestedBurrs(root.grinderBrand, t)
+                        if (burrs.length > 0) root.grinderBurrs = burrs[0]
+                    }
+                }
+            }
+
+            // Burrs and setting
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(4)
+
+                Text {
+                    text: TranslationManager.translate("brewDialog.burrsLabel", "Burrs:")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: Theme.scaled(75)
+                    Accessible.ignored: true
+                }
+
+                SuggestionField {
+                    id: grinderBurrsInput
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: Theme.scaled(120)
+                    label: ""
+                    accessibleName: TranslationManager.translate("brewDialog.grinderBurrs", "Grinder burrs")
+                    text: root.grinderBurrs
+                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderBurrsSuggestions() : []
+                    onTextEdited: function(t) { root.grinderBurrs = t }
                 }
 
                 Text {
@@ -631,12 +693,11 @@ Dialog {
                     id: grindInput
                     Layout.fillWidth: true
                     Layout.preferredWidth: Theme.scaled(110)
-                    label: ""  // Empty label - the "Grinder:" label and grinder field already provide context
+                    label: ""
                     accessibleName: TranslationManager.translate("brewDialog.grinderSetting", "Grinder setting")
                     text: root.grindSetting
                     suggestions: _distinctCacheVersion >= 0 ? root.getGrinderSettingSuggestions() : []
                     onTextEdited: function(t) { root.grindSetting = t }
-                    // Note: No inputFocused signal needed here since BrewDialog doesn't use keyboard offset
                 }
             }
         }
@@ -665,8 +726,10 @@ Dialog {
                     root.beanBrand = Settings.dyeBeanBrand
                     root.beanType = Settings.dyeBeanType
                     root.selectedProfileTitle = MainController.currentProfileName
-                    root.grinderModel = Settings.dyeGrinderModel   // Bean's grinder
-                    root.grindSetting = Settings.dyeGrinderSetting  // Bean's grind setting
+                    root.grinderBrand = Settings.dyeGrinderBrand
+                    root.grinderModel = Settings.dyeGrinderModel
+                    root.grinderBurrs = Settings.dyeGrinderBurrs
+                    root.grindSetting = Settings.dyeGrinderSetting
 
                     // Calculate ratio from profile target weight / dose
                     var profileTarget = MainController.profileTargetWeight
@@ -721,7 +784,9 @@ Dialog {
                     Settings.lastUsedRatio = root.ratio
                     Settings.dyeBeanBrand = root.beanBrand
                     Settings.dyeBeanType = root.beanType
+                    Settings.dyeGrinderBrand = root.grinderBrand
                     Settings.dyeGrinderModel = root.grinderModel
+                    Settings.dyeGrinderBurrs = root.grinderBurrs
                     Settings.dyeGrinderSetting = root.grindSetting
                     // Use the new activateBrewWithOverrides method
                     MainController.activateBrewWithOverrides(

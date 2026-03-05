@@ -16,7 +16,9 @@ struct ShotMetadata {
     QString beanType;
     QString roastDate;      // ISO format: YYYY-MM-DD
     QString roastLevel;     // Light, Medium, Dark
+    QString grinderBrand;
     QString grinderModel;
+    QString grinderBurrs;
     QString grinderSetting;
     double beanWeight = 0;  // Dose weight in grams
     double drinkWeight = 0; // Output weight in grams

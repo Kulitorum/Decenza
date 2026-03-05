@@ -1555,7 +1555,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
             beanType: "%26",
             roastDate: "%27",
             roastLevel: "%28",
+            grinderBrand: "%40",
             grinderModel: "%29",
+            grinderBurrs: "%41",
             grinderSetting: "%30",
             espressoNotes: "%31",
             doseWeight: %32,
@@ -1659,7 +1661,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
                     '<div class="edit-row"><span class="label">Roast Level</span><div class="edit-field"><select class="edit-select" id="editRoastLevel">' + roastOptions + '</select></div></div>' +
                 '</div>' +
                 '<div class="info-card"><h3>Grinder</h3>' +
+                    '<div class="edit-row"><span class="label">Brand</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBrand" value="' + escapeAttr(shotData.grinderBrand) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeAttr(shotData.grinderModel) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">Burrs</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBurrs" value="' + escapeAttr(shotData.grinderBurrs) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeAttr(shotData.grinderSetting) + '"></div></div>' +
                 '</div>' +
                 '<div class="info-card"><h3>Additional</h3>' +
@@ -1719,7 +1723,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
                 beanType: document.getElementById('editType').value,
                 roastDate: document.getElementById('editRoastDate').value,
                 roastLevel: document.getElementById('editRoastLevel').value,
+                grinderBrand: document.getElementById('editGrinderBrand').value,
                 grinderModel: document.getElementById('editGrinderModel').value,
+                grinderBurrs: document.getElementById('editGrinderBurrs').value,
                 grinderSetting: document.getElementById('editGrinderSetting').value,
                 espressoNotes: document.getElementById('editNotes').value,
                 doseWeight: parseFloat(document.getElementById('editDose').value) || 0,
@@ -2085,7 +2091,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
     .arg(shot["beanType"].toString().isEmpty() ? "-" : shot["beanType"].toString().toHtmlEscaped())
     .arg(shot["roastDate"].toString().isEmpty() ? "-" : shot["roastDate"].toString().toHtmlEscaped())
     .arg(shot["roastLevel"].toString().isEmpty() ? "-" : shot["roastLevel"].toString().toHtmlEscaped())
-    .arg(shot["grinderModel"].toString().isEmpty() ? "-" : shot["grinderModel"].toString().toHtmlEscaped())
+    .arg(shot["grinderBrand"].toString().isEmpty() && shot["grinderModel"].toString().isEmpty()
+         ? "-" : (shot["grinderBrand"].toString() + " " + shot["grinderModel"].toString()).trimmed().toHtmlEscaped())
     .arg(shot["grinderSetting"].toString().isEmpty() ? "-" : shot["grinderSetting"].toString().toHtmlEscaped())
     .arg(shot["espressoNotes"].toString().isEmpty() ? "No notes" : shot["espressoNotes"].toString().toHtmlEscaped())
     .arg(pressureData)
@@ -2115,7 +2122,9 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const QVariantMap& sho
                   : shot["beverageType"].toString()))                                // %36 beverageType
     .arg(shot["drinkTds"].toDouble(), 0, 'f', 2)                                    // %37 drinkTds
     .arg(shot["drinkEy"].toDouble(), 0, 'f', 1)                                     // %38 drinkEy
-    .arg(resistanceData);                                                            // %39 resistance
+    .arg(resistanceData)                                                             // %39 resistance
+    .arg(jsEscape(shot["grinderBrand"].toString()))                                  // %40 grinderBrand
+    .arg(jsEscape(shot["grinderBurrs"].toString()));                                 // %41 grinderBurrs
 }
 
 QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
@@ -2200,7 +2209,9 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
         info["beanType"] = shot.summary.beanType;
         info["roastDate"] = shot.roastDate;
         info["roastLevel"] = shot.roastLevel;
+        info["grinderBrand"] = shot.grinderBrand;
         info["grinderModel"] = shot.grinderModel;
+        info["grinderBurrs"] = shot.grinderBurrs;
         info["grinderSetting"] = shot.grinderSetting;
         info["drinkTds"] = shot.drinkTds;
         info["drinkEy"] = shot.drinkEy;
@@ -2876,7 +2887,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
                     return b || "\u2014";
                 }
                 case "grinder": {
-                    var m = s.grinderModel || "";
+                    var m = ((s.grinderBrand || "") + " " + (s.grinderModel || "")).trim();
                     var g = s.grinderSetting || "";
                     if (m && g) return m + " @ " + g;
                     return m || g || "\u2014";
@@ -2903,7 +2914,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
                 var s = shotInfo[i];
                 switch (key) {
                     case "rating": if (s.enjoyment > 0) return true; break;
-                    case "grinder": if (s.grinderModel || s.grinderSetting) return true; break;
+                    case "grinder": if (s.grinderBrand || s.grinderModel || s.grinderSetting) return true; break;
                     case "tdsEy": if (s.drinkTds > 0 || s.drinkEy > 0) return true; break;
                     case "barista": if (s.barista) return true; break;
                     case "notes": if (s.notes) return true; break;

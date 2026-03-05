@@ -513,7 +513,7 @@ Page {
                 Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: !!(shotData.grinderModel || shotData.grinderSetting)
+                visible: !!(shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs || shotData.grinderSetting)
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.grinder", "Grinder")
 
@@ -538,8 +538,14 @@ Page {
                         rowSpacing: Theme.spacingSmall
                         Layout.fillWidth: true
 
+                        Tr { key: "shotdetail.brand"; fallback: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBrand) }
+                        Text { text: shotData.grinderBrand || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBrand) }
+
                         Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderModel) }
                         Text { text: shotData.grinderModel || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderModel) }
+
+                        Tr { key: "shotdetail.burrs"; fallback: "Burrs:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBurrs) }
+                        Text { text: shotData.grinderBurrs || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBurrs) }
 
                         Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting) }
                         Text { text: shotData.grinderSetting || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting) }

@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "grinderaliases.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QJsonDocument>
@@ -135,6 +136,22 @@ Settings::Settings(QObject* parent)
         }
         m_settings.setValue("shader/migrated", true);
         qDebug() << "Settings: Migrated flat shader params to shader/crt/ namespace";
+    }
+
+    // Migrate legacy DYE grinder field: split combined model into brand/model/burrs
+    if (!m_settings.contains("dye/grinderBrand") || m_settings.value("dye/grinderBrand").toString().isEmpty()) {
+        QString oldModel = m_settings.value("dye/grinderModel").toString();
+        if (!oldModel.isEmpty()) {
+            auto result = GrinderAliases::lookup(oldModel);
+            if (result.found) {
+                m_settings.setValue("dye/grinderBrand", result.brand);
+                m_settings.setValue("dye/grinderModel", result.model);
+                if (m_settings.value("dye/grinderBurrs").toString().isEmpty())
+                    m_settings.setValue("dye/grinderBurrs", result.stockBurrs);
+                qDebug() << "Settings: Migrated DYE grinder ->"
+                         << result.brand << result.model << result.stockBurrs;
+            }
+        }
     }
 
     // Load brew parameter overrides (persistent)
@@ -1129,7 +1146,8 @@ void Settings::setSelectedBeanPreset(int index) {
 
 void Settings::addBeanPreset(const QString& name, const QString& brand, const QString& type,
                              const QString& roastDate, const QString& roastLevel,
-                             const QString& grinderModel, const QString& grinderSetting) {
+                             const QString& grinderBrand, const QString& grinderModel,
+                             const QString& grinderBurrs, const QString& grinderSetting) {
     QJsonArray arr = getBeanPresetsArray();
 
     QJsonObject preset;
@@ -1138,7 +1156,9 @@ void Settings::addBeanPreset(const QString& name, const QString& brand, const QS
     preset["type"] = type;
     preset["roastDate"] = roastDate;
     preset["roastLevel"] = roastLevel;
+    preset["grinderBrand"] = grinderBrand;
     preset["grinderModel"] = grinderModel;
+    preset["grinderBurrs"] = grinderBurrs;
     preset["grinderSetting"] = grinderSetting;
     arr.append(preset);
 
@@ -1148,7 +1168,8 @@ void Settings::addBeanPreset(const QString& name, const QString& brand, const QS
 
 void Settings::updateBeanPreset(int index, const QString& name, const QString& brand,
                                 const QString& type, const QString& roastDate,
-                                const QString& roastLevel, const QString& grinderModel,
+                                const QString& roastLevel, const QString& grinderBrand,
+                                const QString& grinderModel, const QString& grinderBurrs,
                                 const QString& grinderSetting) {
     QJsonArray arr = getBeanPresetsArray();
 
@@ -1159,7 +1180,9 @@ void Settings::updateBeanPreset(int index, const QString& name, const QString& b
         preset["type"] = type;
         preset["roastDate"] = roastDate;
         preset["roastLevel"] = roastLevel;
+        preset["grinderBrand"] = grinderBrand;
         preset["grinderModel"] = grinderModel;
+        preset["grinderBurrs"] = grinderBurrs;
         preset["grinderSetting"] = grinderSetting;
         arr[index] = preset;
 
@@ -1227,12 +1250,33 @@ void Settings::applyBeanPreset(int index) {
         return;
     }
 
+    // Migrate legacy presets: split combined grinder model using alias lookup
+    QString brand = preset.value("grinderBrand").toString();
+    QString model = preset.value("grinderModel").toString();
+    QString burrs = preset.value("grinderBurrs").toString();
+    if (brand.isEmpty() && !model.isEmpty()) {
+        auto result = GrinderAliases::lookup(model);
+        if (result.found) {
+            brand = result.brand;
+            model = result.model;
+            if (burrs.isEmpty()) burrs = result.stockBurrs;
+            // Persist the migration back to the preset
+            updateBeanPreset(index, preset.value("name").toString(),
+                             preset.value("brand").toString(), preset.value("type").toString(),
+                             preset.value("roastDate").toString(), preset.value("roastLevel").toString(),
+                             brand, model, burrs,
+                             preset.value("grinderSetting").toString());
+        }
+    }
+
     // Apply all preset fields to DYE settings
     setDyeBeanBrand(preset.value("brand").toString());
     setDyeBeanType(preset.value("type").toString());
     setDyeRoastDate(preset.value("roastDate").toString());
     setDyeRoastLevel(preset.value("roastLevel").toString());
-    setDyeGrinderModel(preset.value("grinderModel").toString());
+    setDyeGrinderBrand(brand);
+    setDyeGrinderModel(model);
+    setDyeGrinderBurrs(burrs);
     setDyeGrinderSetting(preset.value("grinderSetting").toString());
 }
 
@@ -1247,7 +1291,9 @@ void Settings::saveBeanPresetFromCurrent(const QString& name) {
                         dyeBeanType(),
                         dyeRoastDate(),
                         dyeRoastLevel(),
+                        dyeGrinderBrand(),
                         dyeGrinderModel(),
+                        dyeGrinderBurrs(),
                         dyeGrinderSetting());
     } else {
         // Add new preset
@@ -1256,7 +1302,9 @@ void Settings::saveBeanPresetFromCurrent(const QString& name) {
                      dyeBeanType(),
                      dyeRoastDate(),
                      dyeRoastLevel(),
+                     dyeGrinderBrand(),
                      dyeGrinderModel(),
+                     dyeGrinderBurrs(),
                      dyeGrinderSetting());
     }
 }
@@ -2159,11 +2207,26 @@ void Settings::setDyeRoastLevel(const QString& value) {
 
 void Settings::ensureDyeCacheLoaded() const {
     if (!m_dyeCacheInitialized) {
+        m_dyeGrinderBrandCache = m_settings.value("dye/grinderBrand", "").toString();
         m_dyeGrinderModelCache = m_settings.value("dye/grinderModel", "").toString();
+        m_dyeGrinderBurrsCache = m_settings.value("dye/grinderBurrs", "").toString();
         m_dyeGrinderSettingCache = m_settings.value("dye/grinderSetting", "").toString();
         m_dyeBeanWeightCache = m_settings.value("dye/beanWeight", 18.0).toDouble();
         m_dyeDrinkWeightCache = m_settings.value("dye/drinkWeight", 36.0).toDouble();
         m_dyeCacheInitialized = true;
+    }
+}
+
+QString Settings::dyeGrinderBrand() const {
+    ensureDyeCacheLoaded();
+    return m_dyeGrinderBrandCache;
+}
+
+void Settings::setDyeGrinderBrand(const QString& value) {
+    if (dyeGrinderBrand() != value) {
+        m_dyeGrinderBrandCache = value;
+        m_settings.setValue("dye/grinderBrand", value);
+        emit dyeGrinderBrandChanged();
     }
 }
 
@@ -2180,6 +2243,19 @@ void Settings::setDyeGrinderModel(const QString& value) {
     }
 }
 
+QString Settings::dyeGrinderBurrs() const {
+    ensureDyeCacheLoaded();
+    return m_dyeGrinderBurrsCache;
+}
+
+void Settings::setDyeGrinderBurrs(const QString& value) {
+    if (dyeGrinderBurrs() != value) {
+        m_dyeGrinderBurrsCache = value;
+        m_settings.setValue("dye/grinderBurrs", value);
+        emit dyeGrinderBurrsChanged();
+    }
+}
+
 QString Settings::dyeGrinderSetting() const {
     ensureDyeCacheLoaded();
     return m_dyeGrinderSettingCache;
@@ -2191,6 +2267,22 @@ void Settings::setDyeGrinderSetting(const QString& value) {
         m_settings.setValue("dye/grinderSetting", value);
         emit dyeGrinderSettingChanged();
     }
+}
+
+QStringList Settings::suggestedBurrs(const QString& brand, const QString& model) const {
+    return GrinderAliases::suggestedBurrs(brand, model);
+}
+
+bool Settings::isBurrSwappable(const QString& brand, const QString& model) const {
+    return GrinderAliases::isBurrSwappable(brand, model);
+}
+
+QStringList Settings::knownGrinderBrands() const {
+    return GrinderAliases::allBrands();
+}
+
+QStringList Settings::knownGrinderModels(const QString& brand) const {
+    return GrinderAliases::modelsForBrand(brand);
 }
 
 double Settings::dyeBeanWeight() const {

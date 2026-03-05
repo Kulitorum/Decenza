@@ -15,6 +15,7 @@ Page {
     property string beanBrand: ""
     property string beanType: ""
     property string profileName: ""
+    property string grinderBrand: ""
     property string grinderModel: ""
     property string grinderSetting: ""
     property int avgEnjoyment: 0
@@ -37,7 +38,7 @@ Page {
             MainController.shotHistory.requestShot(shotId)
 
         MainController.shotHistory.requestAutoFavoriteGroupDetails(
-            groupBy, beanBrand, beanType, profileName, grinderModel, grinderSetting)
+            groupBy, beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting)
     }
 
     // Handle async shot data and group details
@@ -55,15 +56,17 @@ Page {
     // Helper properties for conditional display
     property bool _hasBean: !!(beanBrand || beanType)
     property bool _hasProfile: !!(profileName && profileName.length > 0)
-    property bool _hasGrinder: !!(grinderModel || grinderSetting)
+    property bool _hasGrinder: !!(grinderBrand || grinderModel || grinderSetting)
     property string _beanText: {
         var parts = []
         if (beanBrand) parts.push(beanBrand)
         if (beanType) parts.push(beanType)
         return parts.join(" - ")
     }
-    property string _grinderText: (grinderModel || "") +
-        (grinderSetting ? " @ " + grinderSetting : "")
+    property string _grinderText: {
+        var name = ((grinderBrand || "") + " " + (grinderModel || "")).trim()
+        return name + (grinderSetting ? " @ " + grinderSetting : "")
+    }
     property var _notes: groupDetails.notes || []
     property bool _hasRoastDate: !!(shotData.roastDate && shotData.roastDate !== "")
     property bool _hasRoastLevel: !!(shotData.roastLevel && shotData.roastLevel !== "")

@@ -37,7 +37,9 @@ ColumnLayout {
                 return bean || "\u2014"
             }
             case "grind": {
-                var grinder = info.grinderModel || ""
+                var brand = info.grinderBrand || ""
+                var model = info.grinderModel || ""
+                var grinder = (brand && model) ? brand + " " + model : (brand || model)
                 var setting = info.grinderSetting || ""
                 if (grinder && setting) return grinder + " @ " + setting
                 return grinder || setting || "\u2014"

@@ -48,7 +48,9 @@ struct ShotRecord {
     // Full metadata
     QString roastDate;
     QString roastLevel;
+    QString grinderBrand;
     QString grinderModel;
+    QString grinderBurrs;
     QString grinderSetting;
     double drinkTds = 0;
     double drinkEy = 0;
@@ -91,7 +93,9 @@ struct ShotFilter {
     QString profileName;
     QString beanBrand;
     QString beanType;
+    QString grinderBrand;
     QString grinderModel;
+    QString grinderBurrs;
     QString grinderSetting;
     QString roastLevel;
     int minEnjoyment = -1;
@@ -132,7 +136,9 @@ struct ShotSaveData {
     QString beanType;
     QString roastDate;
     QString roastLevel;
+    QString grinderBrand;
     QString grinderModel;
+    QString grinderBurrs;
     QString grinderSetting;
     double drinkTds = 0;
     double drinkEy = 0;
@@ -255,7 +261,16 @@ public:
 
     // Get filter options with parent-based filtering
     Q_INVOKABLE QStringList getDistinctBeanTypesForBrand(const QString& beanBrand);
+    Q_INVOKABLE QStringList getDistinctGrinderBrands();
+    Q_INVOKABLE QStringList getDistinctGrinderModelsForBrand(const QString& grinderBrand);
+    Q_INVOKABLE QStringList getDistinctGrinderBurrsForModel(const QString& grinderBrand, const QString& grinderModel);
     Q_INVOKABLE QStringList getDistinctGrinderSettingsForGrinder(const QString& grinderModel);
+
+    // Bulk update grinder fields for historical shots matching old values
+    Q_INVOKABLE void requestUpdateGrinderFields(const QString& oldBrand, const QString& oldModel,
+                                                 const QString& newBrand, const QString& newModel,
+                                                 const QString& newBurrs);
+    Q_INVOKABLE int countShotsWithGrinder(const QString& brand, const QString& model);
 
     // Get filter options with cascading filter (for dependent dropdowns)
     Q_INVOKABLE QStringList getDistinctProfilesFiltered(const QVariantMap& filter);
@@ -278,6 +293,7 @@ public:
                                                          const QString& beanBrand,
                                                          const QString& beanType,
                                                          const QString& profileName,
+                                                         const QString& grinderBrand,
                                                          const QString& grinderModel,
                                                          const QString& grinderSetting);
 
@@ -286,6 +302,7 @@ public:
                                                       const QString& beanBrand,
                                                       const QString& beanType,
                                                       const QString& profileName,
+                                                      const QString& grinderBrand,
                                                       const QString& grinderModel,
                                                       const QString& grinderSetting);
 
@@ -358,6 +375,7 @@ signals:
     void visualizerInfoUpdated(qint64 shotId, bool success);
     void mostRecentShotIdReady(qint64 shotId);
     void distinctCacheReady();
+    void grinderFieldsUpdated(int updatedCount);
 
 private:
     bool createTables();

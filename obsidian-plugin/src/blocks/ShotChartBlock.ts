@@ -95,7 +95,8 @@ function renderMetadataHeader(el: HTMLElement, shot: ShotDetail): void {
         {
             label: "Grinder",
             value:
-                [shot.grinderModel, shot.grinderSetting]
+                [[shot.grinderBrand, shot.grinderModel].filter(Boolean).join(" "),
+                 shot.grinderSetting]
                     .filter(Boolean)
                     .join(" @ ") || "-",
         },

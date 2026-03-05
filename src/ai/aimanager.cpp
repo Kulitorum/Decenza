@@ -154,7 +154,9 @@ ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
                                        const QString& beanType,
                                        const QString& roastDate,
                                        const QString& roastLevel,
+                                       const QString& grinderBrand,
                                        const QString& grinderModel,
+                                       const QString& grinderBurrs,
                                        const QString& grinderSetting,
                                        int enjoymentScore,
                                        const QString& tastingNotes) const
@@ -164,7 +166,9 @@ ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
     metadata.beanType = beanType;
     metadata.roastDate = roastDate;
     metadata.roastLevel = roastLevel;
+    metadata.grinderBrand = grinderBrand;
     metadata.grinderModel = grinderModel;
+    metadata.grinderBurrs = grinderBurrs;
     metadata.grinderSetting = grinderSetting;
     metadata.espressoEnjoyment = enjoymentScore;
     metadata.espressoNotes = tastingNotes;
@@ -183,7 +187,9 @@ void AIManager::analyzeShot(ShotDataModel* shotData,
         metadata.value("beanType").toString(),
         metadata.value("roastDate").toString(),
         metadata.value("roastLevel").toString(),
+        metadata.value("grinderBrand").toString(),
         metadata.value("grinderModel").toString(),
+        metadata.value("grinderBurrs").toString(),
         metadata.value("grinderSetting").toString(),
         metadata.value("enjoymentScore").toInt(),
         metadata.value("tastingNotes").toString());
@@ -197,7 +203,9 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                              const QString& beanType,
                              const QString& roastDate,
                              const QString& roastLevel,
+                             const QString& grinderBrand,
                              const QString& grinderModel,
+                             const QString& grinderBurrs,
                              const QString& grinderSetting,
                              int enjoymentScore,
                              const QString& tastingNotes)
@@ -227,7 +235,8 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
 
     // Build metadata and summarize shot
     ShotMetadata metadata = buildMetadata(beanBrand, beanType, roastDate, roastLevel,
-                                          grinderModel, grinderSetting, enjoymentScore, tastingNotes);
+                                          grinderBrand, grinderModel, grinderBurrs,
+                                          grinderSetting, enjoymentScore, tastingNotes);
     ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
 
     // Build prompts (select system prompt based on beverage type)
@@ -264,7 +273,9 @@ QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
         metadataMap.value("beanType").toString(),
         metadataMap.value("roastDate").toString(),
         metadataMap.value("roastLevel").toString(),
+        metadataMap.value("grinderBrand").toString(),
         metadataMap.value("grinderModel").toString(),
+        metadataMap.value("grinderBurrs").toString(),
         metadataMap.value("grinderSetting").toString(),
         metadataMap.value("enjoymentScore").toInt(),
         metadataMap.value("tastingNotes").toString());
@@ -293,7 +304,9 @@ QString AIManager::generateShotSummary(ShotDataModel* shotData,
         metadataMap.value("beanType").toString(),
         metadataMap.value("roastDate").toString(),
         metadataMap.value("roastLevel").toString(),
+        metadataMap.value("grinderBrand").toString(),
         metadataMap.value("grinderModel").toString(),
+        metadataMap.value("grinderBurrs").toString(),
         metadataMap.value("grinderSetting").toString(),
         metadataMap.value("enjoymentScore").toInt(),
         metadataMap.value("tastingNotes").toString());

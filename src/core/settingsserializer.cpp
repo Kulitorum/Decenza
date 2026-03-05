@@ -121,7 +121,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         p["type"] = m["type"].toString();
         p["roastDate"] = m["roastDate"].toString();
         p["roastLevel"] = m["roastLevel"].toString();
+        p["grinderBrand"] = m["grinderBrand"].toString();
         p["grinderModel"] = m["grinderModel"].toString();
+        p["grinderBurrs"] = m["grinderBurrs"].toString();
         p["grinderSetting"] = m["grinderSetting"].toString();
         beanPresets.append(p);
     }
@@ -249,7 +251,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     dye["beanType"] = settings->dyeBeanType();
     dye["roastDate"] = settings->dyeRoastDate();
     dye["roastLevel"] = settings->dyeRoastLevel();
+    dye["grinderBrand"] = settings->dyeGrinderBrand();
     dye["grinderModel"] = settings->dyeGrinderModel();
+    dye["grinderBurrs"] = settings->dyeGrinderBurrs();
     dye["grinderSetting"] = settings->dyeGrinderSetting();
     dye["beanWeight"] = settings->dyeBeanWeight();
     dye["drinkWeight"] = settings->dyeDrinkWeight();
@@ -471,7 +475,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                     p["type"].toString(),
                     p["roastDate"].toString(),
                     p["roastLevel"].toString(),
+                    p["grinderBrand"].toString(),
                     p["grinderModel"].toString(),
+                    p["grinderBurrs"].toString(),
                     p["grinderSetting"].toString()
                 );
             }
@@ -625,7 +631,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (dye.contains("beanType")) settings->setDyeBeanType(dye["beanType"].toString());
         if (dye.contains("roastDate")) settings->setDyeRoastDate(dye["roastDate"].toString());
         if (dye.contains("roastLevel")) settings->setDyeRoastLevel(dye["roastLevel"].toString());
+        if (dye.contains("grinderBrand")) settings->setDyeGrinderBrand(dye["grinderBrand"].toString());
         if (dye.contains("grinderModel")) settings->setDyeGrinderModel(dye["grinderModel"].toString());
+        if (dye.contains("grinderBurrs")) settings->setDyeGrinderBurrs(dye["grinderBurrs"].toString());
         if (dye.contains("grinderSetting")) settings->setDyeGrinderSetting(dye["grinderSetting"].toString());
         if (dye.contains("beanWeight")) settings->setDyeBeanWeight(dye["beanWeight"].toDouble());
         if (dye.contains("drinkWeight")) settings->setDyeDrinkWeight(dye["drinkWeight"].toDouble());

@@ -77,6 +77,7 @@ Page {
             if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
             if (initialFilter.beanType) parts.push(initialFilter.beanType)
             if (initialFilter.profileName) parts.push(initialFilter.profileName)
+            if (initialFilter.grinderBrand) parts.push(initialFilter.grinderBrand)
             if (initialFilter.grinderModel) parts.push(initialFilter.grinderModel)
             if (initialFilter.grinderSetting) parts.push(initialFilter.grinderSetting)
             _populatingSearch = true
@@ -204,7 +205,7 @@ Page {
         }
         // Merge initialFilter fields (from AutoFavoritesPage "Show" button etc.)
         if (initialFilter) {
-            var filterFields = ["profileName", "beanBrand", "beanType", "grinderModel", "grinderSetting"]
+            var filterFields = ["profileName", "beanBrand", "beanType", "grinderBrand", "grinderModel", "grinderSetting"]
             for (var k = 0; k < filterFields.length; k++) {
                 var field = filterFields[k]
                 if (initialFilter[field] !== undefined && initialFilter[field] !== "")
@@ -460,8 +461,8 @@ Page {
                         if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
                         if (initialFilter.beanType) parts.push(initialFilter.beanType)
                         if (initialFilter.profileName) parts.push(initialFilter.profileName)
-                        if (initialFilter.grinderModel) {
-                            var g = initialFilter.grinderModel
+                        if (initialFilter.grinderBrand || initialFilter.grinderModel) {
+                            var g = ((initialFilter.grinderBrand || "") + " " + (initialFilter.grinderModel || "")).trim()
                             if (initialFilter.grinderSetting) g += " @ " + initialFilter.grinderSetting
                             parts.push(g)
                         }

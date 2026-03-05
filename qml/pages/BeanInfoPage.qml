@@ -98,7 +98,9 @@ Page {
                 editBeanType = editShotData.beanType || ""
                 editRoastDate = editShotData.roastDate || ""
                 editRoastLevel = editShotData.roastLevel || ""
+                editGrinderBrand = editShotData.grinderBrand || ""
                 editGrinderModel = editShotData.grinderModel || ""
+                editGrinderBurrs = editShotData.grinderBurrs || ""
                 editGrinderSetting = editShotData.grinderSetting || ""
                 editBarista = editShotData.barista || ""
                 editDoseWeight = editShotData.doseWeight || 0
@@ -116,7 +118,9 @@ Page {
     property string editBeanType: ""
     property string editRoastDate: ""
     property string editRoastLevel: ""
+    property string editGrinderBrand: ""
     property string editGrinderModel: ""
+    property string editGrinderBurrs: ""
     property string editGrinderSetting: ""
     property string editBarista: ""
     property double editDoseWeight: 0
@@ -134,7 +138,9 @@ Page {
             "beanType": editBeanType,
             "roastDate": editRoastDate,
             "roastLevel": editRoastLevel,
+            "grinderBrand": editGrinderBrand,
             "grinderModel": editGrinderModel,
+            "grinderBurrs": editGrinderBurrs,
             "grinderSetting": editGrinderSetting,
             "barista": editBarista,
             "doseWeight": editDoseWeight,
@@ -495,7 +501,9 @@ Page {
                                                 var oldType = s.dyeBeanType
                                                 var oldRoastDate = s.dyeRoastDate
                                                 var oldRoastLevel = s.dyeRoastLevel
+                                                var oldGrinderBrand = s.dyeGrinderBrand
                                                 var oldGrinderModel = s.dyeGrinderModel
+                                                var oldGrinderBurrs = s.dyeGrinderBurrs
                                                 var oldGrinderSetting = s.dyeGrinderSetting
 
                                                 // Apply new preset FIRST — this is the critical operation that
@@ -513,7 +521,8 @@ Page {
                                                     s.updateBeanPreset(oldSelected,
                                                         oldPreset.name || "",
                                                         oldBrand, oldType, oldRoastDate,
-                                                        oldRoastLevel, oldGrinderModel, oldGrinderSetting)
+                                                        oldRoastLevel, oldGrinderBrand, oldGrinderModel,
+                                                        oldGrinderBurrs, oldGrinderSetting)
                                                 }
                                             }
                                             beanPill.Drag.drop()
@@ -637,7 +646,76 @@ Page {
                     onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else Settings.dyeRoastDate = t; }
                 }
 
-                // === ROW 2: Roast level, Grinder ===
+                // === ROW 2: Grinder brand, Model, Burrs ===
+                SuggestionField {
+                    id: grinderBrandField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("shotmetadata.label.grinderbrand", "Grinder brand")
+                    text: isEditMode ? editGrinderBrand : Settings.dyeGrinderBrand
+                    suggestions: {
+                        var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderBrands() : []
+                        var known = Settings.knownGrinderBrands()
+                        // Merge: history first, then known brands not already in history
+                        var merged = history.slice()
+                        for (var i = 0; i < known.length; i++) {
+                            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
+                        }
+                        return merged
+                    }
+                    onTextEdited: function(t) {
+                        if (isEditMode) editGrinderBrand = t; else Settings.dyeGrinderBrand = t;
+                    }
+                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                }
+
+                SuggestionField {
+                    id: grinderModelField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("shotmetadata.label.grindermodel", "Model")
+                    text: isEditMode ? editGrinderModel : Settings.dyeGrinderModel
+                    property string currentBrand: isEditMode ? editGrinderBrand : Settings.dyeGrinderBrand
+                    suggestions: {
+                        var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderModelsForBrand(currentBrand) : []
+                        var known = Settings.knownGrinderModels(currentBrand)
+                        var merged = history.slice()
+                        for (var i = 0; i < known.length; i++) {
+                            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
+                        }
+                        return merged
+                    }
+                    onTextEdited: function(t) {
+                        if (isEditMode) editGrinderModel = t; else Settings.dyeGrinderModel = t;
+                        // Auto-fill burrs when model is selected
+                        var brand = isEditMode ? editGrinderBrand : Settings.dyeGrinderBrand
+                        var burrs = Settings.suggestedBurrs(brand, t)
+                        if (burrs.length > 0) {
+                            if (isEditMode) editGrinderBurrs = burrs[0]; else Settings.dyeGrinderBurrs = burrs[0];
+                        }
+                    }
+                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                }
+
+                SuggestionField {
+                    id: grinderBurrsField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("shotmetadata.label.grinderburrs", "Burrs")
+                    text: isEditMode ? editGrinderBurrs : Settings.dyeGrinderBurrs
+                    property string currentBrand: isEditMode ? editGrinderBrand : Settings.dyeGrinderBrand
+                    property string currentModel: isEditMode ? editGrinderModel : Settings.dyeGrinderModel
+                    suggestions: {
+                        var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderBurrsForModel(currentBrand, currentModel) : []
+                        var known = Settings.suggestedBurrs(currentBrand, currentModel)
+                        var merged = history.slice()
+                        for (var i = 0; i < known.length; i++) {
+                            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
+                        }
+                        return merged
+                    }
+                    onTextEdited: function(t) { if (isEditMode) editGrinderBurrs = t; else Settings.dyeGrinderBurrs = t; }
+                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
+                }
+
+                // === ROW 3: Roast level, Setting, Barista ===
                 LabeledComboBox {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.roastlevel", "Roast level")
@@ -653,15 +731,6 @@ Page {
 
                 SuggestionField {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("shotmetadata.label.grinder", "Grinder")
-                    text: isEditMode ? editGrinderModel : Settings.dyeGrinderModel
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinders() : []
-                    onTextEdited: function(t) { if (isEditMode) editGrinderModel = t; else Settings.dyeGrinderModel = t; }
-                    onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
-                }
-
-                SuggestionField {
-                    Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.setting", "Setting")
                     text: isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
                     suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
@@ -670,10 +739,8 @@ Page {
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
 
-                // === ROW 3: Barista (spans all 3 columns) ===
                 SuggestionField {
                     Layout.fillWidth: true
-                    Layout.columnSpan: 3
                     label: TranslationManager.translate("shotmetadata.label.barista", "Barista")
                     text: isEditMode ? editBarista : Settings.dyeBarista
                     suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
@@ -1129,7 +1196,9 @@ Page {
                                 preset.type || "",
                                 preset.roastDate || "",
                                 preset.roastLevel || "",
+                                preset.grinderBrand || "",
                                 preset.grinderModel || "",
+                                preset.grinderBurrs || "",
                                 preset.grinderSetting || "")
                         }
                         editPresetDialog.close()
@@ -1234,7 +1303,9 @@ Page {
                                     Settings.dyeBeanType,
                                     Settings.dyeRoastDate,
                                     Settings.dyeRoastLevel,
+                                    Settings.dyeGrinderBrand,
                                     Settings.dyeGrinderModel,
+                                    Settings.dyeGrinderBurrs,
                                     Settings.dyeGrinderSetting)
                             }
                         }

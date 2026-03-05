@@ -93,7 +93,9 @@ public:
                                   const QString& beanType,
                                   const QString& roastDate,
                                   const QString& roastLevel,
+                                  const QString& grinderBrand,
                                   const QString& grinderModel,
+                                  const QString& grinderBurrs,
                                   const QString& grinderSetting,
                                   int enjoymentScore,
                                   const QString& tastingNotes);
@@ -159,7 +161,9 @@ private:
                                 const QString& beanType,
                                 const QString& roastDate,
                                 const QString& roastLevel,
+                                const QString& grinderBrand,
                                 const QString& grinderModel,
+                                const QString& grinderBurrs,
                                 const QString& grinderSetting,
                                 int enjoymentScore,
                                 const QString& tastingNotes) const;

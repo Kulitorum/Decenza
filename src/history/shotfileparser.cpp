@@ -1,4 +1,5 @@
 #include "shotfileparser.h"
+#include "core/grinderaliases.h"
 #include <QFile>
 #include <QRegularExpression>
 #include <QJsonDocument>
@@ -84,7 +85,15 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
         result.record.summary.beanType = settings.value("bean_type").toString();
         result.record.roastDate = settings.value("roast_date").toString();
         result.record.roastLevel = settings.value("roast_level").toString();
-        result.record.grinderModel = settings.value("grinder_model").toString();
+        QString rawGrinder = settings.value("grinder_model").toString();
+        auto grinderLookup = GrinderAliases::lookup(rawGrinder);
+        if (grinderLookup.found) {
+            result.record.grinderBrand = grinderLookup.brand;
+            result.record.grinderModel = grinderLookup.model;
+            result.record.grinderBurrs = grinderLookup.stockBurrs;
+        } else {
+            result.record.grinderModel = rawGrinder;
+        }
         result.record.grinderSetting = settings.value("grinder_setting").toString();
         result.record.drinkTds = settings.value("drink_tds").toDouble();
         result.record.drinkEy = settings.value("drink_ey").toDouble();

@@ -103,7 +103,9 @@ private:
         QString beanType;
         QString roastDate;
         QString roastLevel;
+        QString grinderBrand;
         QString grinderModel;
+        QString grinderBurrs;
         QString grinderSetting;
         double duration = 0;
         double doseWeight = 0;

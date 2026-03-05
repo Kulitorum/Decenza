@@ -139,7 +139,9 @@ class Settings : public QObject {
     Q_PROPERTY(QString dyeBeanType READ dyeBeanType WRITE setDyeBeanType NOTIFY dyeBeanTypeChanged)
     Q_PROPERTY(QString dyeRoastDate READ dyeRoastDate WRITE setDyeRoastDate NOTIFY dyeRoastDateChanged)
     Q_PROPERTY(QString dyeRoastLevel READ dyeRoastLevel WRITE setDyeRoastLevel NOTIFY dyeRoastLevelChanged)
+    Q_PROPERTY(QString dyeGrinderBrand READ dyeGrinderBrand WRITE setDyeGrinderBrand NOTIFY dyeGrinderBrandChanged)
     Q_PROPERTY(QString dyeGrinderModel READ dyeGrinderModel WRITE setDyeGrinderModel NOTIFY dyeGrinderModelChanged)
+    Q_PROPERTY(QString dyeGrinderBurrs READ dyeGrinderBurrs WRITE setDyeGrinderBurrs NOTIFY dyeGrinderBurrsChanged)
     Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged)
     Q_PROPERTY(double dyeBeanWeight READ dyeBeanWeight WRITE setDyeBeanWeight NOTIFY dyeBeanWeightChanged)
     Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged)
@@ -396,10 +398,12 @@ public:
 
     Q_INVOKABLE void addBeanPreset(const QString& name, const QString& brand, const QString& type,
                                    const QString& roastDate, const QString& roastLevel,
-                                   const QString& grinderModel, const QString& grinderSetting);
+                                   const QString& grinderBrand, const QString& grinderModel,
+                                   const QString& grinderBurrs, const QString& grinderSetting);
     Q_INVOKABLE void updateBeanPreset(int index, const QString& name, const QString& brand,
                                       const QString& type, const QString& roastDate,
-                                      const QString& roastLevel, const QString& grinderModel,
+                                      const QString& roastLevel, const QString& grinderBrand,
+                                      const QString& grinderModel, const QString& grinderBurrs,
                                       const QString& grinderSetting);
     Q_INVOKABLE void removeBeanPreset(int index);
     Q_INVOKABLE void moveBeanPreset(int from, int to);
@@ -533,11 +537,22 @@ public:
     QString dyeRoastLevel() const;
     void setDyeRoastLevel(const QString& value);
 
+    QString dyeGrinderBrand() const;
+    void setDyeGrinderBrand(const QString& value);
+
     QString dyeGrinderModel() const;
     void setDyeGrinderModel(const QString& value);
 
+    QString dyeGrinderBurrs() const;
+    void setDyeGrinderBurrs(const QString& value);
+
     QString dyeGrinderSetting() const;
     void setDyeGrinderSetting(const QString& value);
+
+    Q_INVOKABLE QStringList suggestedBurrs(const QString& brand, const QString& model) const;
+    Q_INVOKABLE bool isBurrSwappable(const QString& brand, const QString& model) const;
+    Q_INVOKABLE QStringList knownGrinderBrands() const;
+    Q_INVOKABLE QStringList knownGrinderModels(const QString& brand) const;
 
     double dyeBeanWeight() const;
     void setDyeBeanWeight(double value);
@@ -800,7 +815,9 @@ signals:
     void dyeBeanTypeChanged();
     void dyeRoastDateChanged();
     void dyeRoastLevelChanged();
+    void dyeGrinderBrandChanged();
     void dyeGrinderModelChanged();
+    void dyeGrinderBurrsChanged();
     void dyeGrinderSettingChanged();
     void dyeBeanWeightChanged();
     void dyeDrinkWeightChanged();
@@ -884,7 +901,9 @@ private:
     mutable bool m_layoutCacheValid = false;
     void invalidateLayoutCache();
     // Cached DYE values (avoid QSettings::value() → CFPreferences on every QML binding read)
+    mutable QString m_dyeGrinderBrandCache;
     mutable QString m_dyeGrinderModelCache;
+    mutable QString m_dyeGrinderBurrsCache;
     mutable QString m_dyeGrinderSettingCache;
     mutable double m_dyeBeanWeightCache = 18.0;
     mutable double m_dyeDrinkWeightCache = 36.0;

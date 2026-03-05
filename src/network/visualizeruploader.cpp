@@ -186,7 +186,13 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setField("roast_date", "roastDate");
     setField("bean_weight", "doseWeight");
     setField("drink_weight", "finalWeight");
-    setField("grinder_model", "grinderModel");
+    // Combine brand + model for visualizer (no separate brand field in API)
+    {
+        QString brand = shotData.value("grinderBrand").toString().trimmed();
+        QString model = shotData.value("grinderModel").toString().trimmed();
+        QString combined = (brand + " " + model).trimmed();
+        if (!combined.isEmpty()) shotObj["grinder_model"] = combined;
+    }
     setField("grinder_setting", "grinderSetting");
     setField("drink_tds", "drinkTds");
     setField("drink_ey", "drinkEy");
@@ -493,10 +499,13 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
         shot["ey"] = metadata.drinkEy;
     meta["shot"] = shot;
 
-    // Grinder info
+    // Grinder info (combine brand+model for visualizer compatibility)
     QJsonObject grinder;
-    if (!metadata.grinderModel.isEmpty())
-        grinder["model"] = metadata.grinderModel;
+    QString grinderDisplay = metadata.grinderBrand.isEmpty() ? metadata.grinderModel
+        : (metadata.grinderModel.isEmpty() ? metadata.grinderBrand
+           : metadata.grinderBrand + " " + metadata.grinderModel);
+    if (!grinderDisplay.isEmpty())
+        grinder["model"] = grinderDisplay;
     if (!metadata.grinderSetting.isEmpty())
         grinder["setting"] = metadata.grinderSetting;
     meta["grinder"] = grinder;
@@ -529,8 +538,8 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
         settings["roast_date"] = metadata.roastDate;
     if (!metadata.roastLevel.isEmpty())
         settings["roast_level"] = metadata.roastLevel;
-    if (!metadata.grinderModel.isEmpty())
-        settings["grinder_model"] = metadata.grinderModel;
+    if (!grinderDisplay.isEmpty())
+        settings["grinder_model"] = grinderDisplay;
     if (!metadata.grinderSetting.isEmpty())
         settings["grinder_setting"] = metadata.grinderSetting;
     if (beanWeight > 0)
@@ -903,11 +912,14 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     if (ey > 0) shot["ey"] = ey;
     meta["shot"] = shot;
 
-    // Grinder info
+    // Grinder info (combine brand+model for visualizer compatibility)
     QJsonObject grinder;
+    QString grinderBrand = shotData["grinderBrand"].toString();
     QString grinderModel = shotData["grinderModel"].toString();
     QString grinderSetting = shotData["grinderSetting"].toString();
-    if (!grinderModel.isEmpty()) grinder["model"] = grinderModel;
+    QString grinderDisplay2 = grinderBrand.isEmpty() ? grinderModel
+        : (grinderModel.isEmpty() ? grinderBrand : grinderBrand + " " + grinderModel);
+    if (!grinderDisplay2.isEmpty()) grinder["model"] = grinderDisplay2;
     if (!grinderSetting.isEmpty()) grinder["setting"] = grinderSetting;
     meta["grinder"] = grinder;
 
@@ -928,7 +940,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     if (!beanType.isEmpty()) settings["bean_type"] = beanType;
     if (!roastDate.isEmpty()) settings["roast_date"] = roastDate;
     if (!roastLevel.isEmpty()) settings["roast_level"] = roastLevel;
-    if (!grinderModel.isEmpty()) settings["grinder_model"] = grinderModel;
+    if (!grinderDisplay2.isEmpty()) settings["grinder_model"] = grinderDisplay2;
     if (!grinderSetting.isEmpty()) settings["grinder_setting"] = grinderSetting;
     if (doseWeight > 0) settings["grinder_dose_weight"] = doseWeight;
     if (finalWeight > 0) settings["drink_weight"] = finalWeight;

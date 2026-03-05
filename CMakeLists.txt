@@ -289,6 +289,7 @@ endif()
 
 set(HEADERS
     src/core/settings.h
+    src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
     src/core/memorymonitor.h

@@ -63,11 +63,10 @@ Page {
     }
 
     // Build accessible text based on current groupBy setting
-    function buildGroupByText(beanBrand, beanType, profileName, grinderModel, grinderSetting, doseWeight, finalWeight, shotCount, avgEnjoyment) {
+    function buildGroupByText(beanBrand, beanType, profileName, grinderBrand, grinderModel, grinderSetting, doseWeight, finalWeight, shotCount, avgEnjoyment) {
         var includes = getGroupByIncludes()
         var parts = []
 
-        // Add fields based on groupBy
         var includeBean = includes.bean
         var includeProfile = includes.profile
         var includeGrinder = includes.grinder
@@ -79,7 +78,8 @@ Page {
         if (includeProfile && profileName)
             parts.push(profileName)
         if (includeGrinder) {
-            var grinder = (grinderModel || "") + (grinderSetting ? " @ " + grinderSetting : "")
+            var grinderName = ((grinderBrand || "") + " " + (grinderModel || "")).trim()
+            var grinder = grinderName + (grinderSetting ? " @ " + grinderSetting : "")
             if (grinder) parts.push(grinder)
         }
 
@@ -180,12 +180,14 @@ Page {
                 property bool _hasBean: !!(model.beanBrand || model.beanType)
                 property bool _hasProfile: !!(model.profileName && model.profileName.length > 0)
                 property bool _hasGrinder: Settings.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
-                    !!(model.grinderModel || model.grinderSetting)
-                property string _grinderText: (model.grinderModel || "") +
-                    (model.grinderSetting ? " @ " + model.grinderSetting : "")
+                    !!(model.grinderBrand || model.grinderModel || model.grinderSetting)
+                property string _grinderText: {
+                    var name = ((model.grinderBrand || "") + " " + (model.grinderModel || "")).trim()
+                    return name + (model.grinderSetting ? " @ " + model.grinderSetting : "")
+                }
                 property string _groupByText: autoFavoritesPage.buildGroupByText(
                     model.beanBrand, model.beanType, model.profileName,
-                    model.grinderModel, model.grinderSetting,
+                    model.grinderBrand, model.grinderModel, model.grinderSetting,
                     model.doseWeight, model.finalWeight, model.shotCount, model.avgEnjoyment)
 
                 // Whole card announces full details based on groupBy setting
@@ -321,6 +323,7 @@ Page {
                                     beanBrand: model.beanBrand || "",
                                     beanType: model.beanType || "",
                                     profileName: model.profileName || "",
+                                    grinderBrand: model.grinderBrand || "",
                                     grinderModel: model.grinderModel || "",
                                     grinderSetting: model.grinderSetting || "",
                                     avgEnjoyment: model.avgEnjoyment || 0,
@@ -364,6 +367,7 @@ Page {
                                 if (includes.profile && model.profileName)
                                     filter.profileName = model.profileName
                                 if (includes.grinder) {
+                                    if (model.grinderBrand) filter.grinderBrand = model.grinderBrand
                                     if (model.grinderModel) filter.grinderModel = model.grinderModel
                                     if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
                                 }

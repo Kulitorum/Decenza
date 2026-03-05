@@ -88,7 +88,9 @@ struct ShotSummary {
     QString beanType;
     QString roastDate;
     QString roastLevel;
+    QString grinderBrand;
     QString grinderModel;
+    QString grinderBurrs;
     QString grinderSetting;
     double drinkTds = 0;
     double drinkEy = 0;
