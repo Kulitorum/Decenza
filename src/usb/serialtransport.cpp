@@ -66,6 +66,9 @@ void SerialTransport::write(const QBluetoothUuid& uuid, const QByteArray& data)
     QString command = QStringLiteral("<%1>%2\n").arg(QChar(letter), bytesToHexString(data));
     writeRaw(command.toLatin1());
 
+    // Serial writes are synchronous — signal immediately that the queue is drained
+    emit queueDrained();
+
     emit logMessage(QStringLiteral("[USB] TX <%1> %2 bytes: %3")
                         .arg(QChar(letter))
                         .arg(data.size())

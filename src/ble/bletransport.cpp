@@ -112,6 +112,8 @@ BleTransport::BleTransport(QObject* parent)
                 m_lastCommand = nullptr;
                 m_writeRetryCount = 0;
                 processCommandQueue();  // Move on to next command
+                if (!m_writePending && m_commandQueue.isEmpty())
+                    emit queueDrained();
             }
         }
     });
@@ -387,6 +389,8 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                             m_lastCommand = nullptr;
                             m_writeRetryCount = 0;
                             processCommandQueue();
+                            if (!m_writePending && m_commandQueue.isEmpty())
+                                emit queueDrained();
                         }
                     } else {
                         emit errorOccurred(QString("Service error: %1").arg(error));

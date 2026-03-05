@@ -1495,22 +1495,27 @@ int main(int argc, char *argv[])
 
         // Wait for BLE writes to complete before exiting
         if (needBleWait) {
+            QEventLoop waitLoop;
             auto* transport = de1Device.transport();
+            bool drained = false;
+            int timeoutMs = 500; // Scale-only default
+
             if (transport && transport->isConnected()) {
-                // Wait for DE1 transport queue to drain (sleep + scale commands)
-                QEventLoop waitLoop;
                 QObject::connect(transport, &DE1Transport::queueDrained,
-                                 &waitLoop, &QEventLoop::quit);
-                // Safety timeout in case the write never completes
-                QTimer::singleShot(2000, &waitLoop, &QEventLoop::quit);
-                qDebug() << "Waiting for BLE queue to drain before exit...";
-                waitLoop.exec();
-            } else {
-                // Scale-only or no DE1 transport — brief wait for scale BLE write
-                QEventLoop waitLoop;
-                QTimer::singleShot(500, &waitLoop, &QEventLoop::quit);
-                waitLoop.exec();
+                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
+                QObject::connect(transport, &DE1Transport::disconnected,
+                                 &waitLoop, [&]() { waitLoop.quit(); });
+                timeoutMs = 2000;
             }
+
+            qDebug() << "Waiting for BLE queue to drain before exit...";
+            QTimer::singleShot(timeoutMs, &waitLoop, [&]() { waitLoop.quit(); });
+            waitLoop.exec();
+
+            if (drained)
+                qDebug() << "BLE queue drained successfully, exiting.";
+            else
+                qWarning() << "BLE queue drain timed out after" << timeoutMs << "ms — sleep command may not have been delivered.";
         }
 
         // IMPORTANT: Ensure charger is ON before exiting
