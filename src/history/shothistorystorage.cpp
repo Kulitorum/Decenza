@@ -884,6 +884,8 @@ void ShotHistoryStorage::requestDistinctCache()
         emit distinctCacheReady();
         return;
     }
+    if (m_distinctCacheRefreshing) return;  // Already in-flight, skip redundant request
+    m_distinctCacheRefreshing = true;
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
@@ -911,6 +913,7 @@ void ShotHistoryStorage::requestDistinctCache()
 
         QMetaObject::invokeMethod(this, [this, results = std::move(results), opened, destroyed]() {
             if (*destroyed) return;
+            m_distinctCacheRefreshing = false;
             if (opened) {
                 // Clear entire cache (including composite keys like "bean_type:SomeRoaster")
                 // so stale filtered entries are also refreshed on next access
@@ -1908,7 +1911,10 @@ QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
                       .arg(column);
 
     QSqlQuery query(m_db);
-    query.exec(sql);
+    if (!query.exec(sql)) {
+        qWarning() << "ShotHistoryStorage::getDistinctValues: query failed for" << column << ":" << query.lastError().text();
+        return results;
+    }
     while (query.next()) {
         QString value = query.value(0).toString();
         if (!value.isEmpty()) {
@@ -1923,7 +1929,8 @@ QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
 void ShotHistoryStorage::invalidateDistinctCache()
 {
     // Keep stale cache until async refresh completes — avoids a window where
-    // getDistinctValues() falls through to a synchronous main-thread DB query
+    // getDistinctValues() falls through to a synchronous main-thread DB query.
+    // Note: filtered variants (composite cache keys) are re-populated synchronously on next access.
     requestDistinctCache();
 }
 
@@ -3540,9 +3547,9 @@ QStringList ShotHistoryStorage::getDistinctBeanTypesForBrand(const QString& bean
     QStringList results;
     if (!m_ready) return results;
 
-    // Note: This is a synchronous cache-miss fallback. The base distinct cache is pre-warmed
-    // async, but filtered variants are populated on first access. This is acceptable because
-    // filtered queries are fast (indexed) and only run once per brand until cache invalidation.
+    // Note: Synchronous cache-miss fallback. The base distinct cache is pre-warmed async,
+    // but filtered variants are populated on first access. Acceptable because filtered queries
+    // are fast (indexed) and cached until the next invalidation (which clears all entries).
     QSqlQuery query(m_db);
     query.prepare("SELECT DISTINCT bean_type FROM shots "
                   "WHERE bean_brand = ? AND bean_type IS NOT NULL AND bean_type != '' "
@@ -3657,7 +3664,7 @@ void ShotHistoryStorage::backfillBeverageType()
 
 void ShotHistoryStorage::refreshTotalShots()
 {
-    // Invalidate caches immediately (no DB I/O)
+    // Refresh distinct cache asynchronously
     invalidateDistinctCache();
 
     // Run COUNT query on background thread to avoid blocking the main thread

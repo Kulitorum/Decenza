@@ -240,7 +240,8 @@ public:
     // Async: fetch most recent shot ID on background thread, emits mostRecentShotIdReady()
     Q_INVOKABLE void requestMostRecentShotId();
 
-    // Async: pre-warm the distinct cache on a background thread, emits distinctCacheReady()
+    // Async: refresh the distinct-value cache on a background thread, emits distinctCacheReady().
+    // Called at init (pre-warm) and by invalidateDistinctCache() after data changes.
     Q_INVOKABLE void requestDistinctCache();
 
     // Get filter options (for dropdowns)
@@ -397,6 +398,7 @@ private:
 
     // Cache for getDistinct*() results (invalidated on save/delete/import)
     QHash<QString, QStringList> m_distinctCache;
+    bool m_distinctCacheRefreshing = false;  // Debounce guard for requestDistinctCache()
 
     // Async filter support
     bool m_loadingFiltered = false;

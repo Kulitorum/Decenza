@@ -183,7 +183,8 @@ Page {
             }
         }
         function onUploadSuccess(shotId, url) {
-            // Update the shot history with visualizer info (async)
+            // Update the shot history with visualizer info (async);
+            // reload triggered by onVisualizerInfoUpdated handler above
             if (editShotId > 0) {
                 MainController.shotHistory.requestUpdateVisualizerInfo(editShotId, shotId, url)
             }
@@ -856,8 +857,24 @@ Page {
                         MainController.visualizer.updateShotOnVisualizer(
                             editShotData.visualizerId, currentData)
                     } else {
-                        // First upload: use already-loaded shot data
-                        MainController.visualizer.uploadShotFromHistory(editShotData)
+                        // First upload: merge current edits into shot data (editShotData
+                        // was loaded at page open and may have stale metadata)
+                        var uploadData = Object.assign({}, editShotData, {
+                            "beanBrand": editBeanBrand,
+                            "beanType": editBeanType,
+                            "roastDate": editRoastDate,
+                            "roastLevel": editRoastLevel,
+                            "grinderModel": editGrinderModel,
+                            "grinderSetting": editGrinderSetting,
+                            "barista": editBarista,
+                            "doseWeight": editDoseWeight,
+                            "finalWeight": editDrinkWeight,
+                            "drinkTds": editDrinkTds,
+                            "drinkEy": editDrinkEy,
+                            "enjoyment": editEnjoyment,
+                            "espressoNotes": editNotes
+                        })
+                        MainController.visualizer.uploadShotFromHistory(uploadData)
                     }
                 }
             }
