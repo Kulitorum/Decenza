@@ -1075,6 +1075,7 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
 void MainController::loadShotWithMetadata(qint64 shotId) {
     if (!m_shotHistory) {
         qWarning() << "loadShotWithMetadata: No shot history storage";
+        emit shotMetadataLoaded(shotId, false);
         return;
     }
 
@@ -1082,21 +1083,24 @@ void MainController::loadShotWithMetadata(qint64 shotId) {
     const QString dbPath = m_shotHistory->databasePath();
     QPointer<MainController> self(this);
 
-    // NOTE: QPointer `self` is only dereferenced inside the QueuedConnection callback,
-    // which runs on the main thread. The background thread captures it by value but
-    // never dereferences it directly.
+    // NOTE: QPointer is NOT thread-safe — it tracks QObject destruction via the main
+    // event loop. The background thread captures `self` by value but MUST NOT dereference
+    // it. All dereferences occur inside the QueuedConnection callback, which runs on the
+    // main thread where QPointer's tracking is valid.
     QThread* thread = QThread::create([self, dbPath, shotId]() {
         const QString connName = QString("load_meta_%1")
             .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
         ShotRecord record;
-        {
+        try {
             QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
             db.setDatabaseName(dbPath);
             if (db.open())
                 record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
             else
                 qWarning() << "loadShotWithMetadata: Failed to open DB:" << db.lastError().text();
+        } catch (const std::exception& e) {
+            qWarning() << "loadShotWithMetadata: Exception loading shot" << shotId << ":" << e.what();
         }
         QSqlDatabase::removeDatabase(connName);
 
@@ -1119,14 +1123,14 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
 
     // Load the profile - prefer installed profile, fall back to stored JSON
     QString filename = findProfileByTitle(shotRecord.summary.profileName);
-    qDebug() << "loadShotWithMetadata: profileTitle=" << shotRecord.summary.profileName
+    qDebug() << "applyLoadedShotMetadata: profileTitle=" << shotRecord.summary.profileName
              << "filename=" << filename;
     if (!filename.isEmpty()) {
         loadProfile(filename);
     } else if (!shotRecord.profileJson.isEmpty()) {
         loadProfileFromJson(shotRecord.profileJson);
     } else {
-        qWarning() << "loadShotWithMetadata: No profile data available for shot";
+        qWarning() << "applyLoadedShotMetadata: No profile data available for shot";
     }
 
     // Copy metadata to DYE settings
@@ -1148,7 +1152,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // Find matching bean preset or set to -1 for guest bean
         int beanPresetIndex = m_settings->findBeanPresetByContent(
             shotRecord.summary.beanBrand, shotRecord.summary.beanType);
-        qDebug() << "loadShotWithMetadata: Looking for bean preset - brand:" << shotRecord.summary.beanBrand
+        qDebug() << "applyLoadedShotMetadata: Looking for bean preset - brand:" << shotRecord.summary.beanBrand
                  << "type:" << shotRecord.summary.beanType << "-> found index:" << beanPresetIndex;
         m_settings->setSelectedBeanPreset(beanPresetIndex);
 

@@ -504,6 +504,7 @@ Rectangle {
             if (MainController.aiManager && MainController.aiManager.conversation) {
                 MainController.aiManager.conversation.saveToStorage()
             }
+            overlay.contextLoading = false  // Reset in case async result never arrives
             overlay.visible = false
             overlay.closed()
         }

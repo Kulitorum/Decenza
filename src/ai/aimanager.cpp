@@ -312,8 +312,10 @@ void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
     m_shotHistory = storage;
 }
 
-// File-scope helper: runs on background thread, returns (timestamp, fullShot) pairs.
-// Extracted from requestRecentShotContext to reduce lambda nesting.
+// File-scope helper: runs on a background thread with its own SQLite connection.
+// Returns (timestamp, fullShot) pairs. Extracted from requestRecentShotContext
+// to reduce lambda nesting. NOT safe to call from the main thread (would conflict
+// with the primary DB connection).
 static QList<QPair<qint64, QVariantMap>> loadQualifiedShots(
     const QString& dbPath, const QString& connName,
     const QString& beanBrand, const QString& beanType,
@@ -395,8 +397,14 @@ static QList<QPair<qint64, QVariantMap>> loadQualifiedShots(
                         continue;
                     }
 
-                    ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, c.id);
-                    QVariantMap fullShot = ShotHistoryStorage::convertShotRecord(record);
+                    QVariantMap fullShot;
+                    try {
+                        ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, c.id);
+                        fullShot = ShotHistoryStorage::convertShotRecord(record);
+                    } catch (const std::exception& e) {
+                        qWarning() << "  Shot id=" << c.id << "-> SKIPPED (exception:" << e.what() << ")";
+                        continue;
+                    }
                     if (fullShot.isEmpty()) {
                         qWarning() << "  Shot id=" << c.id << "-> SKIPPED (convertShotRecord returned empty)";
                         continue;
@@ -432,9 +440,10 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
     ++m_contextSerial;
     int serial = m_contextSerial;
 
-    // NOTE: QPointer `self` is only dereferenced inside the QueuedConnection callback,
-    // which runs on the main thread. The background thread captures it by value but
-    // never dereferences it directly.
+    // NOTE: QPointer is NOT thread-safe — it tracks QObject destruction via the main
+    // event loop. The background thread captures `self` by value but MUST NOT dereference
+    // it. All dereferences occur inside the QueuedConnection callback, which runs on the
+    // main thread where QPointer's tracking is valid.
     QThread* thread = QThread::create([self, dbPath, beanBrand, beanType, profileName, excludeShotId, serial]() {
         const QString connName = QString("ai_context_%1")
             .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
@@ -443,7 +452,13 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
 
         // Summarization runs on main thread (ShotSummarizer is owned by AIManager)
         QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots)]() {
-            if (!self || serial != self->m_contextSerial) return;
+            if (!self) return;
+            if (serial != self->m_contextSerial) {
+                // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
+                // The newer request's callback will overwrite with real data.
+                emit self->recentShotContextReady(QString());
+                return;
+            }
 
             QString result;
             QStringList shotSections;

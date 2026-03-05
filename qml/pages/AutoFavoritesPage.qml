@@ -17,7 +17,8 @@ Page {
         enabled: autoFavoritesPage._waitingForShotLoad
         function onShotMetadataLoaded(shotId, success) {
             autoFavoritesPage._waitingForShotLoad = false
-            pageStack.pop()
+            if (success)
+                pageStack.pop()
         }
     }
 
