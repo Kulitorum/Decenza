@@ -1,14 +1,10 @@
 #include "hiroiascale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define HIROIA_LOG(msg) do { \
-    QString _msg = QString("[BLE HiroiaScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define HIROIA_LOG(msg)  SCALE_LOG("HiroiaScale", msg)
+#define HIROIA_WARN(msg) SCALE_WARN("HiroiaScale", msg)
 
 HiroiaScale::HiroiaScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -71,7 +67,7 @@ void HiroiaScale::onTransportDisconnected() {
 }
 
 void HiroiaScale::onTransportError(const QString& message) {
-    HIROIA_LOG(QString("Transport error: %1").arg(message));
+    HIROIA_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Hiroia Jimmy scale connection error");
     setConnected(false);
 }
@@ -87,7 +83,7 @@ void HiroiaScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void HiroiaScale::onServicesDiscoveryFinished() {
     HIROIA_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        HIROIA_LOG(QString("Hiroia Jimmy service %1 not found!").arg(Scale::HiroiaJimmy::SERVICE.toString()));
+        HIROIA_WARN(QString("Hiroia Jimmy service %1 not found!").arg(Scale::HiroiaJimmy::SERVICE.toString()));
         emit errorOccurred("Hiroia Jimmy service not found");
         return;
     }

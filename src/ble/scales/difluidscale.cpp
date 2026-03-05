@@ -1,14 +1,10 @@
 #include "difluidscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define DIFLUID_LOG(msg) do { \
-    QString _msg = QString("[BLE DifluidScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define DIFLUID_LOG(msg)  SCALE_LOG("DifluidScale", msg)
+#define DIFLUID_WARN(msg) SCALE_WARN("DifluidScale", msg)
 
 DifluidScale::DifluidScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -71,7 +67,7 @@ void DifluidScale::onTransportDisconnected() {
 }
 
 void DifluidScale::onTransportError(const QString& message) {
-    DIFLUID_LOG(QString("Transport error: %1").arg(message));
+    DIFLUID_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Difluid scale connection error");
     setConnected(false);
 }
@@ -87,7 +83,7 @@ void DifluidScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void DifluidScale::onServicesDiscoveryFinished() {
     DIFLUID_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        DIFLUID_LOG(QString("DiFluid service %1 not found!").arg(Scale::DiFluid::SERVICE.toString()));
+        DIFLUID_WARN(QString("DiFluid service %1 not found!").arg(Scale::DiFluid::SERVICE.toString()));
         emit errorOccurred("Difluid service not found");
         return;
     }

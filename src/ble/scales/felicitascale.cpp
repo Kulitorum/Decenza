@@ -1,14 +1,10 @@
 #include "felicitascale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define FELICITA_LOG(msg) do { \
-    QString _msg = QString("[BLE FelicitaScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define FELICITA_LOG(msg)  SCALE_LOG("FelicitaScale", msg)
+#define FELICITA_WARN(msg) SCALE_WARN("FelicitaScale", msg)
 
 FelicitaScale::FelicitaScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -71,7 +67,7 @@ void FelicitaScale::onTransportDisconnected() {
 }
 
 void FelicitaScale::onTransportError(const QString& message) {
-    FELICITA_LOG(QString("Transport error: %1").arg(message));
+    FELICITA_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Felicita scale connection error");
     setConnected(false);
 }
@@ -87,7 +83,7 @@ void FelicitaScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void FelicitaScale::onServicesDiscoveryFinished() {
     FELICITA_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        FELICITA_LOG(QString("Felicita service %1 not found!").arg(Scale::Felicita::SERVICE.toString()));
+        FELICITA_WARN(QString("Felicita service %1 not found!").arg(Scale::Felicita::SERVICE.toString()));
         emit errorOccurred("Felicita service not found");
         return;
     }

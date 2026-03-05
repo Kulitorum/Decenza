@@ -1,14 +1,10 @@
 #include "skalescale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define SKALE_LOG(msg) do { \
-    QString _msg = QString("[BLE SkaleScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define SKALE_LOG(msg)  SCALE_LOG("SkaleScale", msg)
+#define SKALE_WARN(msg) SCALE_WARN("SkaleScale", msg)
 
 SkaleScale::SkaleScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -71,7 +67,7 @@ void SkaleScale::onTransportDisconnected() {
 }
 
 void SkaleScale::onTransportError(const QString& message) {
-    SKALE_LOG(QString("Transport error: %1").arg(message));
+    SKALE_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Skale connection error");
     setConnected(false);
 }
@@ -87,7 +83,7 @@ void SkaleScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void SkaleScale::onServicesDiscoveryFinished() {
     SKALE_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        SKALE_LOG(QString("WARNING: Skale service %1 not found!").arg(Scale::Skale::SERVICE.toString()));
+        SKALE_WARN(QString("Skale service %1 not found!").arg(Scale::Skale::SERVICE.toString()));
         emit errorOccurred("Skale service not found");
         return;
     }

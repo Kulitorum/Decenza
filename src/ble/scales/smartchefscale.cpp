@@ -1,14 +1,10 @@
 #include "smartchefscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define SMARTCHEF_LOG(msg) do { \
-    QString _msg = QString("[BLE SmartChefScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define SMARTCHEF_LOG(msg)  SCALE_LOG("SmartChefScale", msg)
+#define SMARTCHEF_WARN(msg) SCALE_WARN("SmartChefScale", msg)
 
 SmartChefScale::SmartChefScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -71,7 +67,7 @@ void SmartChefScale::onTransportDisconnected() {
 }
 
 void SmartChefScale::onTransportError(const QString& message) {
-    SMARTCHEF_LOG(QString("Transport error: %1").arg(message));
+    SMARTCHEF_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("SmartChef scale connection error");
     setConnected(false);
 }
@@ -87,7 +83,7 @@ void SmartChefScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void SmartChefScale::onServicesDiscoveryFinished() {
     SMARTCHEF_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        SMARTCHEF_LOG(QString("SmartChef service %1 not found!").arg(Scale::Generic::SERVICE.toString()));
+        SMARTCHEF_WARN(QString("SmartChef service %1 not found!").arg(Scale::Generic::SERVICE.toString()));
         emit errorOccurred("SmartChef service not found");
         return;
     }

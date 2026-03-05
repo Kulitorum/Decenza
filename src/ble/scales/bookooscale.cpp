@@ -1,14 +1,10 @@
 #include "bookooscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define BOOKOO_LOG(msg) do { \
-    QString _msg = QString("[BLE BookooScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define BOOKOO_LOG(msg)  SCALE_LOG("BookooScale", msg)
+#define BOOKOO_WARN(msg) SCALE_WARN("BookooScale", msg)
 
 BookooScale::BookooScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -75,8 +71,11 @@ void BookooScale::onTransportDisconnected() {
 }
 
 void BookooScale::onTransportError(const QString& message) {
-    // Log but don't fail - Bookoo rejects CCCD writes but may still work
-    BOOKOO_LOG(QString("Transport error: %1 (may be expected)").arg(message));
+    // Log but don't fail - Bookoo rejects CCCD writes but may still work.
+    // Qt transport already swallows DescriptorWriteError before it reaches here,
+    // and CoreBluetooth uses different error strings, so we cannot reliably
+    // filter by message content. Keep the connection alive for all errors.
+    BOOKOO_WARN(QString("Transport error: %1 (may be expected)").arg(message));
 }
 
 void BookooScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
@@ -92,7 +91,7 @@ void BookooScale::onServicesDiscoveryFinished() {
     BOOKOO_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
 
     if (!m_serviceFound) {
-        BOOKOO_LOG(QString("Service %1 not found!").arg(Scale::Bookoo::SERVICE.toString()));
+        BOOKOO_WARN(QString("Service %1 not found!").arg(Scale::Bookoo::SERVICE.toString()));
         emit errorOccurred("Bookoo service not found");
         return;
     }

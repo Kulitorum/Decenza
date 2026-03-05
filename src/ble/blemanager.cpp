@@ -396,7 +396,7 @@ void BLEManager::onScaleConnectionTimeout() {
     m_directConnectAddress.clear();
 
     if (!m_scaleDevice || !m_scaleDevice->isConnected()) {
-        qDebug() << "BLEManager: Scale connection timeout - not found";
+        qWarning() << "BLEManager: Scale connection timeout - not found";
         m_scaleConnectionFailed = true;
         emit scaleConnectionFailedChanged();
 

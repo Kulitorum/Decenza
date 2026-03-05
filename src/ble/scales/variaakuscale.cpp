@@ -1,13 +1,9 @@
 #include "variaakuscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define VARIA_LOG(msg) do { \
-    QString _msg = QString("[BLE VariaAkuScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define VARIA_LOG(msg)  SCALE_LOG("VariaAkuScale", msg)
+#define VARIA_WARN(msg) SCALE_WARN("VariaAkuScale", msg)
 
 VariaAkuScale::VariaAkuScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -76,13 +72,13 @@ void VariaAkuScale::onTransportConnected() {
 }
 
 void VariaAkuScale::onTransportDisconnected() {
-    VARIA_LOG("WARNING: Transport disconnected - BLE connection lost!");
+    VARIA_WARN("Transport disconnected - BLE connection lost!");
     stopWatchdog();
     setConnected(false);
 }
 
 void VariaAkuScale::onTransportError(const QString& message) {
-    VARIA_LOG(QString("WARNING: Transport error: %1").arg(message));
+    VARIA_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Varia Aku scale connection error");
     setConnected(false);
 }
@@ -100,7 +96,7 @@ void VariaAkuScale::onServicesDiscoveryFinished() {
     VARIA_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
 
     if (!m_serviceFound) {
-        VARIA_LOG(QString("WARNING: Varia Aku service %1 not found!").arg(Scale::VariaAku::SERVICE.toString()));
+        VARIA_WARN(QString("Varia Aku service %1 not found!").arg(Scale::VariaAku::SERVICE.toString()));
         emit errorOccurred("Varia Aku service not found");
         return;
     }
@@ -125,7 +121,7 @@ void VariaAkuScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& ser
     QTimer::singleShot(200, this, [this]() {
         // Check if still connected (scale may have disconnected during delay)
         if (!m_transport || !m_characteristicsReady) {
-            VARIA_LOG("WARNING: Transport gone before notification enable!");
+            VARIA_WARN("Transport gone before notification enable!");
             return;
         }
 
@@ -145,7 +141,7 @@ void VariaAkuScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& ser
 
 void VariaAkuScale::enableNotifications() {
     if (!m_transport || !m_characteristicsReady) {
-        VARIA_LOG("WARNING: enableNotifications() - transport or characteristics not ready!");
+        VARIA_WARN("enableNotifications() - transport or characteristics not ready!");
         return;
     }
 
@@ -193,13 +189,13 @@ void VariaAkuScale::onWatchdogTimeout() {
     m_watchdogRetries++;
 
     if (m_watchdogRetries >= MAX_WATCHDOG_RETRIES) {
-        VARIA_LOG(QString("WARNING: No weight updates after %1 retries, giving up").arg(MAX_WATCHDOG_RETRIES));
+        VARIA_WARN(QString("No weight updates after %1 retries, giving up").arg(MAX_WATCHDOG_RETRIES));
         setConnected(false);
         emit errorOccurred("Varia Aku scale not sending weight updates");
         return;
     }
 
-    VARIA_LOG(QString("WARNING: No weight updates, retry %1 of %2").arg(m_watchdogRetries).arg(MAX_WATCHDOG_RETRIES));
+    VARIA_WARN(QString("No weight updates, retry %1 of %2").arg(m_watchdogRetries).arg(MAX_WATCHDOG_RETRIES));
 
     // Re-enable notifications
     enableNotifications();
@@ -209,7 +205,7 @@ void VariaAkuScale::onWatchdogTimeout() {
 }
 
 void VariaAkuScale::onTickleTimeout() {
-    VARIA_LOG(QString("WARNING: No weight updates for %1ms! Re-enabling notifications...").arg(TICKLE_TIMEOUT_MS));
+    VARIA_WARN(QString("No weight updates for %1ms! Re-enabling notifications...").arg(TICKLE_TIMEOUT_MS));
 
     // Try re-enabling notifications
     m_updatesReceived = false;
@@ -263,7 +259,7 @@ void VariaAkuScale::onCharacteristicChanged(const QBluetoothUuid& characteristic
 
 void VariaAkuScale::sendCommand(const QByteArray& cmd) {
     if (!m_transport || !m_characteristicsReady) {
-        VARIA_LOG("WARNING: Cannot send command - transport or characteristics not ready");
+        VARIA_WARN("Cannot send command - transport or characteristics not ready");
         return;
     }
     m_transport->writeCharacteristic(Scale::VariaAku::SERVICE, Scale::VariaAku::CMD, cmd);

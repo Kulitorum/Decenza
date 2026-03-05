@@ -1,14 +1,10 @@
 #include "atomhearteclairscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define ECLAIR_LOG(msg) do { \
-    QString _msg = QString("[BLE AtomheartEclairScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define ECLAIR_LOG(msg)  SCALE_LOG("AtomheartEclairScale", msg)
+#define ECLAIR_WARN(msg) SCALE_WARN("AtomheartEclairScale", msg)
 
 AtomheartEclairScale::AtomheartEclairScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -71,7 +67,7 @@ void AtomheartEclairScale::onTransportDisconnected() {
 }
 
 void AtomheartEclairScale::onTransportError(const QString& message) {
-    ECLAIR_LOG(QString("Transport error: %1").arg(message));
+    ECLAIR_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Atomheart Eclair scale connection error");
     setConnected(false);
 }
@@ -87,7 +83,7 @@ void AtomheartEclairScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void AtomheartEclairScale::onServicesDiscoveryFinished() {
     ECLAIR_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        ECLAIR_LOG(QString("Atomheart Eclair service %1 not found!").arg(Scale::AtomheartEclair::SERVICE.toString()));
+        ECLAIR_WARN(QString("Atomheart Eclair service %1 not found!").arg(Scale::AtomheartEclair::SERVICE.toString()));
         emit errorOccurred("Atomheart Eclair service not found");
         return;
     }
@@ -140,7 +136,7 @@ void AtomheartEclairScale::onCharacteristicChanged(const QBluetoothUuid& charact
 
             // Validate XOR checksum
             if (!validateXor(value)) {
-                ECLAIR_LOG("XOR checksum failed");
+                ECLAIR_WARN("XOR checksum failed");
                 return;
             }
 
