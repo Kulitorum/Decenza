@@ -322,6 +322,15 @@ void MqttClient::onInternalConnected()
     int interval = m_settings ? m_settings->mqttPublishInterval() : 1000;
     m_publishTimer.start(interval);
 
+    // Clear last-published values so the full state is re-sent to the broker
+    // (the broker may have lost retained messages during the disconnect)
+    m_lastPublishedState.clear();
+    m_lastPublishedPhase.clear();
+    m_lastPublishedSubstate.clear();
+    m_lastPublishedProfile.clear();
+    m_lastPublishedSteamMode.clear();
+    m_lastPublishedEspressoCount = -1;
+
     // Publish initial state
     publishState();
     publishTelemetry();
