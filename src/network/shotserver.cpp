@@ -486,6 +486,13 @@ void ShotServer::stop()
 
     if (m_server) {
         m_cleanupTimer->stop();
+        // Stop all keep-alive timers BEFORE closing any sockets. This ensures
+        // every timer pointer is still valid (sockets haven't been destroyed yet).
+        // Closing sockets afterwards may trigger onDisconnected() → deleteLater(),
+        // which could destroy timers; clearing the map first avoids dangling pointers.
+        for (QTimer* t : std::as_const(m_keepAliveTimers))
+            t->stop();
+        m_keepAliveTimers.clear();
         // Copy sets before closing — s->close() can synchronously trigger
         // onDisconnected() which calls m_sseLayoutClients.remove() during iteration.
         auto layoutCopy = m_sseLayoutClients;
@@ -494,14 +501,6 @@ void ShotServer::stop()
         auto themeCopy = m_sseThemeClients;
         m_sseThemeClients.clear();
         for (QTcpSocket* s : themeCopy) s->close();
-        // Stop all remaining keep-alive timers and clear the map.
-        // All entries here have valid timer pointers: dangling-pointer entries (sockets that
-        // went through cleanupStaleConnections) were already removed from the map by that
-        // function before calling deleteLater(). Sockets that disconnected normally were
-        // removed by onDisconnected(). So every pointer remaining in the map is live.
-        for (QTimer* t : std::as_const(m_keepAliveTimers))
-            t->stop();
-        m_keepAliveTimers.clear();
         m_server->close();
         delete m_server;
         m_server = nullptr;

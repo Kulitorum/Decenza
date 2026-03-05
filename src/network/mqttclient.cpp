@@ -33,6 +33,7 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
         connect(m_device, &DE1Device::shotSampleReceived, this, &MqttClient::onShotSampleReceived);
         connect(m_device, &DE1Device::waterLevelChanged, this, &MqttClient::onWaterLevelChanged);
         connect(m_device, &DE1Device::stateChanged, this, &MqttClient::onDE1StateChanged);
+        connect(m_device, &DE1Device::subStateChanged, this, &MqttClient::onDE1StateChanged);
         connect(m_device, &DE1Device::connectedChanged, this, &MqttClient::onDE1ConnectedChanged);
     }
 
@@ -321,6 +322,15 @@ void MqttClient::onInternalConnected()
     int interval = m_settings ? m_settings->mqttPublishInterval() : 1000;
     m_publishTimer.start(interval);
 
+    // Clear last-published values so the full state is re-sent to the broker
+    // (the broker may have lost retained messages during the disconnect)
+    m_lastPublishedState.clear();
+    m_lastPublishedPhase.clear();
+    m_lastPublishedSubstate.clear();
+    m_lastPublishedProfile.clear();
+    m_lastPublishedSteamMode.clear();
+    m_lastPublishedEspressoCount = -1;
+
     // Publish initial state
     publishState();
     publishTelemetry();
@@ -531,7 +541,10 @@ void MqttClient::publish(const QString& topic, const QString& payload, bool reta
     msg.qos = 0;
     msg.retained = shouldRetain ? 1 : 0;
 
-    MQTTAsync_sendMessage(m_client, topicBytes.constData(), &msg, nullptr);
+    int rc = MQTTAsync_sendMessage(m_client, topicBytes.constData(), &msg, nullptr);
+    if (rc != MQTTASYNC_SUCCESS) {
+        qWarning() << "MqttClient: Failed to publish to" << topic << "- error" << rc;
+    }
 }
 
 void MqttClient::publishAvailability(bool online)
@@ -590,10 +603,10 @@ void MqttClient::onSteamSettingsChanged()
 
 void MqttClient::publishState()
 {
-    if (!isConnected()) return;
+    if (!isConnected() || !m_device) return;
 
-    QString state = m_device ? m_device->stateString() : "Unknown";
-    QString substate = m_device ? m_device->subStateString() : "unknown";
+    QString state = m_device->stateString();
+    QString substate = m_device->subStateString();
     QString phase = m_machineState ? m_machineState->phaseString() : "Unknown";
 
     // Only publish if changed to reduce traffic
@@ -638,7 +651,10 @@ void MqttClient::publishState()
         m_lastPublishedSteamMode = steamMode;
     }
 
-    publish(topicPath("substate"), substate, true);
+    if (substate != m_lastPublishedSubstate) {
+        publish(topicPath("substate"), substate, true);
+        m_lastPublishedSubstate = substate;
+    }
 }
 
 void MqttClient::publishTelemetry()
@@ -847,6 +863,19 @@ void MqttClient::publishHomeAssistantDiscovery()
         publishDiscoveryConfig("sensor", "water_level", config);
     }
 
+    // Water level (ml) sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Water Level (ml)";
+        config["state_topic"] = baseTopic + "/water_level_ml";
+        config["unit_of_measurement"] = "ml";
+        config["icon"] = "mdi:water";
+        config["unique_id"] = QString("de1_%1_water_level_ml").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "water_level_ml", config);
+    }
+
     // Shot time sensor
     {
         QJsonObject config;
@@ -882,13 +911,30 @@ void MqttClient::publishHomeAssistantDiscovery()
         config["state_topic"] = baseTopic + "/state";
         config["payload_on"] = "wake";
         config["payload_off"] = "sleep";
-        config["state_on"] = "Idle";
-        config["state_off"] = "Sleep";
+        config["state_on"] = "ON";
+        config["state_off"] = "OFF";
+        // Map all machine states to ON/OFF — only Sleep and GoingToSleep are "off"
+        config["value_template"] = "{{ 'OFF' if value in ['Sleep', 'GoingToSleep'] else 'ON' }}";
         config["icon"] = "mdi:power";
         config["unique_id"] = QString("de1_%1_power").arg(m_clientId);
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
         publishDiscoveryConfig("switch", "power", config);
+    }
+
+    // DE1 connected (binary sensor)
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Connected";
+        config["state_topic"] = baseTopic + "/connected";
+        config["payload_on"] = "true";
+        config["payload_off"] = "false";
+        config["device_class"] = "connectivity";
+        config["icon"] = "mdi:bluetooth-connect";
+        config["unique_id"] = QString("de1_%1_connected").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("binary_sensor", "connected", config);
     }
 
     // Scale connected (binary sensor)
@@ -936,12 +982,13 @@ void MqttClient::publishHomeAssistantDiscovery()
     }
 
     // Espresso count sensor
+    // No state_class — count can decrease when shots are deleted from history,
+    // which is incompatible with "total_increasing" (HA would treat decreases as resets)
     {
         QJsonObject config;
         config["name"] = "DE1 Espresso Count";
         config["state_topic"] = baseTopic + "/espresso_count";
         config["icon"] = "mdi:counter";
-        config["state_class"] = "total_increasing";
         config["unique_id"] = QString("de1_%1_espresso_count").arg(m_clientId);
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
