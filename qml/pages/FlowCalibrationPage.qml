@@ -89,6 +89,7 @@ Page {
             Layout.alignment: Qt.AlignHCenter
             running: FlowCalibrationModel.loading
             visible: FlowCalibrationModel.loading
+            Accessible.ignored: true
         }
 
         // Error message (shown when no data)

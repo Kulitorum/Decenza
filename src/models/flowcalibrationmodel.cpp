@@ -95,7 +95,10 @@ void FlowCalibrationModel::loadRecentShots() {
 
         QMetaObject::invokeMethod(this, [this, shotIds = std::move(shotIds),
                                          firstRecord = std::move(firstRecord), dbFailed, destroyed]() {
-            if (*destroyed) return;
+            if (*destroyed) {
+                qDebug() << "FlowCalibrationModel: loadRecentShots callback dropped (object destroyed)";
+                return;
+            }
 
             m_shotIds = shotIds;
 
@@ -133,16 +136,18 @@ void FlowCalibrationModel::loadRecentShots() {
 void FlowCalibrationModel::previousShot() {
     if (m_currentIndex > 0 && !m_loading) {
         m_currentIndex--;
-        loadCurrentShot();
+        m_shotInfo.clear();
         emit navigationChanged();
+        loadCurrentShot();
     }
 }
 
 void FlowCalibrationModel::nextShot() {
     if (m_currentIndex < m_shotIds.size() - 1 && !m_loading) {
         m_currentIndex++;
-        loadCurrentShot();
+        m_shotInfo.clear();
         emit navigationChanged();
+        loadCurrentShot();
     }
 }
 
@@ -158,7 +163,7 @@ void FlowCalibrationModel::resetToFactory() {
 }
 
 void FlowCalibrationModel::loadCurrentShot() {
-    if (m_currentIndex < 0 || m_currentIndex >= m_shotIds.size() || !m_storage) return;
+    if (m_currentIndex < 0 || m_currentIndex >= m_shotIds.size() || !m_storage || m_loading) return;
 
     setLoading(true);
 
@@ -185,7 +190,10 @@ void FlowCalibrationModel::loadCurrentShot() {
         QSqlDatabase::removeDatabase(connName);
 
         QMetaObject::invokeMethod(this, [this, record = std::move(record), dbFailed, destroyed]() {
-            if (*destroyed) return;
+            if (*destroyed) {
+                qDebug() << "FlowCalibrationModel: loadCurrentShot callback dropped (object destroyed)";
+                return;
+            }
 
             if (dbFailed || record.summary.id == 0) {
                 m_errorMessage = tr("Failed to load shot data. The database may be unavailable.");

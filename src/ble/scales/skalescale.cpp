@@ -62,7 +62,7 @@ void SkaleScale::onTransportConnected() {
 }
 
 void SkaleScale::onTransportDisconnected() {
-    SKALE_WARN("Transport disconnected");
+    SKALE_LOG("Transport disconnected");
     setConnected(false);
 }
 

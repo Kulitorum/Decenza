@@ -62,7 +62,7 @@ void DifluidScale::onTransportConnected() {
 }
 
 void DifluidScale::onTransportDisconnected() {
-    DIFLUID_WARN("Transport disconnected");
+    DIFLUID_LOG("Transport disconnected");
     setConnected(false);
 }
 

@@ -62,7 +62,7 @@ void FelicitaScale::onTransportConnected() {
 }
 
 void FelicitaScale::onTransportDisconnected() {
-    FELICITA_WARN("Transport disconnected");
+    FELICITA_LOG("Transport disconnected");
     setConnected(false);
 }
 

@@ -87,7 +87,7 @@ void AcaiaScale::onTransportConnected() {
 }
 
 void AcaiaScale::onTransportDisconnected() {
-    ACAIA_WARN("Transport disconnected");
+    ACAIA_LOG("Transport disconnected");
     stopAllTimers();
     m_weightReceived = false;
     m_characteristicsReady = false;

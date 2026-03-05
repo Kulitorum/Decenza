@@ -62,7 +62,7 @@ void HiroiaScale::onTransportConnected() {
 }
 
 void HiroiaScale::onTransportDisconnected() {
-    HIROIA_WARN("Transport disconnected");
+    HIROIA_LOG("Transport disconnected");
     setConnected(false);
 }
 

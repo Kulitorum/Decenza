@@ -66,19 +66,16 @@ void BookooScale::onTransportConnected() {
 }
 
 void BookooScale::onTransportDisconnected() {
-    BOOKOO_WARN("Transport disconnected");
+    BOOKOO_LOG("Transport disconnected");
     setConnected(false);
 }
 
 void BookooScale::onTransportError(const QString& message) {
-    if (message.contains("CCCD", Qt::CaseInsensitive) ||
-        message.contains("descriptor write", Qt::CaseInsensitive)) {
-        BOOKOO_WARN(QString("Transport error (expected CCCD rejection): %1").arg(message));
-        return;
-    }
-    BOOKOO_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Bookoo scale connection error");
-    setConnected(false);
+    // Log but don't fail - Bookoo rejects CCCD writes but may still work.
+    // Qt transport already swallows DescriptorWriteError before it reaches here,
+    // and CoreBluetooth uses different error strings, so we cannot reliably
+    // filter by message content. Keep the connection alive for all errors.
+    BOOKOO_WARN(QString("Transport error: %1 (may be expected)").arg(message));
 }
 
 void BookooScale::onServiceDiscovered(const QBluetoothUuid& uuid) {

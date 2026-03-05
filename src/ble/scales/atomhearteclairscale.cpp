@@ -62,7 +62,7 @@ void AtomheartEclairScale::onTransportConnected() {
 }
 
 void AtomheartEclairScale::onTransportDisconnected() {
-    ECLAIR_WARN("Transport disconnected");
+    ECLAIR_LOG("Transport disconnected");
     setConnected(false);
 }
 

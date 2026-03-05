@@ -62,7 +62,7 @@ void SmartChefScale::onTransportConnected() {
 }
 
 void SmartChefScale::onTransportDisconnected() {
-    SMARTCHEF_WARN("Transport disconnected");
+    SMARTCHEF_LOG("Transport disconnected");
     setConnected(false);
 }
 

@@ -62,7 +62,7 @@ void EurekaPrecisaScale::onTransportConnected() {
 }
 
 void EurekaPrecisaScale::onTransportDisconnected() {
-    EUREKA_WARN("Transport disconnected");
+    EUREKA_LOG("Transport disconnected");
     setConnected(false);
 }
 
