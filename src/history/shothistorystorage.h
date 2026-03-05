@@ -399,6 +399,7 @@ private:
     // Cache for getDistinct*() results (invalidated on save/delete/import)
     QHash<QString, QStringList> m_distinctCache;
     bool m_distinctCacheRefreshing = false;  // Debounce guard for requestDistinctCache()
+    bool m_distinctCacheDirty = false;       // Re-queue flag: set when invalidation arrives during refresh
 
     // Async filter support
     bool m_loadingFiltered = false;

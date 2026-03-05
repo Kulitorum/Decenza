@@ -825,8 +825,11 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
         bool success = false;
         bool opened = withTempDb(dbPath, "shs_vizupd", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
-            query.prepare("UPDATE shots SET visualizer_id = :viz_id, visualizer_url = :viz_url, "
-                          "updated_at = strftime('%s', 'now') WHERE id = :id");
+            if (!query.prepare("UPDATE shots SET visualizer_id = :viz_id, visualizer_url = :viz_url, "
+                               "updated_at = strftime('%s', 'now') WHERE id = :id")) {
+                qWarning() << "ShotHistoryStorage: Failed to prepare visualizer update:" << query.lastError().text();
+                return;
+            }
             query.bindValue(":viz_id", visualizerId);
             query.bindValue(":viz_url", visualizerUrl);
             query.bindValue(":id", shotId);
@@ -884,7 +887,10 @@ void ShotHistoryStorage::requestDistinctCache()
         emit distinctCacheReady();
         return;
     }
-    if (m_distinctCacheRefreshing) return;  // Already in-flight, skip redundant request
+    if (m_distinctCacheRefreshing) {
+        m_distinctCacheDirty = true;  // Re-queue after in-flight refresh completes
+        return;
+    }
     m_distinctCacheRefreshing = true;
 
     const QString dbPath = m_dbPath;
@@ -923,6 +929,11 @@ void ShotHistoryStorage::requestDistinctCache()
             } else
                 qWarning() << "ShotHistoryStorage: Distinct cache refresh failed, keeping stale cache";
             emit distinctCacheReady();
+            // If invalidation arrived while we were refreshing, re-trigger
+            if (m_distinctCacheDirty) {
+                m_distinctCacheDirty = false;
+                requestDistinctCache();
+            }
         }, Qt::QueuedConnection);
     });
     thread->start();
