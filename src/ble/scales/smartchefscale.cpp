@@ -10,6 +10,12 @@
     emit logMessage(_msg); \
 } while(0)
 
+#define SMARTCHEF_WARN(msg) do { \
+    QString _msg = QString("[BLE SmartChefScale] ") + msg; \
+    qWarning().noquote() << _msg; \
+    emit logMessage(_msg); \
+} while(0)
+
 SmartChefScale::SmartChefScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
     , m_transport(transport)
@@ -71,7 +77,7 @@ void SmartChefScale::onTransportDisconnected() {
 }
 
 void SmartChefScale::onTransportError(const QString& message) {
-    SMARTCHEF_LOG(QString("Transport error: %1").arg(message));
+    SMARTCHEF_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("SmartChef scale connection error");
     setConnected(false);
 }
@@ -87,7 +93,7 @@ void SmartChefScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void SmartChefScale::onServicesDiscoveryFinished() {
     SMARTCHEF_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        SMARTCHEF_LOG(QString("SmartChef service %1 not found!").arg(Scale::Generic::SERVICE.toString()));
+        SMARTCHEF_WARN(QString("SmartChef service %1 not found!").arg(Scale::Generic::SERVICE.toString()));
         emit errorOccurred("SmartChef service not found");
         return;
     }

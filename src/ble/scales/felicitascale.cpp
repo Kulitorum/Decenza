@@ -10,6 +10,12 @@
     emit logMessage(_msg); \
 } while(0)
 
+#define FELICITA_WARN(msg) do { \
+    QString _msg = QString("[BLE FelicitaScale] ") + msg; \
+    qWarning().noquote() << _msg; \
+    emit logMessage(_msg); \
+} while(0)
+
 FelicitaScale::FelicitaScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
     , m_transport(transport)
@@ -71,7 +77,7 @@ void FelicitaScale::onTransportDisconnected() {
 }
 
 void FelicitaScale::onTransportError(const QString& message) {
-    FELICITA_LOG(QString("Transport error: %1").arg(message));
+    FELICITA_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Felicita scale connection error");
     setConnected(false);
 }
@@ -87,7 +93,7 @@ void FelicitaScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void FelicitaScale::onServicesDiscoveryFinished() {
     FELICITA_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        FELICITA_LOG(QString("Felicita service %1 not found!").arg(Scale::Felicita::SERVICE.toString()));
+        FELICITA_WARN(QString("Felicita service %1 not found!").arg(Scale::Felicita::SERVICE.toString()));
         emit errorOccurred("Felicita service not found");
         return;
     }

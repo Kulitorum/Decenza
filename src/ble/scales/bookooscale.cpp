@@ -10,6 +10,12 @@
     emit logMessage(_msg); \
 } while(0)
 
+#define BOOKOO_WARN(msg) do { \
+    QString _msg = QString("[BLE BookooScale] ") + msg; \
+    qWarning().noquote() << _msg; \
+    emit logMessage(_msg); \
+} while(0)
+
 BookooScale::BookooScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
     , m_transport(transport)
@@ -76,7 +82,7 @@ void BookooScale::onTransportDisconnected() {
 
 void BookooScale::onTransportError(const QString& message) {
     // Log but don't fail - Bookoo rejects CCCD writes but may still work
-    BOOKOO_LOG(QString("Transport error: %1 (may be expected)").arg(message));
+    BOOKOO_WARN(QString("Transport error: %1 (may be expected)").arg(message));
 }
 
 void BookooScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
@@ -92,7 +98,7 @@ void BookooScale::onServicesDiscoveryFinished() {
     BOOKOO_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
 
     if (!m_serviceFound) {
-        BOOKOO_LOG(QString("Service %1 not found!").arg(Scale::Bookoo::SERVICE.toString()));
+        BOOKOO_WARN(QString("Service %1 not found!").arg(Scale::Bookoo::SERVICE.toString()));
         emit errorOccurred("Bookoo service not found");
         return;
     }

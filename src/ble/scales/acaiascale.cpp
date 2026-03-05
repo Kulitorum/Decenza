@@ -10,6 +10,12 @@
     emit logMessage(_msg); \
 } while(0)
 
+#define ACAIA_WARN(msg) do { \
+    QString _msg = QString("[BLE AcaiaScale] ") + msg; \
+    qWarning().noquote() << _msg; \
+    emit logMessage(_msg); \
+} while(0)
+
 AcaiaScale::AcaiaScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
     , m_transport(transport)
@@ -100,7 +106,7 @@ void AcaiaScale::onTransportDisconnected() {
 }
 
 void AcaiaScale::onTransportError(const QString& message) {
-    ACAIA_LOG(QString("Transport error: %1").arg(message));
+    ACAIA_WARN(QString("Transport error: %1").arg(message));
     stopAllTimers();
     m_isConnecting = false;
     emit errorOccurred("Acaia scale connection error");
@@ -136,7 +142,7 @@ void AcaiaScale::onServicesDiscoveryFinished() {
         serviceToUse = Scale::AcaiaIPS::SERVICE;
         ACAIA_LOG("Using IPS protocol");
     } else {
-        ACAIA_LOG("WARNING: No compatible service found!");
+        ACAIA_WARN("No compatible service found!");
         emit errorOccurred("No compatible Acaia service found");
         return;
     }
@@ -211,7 +217,7 @@ void AcaiaScale::onInitTimer() {
 
     // Check retry limit
     if (m_identRetryCount >= MAX_IDENT_RETRIES) {
-        ACAIA_LOG(QString("Init sequence failed after %1 retries").arg(MAX_IDENT_RETRIES));
+        ACAIA_WARN(QString("Init sequence failed after %1 retries").arg(MAX_IDENT_RETRIES));
         m_initTimer->stop();
         m_isConnecting = false;
         emit errorOccurred("Scale not responding to ident");

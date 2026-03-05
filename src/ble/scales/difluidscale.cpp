@@ -10,6 +10,12 @@
     emit logMessage(_msg); \
 } while(0)
 
+#define DIFLUID_WARN(msg) do { \
+    QString _msg = QString("[BLE DifluidScale] ") + msg; \
+    qWarning().noquote() << _msg; \
+    emit logMessage(_msg); \
+} while(0)
+
 DifluidScale::DifluidScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
     , m_transport(transport)
@@ -71,7 +77,7 @@ void DifluidScale::onTransportDisconnected() {
 }
 
 void DifluidScale::onTransportError(const QString& message) {
-    DIFLUID_LOG(QString("Transport error: %1").arg(message));
+    DIFLUID_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Difluid scale connection error");
     setConnected(false);
 }
@@ -87,7 +93,7 @@ void DifluidScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void DifluidScale::onServicesDiscoveryFinished() {
     DIFLUID_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        DIFLUID_LOG(QString("DiFluid service %1 not found!").arg(Scale::DiFluid::SERVICE.toString()));
+        DIFLUID_WARN(QString("DiFluid service %1 not found!").arg(Scale::DiFluid::SERVICE.toString()));
         emit errorOccurred("Difluid service not found");
         return;
     }

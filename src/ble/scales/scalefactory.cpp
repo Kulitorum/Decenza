@@ -76,7 +76,7 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
         case ScaleType::EurekaPrecisa:
             return std::make_unique<EurekaPrecisaScale>(createTransportForPlatform(), parent);
         case ScaleType::SoloBarista:
-            return std::make_unique<SoloBarristaScale>(createTransportForPlatform(), parent);
+            return std::make_unique<SoloBaristaScale>(createTransportForPlatform(), parent);
         case ScaleType::AtomheartEclair:
             return std::make_unique<AtomheartEclairScale>(createTransportForPlatform(), parent);
         case ScaleType::VariaAku:
@@ -145,7 +145,7 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
         case ScaleType::EurekaPrecisa:
             return std::make_unique<EurekaPrecisaScale>(createTransportForPlatform(), parent);
         case ScaleType::SoloBarista:
-            return std::make_unique<SoloBarristaScale>(createTransportForPlatform(), parent);
+            return std::make_unique<SoloBaristaScale>(createTransportForPlatform(), parent);
         case ScaleType::AtomheartEclair:
             return std::make_unique<AtomheartEclairScale>(createTransportForPlatform(), parent);
         case ScaleType::VariaAku:

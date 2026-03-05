@@ -10,6 +10,12 @@
     emit logMessage(_msg); \
 } while(0)
 
+#define SKALE_WARN(msg) do { \
+    QString _msg = QString("[BLE SkaleScale] ") + msg; \
+    qWarning().noquote() << _msg; \
+    emit logMessage(_msg); \
+} while(0)
+
 SkaleScale::SkaleScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
     , m_transport(transport)
@@ -71,7 +77,7 @@ void SkaleScale::onTransportDisconnected() {
 }
 
 void SkaleScale::onTransportError(const QString& message) {
-    SKALE_LOG(QString("Transport error: %1").arg(message));
+    SKALE_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Skale connection error");
     setConnected(false);
 }
@@ -87,7 +93,7 @@ void SkaleScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void SkaleScale::onServicesDiscoveryFinished() {
     SKALE_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
-        SKALE_LOG(QString("WARNING: Skale service %1 not found!").arg(Scale::Skale::SERVICE.toString()));
+        SKALE_WARN(QString("Skale service %1 not found!").arg(Scale::Skale::SERVICE.toString()));
         emit errorOccurred("Skale service not found");
         return;
     }

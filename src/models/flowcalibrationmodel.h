@@ -4,6 +4,7 @@
 #include <QVector>
 #include <QPointF>
 #include <QVariantList>
+#include <memory>
 
 class ShotHistoryStorage;
 class Settings;
@@ -24,9 +25,11 @@ class FlowCalibrationModel : public QObject {
     Q_PROPERTY(int currentShotIndex READ currentShotIndex NOTIFY navigationChanged)
     Q_PROPERTY(bool hasData READ hasData NOTIFY dataChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorChanged)
+    Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
 
 public:
     explicit FlowCalibrationModel(QObject* parent = nullptr);
+    ~FlowCalibrationModel() override;
 
     void setStorage(ShotHistoryStorage* storage);
     void setSettings(Settings* settings);
@@ -46,6 +49,7 @@ public:
     int currentShotIndex() const { return m_currentIndex; }
     bool hasData() const { return !m_originalFlow.isEmpty(); }
     QString errorMessage() const { return m_errorMessage; }
+    bool loading() const { return m_loading; }
 
     Q_INVOKABLE void loadRecentShots();
     Q_INVOKABLE void previousShot();
@@ -58,10 +62,12 @@ signals:
     void dataChanged();
     void navigationChanged();
     void errorChanged();
+    void loadingChanged();
 
 private:
     void loadCurrentShot();
     void recalculateFlow();
+    void setLoading(bool loading);
     QVariantList pointsToVariant(const QVector<QPointF>& points) const;
 
     ShotHistoryStorage* m_storage = nullptr;
@@ -72,6 +78,8 @@ private:
     int m_currentIndex = -1;
     double m_multiplier = 1.0;
     double m_shotMultiplier = 1.0;  // Multiplier active when shot was recorded (default 1.0)
+    bool m_loading = false;
+    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
 
     // Current shot data
     QVector<QPointF> m_originalFlow;

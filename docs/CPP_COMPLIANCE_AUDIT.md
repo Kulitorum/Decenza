@@ -43,7 +43,7 @@ CLAUDE.md: "Members: `m_` prefix"
 
 ### 1d. Class/filename spelling inconsistency
 
-- [ ] `src/ble/scales/solobaristascale.h:6` — Class is `SoloBarristaScale` (double-r "Barrista"), but filename is `solobaristascale.h` (single-r "barista"). The correct English spelling is "barista". Rename class to `SoloBarista Scale` and update all references.
+- [x] `src/ble/scales/solobaristascale.h:6` — Class was `SoloBarristaScale` (double-r "Barrista"), renamed to `SoloBaristaScale`. Updated header, cpp, and scalefactory.cpp. *(fixed in cpp-compliance-audit-continued)*
 
 ---
 
@@ -128,9 +128,11 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 
 ### 3d. FlowCalibrationModel loadRecentShots
 
-- [ ] `src/models/flowcalibrationmodel.cpp:41` — `getShots(0, 50)` on main thread
-- [ ] `src/models/flowcalibrationmodel.cpp:45` — `getShotRecord()` called up to 50 times in a loop on main thread
-- [ ] `src/models/flowcalibrationmodel.cpp:104` — `getShotRecord()` in `loadCurrentShot()` on main thread
+**Fixed (cpp-compliance-audit-continued):** Both `loadRecentShots()` and `loadCurrentShot()` now use `QThread::create()` + `loadShotRecordStatic()` + `QMetaObject::invokeMethod` pattern. Added `loading` property for QML BusyIndicator and `m_destroyed` shared_ptr for safety. Nav buttons disabled while loading.
+
+- [x] `src/models/flowcalibrationmodel.cpp` — `loadRecentShots()` runs SQL + record loads on background thread
+- [x] `src/models/flowcalibrationmodel.cpp` — `loadCurrentShot()` runs `loadShotRecordStatic()` on background thread
+- [x] `qml/pages/FlowCalibrationPage.qml` — Added BusyIndicator, disabled nav buttons while loading
 
 ### 3e. AIManager getRecentShotContext
 
@@ -200,24 +202,22 @@ CLAUDE.md: "Check `r.ok` before `r.json()` in fetch chains. Non-2xx responses wi
 
 CLAUDE.md: "BLE errors are automatically captured (use `qWarning()` for errors)."
 
-All scale implementations define a single LOG macro that maps everything (including error messages) to `qDebug()`. Error conditions like "Transport error", "No compatible service found" are logged at debug level, not warning level.
+**Fixed (cpp-compliance-audit-continued):** Added `*_WARN` macro (using `qWarning()`) to each scale file alongside existing `*_LOG` macro. Switched all error-condition calls (transport errors, service not found, init failures, checksum failures, watchdog timeouts) to use `*_WARN`.
 
-| File | Macro | Maps to |
-|------|-------|---------|
-| `src/ble/scales/acaiascale.cpp:9` | `ACAIA_LOG` | `qDebug()` |
-| `src/ble/scales/bookooscale.cpp:9` | `BOOKOO_LOG` | `qDebug()` |
-| `src/ble/scales/difluidscale.cpp:9` | `DIFLUID_LOG` | `qDebug()` |
-| `src/ble/scales/eurekaprecisascale.cpp:9` | `EUREKA_LOG` | `qDebug()` |
-| `src/ble/scales/hiroiascale.cpp:9` | `HIROIA_LOG` | `qDebug()` |
-| `src/ble/scales/skalescale.cpp:9` | `SKALE_LOG` | `qDebug()` |
-| `src/ble/scales/smartchefscale.cpp:9` | `SMARTCHEF_LOG` | `qDebug()` |
-| `src/ble/scales/variaakuscale.cpp:8` | `VARIA_LOG` | `qDebug()` |
-| `src/ble/scales/atomhearteclairscale.cpp:9` | `ECLAIR_LOG` | `qDebug()` |
-| `src/ble/scales/felicitascale.cpp:9` | `FELICITA_LOG` | `qDebug()` |
+| File | WARN Macro | Error calls switched |
+|------|-----------|---------------------|
+| `src/ble/scales/acaiascale.cpp` | `ACAIA_WARN` | Transport error, no compatible service, init failed after retries |
+| `src/ble/scales/bookooscale.cpp` | `BOOKOO_WARN` | Transport error, service not found |
+| `src/ble/scales/difluidscale.cpp` | `DIFLUID_WARN` | Transport error, service not found |
+| `src/ble/scales/eurekaprecisascale.cpp` | `EUREKA_WARN` | Transport error, service not found |
+| `src/ble/scales/hiroiascale.cpp` | `HIROIA_WARN` | Transport error, service not found |
+| `src/ble/scales/skalescale.cpp` | `SKALE_WARN` | Transport error, service not found |
+| `src/ble/scales/smartchefscale.cpp` | `SMARTCHEF_WARN` | Transport error, service not found |
+| `src/ble/scales/variaakuscale.cpp` | `VARIA_WARN` | 9 error calls (transport, service, watchdog, tickle, notifications) |
+| `src/ble/scales/atomhearteclairscale.cpp` | `ECLAIR_WARN` | Transport error, service not found, XOR checksum failed |
+| `src/ble/scales/felicitascale.cpp` | `FELICITA_WARN` | Transport error, service not found |
 
 **Compliant exception:** `src/ble/scales/decentscale.cpp` uses `DECENT_LOG` → `qDebug()` for informational messages, but correctly uses direct `qWarning()` calls for error conditions (lines 66, 74, 202).
-
-**Fix:** Add a `*_WARN` macro mapping to `qWarning()` for each scale, or use dual macros (`*_LOG` / `*_ERR`).
 
 ### 5b. BLE write timeout logging uses `qDebug` instead of `qWarning` (`bletransport.cpp`)
 
@@ -235,7 +235,7 @@ All scale implementations define a single LOG macro that maps everything (includ
 
 ### 5c. Scale connection timeout uses `qDebug` not `qWarning`
 
-- [ ] `src/ble/blemanager.cpp:399` — `qDebug() << "BLEManager: Scale connection timeout - not found"` — this is an error condition, should use `qWarning()`
+- [x] `src/ble/blemanager.cpp:399` — `qDebug()` → `qWarning()` for scale connection timeout *(fixed in cpp-compliance-audit-continued)*
 
 ### 5d. Commented-out log statement
 
@@ -267,25 +267,25 @@ These are not rule violations but reduce code maintainability.
 |----------|----------|-------|---------|--------|
 | **High** | Main-thread I/O (QML-facing): AI context | 1 caller | 3e | **Fixed** |
 | **High** | Main-thread I/O (QML-facing): shot metadata | 1 caller | 3c | **Fixed** |
-| **High** | Main-thread I/O (QML-facing): flow calibration | 1 caller | 3d | Open |
+| **High** | Main-thread I/O (QML-facing): flow calibration | 1 caller | 3d | **Fixed** |
 | **High** | Timer guards (fixable) | 3 instances | 2 | **Fixed** |
 | **Medium** | Timer guards (platform constraints) | 5+1 instances | 2 | Accepted / 1 improvable |
 | **Medium** | Main-thread I/O (ShotServer) | 10 call sites | 3b | **Fixed** |
 | **Medium** | Main-thread I/O (sync Q_INVOKABLEs) | 30+ methods | 3a | Open (mostly mitigated by caching) |
-| **Medium** | Scale LOG macros route errors to `qDebug()` | 10 files | 5a | Open |
-| **Medium** | Scale connection timeout uses `qDebug` | 1 | 5c | Open |
+| **Medium** | Scale LOG macros route errors to `qDebug()` | 10 files | 5a | **Fixed** |
+| **Medium** | Scale connection timeout uses `qDebug` | 1 | 5c | **Fixed** |
 | **Low** | ShotServer JS fetch missing `.catch()` | 7 | 4a | **Fixed** |
 | **Low** | ShotServer JS fetch missing `r.ok` check | 21 | 4b | **Fixed** |
 | **Low** | BLE write timeout logging level | 7 paths | 5b | **Fixed** |
 | **Low** | Slot naming convention | ~20 slots across 11 files | 1a | Open |
 | **Low** | Class naming (USBManager) | 1 | 1b | Open |
 | **Low** | Member variable missing `m_` prefix | 1 | 1c | Open |
-| **Low** | Class/filename spelling inconsistency | 1 | 1d | Open |
+| **Low** | Class/filename spelling inconsistency | 1 | 1d | **Fixed** |
 | **Low** | Dead / commented-out code | 3 areas | 6 | Open |
 | **Low** | Commented-out log statement | 1 | 5d | Open |
 
 ### Priority rationale
 
-- **High = directly affects primary touch UI.** Sections 3c/3e blocked the QML UI thread during user interactions (loading shots, AI queries) — now fixed. Section 3d (FlowCalibrationModel) can freeze up to 1s on page open but is an infrequent workflow requiring a DB schema change.
-- **Medium = affects secondary interfaces, mitigated, or developer experience.** Timer platform constraints (§2) have no event-based alternative — accepted. ShotHistoryStorage sync Q_INVOKABLEs (§3a) are mostly mitigated by in-memory `m_distinctCache`; the remaining ones (`getShot()` in PostShotReview) are low-frequency. ShotServer async (§3b) only stalls the web UI. Scale log macros (§5a) affect debugging on real hardware.
+- **High = directly affects primary touch UI.** Sections 3c/3d/3e blocked the QML UI thread during user interactions (loading shots, flow calibration, AI queries) — all now fixed.
+- **Medium = affects secondary interfaces, mitigated, or developer experience.** Timer platform constraints (§2) have no event-based alternative — accepted. ShotHistoryStorage sync Q_INVOKABLEs (§3a) are mostly mitigated by in-memory `m_distinctCache`; the remaining ones (`getShot()` in PostShotReview) are low-frequency. ShotServer async (§3b) only stalls the web UI. Scale log macros (§5a) and connection timeout (§5c) now use `qWarning()` for errors.
 - **Low = correctness improvements with minimal user impact.** JS fetch fixes protect against edge cases on a localhost server. BLE log levels and naming conventions are hygiene.

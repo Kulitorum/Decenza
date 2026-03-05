@@ -85,6 +85,13 @@ Page {
             }
         }
 
+        // Loading indicator
+        BusyIndicator {
+            Layout.alignment: Qt.AlignHCenter
+            running: FlowCalibrationModel.loading
+            visible: FlowCalibrationModel.loading
+        }
+
         // Error message (shown when no data)
         Text {
             Layout.fillWidth: true
@@ -93,7 +100,7 @@ Page {
             font.pixelSize: Theme.scaled(14)
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            visible: !FlowCalibrationModel.hasData && FlowCalibrationModel.errorMessage.length > 0
+            visible: !FlowCalibrationModel.hasData && FlowCalibrationModel.errorMessage.length > 0 && !FlowCalibrationModel.loading
         }
 
         // Shot navigation row
@@ -104,7 +111,7 @@ Page {
             AccessibleButton {
                 accessibleName: TranslationManager.translate("flowCalibration.previousShot", "Previous shot")
                 text: "\u25C0"
-                enabled: FlowCalibrationModel.hasPreviousShot
+                enabled: FlowCalibrationModel.hasPreviousShot && !FlowCalibrationModel.loading
                 onClicked: FlowCalibrationModel.previousShot()
             }
 
@@ -124,7 +131,7 @@ Page {
             AccessibleButton {
                 accessibleName: TranslationManager.translate("flowCalibration.nextShot", "Next shot")
                 text: "\u25B6"
-                enabled: FlowCalibrationModel.hasNextShot
+                enabled: FlowCalibrationModel.hasNextShot && !FlowCalibrationModel.loading
                 onClicked: FlowCalibrationModel.nextShot()
             }
         }
