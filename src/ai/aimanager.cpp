@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QFile>
 #include <QDateTime>
+#include <QLocale>
 #include <QDebug>
 #include <QCryptographicHash>
 #include <QJsonDocument>
@@ -467,7 +468,8 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                 QString summaryText = self->m_summarizer->buildUserPrompt(summary);
                 if (summaryText.isEmpty()) continue;
 
-                QString dateStr = QDateTime::fromSecsSinceEpoch(qs.first).toString("MMM d, HH:mm");
+                static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
+                QString dateStr = QDateTime::fromSecsSinceEpoch(qs.first).toString(use12h ? "MMM d, h:mm AP" : "MMM d, HH:mm");
                 shotSections.prepend(QString("### Shot (%1)\n\n%2").arg(dateStr).arg(summaryText));
             }
 

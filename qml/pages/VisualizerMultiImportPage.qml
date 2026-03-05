@@ -658,7 +658,7 @@ Page {
                             Text { text: "Shot time:"; color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
                                 text: selectedShot && selectedShot.start_time ?
-                                      new Date(selectedShot.start_time).toLocaleString(Qt.locale(), "MMM d, yyyy h:mm AP") : "-"
+                                      new Date(selectedShot.start_time).toLocaleString(Qt.locale(), Settings.use12HourTime ? "MMM d, yyyy h:mm AP" : "MMM d, yyyy HH:mm") : "-"
                                 color: Theme.textColor
                                 font: Theme.captionFont
                             }

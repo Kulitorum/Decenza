@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
+#include <QLocale>
 #include <QUrl>
 #include <QRegularExpression>
 
@@ -171,15 +172,16 @@ QString ShotServer::generateAIConversationsPage() const
             }
 
             // Read timestamp
+            static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
             QString timestamp = settings.value(prefix + "timestamp").toString();
             QString displayTime;
             if (!timestamp.isEmpty()) {
                 QDateTime dt = QDateTime::fromString(timestamp, Qt::ISODate);
                 if (dt.isValid())
-                    displayTime = dt.toLocalTime().toString("yyyy-MM-dd hh:mm");
+                    displayTime = dt.toLocalTime().toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
             }
             if (displayTime.isEmpty() && entry.timestamp > 0) {
-                displayTime = QDateTime::fromSecsSinceEpoch(entry.timestamp).toString("yyyy-MM-dd hh:mm");
+                displayTime = QDateTime::fromSecsSinceEpoch(entry.timestamp).toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
             }
 
             QString keyEscaped = entry.key.toHtmlEscaped();

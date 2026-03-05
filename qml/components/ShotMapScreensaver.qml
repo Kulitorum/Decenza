@@ -322,7 +322,7 @@ Item {
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 30
-        text: Qt.formatTime(currentTime, WeatherManager.use12HourTime ? "h:mmap" : "HH:mm")
+        text: Qt.formatTime(currentTime, Settings.use12HourTime ? "h:mmap" : "HH:mm")
         color: mapTexture === "bright" ? "#ffffff" : "#aabbcc"
         font.pixelSize: 48
         font.bold: true

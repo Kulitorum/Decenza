@@ -8,6 +8,7 @@
 #include <QtMath>
 #include <QColor>
 #include <QUuid>
+#include <QLocale>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -18,6 +19,7 @@
 Settings::Settings(QObject* parent)
     : QObject(parent)
     , m_settings("DecentEspresso", "DE1Qt")
+    , m_use12HourTime(QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive))
 {
     // Initialize default pitcher presets if none exist
     if (!m_settings.contains("steam/pitcherPresets")) {

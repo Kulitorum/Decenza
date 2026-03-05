@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QRegularExpression>
+#include <QLocale>
 #include <QDebug>
 #include <QThread>
 #include <algorithm>
@@ -20,6 +21,9 @@
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
+
+// Cache OS 12h/24h preference once (avoid repeated ICU object creation)
+static const bool use12h = QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive);
 
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
@@ -1191,9 +1195,9 @@ QVariantList ShotHistoryStorage::getShotsFiltered(const QVariantMap& filterMap, 
         shot["drinkTds"] = query.value(15).toDouble();
         shot["drinkEy"] = query.value(16).toDouble();
 
-        // Format date for display
+        // Format date for display (respects OS 12h/24h preference)
         QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(2).toLongLong());
-        shot["dateTime"] = dt.toString("yyyy-MM-dd HH:mm");
+        shot["dateTime"] = dt.toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
 
         results.append(shot);
     }
@@ -1326,7 +1330,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
 
                                 QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                     query.value(2).toLongLong());
-                                shot["dateTime"] = dt.toString("yyyy-MM-dd HH:mm");
+                                shot["dateTime"] = dt.toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
 
                                 results.append(shot);
                             }
@@ -1491,7 +1495,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["phases"] = phases;
 
     QDateTime dt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
-    result["dateTime"] = dt.toString("yyyy-MM-dd HH:mm:ss");
+    result["dateTime"] = dt.toString(use12h ? "yyyy-MM-dd h:mm:ss AP" : "yyyy-MM-dd HH:mm:ss");
 
     return result;
 }
@@ -2365,7 +2369,7 @@ QVariantMap ShotHistoryStorage::getAutoFavoriteGroupDetails(const QString& group
             note["text"] = notesQuery.value("espresso_notes").toString();
             qint64 ts = notesQuery.value("timestamp").toLongLong();
             note["timestamp"] = ts;
-            note["dateTime"] = QDateTime::fromSecsSinceEpoch(ts).toString("yyyy-MM-dd hh:mm");
+            note["dateTime"] = QDateTime::fromSecsSinceEpoch(ts).toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
             notes.append(note);
         }
     }
@@ -2469,7 +2473,7 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                         note["text"] = notesQuery.value("espresso_notes").toString();
                         qint64 ts = notesQuery.value("timestamp").toLongLong();
                         note["timestamp"] = ts;
-                        note["dateTime"] = QDateTime::fromSecsSinceEpoch(ts).toString("yyyy-MM-dd hh:mm");
+                        note["dateTime"] = QDateTime::fromSecsSinceEpoch(ts).toString(use12h ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
                         notes.append(note);
                     }
                 }

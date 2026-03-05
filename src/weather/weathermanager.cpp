@@ -9,7 +9,6 @@
 #include <QNetworkRequest>
 #include <QTimeZone>
 #include <QHash>
-#include <QLocale>
 #include <cmath>
 
 const QString WeatherManager::USER_AGENT = QStringLiteral("Decenza/1.0 (github.com/Kulitorum/de1-qt)");
@@ -45,10 +44,6 @@ WeatherManager::WeatherManager(QNetworkAccessManager* networkManager, QObject* p
     , m_networkManager(networkManager)
 {
     Q_ASSERT(networkManager);
-    // Cache locale's 12-hour preference once (avoids repeated ICU object creation)
-    QString fmt = QLocale::system().timeFormat(QLocale::ShortFormat);
-    m_use12HourTime = fmt.contains("AP", Qt::CaseInsensitive);
-
     m_refreshTimer.setInterval(REFRESH_INTERVAL_MS);
     connect(&m_refreshTimer, &QTimer::timeout, this, &WeatherManager::onRefreshTimer);
 }
@@ -95,11 +90,6 @@ bool WeatherManager::useImperialUnits() const
         "bs", "ky", "lr", "pw", "fm", "mh"   // Bahamas, Cayman Islands, Liberia, Palau, Micronesia, Marshall Islands
     };
     return fahrenheitCountries.contains(country);
-}
-
-bool WeatherManager::use12HourTime() const
-{
-    return m_use12HourTime;
 }
 
 QVariantList WeatherManager::hourlyForecast() const

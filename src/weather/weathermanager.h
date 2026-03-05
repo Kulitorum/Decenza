@@ -45,7 +45,7 @@ class WeatherManager : public QObject {
     Q_PROPERTY(QDateTime lastUpdate READ lastUpdate NOTIFY weatherChanged)
     Q_PROPERTY(QVariantList hourlyForecast READ hourlyForecast NOTIFY weatherChanged)
     Q_PROPERTY(bool useImperialUnits READ useImperialUnits NOTIFY weatherChanged)
-    Q_PROPERTY(bool use12HourTime READ use12HourTime NOTIFY weatherChanged)
+
 
 public:
     explicit WeatherManager(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
@@ -60,7 +60,7 @@ public:
     QDateTime lastUpdate() const { return m_lastUpdate; }
     QVariantList hourlyForecast() const;
     bool useImperialUnits() const;
-    bool use12HourTime() const;
+
 
     // Force a refresh
     Q_INVOKABLE void refresh();
@@ -132,9 +132,6 @@ private:
 
     // Sunrise/sunset times per day (for isDaytime calculation)
     QVector<QPair<QDateTime, QDateTime>> m_sunTimes;
-
-    // Cached locale check (avoids creating ICU objects on every call)
-    bool m_use12HourTime = false;
 
     // Track last fetch coordinates to detect significant moves
     double m_lastFetchLat = 0.0;

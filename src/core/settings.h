@@ -13,6 +13,7 @@ class Settings : public QObject {
 
     // Platform capabilities
     Q_PROPERTY(bool hasQuick3D READ hasQuick3D CONSTANT)
+    Q_PROPERTY(bool use12HourTime READ use12HourTime CONSTANT)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
@@ -237,6 +238,11 @@ public:
         return false;
 #endif
     }
+
+    bool use12HourTime() const { return m_use12HourTime; }
+
+    // Time format string respecting OS 12h/24h preference (e.g., "HH:mm" or "h:mm AP")
+    QString timeFormat() const { return m_use12HourTime ? QStringLiteral("h:mm AP") : QStringLiteral("HH:mm"); }
 
     // Machine settings
     QString machineAddress() const;
@@ -865,6 +871,7 @@ private:
     void ensureSawCacheLoaded() const;
 
     QSettings m_settings;
+    bool m_use12HourTime = false;
 
     // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)
     mutable QJsonArray m_sawHistoryCache;

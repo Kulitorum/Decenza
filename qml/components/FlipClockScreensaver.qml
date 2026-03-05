@@ -5,7 +5,7 @@ Item {
     id: root
 
     property bool running: true
-    property bool use24Hour: !WeatherManager.use12HourTime
+    property bool use24Hour: !Settings.use12HourTime
     property bool use3D: ScreensaverManager.flipClockUse3D
 
     // Animation duration for the flip
