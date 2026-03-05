@@ -36,10 +36,9 @@ Page {
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
-    property bool _pendingUpload: false  // True when waiting for async shot data to upload
-    property int _distinctCacheVersion: 0  // Incremented when distinct cache is refreshed
-
-    Component.onDestruction: _pendingUpload = false
+    // Incremented when async distinct cache refreshes; referenced in suggestion bindings
+    // to force QML re-evaluation (the >= 0 condition is always true by design)
+    property int _distinctCacheVersion: 0
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 
@@ -54,18 +53,6 @@ Page {
         target: MainController.shotHistory
         function onShotReady(shotId, shot) {
             if (shotId !== postShotReviewPage.editShotId) return
-
-            // If we were waiting for shot data to upload to visualizer
-            if (_pendingUpload) {
-                _pendingUpload = false
-                if (shot.id) {
-                    MainController.visualizer.uploadShotFromHistory(shot)
-                } else {
-                    console.warn("PostShotReviewPage: Upload aborted - shot data unavailable for id", shotId)
-                }
-                return
-            }
-
             editShotData = shot
             if (editShotData.id) {
                 // Populate editing fields
@@ -869,9 +856,8 @@ Page {
                         MainController.visualizer.updateShotOnVisualizer(
                             editShotData.visualizerId, currentData)
                     } else {
-                        // First upload: request shot data async, upload when ready
-                        _pendingUpload = true
-                        MainController.shotHistory.requestShot(editShotId)
+                        // First upload: use already-loaded shot data
+                        MainController.visualizer.uploadShotFromHistory(editShotData)
                     }
                 }
             }

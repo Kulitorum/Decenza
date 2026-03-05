@@ -17,7 +17,9 @@ Page {
     property bool isEditMode: editShotId > 0
     property bool keyboardVisible: Qt.inputMethod.visible
     property Item focusedField: null
-    property int _distinctCacheVersion: 0  // Incremented when distinct cache is refreshed
+    // Incremented when async distinct cache refreshes; referenced in suggestion bindings
+    // to force QML re-evaluation (the >= 0 condition is always true by design)
+    property int _distinctCacheVersion: 0
 
     Connections {
         target: MainController.shotHistory

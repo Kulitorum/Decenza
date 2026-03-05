@@ -823,7 +823,7 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, shotId, visualizerId, visualizerUrl, destroyed]() {
         bool success = false;
-        withTempDb(dbPath, "shs_vizupd", [&](QSqlDatabase& db) {
+        bool opened = withTempDb(dbPath, "shs_vizupd", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             query.prepare("UPDATE shots SET visualizer_id = :viz_id, visualizer_url = :viz_url, "
                           "updated_at = strftime('%s', 'now') WHERE id = :id");
@@ -834,6 +834,8 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
             if (!success)
                 qWarning() << "ShotHistoryStorage: Failed to async update visualizer info:" << query.lastError().text();
         });
+        if (!opened)
+            qWarning() << "ShotHistoryStorage: requestUpdateVisualizerInfo failed - could not open DB for shot" << shotId;
 
         QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
             if (*destroyed) return;
@@ -909,9 +911,13 @@ void ShotHistoryStorage::requestDistinctCache()
 
         QMetaObject::invokeMethod(this, [this, results = std::move(results), opened, destroyed]() {
             if (*destroyed) return;
-            if (opened)
-                m_distinctCache = results;
-            else
+            if (opened) {
+                // Clear entire cache (including composite keys like "bean_type:SomeRoaster")
+                // so stale filtered entries are also refreshed on next access
+                m_distinctCache.clear();
+                for (auto it = results.constBegin(); it != results.constEnd(); ++it)
+                    m_distinctCache.insert(it.key(), it.value());
+            } else
                 qWarning() << "ShotHistoryStorage: Distinct cache refresh failed, keeping stale cache";
             emit distinctCacheReady();
         }, Qt::QueuedConnection);
@@ -3534,12 +3540,18 @@ QStringList ShotHistoryStorage::getDistinctBeanTypesForBrand(const QString& bean
     QStringList results;
     if (!m_ready) return results;
 
+    // Note: This is a synchronous cache-miss fallback. The base distinct cache is pre-warmed
+    // async, but filtered variants are populated on first access. This is acceptable because
+    // filtered queries are fast (indexed) and only run once per brand until cache invalidation.
     QSqlQuery query(m_db);
     query.prepare("SELECT DISTINCT bean_type FROM shots "
                   "WHERE bean_brand = ? AND bean_type IS NOT NULL AND bean_type != '' "
                   "ORDER BY bean_type");
     query.bindValue(0, beanBrand);
-    query.exec();
+    if (!query.exec()) {
+        qWarning() << "ShotHistoryStorage: Failed to query bean types for brand" << beanBrand << ":" << query.lastError().text();
+        return results;
+    }
 
     while (query.next()) {
         QString value = query.value(0).toString();
@@ -3563,12 +3575,16 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
     QStringList results;
     if (!m_ready) return results;
 
+    // Note: Synchronous cache-miss fallback — see comment in getDistinctBeanTypesForBrand
     QSqlQuery query(m_db);
     query.prepare("SELECT DISTINCT grinder_setting FROM shots "
                   "WHERE grinder_model = ? AND grinder_setting IS NOT NULL AND grinder_setting != '' "
                   "ORDER BY grinder_setting");
     query.bindValue(0, grinderModel);
-    query.exec();
+    if (!query.exec()) {
+        qWarning() << "ShotHistoryStorage: Failed to query grinder settings for" << grinderModel << ":" << query.lastError().text();
+        return results;
+    }
 
     while (query.next()) {
         QString value = query.value(0).toString();
