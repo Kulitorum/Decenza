@@ -399,7 +399,7 @@ void ShotServer::handleBackupFull(QTcpSocket* socket)
 
     // 1. Settings (requires m_settings QObject)
     if (m_settings) {
-        QJsonObject settingsJson = SettingsSerializer::exportToJson(m_settings, true);
+        QJsonObject settingsJson = SettingsSerializer::exportToJson(m_settings, false);
         QByteArray settingsData = QJsonDocument(settingsJson).toJson(QJsonDocument::Indented);
         mainThreadEntries.append({"settings.json", settingsData});
     }
@@ -954,7 +954,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             if (m_settings) {
                 QJsonDocument doc = QJsonDocument::fromJson(entryData);
                 if (!doc.isNull() && doc.isObject()) {
-                    SettingsSerializer::importFromJson(m_settings, doc.object());
+                    SettingsSerializer::importFromJson(m_settings, doc.object(), SettingsSerializer::sensitiveKeys());
                     settingsRestored = true;
                     qDebug() << "ShotServer: Restored settings";
                 }
