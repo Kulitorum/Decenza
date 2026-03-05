@@ -46,8 +46,11 @@ Page {
                 pageStack.pop()
         }
         function onVisualizerInfoUpdated(id, success) {
-            if (id === shotDetailPage.shotId && success)
+            if (id !== shotDetailPage.shotId) return
+            if (success)
                 loadShot()
+            else
+                console.warn("ShotDetailPage: Failed to save visualizer info for shot", id)
         }
     }
 

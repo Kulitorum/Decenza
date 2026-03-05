@@ -839,6 +839,8 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
             if (*destroyed) return;
             if (success)
                 qDebug() << "ShotHistoryStorage: Async updated visualizer info for shot" << shotId;
+            else
+                qWarning() << "ShotHistoryStorage: Async visualizer info update FAILED for shot" << shotId;
             emit visualizerInfoUpdated(shotId, success);
         }, Qt::QueuedConnection);
     });
@@ -883,7 +885,7 @@ void ShotHistoryStorage::requestDistinctCache()
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, destroyed]() {
         QHash<QString, QStringList> results;
-        withTempDb(dbPath, "shs_distinct", [&](QSqlDatabase& db) {
+        bool opened = withTempDb(dbPath, "shs_distinct", [&](QSqlDatabase& db) {
             static const QStringList columns = {
                 "profile_name", "bean_brand", "bean_type",
                 "grinder_model", "grinder_setting", "barista", "roast_level"
@@ -891,7 +893,10 @@ void ShotHistoryStorage::requestDistinctCache()
             for (const QString& col : columns) {
                 QStringList values;
                 QSqlQuery query(db);
-                query.exec(QString("SELECT DISTINCT %1 FROM shots WHERE %1 IS NOT NULL AND %1 != '' ORDER BY %1").arg(col));
+                if (!query.exec(QString("SELECT DISTINCT %1 FROM shots WHERE %1 IS NOT NULL AND %1 != '' ORDER BY %1").arg(col))) {
+                    qWarning() << "ShotHistoryStorage: Failed to query distinct" << col << ":" << query.lastError().text();
+                    continue;
+                }
                 while (query.next()) {
                     QString v = query.value(0).toString();
                     if (!v.isEmpty()) values << v;
@@ -900,9 +905,12 @@ void ShotHistoryStorage::requestDistinctCache()
             }
         });
 
-        QMetaObject::invokeMethod(this, [this, results = std::move(results), destroyed]() {
+        QMetaObject::invokeMethod(this, [this, results = std::move(results), opened, destroyed]() {
             if (*destroyed) return;
-            m_distinctCache = results;
+            if (opened)
+                m_distinctCache = results;
+            else
+                qWarning() << "ShotHistoryStorage: Distinct cache refresh failed, keeping stale cache";
             emit distinctCacheReady();
         }, Qt::QueuedConnection);
     });
@@ -1906,7 +1914,8 @@ QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
 
 void ShotHistoryStorage::invalidateDistinctCache()
 {
-    m_distinctCache.clear();
+    // Keep stale cache until async refresh completes — avoids a window where
+    // getDistinctValues() falls through to a synchronous main-thread DB query
     requestDistinctCache();
 }
 

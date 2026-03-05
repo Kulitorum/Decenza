@@ -56,8 +56,11 @@ Page {
             // If we were waiting for shot data to upload to visualizer
             if (_pendingUpload) {
                 _pendingUpload = false
-                if (shot.id)
+                if (shot.id) {
                     MainController.visualizer.uploadShotFromHistory(shot)
+                } else {
+                    console.warn("PostShotReviewPage: Upload aborted - shot data unavailable for id", shotId)
+                }
                 return
             }
 
@@ -81,8 +84,11 @@ Page {
             }
         }
         function onVisualizerInfoUpdated(shotId, success) {
-            if (shotId === postShotReviewPage.editShotId && success)
+            if (shotId !== postShotReviewPage.editShotId) return
+            if (success)
                 loadShotForEditing()
+            else
+                console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
         }
         function onDistinctCacheReady() { _distinctCacheVersion++ }
     }
