@@ -38,6 +38,8 @@ Page {
     property bool isEditMode: editShotId > 0
     property bool _pendingUpload: false  // True when waiting for async shot data to upload
     property int _distinctCacheVersion: 0  // Incremented when distinct cache is refreshed
+
+    Component.onDestruction: _pendingUpload = false
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 

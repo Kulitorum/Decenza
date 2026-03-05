@@ -859,11 +859,13 @@ void ShotHistoryStorage::requestMostRecentShotId()
     auto destroyed = m_destroyed;
     QThread* thread = QThread::create([this, dbPath, destroyed]() {
         qint64 shotId = -1;
-        withTempDb(dbPath, "shs_recent", [&](QSqlDatabase& db) {
+        bool opened = withTempDb(dbPath, "shs_recent", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             if (query.exec("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && query.next())
                 shotId = query.value(0).toLongLong();
         });
+        if (!opened)
+            qWarning() << "ShotHistoryStorage: requestMostRecentShotId failed - could not open DB";
 
         QMetaObject::invokeMethod(this, [this, shotId, destroyed]() {
             if (*destroyed) return;
@@ -3522,65 +3524,60 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
 
 QStringList ShotHistoryStorage::getDistinctBeanTypesForBrand(const QString& beanBrand)
 {
+    if (beanBrand.isEmpty())
+        return getDistinctBeanTypes();
+
+    const QString cacheKey = "bean_type:" + beanBrand;
+    if (m_distinctCache.contains(cacheKey))
+        return m_distinctCache.value(cacheKey);
+
     QStringList results;
     if (!m_ready) return results;
 
-    QString sql;
     QSqlQuery query(m_db);
-
-    if (beanBrand.isEmpty()) {
-        // Fallback to all bean types if no brand specified
-        return getDistinctBeanTypes();
-    }
-
-    sql = "SELECT DISTINCT bean_type FROM shots "
-          "WHERE bean_brand = ? AND bean_type IS NOT NULL AND bean_type != '' "
-          "ORDER BY bean_type";
-
-    query.prepare(sql);
+    query.prepare("SELECT DISTINCT bean_type FROM shots "
+                  "WHERE bean_brand = ? AND bean_type IS NOT NULL AND bean_type != '' "
+                  "ORDER BY bean_type");
     query.bindValue(0, beanBrand);
     query.exec();
 
     while (query.next()) {
         QString value = query.value(0).toString();
-        if (!value.isEmpty()) {
+        if (!value.isEmpty())
             results << value;
-        }
     }
 
+    m_distinctCache.insert(cacheKey, results);
     return results;
 }
 
 QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QString& grinderModel)
 {
+    if (grinderModel.isEmpty())
+        return getDistinctGrinderSettings();
+
+    const QString cacheKey = "grinder_setting:" + grinderModel;
+    if (m_distinctCache.contains(cacheKey))
+        return m_distinctCache.value(cacheKey);
+
     QStringList results;
     if (!m_ready) return results;
 
-    QString sql;
     QSqlQuery query(m_db);
-
-    if (grinderModel.isEmpty()) {
-        // Fallback to all grinder settings if no grinder specified
-        return getDistinctGrinderSettings();
-    }
-
-    sql = "SELECT DISTINCT grinder_setting FROM shots "
-          "WHERE grinder_model = ? AND grinder_setting IS NOT NULL AND grinder_setting != '' "
-          "ORDER BY grinder_setting";
-
-    query.prepare(sql);
+    query.prepare("SELECT DISTINCT grinder_setting FROM shots "
+                  "WHERE grinder_model = ? AND grinder_setting IS NOT NULL AND grinder_setting != '' "
+                  "ORDER BY grinder_setting");
     query.bindValue(0, grinderModel);
     query.exec();
 
     while (query.next()) {
         QString value = query.value(0).toString();
-        if (!value.isEmpty()) {
+        if (!value.isEmpty())
             results << value;
-        }
     }
 
-    // Apply smart sorting
     sortGrinderSettings(results);
+    m_distinctCache.insert(cacheKey, results);
     return results;
 }
 
