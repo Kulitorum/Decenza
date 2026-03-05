@@ -1,20 +1,10 @@
 #include "hiroiascale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define HIROIA_LOG(msg) do { \
-    QString _msg = QString("[BLE HiroiaScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define HIROIA_WARN(msg) do { \
-    QString _msg = QString("[BLE HiroiaScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define HIROIA_LOG(msg)  SCALE_LOG("HiroiaScale", msg)
+#define HIROIA_WARN(msg) SCALE_WARN("HiroiaScale", msg)
 
 HiroiaScale::HiroiaScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -72,7 +62,7 @@ void HiroiaScale::onTransportConnected() {
 }
 
 void HiroiaScale::onTransportDisconnected() {
-    HIROIA_LOG("Transport disconnected");
+    HIROIA_WARN("Transport disconnected");
     setConnected(false);
 }
 

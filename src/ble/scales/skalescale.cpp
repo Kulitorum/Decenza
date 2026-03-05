@@ -1,20 +1,10 @@
 #include "skalescale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define SKALE_LOG(msg) do { \
-    QString _msg = QString("[BLE SkaleScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define SKALE_WARN(msg) do { \
-    QString _msg = QString("[BLE SkaleScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define SKALE_LOG(msg)  SCALE_LOG("SkaleScale", msg)
+#define SKALE_WARN(msg) SCALE_WARN("SkaleScale", msg)
 
 SkaleScale::SkaleScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -72,7 +62,7 @@ void SkaleScale::onTransportConnected() {
 }
 
 void SkaleScale::onTransportDisconnected() {
-    SKALE_LOG("Transport disconnected");
+    SKALE_WARN("Transport disconnected");
     setConnected(false);
 }
 

@@ -1,20 +1,10 @@
 #include "eurekaprecisascale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define EUREKA_LOG(msg) do { \
-    QString _msg = QString("[BLE EurekaPrecisaScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define EUREKA_WARN(msg) do { \
-    QString _msg = QString("[BLE EurekaPrecisaScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define EUREKA_LOG(msg)  SCALE_LOG("EurekaPrecisaScale", msg)
+#define EUREKA_WARN(msg) SCALE_WARN("EurekaPrecisaScale", msg)
 
 EurekaPrecisaScale::EurekaPrecisaScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -72,7 +62,7 @@ void EurekaPrecisaScale::onTransportConnected() {
 }
 
 void EurekaPrecisaScale::onTransportDisconnected() {
-    EUREKA_LOG("Transport disconnected");
+    EUREKA_WARN("Transport disconnected");
     setConnected(false);
 }
 

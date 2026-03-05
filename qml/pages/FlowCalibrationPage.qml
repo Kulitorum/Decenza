@@ -85,7 +85,6 @@ Page {
             }
         }
 
-        // Loading indicator
         BusyIndicator {
             Layout.alignment: Qt.AlignHCenter
             running: FlowCalibrationModel.loading

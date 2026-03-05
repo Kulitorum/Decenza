@@ -1,20 +1,10 @@
 #include "difluidscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define DIFLUID_LOG(msg) do { \
-    QString _msg = QString("[BLE DifluidScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define DIFLUID_WARN(msg) do { \
-    QString _msg = QString("[BLE DifluidScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define DIFLUID_LOG(msg)  SCALE_LOG("DifluidScale", msg)
+#define DIFLUID_WARN(msg) SCALE_WARN("DifluidScale", msg)
 
 DifluidScale::DifluidScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -72,7 +62,7 @@ void DifluidScale::onTransportConnected() {
 }
 
 void DifluidScale::onTransportDisconnected() {
-    DIFLUID_LOG("Transport disconnected");
+    DIFLUID_WARN("Transport disconnected");
     setConnected(false);
 }
 

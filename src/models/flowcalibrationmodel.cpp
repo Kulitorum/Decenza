@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QThread>
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 
 FlowCalibrationModel::FlowCalibrationModel(QObject* parent)
@@ -48,7 +49,7 @@ void FlowCalibrationModel::setLoading(bool loading) {
 }
 
 void FlowCalibrationModel::loadRecentShots() {
-    if (!m_storage) return;
+    if (!m_storage || m_loading) return;
 
     setLoading(true);
 
@@ -61,15 +62,16 @@ void FlowCalibrationModel::loadRecentShots() {
 
         QVector<qint64> shotIds;
         ShotRecord firstRecord;
+        bool dbFailed = false;
 
         {
             QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
             db.setDatabaseName(dbPath);
             if (db.open()) {
-                // Get 50 most recent shot IDs
                 QSqlQuery query(db);
-                query.prepare("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 50");
-                if (query.exec()) {
+                if (!query.prepare("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 50")) {
+                    qWarning() << "FlowCalibrationModel: query prepare failed:" << query.lastError().text();
+                } else if (query.exec()) {
                     while (query.next()) {
                         qint64 id = query.value(0).toLongLong();
                         ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, id);
@@ -81,21 +83,26 @@ void FlowCalibrationModel::loadRecentShots() {
                         }
                         if (shotIds.size() >= 20) break;
                     }
+                } else {
+                    qWarning() << "FlowCalibrationModel: query exec failed:" << query.lastError().text();
                 }
             } else {
                 qWarning() << "FlowCalibrationModel: Failed to open DB for async loadRecentShots";
+                dbFailed = true;
             }
         }
         QSqlDatabase::removeDatabase(connName);
 
         QMetaObject::invokeMethod(this, [this, shotIds = std::move(shotIds),
-                                         firstRecord = std::move(firstRecord), destroyed]() {
+                                         firstRecord = std::move(firstRecord), dbFailed, destroyed]() {
             if (*destroyed) return;
 
             m_shotIds = shotIds;
 
             if (m_shotIds.isEmpty()) {
-                m_errorMessage = tr("No shots with scale data found. Run a shot with a Bluetooth scale connected.");
+                m_errorMessage = dbFailed
+                    ? tr("Could not access shot database. Try restarting the app.")
+                    : tr("No shots with scale data found. Run a shot with a Bluetooth scale connected.");
                 m_currentIndex = -1;
                 m_originalFlow.clear();
                 m_recalculatedFlow.clear();
@@ -111,23 +118,7 @@ void FlowCalibrationModel::loadRecentShots() {
                 emit multiplierChanged();
                 emit errorChanged();
 
-                // Apply the first record directly (already loaded on background thread)
-                m_originalFlow = firstRecord.flow;
-                m_weightFlowRate = firstRecord.weightFlowRate;
-                m_pressure = firstRecord.pressure;
-                m_shotMultiplier = 1.0;
-
-                m_maxTime = 60.0;
-                if (!m_pressure.isEmpty()) {
-                    m_maxTime = m_pressure.last().x();
-                } else if (!m_originalFlow.isEmpty()) {
-                    m_maxTime = m_originalFlow.last().x();
-                }
-
-                QDateTime dt = QDateTime::fromSecsSinceEpoch(firstRecord.summary.timestamp);
-                m_shotInfo = firstRecord.summary.profileName + " \u2014 " + dt.toString("MMM d, yyyy");
-
-                recalculateFlow();
+                applyShotRecord(firstRecord);
             }
 
             emit navigationChanged();
@@ -180,41 +171,55 @@ void FlowCalibrationModel::loadCurrentShot() {
             .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
 
         ShotRecord record;
+        bool dbFailed = false;
         {
             QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
             db.setDatabaseName(dbPath);
             if (db.open())
                 record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
-            else
+            else {
                 qWarning() << "FlowCalibrationModel: Failed to open DB for async loadCurrentShot";
+                dbFailed = true;
+            }
         }
         QSqlDatabase::removeDatabase(connName);
 
-        QMetaObject::invokeMethod(this, [this, record = std::move(record), destroyed]() {
+        QMetaObject::invokeMethod(this, [this, record = std::move(record), dbFailed, destroyed]() {
             if (*destroyed) return;
 
-            m_originalFlow = record.flow;
-            m_weightFlowRate = record.weightFlowRate;
-            m_pressure = record.pressure;
-            m_shotMultiplier = 1.0;
-
-            m_maxTime = 60.0;
-            if (!m_pressure.isEmpty()) {
-                m_maxTime = m_pressure.last().x();
-            } else if (!m_originalFlow.isEmpty()) {
-                m_maxTime = m_originalFlow.last().x();
+            if (dbFailed || record.summary.id == 0) {
+                m_errorMessage = tr("Failed to load shot data. The database may be unavailable.");
+                emit errorChanged();
+                setLoading(false);
+                return;
             }
 
-            QDateTime dt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
-            m_shotInfo = record.summary.profileName + " \u2014 " + dt.toString("MMM d, yyyy");
-
-            recalculateFlow();
+            applyShotRecord(record);
             setLoading(false);
         }, Qt::QueuedConnection);
     });
 
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+void FlowCalibrationModel::applyShotRecord(const ShotRecord& record) {
+    m_originalFlow = record.flow;
+    m_weightFlowRate = record.weightFlowRate;
+    m_pressure = record.pressure;
+    m_shotMultiplier = 1.0;
+
+    m_maxTime = 60.0;
+    if (!m_pressure.isEmpty()) {
+        m_maxTime = m_pressure.last().x();
+    } else if (!m_originalFlow.isEmpty()) {
+        m_maxTime = m_originalFlow.last().x();
+    }
+
+    QDateTime dt = QDateTime::fromSecsSinceEpoch(record.summary.timestamp);
+    m_shotInfo = record.summary.profileName + " \u2014 " + dt.toString("MMM d, yyyy");
+
+    recalculateFlow();
 }
 
 void FlowCalibrationModel::recalculateFlow() {

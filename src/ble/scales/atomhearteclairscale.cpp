@@ -1,20 +1,10 @@
 #include "atomhearteclairscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define ECLAIR_LOG(msg) do { \
-    QString _msg = QString("[BLE AtomheartEclairScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define ECLAIR_WARN(msg) do { \
-    QString _msg = QString("[BLE AtomheartEclairScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define ECLAIR_LOG(msg)  SCALE_LOG("AtomheartEclairScale", msg)
+#define ECLAIR_WARN(msg) SCALE_WARN("AtomheartEclairScale", msg)
 
 AtomheartEclairScale::AtomheartEclairScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -72,7 +62,7 @@ void AtomheartEclairScale::onTransportConnected() {
 }
 
 void AtomheartEclairScale::onTransportDisconnected() {
-    ECLAIR_LOG("Transport disconnected");
+    ECLAIR_WARN("Transport disconnected");
     setConnected(false);
 }
 

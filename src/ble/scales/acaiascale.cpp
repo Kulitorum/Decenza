@@ -1,20 +1,10 @@
 #include "acaiascale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <cmath>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define ACAIA_LOG(msg) do { \
-    QString _msg = QString("[BLE AcaiaScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define ACAIA_WARN(msg) do { \
-    QString _msg = QString("[BLE AcaiaScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define ACAIA_LOG(msg)  SCALE_LOG("AcaiaScale", msg)
+#define ACAIA_WARN(msg) SCALE_WARN("AcaiaScale", msg)
 
 AcaiaScale::AcaiaScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -97,7 +87,7 @@ void AcaiaScale::onTransportConnected() {
 }
 
 void AcaiaScale::onTransportDisconnected() {
-    ACAIA_LOG("Transport disconnected");
+    ACAIA_WARN("Transport disconnected");
     stopAllTimers();
     m_weightReceived = false;
     m_characteristicsReady = false;

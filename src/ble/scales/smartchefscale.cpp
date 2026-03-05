@@ -1,20 +1,10 @@
 #include "smartchefscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define SMARTCHEF_LOG(msg) do { \
-    QString _msg = QString("[BLE SmartChefScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define SMARTCHEF_WARN(msg) do { \
-    QString _msg = QString("[BLE SmartChefScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define SMARTCHEF_LOG(msg)  SCALE_LOG("SmartChefScale", msg)
+#define SMARTCHEF_WARN(msg) SCALE_WARN("SmartChefScale", msg)
 
 SmartChefScale::SmartChefScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -72,7 +62,7 @@ void SmartChefScale::onTransportConnected() {
 }
 
 void SmartChefScale::onTransportDisconnected() {
-    SMARTCHEF_LOG("Transport disconnected");
+    SMARTCHEF_WARN("Transport disconnected");
     setConnected(false);
 }
 

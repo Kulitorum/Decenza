@@ -1,20 +1,10 @@
 #include "bookooscale.h"
 #include "../protocol/de1characteristics.h"
-#include <QDebug>
+#include "scalelogging.h"
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define BOOKOO_LOG(msg) do { \
-    QString _msg = QString("[BLE BookooScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define BOOKOO_WARN(msg) do { \
-    QString _msg = QString("[BLE BookooScale] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define BOOKOO_LOG(msg)  SCALE_LOG("BookooScale", msg)
+#define BOOKOO_WARN(msg) SCALE_WARN("BookooScale", msg)
 
 BookooScale::BookooScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -76,13 +66,19 @@ void BookooScale::onTransportConnected() {
 }
 
 void BookooScale::onTransportDisconnected() {
-    BOOKOO_LOG("Transport disconnected");
+    BOOKOO_WARN("Transport disconnected");
     setConnected(false);
 }
 
 void BookooScale::onTransportError(const QString& message) {
-    // Log but don't fail - Bookoo rejects CCCD writes but may still work
-    BOOKOO_WARN(QString("Transport error: %1 (may be expected)").arg(message));
+    if (message.contains("CCCD", Qt::CaseInsensitive) ||
+        message.contains("descriptor write", Qt::CaseInsensitive)) {
+        BOOKOO_WARN(QString("Transport error (expected CCCD rejection): %1").arg(message));
+        return;
+    }
+    BOOKOO_WARN(QString("Transport error: %1").arg(message));
+    emit errorOccurred("Bookoo scale connection error");
+    setConnected(false);
 }
 
 void BookooScale::onServiceDiscovered(const QBluetoothUuid& uuid) {

@@ -9,6 +9,7 @@
 class ShotHistoryStorage;
 class Settings;
 class DE1Device;
+struct ShotRecord;
 
 class FlowCalibrationModel : public QObject {
     Q_OBJECT
@@ -66,6 +67,7 @@ signals:
 
 private:
     void loadCurrentShot();
+    void applyShotRecord(const ShotRecord& record);
     void recalculateFlow();
     void setLoading(bool loading);
     QVariantList pointsToVariant(const QVector<QPointF>& points) const;
