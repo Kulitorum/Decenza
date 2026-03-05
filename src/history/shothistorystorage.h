@@ -185,6 +185,11 @@ public:
                                            const QString& visualizerId,
                                            const QString& visualizerUrl);
 
+    // Async version: runs update on background thread, emits visualizerInfoUpdated()
+    Q_INVOKABLE void requestUpdateVisualizerInfo(qint64 shotId,
+                                                  const QString& visualizerId,
+                                                  const QString& visualizerUrl);
+
     // Query shots (paginated)
     Q_INVOKABLE QVariantList getShots(int offset = 0, int limit = 50);
     Q_INVOKABLE QVariantList getShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
@@ -231,6 +236,12 @@ public:
 
     // Async version: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
+
+    // Async: fetch most recent shot ID on background thread, emits mostRecentShotIdReady()
+    Q_INVOKABLE void requestMostRecentShotId();
+
+    // Async: pre-warm the distinct cache on a background thread, emits distinctCacheReady()
+    Q_INVOKABLE void requestDistinctCache();
 
     // Get filter options (for dropdowns)
     Q_INVOKABLE QStringList getDistinctProfiles();
@@ -343,6 +354,9 @@ signals:
     void autoFavoritesReady(const QVariantList& results);
     void autoFavoriteGroupDetailsReady(const QVariantMap& details);
     void backupFinished(bool success, const QString& resultPath);
+    void visualizerInfoUpdated(qint64 shotId, bool success);
+    void mostRecentShotIdReady(qint64 shotId);
+    void distinctCacheReady();
 
 private:
     bool createTables();

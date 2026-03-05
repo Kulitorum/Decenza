@@ -96,6 +96,9 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     m_ready = true;
     emit readyChanged();
 
+    // Pre-warm the distinct cache on a background thread
+    requestDistinctCache();
+
     qDebug() << "ShotHistoryStorage: Database initialized with" << m_totalShots << "shots";
     return true;
 }
@@ -807,6 +810,104 @@ bool ShotHistoryStorage::updateVisualizerInfo(qint64 shotId, const QString& visu
 
     qDebug() << "ShotHistoryStorage: Updated shot" << shotId << "with visualizer ID:" << visualizerId;
     return true;
+}
+
+void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QString& visualizerId, const QString& visualizerUrl)
+{
+    if (!m_ready) {
+        emit visualizerInfoUpdated(shotId, false);
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, shotId, visualizerId, visualizerUrl, destroyed]() {
+        bool success = false;
+        withTempDb(dbPath, "shs_vizupd", [&](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            query.prepare("UPDATE shots SET visualizer_id = :viz_id, visualizer_url = :viz_url, "
+                          "updated_at = strftime('%s', 'now') WHERE id = :id");
+            query.bindValue(":viz_id", visualizerId);
+            query.bindValue(":viz_url", visualizerUrl);
+            query.bindValue(":id", shotId);
+            success = query.exec();
+            if (!success)
+                qWarning() << "ShotHistoryStorage: Failed to async update visualizer info:" << query.lastError().text();
+        });
+
+        QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
+            if (*destroyed) return;
+            if (success)
+                qDebug() << "ShotHistoryStorage: Async updated visualizer info for shot" << shotId;
+            emit visualizerInfoUpdated(shotId, success);
+        }, Qt::QueuedConnection);
+    });
+    thread->start();
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+}
+
+void ShotHistoryStorage::requestMostRecentShotId()
+{
+    if (!m_ready) {
+        emit mostRecentShotIdReady(-1);
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, destroyed]() {
+        qint64 shotId = -1;
+        withTempDb(dbPath, "shs_recent", [&](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            if (query.exec("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && query.next())
+                shotId = query.value(0).toLongLong();
+        });
+
+        QMetaObject::invokeMethod(this, [this, shotId, destroyed]() {
+            if (*destroyed) return;
+            emit mostRecentShotIdReady(shotId);
+        }, Qt::QueuedConnection);
+    });
+    thread->start();
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+}
+
+void ShotHistoryStorage::requestDistinctCache()
+{
+    if (!m_ready) {
+        emit distinctCacheReady();
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, destroyed]() {
+        QHash<QString, QStringList> results;
+        withTempDb(dbPath, "shs_distinct", [&](QSqlDatabase& db) {
+            static const QStringList columns = {
+                "profile_name", "bean_brand", "bean_type",
+                "grinder_model", "grinder_setting", "barista", "roast_level"
+            };
+            for (const QString& col : columns) {
+                QStringList values;
+                QSqlQuery query(db);
+                query.exec(QString("SELECT DISTINCT %1 FROM shots WHERE %1 IS NOT NULL AND %1 != '' ORDER BY %1").arg(col));
+                while (query.next()) {
+                    QString v = query.value(0).toString();
+                    if (!v.isEmpty()) values << v;
+                }
+                results.insert(col, values);
+            }
+        });
+
+        QMetaObject::invokeMethod(this, [this, results = std::move(results), destroyed]() {
+            if (*destroyed) return;
+            m_distinctCache = results;
+            emit distinctCacheReady();
+        }, Qt::QueuedConnection);
+    });
+    thread->start();
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 }
 
 QVariantList ShotHistoryStorage::getShots(int offset, int limit)
@@ -1806,6 +1907,7 @@ QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
 void ShotHistoryStorage::invalidateDistinctCache()
 {
     m_distinctCache.clear();
+    requestDistinctCache();
 }
 
 // Helper for all getDistinct*Filtered methods

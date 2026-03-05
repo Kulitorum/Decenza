@@ -17,6 +17,12 @@ Page {
     property bool isEditMode: editShotId > 0
     property bool keyboardVisible: Qt.inputMethod.visible
     property Item focusedField: null
+    property int _distinctCacheVersion: 0  // Incremented when distinct cache is refreshed
+
+    Connections {
+        target: MainController.shotHistory
+        function onDistinctCacheReady() { _distinctCacheVersion++ }
+    }
 
     // Snapshot of DYE values at page open (for Discard in unsaved-changes dialog)
     property string _snapBrand
@@ -605,7 +611,7 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.roaster", "Roaster")
                     text: isEditMode ? editBeanBrand : Settings.dyeBeanBrand
-                    suggestions: MainController.shotHistory.getDistinctBeanBrands()
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
                     onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else Settings.dyeBeanBrand = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -614,8 +620,8 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.coffee", "Coffee")
                     text: isEditMode ? editBeanType : Settings.dyeBeanType
-                    suggestions: MainController.shotHistory.getDistinctBeanTypesForBrand(
-                        isEditMode ? editBeanBrand : Settings.dyeBeanBrand)
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
+                        isEditMode ? editBeanBrand : Settings.dyeBeanBrand) : []
                     onTextEdited: function(t) { if (isEditMode) editBeanType = t; else Settings.dyeBeanType = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -647,7 +653,7 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.grinder", "Grinder")
                     text: isEditMode ? editGrinderModel : Settings.dyeGrinderModel
-                    suggestions: MainController.shotHistory.getDistinctGrinders()
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinders() : []
                     onTextEdited: function(t) { if (isEditMode) editGrinderModel = t; else Settings.dyeGrinderModel = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -656,8 +662,8 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.setting", "Setting")
                     text: isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
-                    suggestions: MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
-                        isEditMode ? editGrinderModel : Settings.dyeGrinderModel)
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
+                        isEditMode ? editGrinderModel : Settings.dyeGrinderModel) : []
                     onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else Settings.dyeGrinderSetting = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -668,7 +674,7 @@ Page {
                     Layout.columnSpan: 3
                     label: TranslationManager.translate("shotmetadata.label.barista", "Barista")
                     text: isEditMode ? editBarista : Settings.dyeBarista
-                    suggestions: MainController.shotHistory.getDistinctBaristas()
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
                     onTextEdited: function(t) { if (isEditMode) editBarista = t; else Settings.dyeBarista = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
