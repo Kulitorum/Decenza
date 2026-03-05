@@ -118,7 +118,7 @@ private slots:
     void onDE1StateChanged();
     void onDE1SubStateChanged();
     void onScaleWeightChanged(double weight);
-    void updateShotTimer();
+    void onShotTimerTick();
     void onTimingControllerTareComplete();
 
 private:

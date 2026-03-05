@@ -52,11 +52,11 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
     }
 
     // Publish timer
-    connect(&m_publishTimer, &QTimer::timeout, this, &MqttClient::publishTelemetry);
+    connect(&m_publishTimer, &QTimer::timeout, this, &MqttClient::onPublishTimerTick);
 
     // Reconnect timer
     m_reconnectTimer.setSingleShot(true);
-    connect(&m_reconnectTimer, &QTimer::timeout, this, &MqttClient::attemptReconnect);
+    connect(&m_reconnectTimer, &QTimer::timeout, this, &MqttClient::onReconnectTimerTick);
 
     m_status = "Disconnected";
 }
@@ -333,7 +333,7 @@ void MqttClient::onInternalConnected()
 
     // Publish initial state
     publishState();
-    publishTelemetry();
+    onPublishTimerTick();
 }
 
 void MqttClient::onInternalDisconnected()
@@ -491,7 +491,7 @@ void MqttClient::setMainController(MainController* controller)
     m_mainController = controller;
 }
 
-void MqttClient::attemptReconnect()
+void MqttClient::onReconnectTimerTick()
 {
     if (!m_settings || !m_settings->mqttEnabled()) {
         return;
@@ -657,7 +657,7 @@ void MqttClient::publishState()
     }
 }
 
-void MqttClient::publishTelemetry()
+void MqttClient::onPublishTimerTick()
 {
     if (!isConnected()) return;
 

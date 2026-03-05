@@ -104,7 +104,7 @@ signals:
 
 private slots:
     void onTareTimeout();
-    void updateDisplayTimer();
+    void onDisplayTimerTick();
     void onSettlingComplete();
 
 private:

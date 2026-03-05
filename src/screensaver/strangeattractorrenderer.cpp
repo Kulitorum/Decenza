@@ -546,7 +546,7 @@ StrangeAttractorRenderer::StrangeAttractorRenderer(QQuickItem* parent)
 
     m_timer = new QTimer(this);
     m_timer->setInterval(16);  // ~60 FPS
-    connect(m_timer, &QTimer::timeout, this, &StrangeAttractorRenderer::iterate);
+    connect(m_timer, &QTimer::timeout, this, &StrangeAttractorRenderer::onRenderTick);
 
     randomize();
 }
@@ -826,7 +826,7 @@ QPointF StrangeAttractorRenderer::project(double x, double y, double z) {
     return QPointF(screenX, screenY);
 }
 
-void StrangeAttractorRenderer::iterate() {
+void StrangeAttractorRenderer::onRenderTick() {
     if (m_bufferWidth <= 0 || m_bufferHeight <= 0) return;
 
     // Precompute rotation

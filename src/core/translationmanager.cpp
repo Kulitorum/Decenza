@@ -2228,8 +2228,9 @@ QStringList TranslationManager::getConfiguredProviders() const
     QStringList providers;
     if (!m_settings->anthropicApiKey().isEmpty()) providers << "anthropic";
     if (!m_settings->openaiApiKey().isEmpty()) providers << "openai";
-    // if (!m_settings->geminiApiKey().isEmpty()) providers << "gemini";
-    // if (!m_settings->ollamaEndpoint().isEmpty() && !m_settings->ollamaModel().isEmpty()) providers << "ollama";
+    // Gemini excluded from auto-discovery due to aggressive rate limiting.
+    // Ollama excluded — requires explicit user configuration (endpoint + model).
+    // Both work when explicitly selected by the user in settings.
     return providers;
 }
 

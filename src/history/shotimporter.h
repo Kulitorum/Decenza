@@ -66,7 +66,7 @@ signals:
     void importError(const QString& message);
 
 private slots:
-    void processNextFile();
+    void onProcessNextFile();
     void performZipExtraction();
 
 private:

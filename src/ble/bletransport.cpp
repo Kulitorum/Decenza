@@ -240,9 +240,7 @@ void BleTransport::clearQueue() {
     m_writeRetryCount = 0;
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
-    if (cleared > 0) {
-        // qDebug() << "BleTransport::clearQueue: Cleared" << cleared << "pending commands";
-    }
+    Q_UNUSED(cleared);
 }
 
 bool BleTransport::isConnected() const {

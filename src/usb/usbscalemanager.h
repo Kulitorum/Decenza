@@ -44,7 +44,7 @@ signals:
     void logMessage(const QString& message);
 
 private slots:
-    void pollPorts();
+    void onPollTimerTick();
 
 private:
     QTimer m_pollTimer;
@@ -52,7 +52,7 @@ private:
     bool m_hasLoggedInitialPorts = false;
 
 #ifdef Q_OS_ANDROID
-    void pollPortsAndroid();
+    void onPollTimerTickAndroid();
     void probeAndroid();
     void onAndroidProbeRead();
     void onAndroidProbeTimeout();
@@ -64,7 +64,7 @@ private:
     QTimer* m_androidProbeTimer = nullptr;
     QTimer* m_androidReadTimer = nullptr;
 #else
-    void pollPortsDesktop();
+    void onPollTimerTickDesktop();
     void probePort(const QSerialPortInfo& portInfo);
     void onProbeReadyRead();
     void onProbeTimeout();

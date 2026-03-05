@@ -109,7 +109,7 @@ void AccessibilityManager::initTts()
             qDebug() << "TTS ready";
             // Sync locale with app language
             if (m_translationManager) {
-                updateTtsLocale();
+                onLanguageChanged();
             }
         }
     });
@@ -305,14 +305,14 @@ void AccessibilityManager::setTranslationManager(TranslationManager* translation
 
     if (m_translationManager) {
         connect(m_translationManager, &TranslationManager::currentLanguageChanged,
-                this, &AccessibilityManager::updateTtsLocale);
+                this, &AccessibilityManager::onLanguageChanged);
 
         // Set initial locale
-        updateTtsLocale();
+        onLanguageChanged();
     }
 }
 
-void AccessibilityManager::updateTtsLocale()
+void AccessibilityManager::onLanguageChanged()
 {
     if (!m_tts || !m_translationManager) return;
 

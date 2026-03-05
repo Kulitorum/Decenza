@@ -44,7 +44,7 @@ signals:
     void sampleTaken();
 
 private slots:
-    void takeSample();
+    void onSampleTimerTick();
 
 private:
     quint64 readRss() const;

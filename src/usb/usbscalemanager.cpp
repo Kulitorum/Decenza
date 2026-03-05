@@ -11,7 +11,7 @@ UsbScaleManager::UsbScaleManager(QObject* parent)
     : QObject(parent)
 {
     m_pollTimer.setInterval(POLL_INTERVAL_MS);
-    connect(&m_pollTimer, &QTimer::timeout, this, &UsbScaleManager::pollPorts);
+    connect(&m_pollTimer, &QTimer::timeout, this, &UsbScaleManager::onPollTimerTick);
 }
 
 UsbScaleManager::~UsbScaleManager()
@@ -44,7 +44,7 @@ void UsbScaleManager::startPolling()
     qDebug() << "[USB Scale] Starting port polling every" << POLL_INTERVAL_MS << "ms";
     emit logMessage(QStringLiteral("[USB Scale] Polling started"));
 
-    pollPorts();
+    onPollTimerTick();
     m_pollTimer.start();
 }
 
@@ -62,12 +62,12 @@ void UsbScaleManager::stopPolling()
 // Port polling — dispatches to platform-specific implementation
 // ---------------------------------------------------------------------------
 
-void UsbScaleManager::pollPorts()
+void UsbScaleManager::onPollTimerTick()
 {
 #ifdef Q_OS_ANDROID
-    pollPortsAndroid();
+    onPollTimerTickAndroid();
 #else
-    pollPortsDesktop();
+    onPollTimerTickDesktop();
 #endif
 }
 
@@ -77,7 +77,7 @@ void UsbScaleManager::pollPorts()
 
 #ifdef Q_OS_ANDROID
 
-void UsbScaleManager::pollPortsAndroid()
+void UsbScaleManager::onPollTimerTickAndroid()
 {
     bool devicePresent = AndroidUsbScaleHelper::hasDevice();
 
@@ -257,7 +257,7 @@ void UsbScaleManager::cleanupAndroidProbe(bool closeConnection)
 
 #ifndef Q_OS_ANDROID
 
-void UsbScaleManager::pollPortsDesktop()
+void UsbScaleManager::onPollTimerTickDesktop()
 {
     const auto ports = QSerialPortInfo::availablePorts();
 

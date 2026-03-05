@@ -29,14 +29,14 @@ MemoryMonitor::MemoryMonitor(QObject* parent)
     m_uptime.start();
 
     m_timer.setInterval(60000);
-    connect(&m_timer, &QTimer::timeout, this, &MemoryMonitor::takeSample);
+    connect(&m_timer, &QTimer::timeout, this, &MemoryMonitor::onSampleTimerTick);
     m_timer.start();
 
     // Take initial sample
-    takeSample();
+    onSampleTimerTick();
 }
 
-void MemoryMonitor::takeSample()
+void MemoryMonitor::onSampleTimerTick()
 {
     quint64 rss = readRss();
     int objCount = countQObjects();

@@ -27,7 +27,7 @@ ShotDataModel::ShotDataModel(QObject* parent)
     m_flushTimer = new QTimer(this);
     m_flushTimer->setInterval(FLUSH_INTERVAL_MS);
     m_flushTimer->setTimerType(Qt::PreciseTimer);
-    connect(m_flushTimer, &QTimer::timeout, this, &ShotDataModel::flushToChart);
+    connect(m_flushTimer, &QTimer::timeout, this, &ShotDataModel::onFlushTimerTick);
 }
 
 ShotDataModel::~ShotDataModel() {
@@ -73,7 +73,7 @@ void ShotDataModel::registerSeries(const QVariantList& pressureGoalSegments, con
     // If we have existing goal/marker data, flush it
     if (!m_pressureGoalSegments[0].isEmpty() || !m_pendingMarkers.isEmpty()) {
         m_dirty = true;
-        flushToChart();
+        onFlushTimerTick();
     }
 
     // Start the flush timer
@@ -277,14 +277,14 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
     m_temperatureGoalPoints.append(QPointF(time, temperatureGoal));
 
     // Update raw time - QML uses this to calculate axis max with pixel-based padding
-    // Signal deferred to flushToChart() to avoid triggering chart axis recalc on every 5Hz sample
+    // Signal deferred to onFlushTimerTick() to avoid triggering chart axis recalc on every 5Hz sample
     if (time > m_rawTime) {
         m_rawTime = time;
         m_rawTimeDirty = true;
     }
 
     m_dirty = true;
-    // Timer-driven: flushToChart() runs every 33ms (~30fps), batching samples
+    // Timer-driven: onFlushTimerTick() runs every 33ms (~30fps), batching samples
 }
 
 void ShotDataModel::addWeightSample(double time, double weight, double flowRate) {
@@ -334,7 +334,7 @@ void ShotDataModel::addWeightSample(double time, double weight) {
     // Plot cumulative weight (g) - shows weight progression during shot (0g -> 36g typical)
     m_weightPoints.append(QPointF(time, weight));
     m_dirty = true;
-    // Timer-driven: flushToChart() runs every 33ms (~30fps), batching samples
+    // Timer-driven: onFlushTimerTick() runs every 33ms (~30fps), batching samples
     emit finalWeightChanged();  // For accessibility announcement
 }
 
@@ -412,7 +412,7 @@ void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameN
     emit phaseMarkersChanged();
 }
 
-void ShotDataModel::flushToChart() {
+void ShotDataModel::onFlushTimerTick() {
     if (!m_dirty) return;
 
     // Incrementally append new points to fast renderers (pre-allocated VBO, no rebuild)

@@ -68,7 +68,7 @@ protected:
     void geometryChange(const QRectF& newGeometry, const QRectF& oldGeometry) override;
 
 private slots:
-    void iterate();
+    void onRenderTick();
 
 private:
     void initializeAttractor();

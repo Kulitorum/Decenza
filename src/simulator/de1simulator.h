@@ -60,7 +60,7 @@ signals:
     void scaleWeightChanged(double weight);  // Simulated scale output
 
 private slots:
-    void simulationTick();
+    void onSimulationTimerTick();
 
 private:
     void setState(DE1::State state, DE1::SubState subState);

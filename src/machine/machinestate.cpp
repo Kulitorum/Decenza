@@ -35,7 +35,7 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
 
     m_shotTimer = new QTimer(this);
     m_shotTimer->setInterval(100);  // Update every 100ms
-    connect(m_shotTimer, &QTimer::timeout, this, &MachineState::updateShotTimer);
+    connect(m_shotTimer, &QTimer::timeout, this, &MachineState::onShotTimerTick);
 
     if (m_device) {
         connect(m_device, &DE1Device::stateChanged, this, &MachineState::onDE1StateChanged);
@@ -636,7 +636,7 @@ void MachineState::stopShotTimer() {
     m_shotTimer->stop();
 }
 
-void MachineState::updateShotTimer() {
+void MachineState::onShotTimerTick() {
     qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_shotStartTime;
     m_shotTime = elapsed / 1000.0;
     emit shotTimeChanged();

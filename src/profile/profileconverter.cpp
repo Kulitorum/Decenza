@@ -97,12 +97,12 @@ bool ProfileConverter::convertProfiles(const QString& sourceDir, const QString& 
     emit progressChanged();
 
     // Process files asynchronously to keep UI responsive
-    QTimer::singleShot(0, this, &ProfileConverter::processNextFile);
+    QTimer::singleShot(0, this, &ProfileConverter::onProcessNextFile);
 
     return true;
 }
 
-void ProfileConverter::processNextFile()
+void ProfileConverter::onProcessNextFile()
 {
     if (m_pendingFiles.isEmpty()) {
         // Conversion complete - update resources.qrc
@@ -177,7 +177,7 @@ void ProfileConverter::processNextFile()
     }
 
     // Process next file
-    QTimer::singleShot(0, this, &ProfileConverter::processNextFile);
+    QTimer::singleShot(0, this, &ProfileConverter::onProcessNextFile);
 }
 
 QString ProfileConverter::generateFilename(const QString& title) const

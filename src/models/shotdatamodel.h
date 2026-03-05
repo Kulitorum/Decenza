@@ -93,7 +93,7 @@ signals:
     void flushed();  // Emitted after 33ms timer flushes new data to renderers
 
 private slots:
-    void flushToChart();  // Called by timer - batched update to chart
+    void onFlushTimerTick();  // Called by timer - batched update to chart
 
 private:
     // Data storage - fast vector appends
@@ -140,7 +140,7 @@ private:
 
     double m_maxTime = 5.0;
     double m_rawTime = 0.0;
-    bool m_rawTimeDirty = false;  // Deferred: emit rawTimeChanged in flushToChart()
+    bool m_rawTimeDirty = false;  // Deferred: emit rawTimeChanged in onFlushTimerTick()
     int m_frameMarkerIndex = 0;
     bool m_lastPumpModeIsFlow = false;  // Track for starting new goal segments
     bool m_hasPumpModeData = false;     // True after first sample with pump mode

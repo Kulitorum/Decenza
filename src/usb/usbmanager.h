@@ -17,7 +17,7 @@ class SerialTransport;
  * On desktop: polls QSerialPortInfo, filters by vendor ID (QinHeng/WCH),
  * and probes new ports by sending a subscribe command.
  *
- * On Android: uses JNI to call the Android USB Host API (UsbManager), which
+ * On Android: uses JNI to call the Android USB Host API (USBManager), which
  * is the only way to enumerate USB devices and do serial I/O on Android
  * (QSerialPortInfo reports VID=0, QSerialPort can't open /dev/ttyACM0).
  *
@@ -53,7 +53,7 @@ signals:
     void logMessage(const QString& message);
 
 private slots:
-    void pollPorts();
+    void onPollTimerTick();
 
 private:
     QTimer m_pollTimer;
@@ -66,7 +66,7 @@ private:
 
 #ifdef Q_OS_ANDROID
     // Android: JNI-based device detection and probing
-    void pollPortsAndroid();
+    void onPollTimerTickAndroid();
     void probeAndroid();
     void onAndroidProbeRead();
     void onAndroidProbeTimeout();
@@ -78,7 +78,7 @@ private:
     QTimer* m_androidReadTimer = nullptr;
 #else
     // Desktop: QSerialPort-based detection and probing
-    void pollPortsDesktop();
+    void onPollTimerTickDesktop();
     void probePort(const QSerialPortInfo& portInfo);
     void onProbeReadyRead();
     void onProbeTimeout();

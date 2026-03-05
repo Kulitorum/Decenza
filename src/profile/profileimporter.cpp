@@ -152,10 +152,10 @@ void ProfileImporter::scanProfilesFromPath(const QString& path)
     setStatus(QString("Scanning %1 profiles...").arg(m_totalProfiles));
 
     // Process files asynchronously to keep UI responsive
-    QTimer::singleShot(0, this, &ProfileImporter::processNextScan);
+    QTimer::singleShot(0, this, &ProfileImporter::onProcessNextScan);
 }
 
-void ProfileImporter::processNextScan()
+void ProfileImporter::onProcessNextScan()
 {
     if (m_pendingFiles.isEmpty()) {
         // Scanning complete
@@ -233,7 +233,7 @@ void ProfileImporter::processNextScan()
     }
 
     // Continue processing
-    QTimer::singleShot(0, this, &ProfileImporter::processNextScan);
+    QTimer::singleShot(0, this, &ProfileImporter::onProcessNextScan);
 }
 
 void ProfileImporter::importProfile(const QString& sourcePath)
@@ -494,7 +494,7 @@ void ProfileImporter::importAll(bool overwriteExisting)
 
     setStatus(QString("Importing %1 profiles...").arg(m_totalProfiles));
 
-    QTimer::singleShot(0, this, &ProfileImporter::processNextImport);
+    QTimer::singleShot(0, this, &ProfileImporter::onProcessNextImport);
 }
 
 void ProfileImporter::updateAllDifferent()
@@ -536,10 +536,10 @@ void ProfileImporter::updateAllDifferent()
 
     setStatus(QString("Updating %1 profiles...").arg(m_totalProfiles));
 
-    QTimer::singleShot(0, this, &ProfileImporter::processNextImport);
+    QTimer::singleShot(0, this, &ProfileImporter::onProcessNextImport);
 }
 
-void ProfileImporter::processNextImport()
+void ProfileImporter::onProcessNextImport()
 {
     if (m_importQueue.isEmpty()) {
         // Batch import complete
@@ -580,7 +580,7 @@ void ProfileImporter::processNextImport()
     if (!profile.isValid() || profile.title().isEmpty()) {
         m_batchFailed++;
         qWarning() << "ProfileImporter: Failed to load profile from" << sourcePath << "(invalid or empty)";
-        QTimer::singleShot(0, this, &ProfileImporter::processNextImport);
+        QTimer::singleShot(0, this, &ProfileImporter::onProcessNextImport);
         return;
     }
 
@@ -630,7 +630,7 @@ void ProfileImporter::processNextImport()
         setStatus(QString("Importing... %1/%2").arg(m_processedProfiles).arg(m_totalProfiles));
     }
 
-    QTimer::singleShot(0, this, &ProfileImporter::processNextImport);
+    QTimer::singleShot(0, this, &ProfileImporter::onProcessNextImport);
 }
 
 void ProfileImporter::refreshProfileStatus(int index)

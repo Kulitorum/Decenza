@@ -1,15 +1,12 @@
 #include "decentscale.h"
+#include "scalelogging.h"
 #include "../protocol/de1characteristics.h"
 #include <algorithm>
 #include <QDateTime>
 #include <QTimer>
 
-// Helper macro that logs to both qDebug and emits signal for UI/file logging
-#define DECENT_LOG(msg) do { \
-    QString _msg = QString("[BLE DecentScale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+#define DECENT_LOG(msg)  SCALE_LOG("DecentScale", msg)
+#define DECENT_WARN(msg) SCALE_WARN("DecentScale", msg)
 
 DecentScale::DecentScale(ScaleBleTransport* transport, QObject* parent)
     : ScaleDevice(parent)
@@ -63,7 +60,7 @@ void DecentScale::onTransportConnected() {
 }
 
 void DecentScale::onTransportDisconnected() {
-    qWarning() << "[DecentScale] Transport disconnected";
+    DECENT_WARN("Transport disconnected");
     stopHeartbeat();
     m_lastNotificationEnableMs = 0;
     m_lastScalePacketMs = 0;
@@ -71,7 +68,7 @@ void DecentScale::onTransportDisconnected() {
 }
 
 void DecentScale::onTransportError(const QString& message) {
-    qWarning() << "[DecentScale] Transport error:" << message;
+    DECENT_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("Scale connection error");
     setConnected(false);
 }
@@ -84,6 +81,7 @@ void DecentScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 
 void DecentScale::onServicesDiscoveryFinished() {
     if (!m_serviceFound) {
+        DECENT_WARN("Decent Scale service not found");
         emit errorOccurred("Decent Scale service not found");
         return;
     }
@@ -199,8 +197,8 @@ void DecentScale::enableWeightNotifications(const QString& reason, bool force) {
     const bool recentRefresh = (m_lastNotificationEnableMs > 0) && ((now - m_lastNotificationEnableMs) < kMinRefreshMs);
 
     if (dataStale) {
-        qWarning() << "[DecentScale] Weight data STALE for"
-                   << (now - m_lastScalePacketMs) << "ms - re-enabling notifications";
+        DECENT_WARN(QString("Weight data STALE for %1 ms - re-enabling notifications")
+                    .arg(now - m_lastScalePacketMs));
     }
 
     if (!force && recentRefresh && !dataStale) {

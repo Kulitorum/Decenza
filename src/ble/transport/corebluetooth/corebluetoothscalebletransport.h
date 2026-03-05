@@ -45,5 +45,5 @@ public:
     // PIMPL - must be public for ObjC delegate access
     struct Impl;
 private:
-    Impl* d = nullptr;
+    Impl* m_impl = nullptr;
 };

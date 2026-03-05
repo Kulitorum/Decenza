@@ -89,8 +89,8 @@ signals:
     void batchImportComplete(int imported, int skipped, int failed);
 
 private slots:
-    void processNextScan();
-    void processNextImport();
+    void onProcessNextScan();
+    void onProcessNextImport();
 
 private:
     void setStatus(const QString& message);

@@ -468,10 +468,10 @@ void ShotImporter::startImport(const QStringList& files, bool overwriteExisting)
     emit progressChanged();
 
     // Process files in batches using timer to keep UI responsive
-    QTimer::singleShot(0, this, &ShotImporter::processNextFile);
+    QTimer::singleShot(0, this, &ShotImporter::onProcessNextFile);
 }
 
-void ShotImporter::processNextFile()
+void ShotImporter::onProcessNextFile()
 {
     if (m_cancelled || m_pendingFiles.isEmpty()) {
         // Import complete or cancelled
@@ -537,7 +537,7 @@ void ShotImporter::processNextFile()
     }
 
     // Schedule next batch
-    QTimer::singleShot(0, this, &ShotImporter::processNextFile);
+    QTimer::singleShot(0, this, &ShotImporter::onProcessNextFile);
 }
 
 void ShotImporter::setStatus(const QString& message)

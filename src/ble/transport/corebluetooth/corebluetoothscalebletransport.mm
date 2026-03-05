@@ -466,49 +466,49 @@ CoreBluetoothScaleBleTransport::CoreBluetoothScaleBleTransport(QObject* parent)
     : ScaleBleTransport(parent)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    d = new Impl;
-    d->q = this;
-    d->periph = nullptr;
+    m_impl = new Impl;
+    m_impl->q = this;
+    m_impl->periph = nullptr;
 
     // alloc/init already returns +1 retain count, no need to retain again
-    d->del = [[CBDelegateProxy alloc] init];
-    d->del.impl = d;
+    m_impl->del = [[CBDelegateProxy alloc] init];
+    m_impl->del.impl = m_impl;
 
-    d->mgr = [[CBCentralManager alloc] initWithDelegate:d->del queue:dispatch_get_main_queue()];
+    m_impl->mgr = [[CBCentralManager alloc] initWithDelegate:m_impl->del queue:dispatch_get_main_queue()];
 #else
-    d = nullptr;
+    m_impl = nullptr;
 #endif
 }
 
 CoreBluetoothScaleBleTransport::~CoreBluetoothScaleBleTransport() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (d) {
+    if (m_impl) {
         // Mark as invalid FIRST - this makes pending dispatch_async blocks no-op
-        d->isValid = false;
+        m_impl->isValid = false;
 
         // Detach delegate so callbacks become no-ops
-        if (d->del) {
-            d->del.impl = nullptr;
+        if (m_impl->del) {
+            m_impl->del.impl = nullptr;
         }
 
         // Disconnect cleanly (this handles main thread dispatch internally)
         disconnectFromDevice();
 
         // Release manager
-        if (d->mgr) {
-            d->mgr.delegate = nil;
-            CB_RELEASE(d->mgr);
-            d->mgr = nullptr;
+        if (m_impl->mgr) {
+            m_impl->mgr.delegate = nil;
+            CB_RELEASE(m_impl->mgr);
+            m_impl->mgr = nullptr;
         }
 
         // Release delegate
-        if (d->del) {
-            CB_RELEASE(d->del);
-            d->del = nullptr;
+        if (m_impl->del) {
+            CB_RELEASE(m_impl->del);
+            m_impl->del = nullptr;
         }
 
-        delete d;
-        d = nullptr;
+        delete m_impl;
+        m_impl = nullptr;
     }
 #endif
 }
@@ -521,7 +521,7 @@ void CoreBluetoothScaleBleTransport::log(const QString& msg) {
 
 bool CoreBluetoothScaleBleTransport::isConnected() const {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    return d && d->connected;
+    return m_impl && m_impl->connected;
 #else
     return false;
 #endif
@@ -532,32 +532,32 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QString& address, con
     Q_UNUSED(address); Q_UNUSED(name);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
 #else
-    if (!d) return;
+    if (!m_impl) return;
 
-    d->targetName = name;
-    d->targetUuidString = address;
-    d->targetUuidString.remove('{').remove('}');
-    d->targetUuidString = d->targetUuidString.trimmed();
+    m_impl->targetName = name;
+    m_impl->targetUuidString = address;
+    m_impl->targetUuidString.remove('{').remove('}');
+    m_impl->targetUuidString = m_impl->targetUuidString.trimmed();
 
-    log(QString("connectToDevice(name=%1 uuid=%2)").arg(d->targetName, d->targetUuidString));
+    log(QString("connectToDevice(name=%1 uuid=%2)").arg(m_impl->targetName, m_impl->targetUuidString));
 
-    if (d->mgr.state != CBManagerStatePoweredOn) {
+    if (m_impl->mgr.state != CBManagerStatePoweredOn) {
         log("Bluetooth not powered on yet; will retry on state update");
         return;
     }
 
     // Prefer retrieval by identifier if we have a UUID string
-    if (!d->targetUuidString.isEmpty()) {
-        NSUUID* nsuuid = [[NSUUID alloc] initWithUUIDString:qsToNs(d->targetUuidString)];
+    if (!m_impl->targetUuidString.isEmpty()) {
+        NSUUID* nsuuid = [[NSUUID alloc] initWithUUIDString:qsToNs(m_impl->targetUuidString)];
         if (nsuuid) {
-            NSArray<CBPeripheral*>* arr = [d->mgr retrievePeripheralsWithIdentifiers:@[nsuuid]];
+            NSArray<CBPeripheral*>* arr = [m_impl->mgr retrievePeripheralsWithIdentifiers:@[nsuuid]];
             if (arr.count > 0) {
                 CBPeripheral* p = arr.firstObject;
-                CB_RELEASE(d->periph);
-                d->periph = CB_RETAIN(p);
-                d->periph.delegate = d->del;
+                CB_RELEASE(m_impl->periph);
+                m_impl->periph = CB_RETAIN(p);
+                m_impl->periph.delegate = m_impl->del;
                 log(QString("Connecting via retrievePeripheralsWithIdentifiers"));
-                [d->mgr connectPeripheral:d->periph options:nil];
+                [m_impl->mgr connectPeripheral:m_impl->periph options:nil];
                 return;
             }
         }
@@ -565,7 +565,7 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QString& address, con
 
     // Fallback: scan and match by name/uuid in didDiscover
     log("Starting scan for peripheral");
-    [d->mgr scanForPeripheralsWithServices:nil
+    [m_impl->mgr scanForPeripheralsWithServices:nil
                                    options:@{ CBCentralManagerScanOptionAllowDuplicatesKey:@NO }];
 #endif
 }
@@ -583,7 +583,7 @@ void CoreBluetoothScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo&
 
 void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!d) return;
+    if (!m_impl) return;
 
     // CoreBluetooth calls must be on main thread
     if (![NSThread isMainThread]) {
@@ -593,30 +593,30 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
         return;
     }
 
-    if (!d->mgr) return;
+    if (!m_impl->mgr) return;
 
-    if (d->mgr.isScanning) {
-        [d->mgr stopScan];
+    if (m_impl->mgr.isScanning) {
+        [m_impl->mgr stopScan];
     }
 
-    if (d->periph) {
-        log(QString("Disconnecting periph=%1").arg((quintptr)d->periph, 0, 16));
-        [d->mgr cancelPeripheralConnection:d->periph];
-        CB_RELEASE(d->periph);
-        d->periph = nullptr;
+    if (m_impl->periph) {
+        log(QString("Disconnecting periph=%1").arg((quintptr)m_impl->periph, 0, 16));
+        [m_impl->mgr cancelPeripheralConnection:m_impl->periph];
+        CB_RELEASE(m_impl->periph);
+        m_impl->periph = nullptr;
     }
 
-    d->connected = false;
-    d->clearCaches();
+    m_impl->connected = false;
+    m_impl->clearCaches();
 #endif
 }
 
 void CoreBluetoothScaleBleTransport::discoverServices() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!d || !d->isValid || !d->periph) { emit error("No peripheral"); return; }
+    if (!m_impl || !m_impl->isValid || !m_impl->periph) { emit error("No peripheral"); return; }
     log("Discovering services");
     // On iOS, Qt main thread = dispatch main queue, so just call directly
-    [d->periph discoverServices:nil];
+    [m_impl->periph discoverServices:nil];
 #else
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
 #endif
@@ -624,17 +624,17 @@ void CoreBluetoothScaleBleTransport::discoverServices() {
 
 void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!d || !d->isValid || !d->periph) { emit error("No peripheral"); return; }
+    if (!m_impl || !m_impl->isValid || !m_impl->periph) { emit error("No peripheral"); return; }
 
-    CBService* svc = d->findService(serviceUuid);
+    CBService* svc = m_impl->findService(serviceUuid);
     if (svc) {
         log(QString("Discovering characteristics for %1").arg(serviceUuid.toString()));
         // On iOS, Qt main thread = dispatch main queue, so just call directly
-        [d->periph discoverCharacteristics:nil forService:svc];
-    } else if (!d->servicesDiscovered) {
+        [m_impl->periph discoverCharacteristics:nil forService:svc];
+    } else if (!m_impl->servicesDiscovered) {
         // Services not yet discovered - discover them first
         log(QString("Service %1 not cached, discovering all services").arg(serviceUuid.toString()));
-        [d->periph discoverServices:nil];
+        [m_impl->periph discoverServices:nil];
     } else {
         // Services were discovered but this specific service wasn't found
         // This is normal - the device doesn't have this service
@@ -649,9 +649,9 @@ void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUui
 void CoreBluetoothScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                                         const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!d || !d->periph) { emit error("No peripheral"); return; }
+    if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
 
-    CBCharacteristic* ch = d->findChar(serviceUuid, characteristicUuid);
+    CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
     if (!ch) {
         log(QString("Characteristic %1 not found for notifications").arg(characteristicUuid.toString()));
         emit error("Characteristic not found for notifications");
@@ -665,7 +665,7 @@ void CoreBluetoothScaleBleTransport::enableNotifications(const QBluetoothUuid& s
 
     log(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
     // On iOS, Qt main thread = dispatch main queue, so just call directly
-    [d->periph setNotifyValue:YES forCharacteristic:ch];
+    [m_impl->periph setNotifyValue:YES forCharacteristic:ch];
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
@@ -677,9 +677,9 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
                                                         const QByteArray& data,
                                                         WriteType writeType) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!d || !d->periph) { emit error("No peripheral"); return; }
+    if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
 
-    CBCharacteristic* ch = d->findChar(serviceUuid, characteristicUuid);
+    CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
     if (!ch) {
         log(QString("Characteristic %1 not found for write").arg(characteristicUuid.toString()));
         emit error("Characteristic not found for write");
@@ -694,7 +694,7 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
 
     // On iOS, Qt main thread = dispatch main queue, so just call directly
     NSData* ns = [NSData dataWithBytes:data.constData() length:data.size()];
-    [d->periph writeValue:ns forCharacteristic:ch type:t];
+    [m_impl->periph writeValue:ns forCharacteristic:ch type:t];
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid); Q_UNUSED(data); Q_UNUSED(writeType);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");
@@ -704,9 +704,9 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
 void CoreBluetoothScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
                                                        const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    if (!d || !d->periph) { emit error("No peripheral"); return; }
+    if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
 
-    CBCharacteristic* ch = d->findChar(serviceUuid, characteristicUuid);
+    CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
     if (!ch) {
         log(QString("Characteristic %1 not found for read").arg(characteristicUuid.toString()));
         emit error("Characteristic not found for read");
@@ -715,7 +715,7 @@ void CoreBluetoothScaleBleTransport::readCharacteristic(const QBluetoothUuid& se
 
     log(QString("Reading characteristic %1").arg(characteristicUuid.toString()));
     // On iOS, Qt main thread = dispatch main queue, so just call directly
-    [d->periph readValueForCharacteristic:ch];
+    [m_impl->periph readValueForCharacteristic:ch];
 #else
     Q_UNUSED(serviceUuid); Q_UNUSED(characteristicUuid);
     emit error("CoreBluetoothScaleBleTransport is only available on iOS");

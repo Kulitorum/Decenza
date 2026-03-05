@@ -307,7 +307,7 @@ ShotServer::ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* 
     // Timer to cleanup stale connections
     m_cleanupTimer = new QTimer(this);
     m_cleanupTimer->setInterval(30000);  // Check every 30 seconds
-    connect(m_cleanupTimer, &QTimer::timeout, this, &ShotServer::cleanupStaleConnections);
+    connect(m_cleanupTimer, &QTimer::timeout, this, &ShotServer::onCleanupTimerTick);
 }
 
 ShotServer::~ShotServer()
@@ -807,7 +807,7 @@ void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
     }
 }
 
-void ShotServer::cleanupStaleConnections()
+void ShotServer::onCleanupTimerTick()
 {
     QList<QTcpSocket*> staleConnections;
     for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {

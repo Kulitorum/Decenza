@@ -73,11 +73,11 @@ private slots:
     void onDE1ConnectedChanged();
 
     // Publishing
-    void publishTelemetry();
+    void onPublishTimerTick();
     void publishState();
 
     // Reconnection
-    void attemptReconnect();
+    void onReconnectTimerTick();
     void onSettingsChanged();
 
 private:

@@ -48,7 +48,6 @@ ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkM
     if (m_profileStorage) {
         connect(m_profileStorage, &ProfileStorage::configuredChanged, this, [this]() {
             if (m_profileStorage->isConfigured()) {
-//                qDebug() << "[Screensaver] Storage configured, migrating cache to external";
                 migrateCacheToExternal();
             }
         });
@@ -99,7 +98,6 @@ ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkM
     loadPersonalCatalog();
     updateCacheUsedBytes();
 
-//    qDebug() << "[Screensaver] Initialized. Cache dir:" << m_cacheDir
 //             << "Personal media:" << m_personalCatalog.size()
 //             << "Cache used:" << (m_cacheUsedBytes / 1024 / 1024) << "MB"
 //             << "Enabled:" << m_enabled
@@ -310,7 +308,6 @@ void ScreensaverVideoManager::setSelectedCategoryId(const QString& categoryId)
 
         // Stop any in-progress download from the old category
         if (m_isDownloading) {
-//            qDebug() << "[Screensaver] Stopping download from previous category";
             stopBackgroundDownload();
         }
 
@@ -320,14 +317,12 @@ void ScreensaverVideoManager::setSelectedCategoryId(const QString& categoryId)
         if (isRateLimited()) {
             m_lastDownloadTime = QDateTime();
             m_settings->setValue("screensaver/lastDownloadTime", "");
-//            qDebug() << "[Screensaver] Category changed - allowing one immediate download";
             emit rateLimitedChanged();
             allowImmediateDownload = true;
         }
 
         // Handle personal category - use local catalog, no network fetch
         if (categoryId == "personal") {
-//            qDebug() << "[Screensaver] Switched to Personal category with"
 //                     << m_personalCatalog.size() << "items";
             // Copy personal catalog to active catalog for playback
             m_catalog = m_personalCatalog;
@@ -344,7 +339,6 @@ void ScreensaverVideoManager::setSelectedCategoryId(const QString& categoryId)
             m_settings->setValue("screensaver/lastETag", "");
             emit catalogUrlChanged();
 
-//            qDebug() << "[Screensaver] Category changed to:" << categoryId
 //                     << "New catalog URL:" << m_catalogUrl;
 
             // Refresh catalog for new category (keep cache - media identified by sha256)
@@ -508,7 +502,6 @@ QVariantList ScreensaverVideoManager::categories() const
         personal["id"] = "personal";
         personal["name"] = QString("Personal (%1)").arg(m_personalCatalog.size());
         result.append(personal);
-//        qDebug() << "[Screensaver] Category for QML: personal" << personal["name"].toString();
     }
 
     for (const VideoCategory& cat : std::as_const(m_categories)) {
@@ -516,9 +509,7 @@ QVariantList ScreensaverVideoManager::categories() const
         item["id"] = cat.id;
         item["name"] = cat.name;
         result.append(item);
-//        qDebug() << "[Screensaver] Category for QML:" << cat.id << cat.name;
     }
-//    qDebug() << "[Screensaver] Returning" << result.size() << "categories to QML";
     return result;
 }
 
@@ -550,11 +541,9 @@ QString ScreensaverVideoManager::buildCatalogUrlForCategory(const QString& categ
 void ScreensaverVideoManager::refreshCategories()
 {
     if (m_isFetchingCategories) {
-//        qDebug() << "[Screensaver] Categories fetch already in progress";
         return;
     }
 
-//    qDebug() << "[Screensaver] Fetching categories from:" << CATEGORIES_URL;
 
     m_isFetchingCategories = true;
     emit isFetchingCategoriesChanged();
@@ -578,7 +567,6 @@ void ScreensaverVideoManager::onCategoriesReplyFinished()
 
     if (m_categoriesReply->error() != QNetworkReply::NoError) {
         QString errorMsg = m_categoriesReply->errorString();
-//        qWarning() << "[Screensaver] Categories fetch error:" << errorMsg;
         emit categoriesError(errorMsg);
         m_categoriesReply->deleteLater();
         m_categoriesReply = nullptr;
@@ -602,7 +590,6 @@ void ScreensaverVideoManager::parseCategories(const QByteArray& data)
 
     if (parseError.error != QJsonParseError::NoError) {
         QString errorMsg = "Categories JSON parse error: " + parseError.errorString();
-//        qWarning() << "[Screensaver]" << errorMsg;
         emit categoriesError(errorMsg);
         refreshCatalog();  // Try catalog anyway
         return;
@@ -625,7 +612,6 @@ void ScreensaverVideoManager::parseCategories(const QByteArray& data)
     }
 
     m_categories = newCategories;
-//    qDebug() << "[Screensaver] Loaded" << m_categories.size() << "categories";
     emit categoriesChanged();
 
     // Update catalog URL based on selected category
@@ -672,7 +658,6 @@ void ScreensaverVideoManager::parseCategories(const QByteArray& data)
 
     // Skip catalog refresh for personal category - media is local, not fetched from network
     if (m_selectedCategoryId == "personal") {
-//        qDebug() << "[Screensaver] Personal category selected - using local catalog";
         m_catalog = m_personalCatalog;
         emit catalogUpdated();
         return;
@@ -686,11 +671,9 @@ void ScreensaverVideoManager::parseCategories(const QByteArray& data)
 void ScreensaverVideoManager::refreshCatalog()
 {
     if (m_isRefreshing) {
-//        qDebug() << "[Screensaver] Catalog refresh already in progress";
         return;
     }
 
-//    qDebug() << "[Screensaver] Refreshing catalog from:" << m_catalogUrl;
 
     m_isRefreshing = true;
     emit isRefreshingChanged();
@@ -701,7 +684,6 @@ void ScreensaverVideoManager::refreshCatalog()
     // Use ETag for conditional request
     if (!m_lastETag.isEmpty()) {
         request.setRawHeader("If-None-Match", m_lastETag.toUtf8());
-//        qDebug() << "[Screensaver] Using ETag:" << m_lastETag;
     }
 
     m_catalogReply = m_networkManager->get(request);
@@ -717,11 +699,9 @@ void ScreensaverVideoManager::onCatalogReplyFinished()
     if (!m_catalogReply) return;
 
     int statusCode = m_catalogReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-//    qDebug() << "[Screensaver] Catalog response status:" << statusCode;
 
     if (m_catalogReply->error() != QNetworkReply::NoError) {
         QString errorMsg = m_catalogReply->errorString();
-//        qWarning() << "[Screensaver] Catalog fetch error:" << errorMsg;
         emit catalogError(errorMsg);
         m_catalogReply->deleteLater();
         m_catalogReply = nullptr;
@@ -731,13 +711,11 @@ void ScreensaverVideoManager::onCatalogReplyFinished()
     if (statusCode == 304) {
         // Not modified - but only valid if we already have catalog loaded
         if (!m_catalog.isEmpty()) {
-//            qDebug() << "[Screensaver] Catalog not modified (304), using cached" << m_catalog.size() << "videos";
             m_catalogReply->deleteLater();
             m_catalogReply = nullptr;
             return;
         }
         // Catalog is empty despite 304 - clear ETag and refetch
-//        qDebug() << "[Screensaver] Got 304 but catalog is empty, refetching...";
         m_lastETag.clear();
         m_settings->setValue("screensaver/lastETag", "");
         m_catalogReply->deleteLater();
@@ -751,7 +729,6 @@ void ScreensaverVideoManager::onCatalogReplyFinished()
     if (!newETag.isEmpty()) {
         m_lastETag = newETag;
         m_settings->setValue("screensaver/lastETag", newETag);
-//        qDebug() << "[Screensaver] New ETag:" << newETag;
     }
 
     // Parse catalog
@@ -769,7 +746,6 @@ void ScreensaverVideoManager::parseCatalog(const QByteArray& data)
 
     if (parseError.error != QJsonParseError::NoError) {
         QString errorMsg = "JSON parse error: " + parseError.errorString();
-//        qWarning() << "[Screensaver]" << errorMsg;
         emit catalogError(errorMsg);
         return;
     }
@@ -789,7 +765,6 @@ void ScreensaverVideoManager::parseCatalog(const QByteArray& data)
     m_catalog = newCatalog;
     m_lastUpdatedUtc = QDateTime::currentDateTimeUtc();
 
-//    qDebug() << "[Screensaver] Catalog loaded:" << m_catalog.size() << "videos";
     emit catalogUpdated();
 
     // Start background download if caching is enabled
@@ -837,7 +812,6 @@ VideoItem ScreensaverVideoManager::parseVideoItem(const QJsonObject& obj)
     }
 
     if (!item.isValid()) {
-//        qWarning() << "[Screensaver] Skipping invalid catalog item, id:" << item.id
 //                   << "- no path or url found";
     }
 
@@ -886,7 +860,6 @@ void ScreensaverVideoManager::loadCacheIndex()
     QFile file(indexPath);
 
     if (!file.open(QIODevice::ReadOnly)) {
-//        qDebug() << "[Screensaver] No cache index found, starting fresh";
         return;
     }
 
@@ -913,7 +886,6 @@ void ScreensaverVideoManager::loadCacheIndex()
         }
     }
 
-//    qDebug() << "[Screensaver] Loaded cache index with" << m_cacheIndex.size() << "entries";
 }
 
 void ScreensaverVideoManager::saveCacheIndex()
@@ -922,7 +894,6 @@ void ScreensaverVideoManager::saveCacheIndex()
     QFile file(indexPath);
 
     if (!file.open(QIODevice::WriteOnly)) {
-//        qWarning() << "[Screensaver] Failed to save cache index";
         return;
     }
 
@@ -1016,7 +987,6 @@ bool ScreensaverVideoManager::verifySha256(const QString& filePath, const QStrin
     bool match = (actualHash.toLower() == expectedHash.toLower());
 
     if (!match) {
-//        qWarning() << "[Screensaver] SHA256 mismatch for" << filePath
 //                   << "expected:" << expectedHash << "actual:" << actualHash;
     }
 
@@ -1025,7 +995,6 @@ bool ScreensaverVideoManager::verifySha256(const QString& filePath, const QStrin
 
 void ScreensaverVideoManager::clearCache()
 {
-//    qDebug() << "[Screensaver] Clearing cache";
 
     stopBackgroundDownload();
 
@@ -1043,7 +1012,6 @@ void ScreensaverVideoManager::clearCache()
 
 void ScreensaverVideoManager::clearCacheWithRateLimit()
 {
-//    qDebug() << "[Screensaver] Clearing cache with rate limiting enabled";
 
     clearCache();
 
@@ -1057,7 +1025,6 @@ void ScreensaverVideoManager::clearCacheWithRateLimit()
 
     emit rateLimitedChanged();
 
-//    qDebug() << "[Screensaver] Rate limiting enabled until" << m_rateLimitedUntil.toString();
 
     // Start downloading immediately so there's something to show
     if (m_cacheEnabled && !m_catalog.isEmpty()) {
@@ -1165,30 +1132,24 @@ int ScreensaverVideoManager::rateLimitMinutesRemaining() const
 // Download management
 void ScreensaverVideoManager::startBackgroundDownload()
 {
-//    qDebug() << "[Screensaver] startBackgroundDownload called, isDownloading:" << m_isDownloading
 //             << "cacheEnabled:" << m_cacheEnabled << "catalogSize:" << m_catalog.size();
 
     if (m_isDownloading) {
-//        qDebug() << "[Screensaver] Already downloading, skipping";
         return;
     }
     if (!m_cacheEnabled) {
-//        qDebug() << "[Screensaver] Cache disabled, skipping download";
         return;
     }
 
     queueAllVideosForDownload();
 
-//    qDebug() << "[Screensaver] Download queue size:" << m_downloadQueue.size();
 
     if (!m_downloadQueue.isEmpty()) {
         m_totalToDownload = static_cast<int>(m_downloadQueue.size());
         m_downloadedCount = 0;
         m_downloadProgress = 0.0;
-//        qDebug() << "[Screensaver] Starting background download of" << m_totalToDownload << "videos";
         processDownloadQueue();
     } else {
-//        qDebug() << "[Screensaver] All videos already cached or queue empty";
     }
 }
 
@@ -1241,7 +1202,6 @@ void ScreensaverVideoManager::queueAllVideosForDownload()
 void ScreensaverVideoManager::processDownloadQueue()
 {
     if (m_downloadQueue.isEmpty()) {
-//        qDebug() << "[Screensaver] Download queue complete";
         m_isDownloading = false;
         m_downloadProgress = 1.0;
         emit isDownloadingChanged();
@@ -1254,7 +1214,6 @@ void ScreensaverVideoManager::processDownloadQueue()
 
     // Validate index is still valid (catalog may have been refreshed during download)
     if (m_currentDownloadIndex < 0 || m_currentDownloadIndex >= m_catalog.size()) {
-//        qDebug() << "[Screensaver] Skipping invalid index" << m_currentDownloadIndex
 //                 << "(catalog size:" << m_catalog.size() << ")";
         QTimer::singleShot(0, this, &ScreensaverVideoManager::processDownloadQueue);
         return;
@@ -1268,7 +1227,6 @@ void ScreensaverVideoManager::processDownloadQueue()
         qint64 msRemaining = QDateTime::currentDateTimeUtc().msecsTo(nextAllowed);
 
         if (msRemaining > 0) {
-//            qDebug() << "[Screensaver] Rate limited for video, waiting" << (msRemaining / 1000 / 60) << "minutes";
             // Put the item back at the front of the queue
             m_downloadQueue.prepend(m_currentDownloadIndex);
             m_rateLimitTimer->start(static_cast<int>(qMin(msRemaining, (qint64)60000)));  // Check at least every minute
@@ -1277,7 +1235,6 @@ void ScreensaverVideoManager::processDownloadQueue()
         }
     }
 
-//    qDebug() << "[Screensaver] Downloading" << (item.isImage() ? "image" : "video") << item.id << ":" << item.author;
 
     QString url = buildVideoUrl(item);
     QString cachePath = getCachePath(item);
@@ -1285,7 +1242,6 @@ void ScreensaverVideoManager::processDownloadQueue()
     // Create temp file for download
     m_downloadFile = new QFile(cachePath + ".tmp");
     if (!m_downloadFile->open(QIODevice::WriteOnly)) {
-//        qWarning() << "[Screensaver] Failed to create download file:" << cachePath;
         delete m_downloadFile;
         m_downloadFile = nullptr;
         // Try next
@@ -1334,7 +1290,6 @@ void ScreensaverVideoManager::onDownloadFinished()
     m_downloadReply = nullptr;
 
     if (!success) {
-//        qWarning() << "[Screensaver] Download failed:" << errorString;
         m_downloadFile->remove();
         delete m_downloadFile;
         m_downloadFile = nullptr;
@@ -1347,7 +1302,6 @@ void ScreensaverVideoManager::onDownloadFinished()
 
     // Validate index is still valid (catalog may have been refreshed during async download)
     if (m_currentDownloadIndex < 0 || m_currentDownloadIndex >= m_catalog.size()) {
-//        qWarning() << "[Screensaver] Download completed but index" << m_currentDownloadIndex
 //                   << "is now invalid (catalog size:" << m_catalog.size() << "), discarding";
         m_downloadFile->remove();
         delete m_downloadFile;
@@ -1363,7 +1317,6 @@ void ScreensaverVideoManager::onDownloadFinished()
     // Verify SHA256 if available
     if (!item.sha256.isEmpty()) {
         if (!verifySha256(tempPath, item.sha256)) {
-//            qWarning() << "[Screensaver] SHA256 verification failed, deleting file";
             m_downloadFile->remove();
             delete m_downloadFile;
             m_downloadFile = nullptr;
@@ -1377,7 +1330,6 @@ void ScreensaverVideoManager::onDownloadFinished()
     // Rename temp file to final
     QFile::remove(cachePath);  // Remove any existing file
     if (!QFile::rename(tempPath, cachePath)) {
-//        qWarning() << "[Screensaver] Failed to rename temp file to:" << cachePath;
         QFile::remove(tempPath);
         delete m_downloadFile;
         m_downloadFile = nullptr;
@@ -1402,7 +1354,6 @@ void ScreensaverVideoManager::onDownloadFinished()
     m_cacheUsedBytes += cv.bytes;
     m_downloadedCount++;
 
-//    qDebug() << "[Screensaver] Downloaded and cached:" << cachePath
 //             << "(" << (cv.bytes / 1024 / 1024) << "MB)"
 //             << "[" << m_downloadedCount << "/" << m_totalToDownload << "]";
 
@@ -1480,7 +1431,6 @@ QString ScreensaverVideoManager::getNextVideoSource()
 {
     int index = selectNextVideoIndex();
     if (index < 0) {
-//        qDebug() << "[Screensaver] No cached media available yet";
         return QString();
     }
 
@@ -1504,7 +1454,6 @@ QString ScreensaverVideoManager::getNextVideoSource()
         emit currentVideoChanged();
         QString personalDir = m_cacheDir + "/personal";
         QString localPath = personalDir + "/" + item.path;
-//        qDebug() << "[Screensaver] Playing personal" << (item.isImage() ? "image:" : "video:") << localPath;
         return QUrl::fromLocalFile(localPath).toString();
     }
 
@@ -1516,7 +1465,6 @@ QString ScreensaverVideoManager::getNextVideoSource()
     // Return cached media path (keyed by media URL)
     QString cacheKey = buildVideoUrl(item);
     QString localPath = m_cacheIndex[cacheKey].localPath;
-//    qDebug() << "[Screensaver] Playing cached" << (item.isImage() ? "image:" : "video:") << localPath;
     return QUrl::fromLocalFile(localPath).toString();
 }
 
@@ -1593,10 +1541,8 @@ void ScreensaverVideoManager::updateCacheDirectory()
     QString externalPath = getExternalCachePath();
     if (!externalPath.isEmpty()) {
         m_cacheDir = externalPath;
-//        qDebug() << "[Screensaver] Using external cache dir:" << m_cacheDir;
     } else {
         m_cacheDir = getFallbackCachePath();
-//        qDebug() << "[Screensaver] Using fallback cache dir:" << m_cacheDir;
     }
 }
 
@@ -1604,19 +1550,16 @@ void ScreensaverVideoManager::migrateCacheToExternal()
 {
     QString externalPath = getExternalCachePath();
     if (externalPath.isEmpty()) {
-//        qDebug() << "[Screensaver] Cannot migrate - no external path available";
         return;
     }
 
     QString fallbackPath = getFallbackCachePath();
     if (fallbackPath == externalPath) {
-//        qDebug() << "[Screensaver] No migration needed - already using external path";
         return;
     }
 
     QDir fallbackDir(fallbackPath);
     if (!fallbackDir.exists()) {
-//        qDebug() << "[Screensaver] No fallback cache to migrate";
         updateCacheDirectory();
         return;
     }
@@ -1637,7 +1580,6 @@ void ScreensaverVideoManager::migrateCacheToExternal()
 
         // Skip if already exists in destination
         if (QFile::exists(destPath)) {
-//            qDebug() << "[Screensaver] File already in external, removing from fallback:" << file;
             QFile::remove(srcPath);
             continue;
         }
@@ -1651,12 +1593,10 @@ void ScreensaverVideoManager::migrateCacheToExternal()
                 QFile::remove(srcPath);
                 migrated++;
             } else {
-//                qWarning() << "[Screensaver] Failed to migrate:" << file;
             }
         }
     }
 
-//    qDebug() << "[Screensaver] Migration complete. Migrated" << migrated << "files";
 
     // Update cache index paths
     for (auto it = m_cacheIndex.begin(); it != m_cacheIndex.end(); ++it) {
@@ -1693,7 +1633,6 @@ void ScreensaverVideoManager::loadPersonalCatalog()
     m_personalCatalog.clear();
 
     if (!file.open(QIODevice::ReadOnly)) {
-//        qDebug() << "[Screensaver] No personal catalog found";
         return;
     }
 
@@ -1721,7 +1660,6 @@ void ScreensaverVideoManager::loadPersonalCatalog()
         }
     }
 
-//    qDebug() << "[Screensaver] Loaded personal catalog with" << m_personalCatalog.size() << "items";
 }
 
 void ScreensaverVideoManager::savePersonalCatalog()
@@ -1733,7 +1671,6 @@ void ScreensaverVideoManager::savePersonalCatalog()
     QFile file(catalogPath);
 
     if (!file.open(QIODevice::WriteOnly)) {
-//        qWarning() << "[Screensaver] Failed to save personal catalog";
         return;
     }
 
@@ -1753,7 +1690,6 @@ void ScreensaverVideoManager::savePersonalCatalog()
     file.write(QJsonDocument(items).toJson());
     file.close();
 
-//    qDebug() << "[Screensaver] Saved personal catalog with" << m_personalCatalog.size() << "items";
 }
 
 int ScreensaverVideoManager::generatePersonalMediaId() const
@@ -1771,7 +1707,6 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
 {
     QFileInfo fileInfo(filePath);
     if (!fileInfo.exists()) {
-//        qWarning() << "[Screensaver] Personal media file not found:" << filePath;
         return false;
     }
 
@@ -1783,7 +1718,6 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
     } else if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp") {
         type = MediaType::Image;
     } else {
-//        qWarning() << "[Screensaver] Unsupported media type:" << ext;
         return false;
     }
 
@@ -1794,7 +1728,6 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
         qsizetype underscorePos = existing.path.indexOf('_');
         QString existingOriginal = underscorePos >= 0 ? existing.path.mid(underscorePos + 1) : existing.path;
         if (existingOriginal.compare(checkName, Qt::CaseInsensitive) == 0) {
-//            qDebug() << "[Screensaver] Skipping duplicate:" << checkName;
             QFile::remove(filePath);  // Clean up temp file
             return false;  // Already exists
         }
@@ -1818,7 +1751,6 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
         if (!QFile::rename(filePath, targetPath)) {
             // Try copy+delete
             if (!QFile::copy(filePath, targetPath)) {
-//                qWarning() << "[Screensaver] Failed to move media to personal directory";
                 return false;
             }
             QFile::remove(filePath);
@@ -1843,7 +1775,6 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
     // Personal media doesn't count against streaming cache limit
     emit personalMediaChanged();
 
-//    qDebug() << "[Screensaver] Added personal media:" << targetFilename
 //             << "type:" << (type == MediaType::Video ? "video" : "image")
 //             << "size:" << (item.bytes / 1024) << "KB";
 
@@ -1901,12 +1832,10 @@ bool ScreensaverVideoManager::deletePersonalMedia(int mediaId)
 
             emit personalMediaChanged();
 
-//            qDebug() << "[Screensaver] Deleted personal media:" << item.path;
             return true;
         }
     }
 
-//    qWarning() << "[Screensaver] Personal media not found with id:" << mediaId;
     return false;
 }
 
@@ -1940,5 +1869,4 @@ void ScreensaverVideoManager::clearPersonalMedia()
     emit personalMediaChanged();
     emit categoriesChanged();
 
-//    qDebug() << "[Screensaver] Cleared all personal media, freed" << (freedBytes / 1024 / 1024) << "MB";
 }

@@ -11,7 +11,7 @@ USBManager::USBManager(QObject* parent)
     : QObject(parent)
 {
     m_pollTimer.setInterval(POLL_INTERVAL_MS);
-    connect(&m_pollTimer, &QTimer::timeout, this, &USBManager::pollPorts);
+    connect(&m_pollTimer, &QTimer::timeout, this, &USBManager::onPollTimerTick);
 }
 
 USBManager::~USBManager()
@@ -57,7 +57,7 @@ void USBManager::startPolling()
     emit logMessage(QStringLiteral("[USB] Polling started"));
 
     // Do an immediate poll, then start the timer
-    pollPorts();
+    onPollTimerTick();
     m_pollTimer.start();
 }
 
@@ -99,12 +99,12 @@ void USBManager::disconnectUsb()
 // Port polling — dispatches to platform-specific implementation
 // ---------------------------------------------------------------------------
 
-void USBManager::pollPorts()
+void USBManager::onPollTimerTick()
 {
 #ifdef Q_OS_ANDROID
-    pollPortsAndroid();
+    onPollTimerTickAndroid();
 #else
-    pollPortsDesktop();
+    onPollTimerTickDesktop();
 #endif
 }
 
@@ -114,7 +114,7 @@ void USBManager::pollPorts()
 
 #ifdef Q_OS_ANDROID
 
-void USBManager::pollPortsAndroid()
+void USBManager::onPollTimerTickAndroid()
 {
     bool devicePresent = AndroidUsbHelper::hasDevice();
 
@@ -304,7 +304,7 @@ void USBManager::cleanupAndroidProbe(bool closeConnection)
 
 #ifndef Q_OS_ANDROID
 
-void USBManager::pollPortsDesktop()
+void USBManager::onPollTimerTickDesktop()
 {
     const auto ports = QSerialPortInfo::availablePorts();
 

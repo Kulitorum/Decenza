@@ -10,7 +10,7 @@ DE1Simulator::DE1Simulator(QObject* parent)
     : QObject(parent)
 {
     m_tickTimer.setInterval(TICK_INTERVAL_MS);
-    connect(&m_tickTimer, &QTimer::timeout, this, &DE1Simulator::simulationTick);
+    connect(&m_tickTimer, &QTimer::timeout, this, &DE1Simulator::onSimulationTimerTick);
     initNoisePermutation();
 }
 
@@ -280,7 +280,7 @@ void DE1Simulator::stopOperation()
     emit runningChanged();
 }
 
-void DE1Simulator::simulationTick()
+void DE1Simulator::onSimulationTimerTick()
 {
     double elapsed = m_operationTimer.elapsed() / 1000.0;
     double dt = TICK_INTERVAL_MS / 1000.0;
@@ -625,7 +625,7 @@ void DE1Simulator::executeEnding(double dt)
         }
     }
 
-    // Shot samples are sent by simulationTick() - no need to duplicate here
+    // Shot samples are sent by onSimulationTimerTick() - no need to duplicate here
 
     // End simulation when pressure has fully bled off or timeout reached
     double endingTime = shotTime - m_endingStartTime;

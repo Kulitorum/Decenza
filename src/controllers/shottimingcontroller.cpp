@@ -11,7 +11,7 @@ ShotTimingController::ShotTimingController(DE1Device* device, QObject* parent)
 {
     // Display timer - updates UI at 20Hz for smooth timer display
     m_displayTimer.setInterval(50);
-    connect(&m_displayTimer, &QTimer::timeout, this, &ShotTimingController::updateDisplayTimer);
+    connect(&m_displayTimer, &QTimer::timeout, this, &ShotTimingController::onDisplayTimerTick);
 
     // SAW learning settling timer - waits for weight to stabilize after shot ends
     // Interval set by startSettlingTimer() when settling begins (currently 10s max)
@@ -337,7 +337,7 @@ void ShotTimingController::onTareTimeout()
     // Weight samples are ignored until extraction starts (preheating phase)
 }
 
-void ShotTimingController::updateDisplayTimer()
+void ShotTimingController::onDisplayTimerTick()
 {
     // shotTimeChanged deferred to ShotDataModel's 33ms flush timer
 

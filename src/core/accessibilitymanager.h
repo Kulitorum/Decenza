@@ -69,7 +69,7 @@ public:
     void setTranslationManager(TranslationManager* translationManager);
 
 public slots:
-    void updateTtsLocale();
+    void onLanguageChanged();
 
 signals:
     void enabledChanged();

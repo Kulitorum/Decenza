@@ -60,7 +60,7 @@ signals:
     void conversionError(const QString& message);
 
 private slots:
-    void processNextFile();
+    void onProcessNextFile();
 
 private:
     void setStatus(const QString& message);

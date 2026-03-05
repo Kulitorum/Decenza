@@ -103,7 +103,7 @@ private slots:
     void onNewConnection();
     void onReadyRead();
     void onDisconnected();
-    void cleanupStaleConnections();
+    void onCleanupTimerTick();
     void onDiscoveryDatagram();
     void onLayoutChanged();
     void onThemeChanged();
