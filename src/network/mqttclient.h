@@ -122,6 +122,7 @@ private:
     bool m_discoveryPublished = false;
     QString m_lastPublishedState;
     QString m_lastPublishedPhase;
+    QString m_lastPublishedSubstate;
     QString m_lastPublishedProfile;
     QString m_currentProfile;
     QString m_currentProfileFilename;

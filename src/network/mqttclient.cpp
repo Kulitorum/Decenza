@@ -638,7 +638,10 @@ void MqttClient::publishState()
         m_lastPublishedSteamMode = steamMode;
     }
 
-    publish(topicPath("substate"), substate, true);
+    if (substate != m_lastPublishedSubstate) {
+        publish(topicPath("substate"), substate, true);
+        m_lastPublishedSubstate = substate;
+    }
 }
 
 void MqttClient::publishTelemetry()
@@ -847,6 +850,19 @@ void MqttClient::publishHomeAssistantDiscovery()
         publishDiscoveryConfig("sensor", "water_level", config);
     }
 
+    // Water level (ml) sensor
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Water Level (ml)";
+        config["state_topic"] = baseTopic + "/water_level_ml";
+        config["unit_of_measurement"] = "ml";
+        config["icon"] = "mdi:water";
+        config["unique_id"] = QString("de1_%1_water_level_ml").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("sensor", "water_level_ml", config);
+    }
+
     // Shot time sensor
     {
         QJsonObject config;
@@ -882,13 +898,30 @@ void MqttClient::publishHomeAssistantDiscovery()
         config["state_topic"] = baseTopic + "/state";
         config["payload_on"] = "wake";
         config["payload_off"] = "sleep";
-        config["state_on"] = "Idle";
-        config["state_off"] = "Sleep";
+        config["state_on"] = "ON";
+        config["state_off"] = "OFF";
+        // Map all machine states to ON/OFF — only Sleep and GoingToSleep are "off"
+        config["value_template"] = "{{ 'OFF' if value in ['Sleep', 'GoingToSleep'] else 'ON' }}";
         config["icon"] = "mdi:power";
         config["unique_id"] = QString("de1_%1_power").arg(m_clientId);
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
         publishDiscoveryConfig("switch", "power", config);
+    }
+
+    // DE1 connected (binary sensor)
+    {
+        QJsonObject config;
+        config["name"] = "DE1 Connected";
+        config["state_topic"] = baseTopic + "/connected";
+        config["payload_on"] = "true";
+        config["payload_off"] = "false";
+        config["device_class"] = "connectivity";
+        config["icon"] = "mdi:bluetooth-connect";
+        config["unique_id"] = QString("de1_%1_connected").arg(m_clientId);
+        config["availability_topic"] = baseTopic + "/availability";
+        config["device"] = device;
+        publishDiscoveryConfig("binary_sensor", "connected", config);
     }
 
     // Scale connected (binary sensor)
@@ -941,7 +974,6 @@ void MqttClient::publishHomeAssistantDiscovery()
         config["name"] = "DE1 Espresso Count";
         config["state_topic"] = baseTopic + "/espresso_count";
         config["icon"] = "mdi:counter";
-        config["state_class"] = "total_increasing";
         config["unique_id"] = QString("de1_%1_espresso_count").arg(m_clientId);
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
