@@ -33,6 +33,7 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
         connect(m_device, &DE1Device::shotSampleReceived, this, &MqttClient::onShotSampleReceived);
         connect(m_device, &DE1Device::waterLevelChanged, this, &MqttClient::onWaterLevelChanged);
         connect(m_device, &DE1Device::stateChanged, this, &MqttClient::onDE1StateChanged);
+        connect(m_device, &DE1Device::subStateChanged, this, &MqttClient::onDE1StateChanged);
         connect(m_device, &DE1Device::connectedChanged, this, &MqttClient::onDE1ConnectedChanged);
     }
 
@@ -531,7 +532,10 @@ void MqttClient::publish(const QString& topic, const QString& payload, bool reta
     msg.qos = 0;
     msg.retained = shouldRetain ? 1 : 0;
 
-    MQTTAsync_sendMessage(m_client, topicBytes.constData(), &msg, nullptr);
+    int rc = MQTTAsync_sendMessage(m_client, topicBytes.constData(), &msg, nullptr);
+    if (rc != MQTTASYNC_SUCCESS) {
+        qWarning() << "MqttClient: Failed to publish to" << topic << "- error" << rc;
+    }
 }
 
 void MqttClient::publishAvailability(bool online)
@@ -590,10 +594,10 @@ void MqttClient::onSteamSettingsChanged()
 
 void MqttClient::publishState()
 {
-    if (!isConnected()) return;
+    if (!isConnected() || !m_device) return;
 
-    QString state = m_device ? m_device->stateString() : "Unknown";
-    QString substate = m_device ? m_device->subStateString() : "unknown";
+    QString state = m_device->stateString();
+    QString substate = m_device->subStateString();
     QString phase = m_machineState ? m_machineState->phaseString() : "Unknown";
 
     // Only publish if changed to reduce traffic
@@ -969,6 +973,8 @@ void MqttClient::publishHomeAssistantDiscovery()
     }
 
     // Espresso count sensor
+    // No state_class — count can decrease when shots are deleted from history,
+    // which is incompatible with "total_increasing" (HA would treat decreases as resets)
     {
         QJsonObject config;
         config["name"] = "DE1 Espresso Count";
