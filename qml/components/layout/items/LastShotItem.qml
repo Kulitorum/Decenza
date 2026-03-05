@@ -25,14 +25,12 @@ Item {
 
     function loadLastShot() {
         var shotId = MainController.lastSavedShotId
-        if (shotId <= 0) {
-            // App just started - query most recent from history
-            var recent = MainController.shotHistory.getShots(0, 1)
-            if (recent.length > 0) shotId = recent[0].id
-        }
         if (shotId > 0) {
             _pendingShotId = shotId
             MainController.shotHistory.requestShot(shotId)
+        } else {
+            // App just started - query most recent from history asynchronously
+            MainController.shotHistory.requestMostRecentShotId()
         }
     }
 
@@ -49,6 +47,12 @@ Item {
         function onShotReady(shotId, shot) {
             if (shotId !== root._pendingShotId) return
             shotData = shot
+        }
+        function onMostRecentShotIdReady(shotId) {
+            if (shotId > 0 && root._pendingShotId <= 0) {
+                root._pendingShotId = shotId
+                MainController.shotHistory.requestShot(shotId)
+            }
         }
     }
 

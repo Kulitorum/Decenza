@@ -45,6 +45,13 @@ Page {
             if (deletedId === shotDetailPage.shotId)
                 pageStack.pop()
         }
+        function onVisualizerInfoUpdated(id, success) {
+            if (id !== shotDetailPage.shotId) return
+            if (success)
+                loadShot()
+            else
+                console.warn("ShotDetailPage: Failed to save visualizer info for shot", id)
+        }
     }
 
     function navigateToShot(index) {
@@ -88,8 +95,7 @@ Page {
         target: MainController.visualizer
         function onUploadSuccess(shotId, url) {
             if (shotDetailPage.shotId > 0) {
-                MainController.shotHistory.updateVisualizerInfo(shotDetailPage.shotId, shotId, url)
-                loadShot()
+                MainController.shotHistory.requestUpdateVisualizerInfo(shotDetailPage.shotId, shotId, url)
             }
         }
         function onUpdateSuccess(visualizerId) {

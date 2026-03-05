@@ -36,6 +36,9 @@ Page {
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
+    // Incremented when async distinct cache refreshes; referenced in suggestion bindings
+    // to force QML re-evaluation (the >= 0 condition is always true by design)
+    property int _distinctCacheVersion: 0
     // Persisted graph height (like ShotComparisonPage)
     property real graphHeight: Settings.value("postShotReview/graphHeight", Theme.scaled(200))
 
@@ -69,6 +72,14 @@ Page {
                 editBeverageType = editShotData.beverageType || "espresso"
             }
         }
+        function onVisualizerInfoUpdated(shotId, success) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            if (success)
+                loadShotForEditing()
+            else
+                console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
+        }
+        function onDistinctCacheReady() { _distinctCacheVersion++ }
     }
 
     // Editing fields (separate from Settings.dye* to avoid polluting current session)
@@ -172,11 +183,10 @@ Page {
             }
         }
         function onUploadSuccess(shotId, url) {
-            // Update the shot history with visualizer info
+            // Update the shot history with visualizer info (async);
+            // reload triggered by onVisualizerInfoUpdated handler above
             if (editShotId > 0) {
-                MainController.shotHistory.updateVisualizerInfo(editShotId, shotId, url)
-                // Reload shot data to update the UI
-                loadShotForEditing()
+                MainController.shotHistory.requestUpdateVisualizerInfo(editShotId, shotId, url)
             }
         }
         function onUpdateSuccess(visualizerId) {
@@ -557,7 +567,7 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
                     text: editBeanBrand
-                    suggestions: MainController.shotHistory.getDistinctBeanBrands()
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
                     onTextEdited: function(t) { editBeanBrand = t }
                 }
 
@@ -566,7 +576,7 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
                     text: editBeanType
-                    suggestions: MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand)
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
                     onTextEdited: function(t) { editBeanType = t }
                 }
 
@@ -599,7 +609,7 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.grinder", "Grinder")
                     text: editGrinderModel
-                    suggestions: MainController.shotHistory.getDistinctGrinders()
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinders() : []
                     onTextEdited: function(t) { editGrinderModel = t }
                 }
 
@@ -608,7 +618,7 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.setting", "Setting")
                     text: editGrinderSetting
-                    suggestions: MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel)
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
                     onTextEdited: function(t) { editGrinderSetting = t }
                 }
 
@@ -627,7 +637,7 @@ Page {
                     Layout.columnSpan: 2
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: editBarista
-                    suggestions: MainController.shotHistory.getDistinctBaristas()
+                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
                     onTextEdited: function(t) { editBarista = t }
                 }
 
@@ -847,9 +857,24 @@ Page {
                         MainController.visualizer.updateShotOnVisualizer(
                             editShotData.visualizerId, currentData)
                     } else {
-                        // First upload: POST full shot data
-                        MainController.visualizer.uploadShotFromHistory(
-                            MainController.shotHistory.getShot(editShotId))
+                        // First upload: merge current edits into shot data (editShotData
+                        // was loaded at page open and may have stale metadata)
+                        var uploadData = Object.assign({}, editShotData, {
+                            "beanBrand": editBeanBrand,
+                            "beanType": editBeanType,
+                            "roastDate": editRoastDate,
+                            "roastLevel": editRoastLevel,
+                            "grinderModel": editGrinderModel,
+                            "grinderSetting": editGrinderSetting,
+                            "barista": editBarista,
+                            "doseWeight": editDoseWeight,
+                            "finalWeight": editDrinkWeight,
+                            "drinkTds": editDrinkTds,
+                            "drinkEy": editDrinkEy,
+                            "enjoyment": editEnjoyment,
+                            "espressoNotes": editNotes
+                        })
+                        MainController.visualizer.uploadShotFromHistory(uploadData)
                     }
                 }
             }

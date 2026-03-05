@@ -93,6 +93,15 @@ Dialog {
         return suggestions
     }
 
+    // Incremented when async distinct cache refreshes; referenced in suggestion bindings
+    // to force QML re-evaluation (the >= 0 condition is always true by design)
+    property int _distinctCacheVersion: 0
+
+    Connections {
+        target: MainController.shotHistory
+        function onDistinctCacheReady() { _distinctCacheVersion++ }
+    }
+
     // Low dose warning - shown when dose is low OR when scale read failed
     property bool showScaleWarning: false
     property bool lowDoseWarning: doseValue < 3 || showScaleWarning
@@ -256,7 +265,7 @@ Dialog {
                 label: ""
                 accessibleName: TranslationManager.translate("brewDialog.roaster", "Roaster")
                 text: root.beanBrand
-                suggestions: root.getBeanBrandSuggestions()
+                suggestions: _distinctCacheVersion >= 0 ? root.getBeanBrandSuggestions() : []
                 onTextEdited: function(t) { root.beanBrand = t }
             }
         }
@@ -284,7 +293,7 @@ Dialog {
                 label: ""
                 accessibleName: TranslationManager.translate("brewDialog.coffee", "Coffee")
                 text: root.beanType
-                suggestions: root.getBeanTypeSuggestions()
+                suggestions: _distinctCacheVersion >= 0 ? root.getBeanTypeSuggestions() : []
                 onTextEdited: function(t) { root.beanType = t }
             }
         }
@@ -605,7 +614,7 @@ Dialog {
                     label: ""  // Empty label - the "Grinder:" label already provides context
                     accessibleName: TranslationManager.translate("brewDialog.grinderModel", "Grinder model")
                     text: root.grinderModel
-                    suggestions: root.getGrinderSuggestions()
+                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderSuggestions() : []
                     onTextEdited: function(t) { root.grinderModel = t }
                     // Note: No inputFocused signal needed here since BrewDialog doesn't use keyboard offset
                 }
@@ -625,7 +634,7 @@ Dialog {
                     label: ""  // Empty label - the "Grinder:" label and grinder field already provide context
                     accessibleName: TranslationManager.translate("brewDialog.grinderSetting", "Grinder setting")
                     text: root.grindSetting
-                    suggestions: root.getGrinderSettingSuggestions()
+                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderSettingSuggestions() : []
                     onTextEdited: function(t) { root.grindSetting = t }
                     // Note: No inputFocused signal needed here since BrewDialog doesn't use keyboard offset
                 }
