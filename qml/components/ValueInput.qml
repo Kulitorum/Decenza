@@ -416,8 +416,8 @@ Item {
         }
     }
 
-    // Full-width popup with blur - same as compact but bigger
-    Popup {
+    // Full-width dialog with blur - same as compact but bigger
+    Dialog {
         id: scrubberPopup
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -425,7 +425,10 @@ Item {
         height: parent.height
         modal: true
         dim: false
-        closePolicy: Popup.CloseOnPressOutside
+        closePolicy: Dialog.CloseOnPressOutside
+        header: null
+        footer: null
+        padding: 0
 
         onOpened: {
             popupValueContainer.forceActiveFocus()
@@ -447,7 +450,6 @@ Item {
             anchors.fill: parent
             property int currentGear: 0
 
-            Accessible.role: Accessible.Dialog
             Accessible.name: TranslationManager.translate("valueinput.editor.title", "Value editor")
 
             // Tap outside to close
