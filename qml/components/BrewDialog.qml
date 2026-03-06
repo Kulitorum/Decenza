@@ -652,8 +652,9 @@ Dialog {
                     accessibleName: TranslationManager.translate("brewDialog.grinderModel", "Grinder model")
                     text: root.grinderModel
                     suggestions: _distinctCacheVersion >= 0 ? root.getGrinderModelSuggestions() : []
-                    onTextEdited: function(t) {
-                        root.grinderModel = t
+                    onTextEdited: function(t) { root.grinderModel = t }
+                    onSuggestionSelected: function(t) {
+                        // Auto-fill burrs when model is picked from dropdown
                         var burrs = Settings.suggestedBurrs(root.grinderBrand, t)
                         if (burrs.length > 0) root.grinderBurrs = burrs[0]
                     }

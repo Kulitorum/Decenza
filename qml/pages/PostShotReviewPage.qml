@@ -650,9 +650,9 @@ Page {
                         }
                         return merged
                     }
-                    onTextEdited: function(t) {
-                        editGrinderModel = t
-                        // Auto-fill burrs when model is selected
+                    onTextEdited: function(t) { editGrinderModel = t }
+                    onSuggestionSelected: function(t) {
+                        // Auto-fill burrs when model is picked from dropdown
                         var burrs = Settings.suggestedBurrs(editGrinderBrand, t)
                         if (burrs.length > 0) editGrinderBurrs = burrs[0]
                     }

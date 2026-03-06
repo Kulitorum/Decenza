@@ -690,7 +690,9 @@ Page {
                     }
                     onTextEdited: function(t) {
                         if (isEditMode) editGrinderModel = t; else Settings.dyeGrinderModel = t;
-                        // Auto-fill burrs when model is selected
+                    }
+                    onSuggestionSelected: function(t) {
+                        // Auto-fill burrs when model is picked from dropdown
                         var brand = isEditMode ? editGrinderBrand : Settings.dyeGrinderBrand
                         var burrs = Settings.suggestedBurrs(brand, t)
                         if (burrs.length > 0) {
@@ -931,7 +933,7 @@ Page {
             height: Theme.scaled(48)
             model: parent.model
             currentIndex: Math.max(0, model.indexOf(parent.currentValue))
-            font.pixelSize: Theme.scaled(14)
+            font.pixelSize: Theme.labelFont.pixelSize
             accessibleLabel: parent.label
             emptyItemText: TranslationManager.translate("shotmetadata.option.none", "(None)")
 

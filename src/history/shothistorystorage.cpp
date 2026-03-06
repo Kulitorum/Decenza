@@ -3990,8 +3990,7 @@ void ShotHistoryStorage::requestUpdateGrinderFields(const QString& oldBrand, con
     }
 
     const QString dbPath = m_dbPath;
-    auto destroyed = std::make_shared<bool>(false);
-    connect(this, &QObject::destroyed, this, [destroyed]() { *destroyed = true; });
+    auto destroyed = m_destroyed;
 
     QThread* thread = QThread::create([this, dbPath, oldBrand, oldModel, newBrand, newModel, newBurrs, destroyed]() {
         int count = 0;

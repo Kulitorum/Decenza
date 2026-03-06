@@ -280,13 +280,14 @@ Grinder Manufacturer → Grinder Model → Burrs
 Each field cascades suggestions from history:
 - **Manufacturer**: `getDistinctGrinderBrands()` — all brands the user has entered
 - **Model**: `getDistinctGrinderModelsForBrand(brand)` — models for selected brand
-- **Burrs**: `getDistinctBurrsForGrinder(brand, model)` — burr sets used with that grinder
+- **Burrs**: `getDistinctGrinderBurrsForModel(brand, model)` — burr sets used with that grinder
 
-**UI Change** (BeanInfoPage): Row 2 currently has `[Roast level] [Grinder] [Setting]`. Change to:
+**UI Layout** (BeanInfoPage):
 
 ```
-Row 2: [Roast level] [Grinder Mfg] [Grinder Model]
-Row 3: [Burrs]       [Setting]     [Barista]
+Row 1: [Roaster]       [Coffee]    [Roast date]
+Row 2: [Grinder brand] [Model]     [Burrs]
+Row 3: [Roast level]   [Setting]   [Barista]
 ```
 
 **Data Changes**:
@@ -298,7 +299,7 @@ Row 3: [Burrs]       [Setting]     [Barista]
 | `ShotMetadata` struct | `grinderModel` | `grinderBrand`, `grinderModel`, `grinderBurrs` |
 | Bean presets | `grinderModel` | `grinderBrand`, `grinderModel`, `grinderBurrs` |
 | Visualizer upload | `grinderModel` in notes | `grinderBrand + " " + grinderModel` in notes (backward compat) |
-| FTS index | includes `grinder_model` | includes `grinder_brand`, `grinder_model` |
+| FTS index | includes `grinder_model` | includes `grinder_brand`, `grinder_model`, `grinder_burrs` |
 | AI prompt | "Grinder: DF83V" | "Grinder: Turin DF83V with SSP HU 83mm burrs" |
 
 **Migration**: DB migration uses `src/core/grinderaliases.h` — a lookup table of ~90 grinders with aliases that map common user-typed strings to structured brand/model/stock_burrs. The migration:
@@ -308,7 +309,7 @@ Row 3: [Burrs]       [Setting]     [Barista]
 4. On no match: keeps entire string in `grinder_model`, leaves `grinder_brand` and `grinder_burrs` empty
 5. Aliases prioritize longer matches first to avoid "niche" matching before "niche duo"
 
-**Burr Auto-Fill**: When the user selects a grinder manufacturer + model (whether from autocomplete or typed), the burr field auto-fills with the stock/most popular burr from `grinder_aliases.json`. For grinders with `burr_swappable: true`, clicking the burr field shows a picker with:
+**Burr Auto-Fill**: When the user selects a grinder manufacturer + model from the autocomplete dropdown, the burr field auto-fills with the stock/most popular burr from `src/core/grinderaliases.h`. For grinders with `burr_swappable: true`, clicking the burr field shows a picker with:
 - Common burr options for that grinder size (from GRINDER_DATABASE.md aftermarket burr sets)
 - Previously used burr values from shot history
 - Free-text entry for custom burrs
@@ -322,7 +323,7 @@ For non-swappable grinders (e.g. Eureka Mignon, Comandante), the field auto-fill
 - Whether the grinder accepts aftermarket burrs → can suggest burr changes
 - Adjustment resolution → how much one click/turn changes the grind
 
-**Status**: Proposed. Depends on grinder database (done) and BeanInfoPage layout changes.
+**Status**: Implemented in PR #368.
 
 ### 9. Conversation Context Layers
 

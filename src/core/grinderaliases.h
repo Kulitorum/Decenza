@@ -57,7 +57,7 @@ inline QVector<GrinderEntry> allGrinders()
         // --- Option-O (P64 accepts Mazzer 64mm pattern; P100/01 accept EK43 98mm) ---
         {"Option-O", "Lagom P64", {"p64", "lagom p64", "option-o p64"}, {"64mm Mizen 64OM flat", "64mm Mizen 64ES flat", "64mm SSP High Uniformity flat", "64mm SSP Unimodal Espresso flat"}, true, 64, "mazzer64"},
         {"Option-O", "Lagom P80", {"p80", "lagom p80", "option-o p80"}, {"80mm Mizen 80OM flat"}, true, 80, ""},
-        {"Option-O", "Lagom P100", {"p100", "lagom p100", "option-o p100"}, {"98mm SSP High Uniformity flat"}, true, 98, "ek98"},
+        {"Option-O", "Lagom P100", {"p100", "lagom p100", "option-o p100"}, {"98mm Mizen 98OM flat", "98mm SSP High Uniformity flat"}, true, 98, "ek98"},
         {"Option-O", "Lagom 01", {"lagom 01", "option-o 01", "lagom01"}, {"102mm Mizen 102OM blind flat", "98mm Mizen 98OM flat", "102mm SSP 102HU blind flat"}, true, 98, "ek98"},
         {"Option-O", "Lagom Mini 2", {"lagom mini", "lagom mini 2", "option-o mini", "mini 2"}, {"48mm Mizen 48MS flat"}, false, 0, ""},
         {"Option-O", "Lagom Casa", {"lagom casa", "option-o casa", "casa"}, {"65mm Mizen 65CL conical"}, false, 0, ""},
