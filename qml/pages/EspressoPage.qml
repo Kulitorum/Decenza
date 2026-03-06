@@ -328,6 +328,7 @@ Page {
     // Frame transition notification (same position as preheating banner)
     Rectangle {
         id: frameTransitionPill
+        Accessible.ignored: true
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin + Theme.scaled(20)
         anchors.horizontalCenter: parent.horizontalCenter

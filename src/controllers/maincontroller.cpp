@@ -3357,7 +3357,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         m_lastFrameNumber = sample.frameNumber;
         m_currentFrameName = frameName;  // Store for accessibility QML binding
 
-        // Accessibility: notify of frame change for tick sound
+        // Notify of frame change (tick sound + transition reason for UI pill)
         emit frameChanged(frameIndex, frameName, transitionReason);
     }
 
