@@ -43,6 +43,7 @@
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
 #include "ble/de1device.h"
+#include "ble/de1transport.h"
 #ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
 #include "usb/usbscalemanager.h"
