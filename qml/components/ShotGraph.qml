@@ -372,8 +372,8 @@ ChartView {
         height: chart.plotArea.height
 
         Accessible.role: Accessible.Button
-        Accessible.name: chart.showWeightAxis ? "Right axis: Weight. Tap for Temperature"
-                                              : "Right axis: Temperature. Tap for Weight"
+        Accessible.name: chart.showWeightAxis ? TranslationManager.translate("graph.rightAxisWeight", "Right axis: Weight. Tap for Temperature")
+                                              : TranslationManager.translate("graph.rightAxisTemp", "Right axis: Temperature. Tap for Weight")
         Accessible.focusable: true
         Accessible.onPressAction: axisToggleArea.clicked(null)
 
