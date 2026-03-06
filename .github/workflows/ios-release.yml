@@ -153,7 +153,7 @@ jobs:
             -allowProvisioningUpdates
 
       - name: Upload to App Store Connect
-        if: ${{ inputs.upload_to_appstore != 'false' }}
+        if: ${{ inputs.upload_to_appstore == 'true' || startsWith(github.ref, 'refs/tags/v') }}
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
