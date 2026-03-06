@@ -2511,7 +2511,7 @@ ApplicationWindow {
         target: MainController
         enabled: AccessibilityManager.enabled
 
-        function onFrameChanged(frameIndex, frameName) {
+        function onFrameChanged(frameIndex, frameName, transitionReason) {
             AccessibilityManager.playTick()
         }
     }

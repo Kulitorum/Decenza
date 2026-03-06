@@ -250,6 +250,40 @@ Page {
 
     // ========== END ACCESSIBILITY ANNOUNCEMENTS ==========
 
+    // Show animated notification on frame transitions
+    Connections {
+        target: MainController
+        function onFrameChanged(frameIndex, frameName, transitionReason) {
+            if (transitionReason === "" || frameName === "") return
+            frameTransitionFadeOut.stop()
+            frameTransitionLabel.text = _transitionText(transitionReason)
+            frameTransitionPill.color = _transitionColor(transitionReason)
+            frameTransitionPill.opacity = 1
+            frameTransitionPopIn.start()
+            frameTransitionFadeTimer.restart()
+        }
+    }
+
+    function _transitionText(reason) {
+        switch (reason) {
+            case "weight": return "Weight exit"
+            case "pressure": return "Pressure exit"
+            case "flow": return "Flow exit"
+            case "time": return "Time exit"
+            default: return "Next frame"
+        }
+    }
+
+    function _transitionColor(reason) {
+        switch (reason) {
+            case "weight": return Theme.weightColor
+            case "pressure": return Theme.pressureColor
+            case "flow": return Theme.flowColor
+            case "time": return Theme.textSecondaryColor
+            default: return Theme.textSecondaryColor
+        }
+    }
+
     // Full-screen shot graph
     ShotGraph {
         id: shotGraph
@@ -281,6 +315,70 @@ Page {
             anchors.centerIn: parent
             key: "espresso.status.preheating"
             fallback: "PREHEATING..."
+            color: Theme.textColor
+            font: Theme.bodyFont
+            Accessible.ignored: true
+        }
+    }
+
+    // Frame transition notification (same position as preheating banner)
+    Rectangle {
+        id: frameTransitionPill
+        anchors.top: parent.top
+        anchors.topMargin: Theme.pageTopMargin + Theme.scaled(20)
+        anchors.horizontalCenter: parent.horizontalCenter
+        z: 10
+
+        width: frameTransitionLabel.width + Theme.spacingLarge * 2
+        height: Theme.scaled(36)
+        radius: Theme.scaled(18)
+        color: Theme.textSecondaryColor
+        opacity: 0
+        scale: 1.0
+
+        visible: opacity > 0
+
+        SequentialAnimation {
+            id: frameTransitionPopIn
+            NumberAnimation {
+                target: frameTransitionPill
+                property: "scale"
+                from: 0.8
+                to: 1.08
+                duration: 150
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.5
+            }
+            NumberAnimation {
+                target: frameTransitionPill
+                property: "scale"
+                from: 1.08
+                to: 1.0
+                duration: 300
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.5
+            }
+        }
+
+        NumberAnimation {
+            id: frameTransitionFadeOut
+            target: frameTransitionPill
+            property: "opacity"
+            from: 1
+            to: 0
+            duration: 800
+            easing.type: Easing.InQuad
+        }
+
+        Timer {
+            id: frameTransitionFadeTimer
+            interval: 1500
+            onTriggered: frameTransitionFadeOut.start()
+        }
+
+        Text {
+            id: frameTransitionLabel
+            anchors.centerIn: parent
             color: Theme.textColor
             font: Theme.bodyFont
             Accessible.ignored: true

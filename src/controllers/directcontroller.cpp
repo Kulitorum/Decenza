@@ -71,7 +71,7 @@ void DirectController::startShot() {
     // Start update timer
     m_updateTimer.start();
 
-    emit frameChanged(m_currentFrameIndex, currentFrameName());
+    emit frameChanged(m_currentFrameIndex, currentFrameName(), QString());
 }
 
 void DirectController::stopShot() {
@@ -109,7 +109,7 @@ void DirectController::goToPreviousFrame() {
     m_frameElapsedTime = 0;
 
     sendCurrentFrame();
-    emit frameChanged(m_currentFrameIndex, currentFrameName());
+    emit frameChanged(m_currentFrameIndex, currentFrameName(), QString());
 }
 
 void DirectController::setLivePressure(double pressure) {
@@ -281,7 +281,7 @@ void DirectController::advanceToNextFrame() {
     sendCurrentFrame();
 
     qDebug() << "DirectController: Advanced to frame" << m_currentFrameIndex;
-    emit frameChanged(m_currentFrameIndex, currentFrameName());
+    emit frameChanged(m_currentFrameIndex, currentFrameName(), QString());
 }
 
 bool DirectController::checkExitCondition(const ProfileFrame& frame, const ShotSample& sample) {

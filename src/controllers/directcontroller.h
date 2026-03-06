@@ -60,7 +60,7 @@ public:
 
 signals:
     void activeChanged();
-    void frameChanged(int index, const QString& name);
+    void frameChanged(int index, const QString& name, const QString& transitionReason);
     void progressUpdated();
     void shotCompleted();
     void errorOccurred(const QString& error);

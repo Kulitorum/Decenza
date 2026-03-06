@@ -255,7 +255,7 @@ signals:
     void sawSettlingChanged();
 
     // Accessibility: emitted when extraction frame changes
-    void frameChanged(int frameIndex, const QString& frameName);
+    void frameChanged(int frameIndex, const QString& frameName, const QString& transitionReason);
 
     // DYE: emitted when shot ends and should show metadata page
     void shotEndedShowMetadata();

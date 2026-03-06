@@ -3354,7 +3354,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         m_currentFrameName = frameName;  // Store for accessibility QML binding
 
         // Accessibility: notify of frame change for tick sound
-        emit frameChanged(frameIndex, frameName);
+        emit frameChanged(frameIndex, frameName, transitionReason);
     }
 
     // Forward to timing controller for unified timing
