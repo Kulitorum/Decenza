@@ -100,6 +100,9 @@ jobs:
           key: android-arm64
           max-size: 500M
 
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
       - name: Wrap NDK compilers with ccache
         run: |
           # Qt's Android toolchain overrides CMAKE_*_COMPILER_LAUNCHER,

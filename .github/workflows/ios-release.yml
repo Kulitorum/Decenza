@@ -55,6 +55,9 @@ jobs:
           key: ios-arm64
           max-size: 500M
 
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
       - name: Wrap Xcode clang with ccache
         run: |
           # Wrap Xcode's toolchain clang/clang++ in-place (same approach as Android NDK).

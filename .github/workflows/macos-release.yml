@@ -65,6 +65,9 @@ jobs:
           key: macos-universal
           max-size: 500M
 
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
       - name: Create ccache compiler wrappers
         run: |
           # For Xcode generator, use CMAKE_XCODE_ATTRIBUTE_CC/CXX to route

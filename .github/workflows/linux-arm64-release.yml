@@ -81,6 +81,9 @@ jobs:
         with:
           key: linux-arm64
 
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
       - name: Download linuxdeploy tools
         run: |
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-aarch64.AppImage
