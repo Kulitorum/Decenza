@@ -53,6 +53,9 @@ inline QString generateVitalStatsScript()
         steamTemperature:1, batteryLevel:1
     };
 
+    // Track instance counts to generate unique IDs for duplicate widget types
+    var instanceCounts = {};
+
     // Build DOM for a single status bar item
     function renderItem(item) {
         var t = item.type;
@@ -70,50 +73,55 @@ inline QString generateVitalStatsScript()
             return sp;
         }
 
+        // Generate unique suffix for duplicate widget types
+        var key = (t === 'machineStatus') ? 'connectionStatus' : t;
+        instanceCounts[key] = (instanceCounts[key] || 0) + 1;
+        var suffix = instanceCounts[key] > 1 ? '_' + instanceCounts[key] : '';
+
         var wrap = document.createElement('span');
         wrap.className = 'vital-stat';
 
         if (t === 'temperature') {
             wrap.title = 'Group head temperature';
             var s = document.createElement('span');
-            s.id = 'vitalTemp'; s.style.color = TC.temp; s.textContent = '--';
+            s.id = 'vitalTemp' + suffix; s.style.color = TC.temp; s.textContent = '--';
             wrap.appendChild(s);
         } else if (t === 'waterLevel') {
             wrap.title = 'Water level';
             var s = document.createElement('span');
-            s.id = 'vitalWater'; s.style.color = MUTED; s.textContent = '--';
+            s.id = 'vitalWater' + suffix; s.style.color = MUTED; s.textContent = '--';
             wrap.appendChild(s);
         } else if (t === 'connectionStatus' || t === 'machineStatus') {
             wrap.title = 'Machine status';
             var dot = document.createElement('span');
-            dot.className = 'vital-dot'; dot.id = 'vitalDot';
+            dot.className = 'vital-dot'; dot.id = 'vitalDot' + suffix;
             wrap.appendChild(dot);
             var label = document.createElement('span');
-            label.className = 'vital-state-text'; label.id = 'vitalState';
+            label.className = 'vital-state-text'; label.id = 'vitalState' + suffix;
             label.style.color = MUTED; label.textContent = '--';
             wrap.appendChild(label);
         } else if (t === 'scaleWeight') {
             wrap.title = 'Scale weight';
             var s = document.createElement('span');
-            s.id = 'vitalScale'; s.style.color = MUTED; s.textContent = '--';
+            s.id = 'vitalScale' + suffix; s.style.color = MUTED; s.textContent = '--';
             wrap.appendChild(s);
         } else if (t === 'steamTemperature') {
             wrap.title = 'Steam temperature';
             var s = document.createElement('span');
-            s.id = 'vitalSteam'; s.style.color = TC.warning; s.textContent = '--';
+            s.id = 'vitalSteam' + suffix; s.style.color = TC.warning; s.textContent = '--';
             wrap.appendChild(s);
         } else if (t === 'batteryLevel') {
             wrap.title = 'Battery level';
             var outer = document.createElement('span');
-            outer.id = 'vitalBattery'; outer.style.color = MUTED;
+            outer.id = 'vitalBattery' + suffix; outer.style.color = MUTED;
             var icon = document.createElement('span');
             icon.className = 'vital-battery-icon';
             var fill = document.createElement('span');
-            fill.className = 'vital-battery-fill'; fill.id = 'vitalBatteryFill';
+            fill.className = 'vital-battery-fill'; fill.id = 'vitalBatteryFill' + suffix;
             icon.appendChild(fill);
             outer.appendChild(icon);
             var txt = document.createElement('span');
-            txt.id = 'vitalBatteryText'; txt.textContent = '--';
+            txt.id = 'vitalBatteryText' + suffix; txt.textContent = '--';
             outer.appendChild(txt);
             wrap.appendChild(outer);
         }
@@ -121,6 +129,7 @@ inline QString generateVitalStatsScript()
     }
 
     function buildStats(items) {
+        instanceCounts = {};
         var stats = document.createElement('div');
         stats.className = 'vital-stats';
         stats.id = 'vitalStats';
@@ -170,33 +179,39 @@ inline QString generateVitalStatsScript()
         return TC.error;
     }
 
+    // Update all matching elements (handles duplicates via suffix)
+    function updateAll(prefix, fn) {
+        var el = document.getElementById(prefix);
+        if (el) fn(el);
+        for (var i = 2; i <= 5; i++) {
+            el = document.getElementById(prefix + '_' + i);
+            if (el) fn(el); else break;
+        }
+    }
+
     function update(d) {
-        var el;
         var offline = !d.connected;
 
-        el = document.getElementById('vitalDot');
-        if (el) el.className = 'vital-dot ' + (offline ? 'disconnected' : 'connected');
-        el = document.getElementById('vitalState');
-        if (el) {
+        updateAll('vitalDot', function(el) {
+            el.className = 'vital-dot ' + (offline ? 'disconnected' : 'connected');
+        });
+        updateAll('vitalState', function(el) {
             if (offline) { el.textContent = 'Offline'; el.style.color = TC.error; }
             else {
-                var label = d.phase || d.state || 'Connected';
-                el.textContent = label;
+                el.textContent = d.phase || d.state || 'Connected';
                 el.style.color = phaseColor(d.phase);
             }
-        }
+        });
 
-        el = document.getElementById('vitalTemp');
-        if (el) {
+        updateAll('vitalTemp', function(el) {
             if (offline || d.temperature === undefined || d.temperature <= 0) {
                 el.textContent = '--'; el.style.color = MUTED;
             } else {
                 el.textContent = d.temperature.toFixed(1) + '\u00b0C'; el.style.color = TC.temp;
             }
-        }
+        });
 
-        el = document.getElementById('vitalWater');
-        if (el) {
+        updateAll('vitalWater', function(el) {
             if (offline || d.waterLevelMl === undefined) {
                 el.textContent = '--'; el.style.color = MUTED;
             } else if (d.waterLevelDisplayUnit === 'ml') {
@@ -205,29 +220,27 @@ inline QString generateVitalStatsScript()
                 var pct = d.waterLevel !== undefined ? Math.round(d.waterLevel) : '--';
                 el.textContent = pct + '%'; el.style.color = waterColor(d.waterLevelMl);
             }
-        }
+        });
 
-        el = document.getElementById('vitalScale');
-        if (el) {
+        updateAll('vitalScale', function(el) {
             if (offline || d.scaleWeight === undefined) {
                 el.textContent = '--'; el.style.color = MUTED;
             } else {
                 el.textContent = d.scaleWeight.toFixed(1) + 'g'; el.style.color = MUTED;
             }
-        }
+        });
 
-        el = document.getElementById('vitalSteam');
-        if (el) {
+        updateAll('vitalSteam', function(el) {
             if (offline || d.steamTemperature === undefined || d.steamTemperature <= 0) {
                 el.textContent = '--'; el.style.color = MUTED;
             } else {
                 el.textContent = d.steamTemperature.toFixed(0) + '\u00b0C'; el.style.color = TC.warning;
             }
-        }
+        });
 
-        el = document.getElementById('vitalBatteryText');
-        if (el) {
-            var fill = document.getElementById('vitalBatteryFill');
+        updateAll('vitalBatteryText', function(el) {
+            var fillId = el.id.replace('Text', 'Fill');
+            var fill = document.getElementById(fillId);
             if (d.batteryPercent === undefined) {
                 el.textContent = '--'; el.parentElement.style.color = MUTED;
                 if (fill) { fill.style.width = '0%'; fill.style.background = MUTED; }
@@ -237,22 +250,34 @@ inline QString generateVitalStatsScript()
                 el.textContent = pct + '%'; el.parentElement.style.color = bc;
                 if (fill) { fill.style.width = Math.max(0, Math.min(100, pct)) + '%'; fill.style.background = bc; }
             }
-        }
+        });
+    }
+
+    function showOffline() {
+        updateAll('vitalDot', function(el) { el.className = 'vital-dot disconnected'; });
+        updateAll('vitalState', function(el) { el.textContent = 'Offline'; el.style.color = TC.error; });
+        updateAll('vitalTemp', function(el) { el.textContent = '--'; el.style.color = MUTED; });
+        updateAll('vitalWater', function(el) { el.textContent = '--'; el.style.color = MUTED; });
+        updateAll('vitalScale', function(el) { el.textContent = '--'; el.style.color = MUTED; });
+        updateAll('vitalSteam', function(el) { el.textContent = '--'; el.style.color = MUTED; });
+        updateAll('vitalBatteryText', function(el) {
+            el.textContent = '--'; el.parentElement.style.color = MUTED;
+            var fillId = el.id.replace('Text', 'Fill');
+            var fill = document.getElementById(fillId);
+            if (fill) { fill.style.width = '0%'; fill.style.background = MUTED; }
+        });
     }
 
     function poll() {
         fetch('/api/telemetry')
             .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
             .then(update)
-            .catch(function() {
-                var dot = document.getElementById('vitalDot');
-                if (dot) dot.className = 'vital-dot disconnected';
-                var st = document.getElementById('vitalState');
-                if (st) { st.textContent = 'Offline'; st.style.color = TC.error; }
-            });
+            .catch(function() { showOffline(); });
     }
 
-    // Fetch theme and layout in parallel, then build UI
+    // Fetch theme and layout in parallel, then build UI and start polling
+    var vitalTimer = null;
+
     Promise.all([
         fetch('/api/theme').then(function(r) { return r.ok ? r.json() : {}; }).catch(function() { return {}; }),
         fetch('/api/layout').then(function(r) { return r.ok ? r.json() : {}; }).catch(function() { return {}; })
@@ -277,16 +302,22 @@ inline QString generateVitalStatsScript()
         }
         insertStats(buildStats(items));
         poll();
-    });
 
-    var vitalTimer = setInterval(poll, 3000);
-    document.addEventListener('visibilitychange', function() {
-        if (document.hidden) {
-            clearInterval(vitalTimer);
-        } else {
-            poll();
-            vitalTimer = setInterval(poll, 3000);
-        }
+        vitalTimer = setInterval(poll, 3000);
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                clearInterval(vitalTimer);
+            } else {
+                poll();
+                vitalTimer = setInterval(poll, 3000);
+            }
+        });
+    }).catch(function() {
+        // Fallback: use defaults if init fails
+        injectStyles();
+        insertStats(buildStats(DEFAULT_ITEMS));
+        poll();
+        vitalTimer = setInterval(poll, 3000);
     });
 })();
 </script>

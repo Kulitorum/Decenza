@@ -21,14 +21,18 @@ Item {
         return "qrc:/icons/battery-100.svg"
     }
 
+    readonly property string accessibleText: {
+        var warning = root.level <= 20
+            ? ". " + TranslationManager.translate("battery.accessible.warning", "Warning: battery level is low")
+            : ""
+        return TranslationManager.translate("battery.accessible.level", "Battery level: %1 percent").arg(root.level) + warning
+    }
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: {
-        var warning = root.level <= 20 ? ". Warning: battery level is low" : ""
-        return "Battery level: " + root.level + " percent" + warning
-    }
+    Accessible.name: root.accessibleText
     Accessible.focusable: true
 
     // --- COMPACT MODE ---
@@ -60,13 +64,14 @@ Item {
             }
         }
 
-        MouseArea {
+        AccessibleMouseArea {
             anchors.fill: parent
             anchors.margins: -Theme.spacingSmall
-            onClicked: {
+            accessibleName: root.accessibleText
+            accessibleItem: compactContent
+            onAccessibleClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var warning = root.level <= 20 ? ". Warning: battery level is low" : ""
-                    AccessibilityManager.announceLabel("Battery level: " + root.level + " percent" + warning)
+                    AccessibilityManager.announceLabel(root.accessibleText)
                 }
             }
         }
@@ -115,12 +120,13 @@ Item {
             }
         }
 
-        MouseArea {
+        AccessibleMouseArea {
             anchors.fill: parent
-            onClicked: {
+            accessibleName: root.accessibleText
+            accessibleItem: fullContent
+            onAccessibleClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var warning = root.level <= 20 ? ". Warning: battery level is low" : ""
-                    AccessibilityManager.announceLabel("Battery level: " + root.level + " percent" + warning)
+                    AccessibilityManager.announceLabel(root.accessibleText)
                 }
             }
         }
