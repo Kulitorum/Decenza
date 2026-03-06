@@ -14,6 +14,7 @@ Rectangle {
     property font textFont: Theme.labelFont
     property font dialogFont: Theme.bodyFont
     property bool readOnly: false
+    property bool fitContent: false   // When true, shrink to fit text (inlineHeight is max)
     property alias textField: inlineTextArea
 
     // Signal emitted when editing finishes (inline blur or dialog Save)
@@ -24,7 +25,9 @@ Rectangle {
     clip: true
 
     Layout.fillWidth: true
-    Layout.preferredHeight: inlineHeight
+    Layout.preferredHeight: fitContent && !inlineScrollView.visible
+        ? Math.min(inlineHeight, Math.max(Theme.scaled(36), displayText.contentHeight + Theme.scaled(24)))
+        : inlineHeight
 
     // URL detection: convert plain text to StyledText with clickable links
     function escapeHtml(text) {

@@ -70,7 +70,7 @@ Page {
     property var _notes: groupDetails.notes || []
     property bool _hasRoastDate: !!(shotData.roastDate && shotData.roastDate !== "")
     property bool _hasRoastLevel: !!(shotData.roastLevel && shotData.roastLevel !== "")
-    property bool _hasBeanCardData: _hasBean || _hasRoastDate || _hasRoastLevel
+    property bool _hasBeanCardData: _hasBean || _hasRoastDate || _hasRoastLevel || _hasGrinder
 
     ScrollView {
         anchors.left: parent.left
@@ -426,6 +426,7 @@ Page {
                         ExpandableTextArea {
                             Layout.fillWidth: true
                             inlineHeight: Theme.scaled(100)
+                            fitContent: true
                             text: modelData.text || ""
                             accessibleName: TranslationManager.translate("shotdetail.notes", "Notes") +
                                 " " + (modelData.dateTime || "")
@@ -436,10 +437,10 @@ Page {
                 }
             }
 
-            // Bean info card
+            // Bean & Grinder info card
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: beanColumn.height + Theme.spacingLarge
+                Layout.preferredHeight: beanColumn.height + Theme.spacingMedium
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
                 visible: _hasBeanCardData
@@ -451,23 +452,18 @@ Page {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
-
-                    Tr {
-                        key: "shotdetail.beaninfo"
-                        fallback: "Beans"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
-                        Accessible.ignored: true
-                    }
+                    anchors.margins: Theme.spacingSmall
+                    anchors.leftMargin: Theme.spacingMedium
+                    anchors.rightMargin: Theme.spacingMedium
+                    spacing: Theme.scaled(2)
 
                     GridLayout {
                         columns: 2
                         columnSpacing: Theme.spacingLarge
-                        rowSpacing: Theme.spacingSmall
+                        rowSpacing: Theme.scaled(2)
                         Layout.fillWidth: true
 
+                        // Bean info
                         Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: beanBrand !== ""; Accessible.ignored: true }
                         Text { text: beanBrand; font: Theme.labelFont; color: Theme.textColor; visible: beanBrand !== ""; Accessible.ignored: true }
 
@@ -479,6 +475,13 @@ Page {
 
                         Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: _hasRoastLevel; Accessible.ignored: true }
                         Text { text: shotData.roastLevel || ""; font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastLevel; Accessible.ignored: true }
+
+                        // Grinder info
+                        Tr { key: "shotdetail.grinder"; fallback: "Grinder:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderBrand !== "" || grinderModel !== ""; Accessible.ignored: true }
+                        Text { text: ((grinderBrand || "") + " " + (grinderModel || "")).trim(); font: Theme.labelFont; color: Theme.textColor; visible: grinderBrand !== "" || grinderModel !== ""; Accessible.ignored: true }
+
+                        Tr { key: "shotdetail.grindersetting"; fallback: "Grind Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderSetting !== ""; Accessible.ignored: true }
+                        Text { text: grinderSetting; font: Theme.labelFont; color: Theme.textColor; visible: grinderSetting !== ""; Accessible.ignored: true }
                     }
                 }
             }
