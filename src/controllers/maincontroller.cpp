@@ -3341,6 +3341,10 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                     // Condition was configured, values near threshold - machine likely triggered it
                     transitionReason = prevFrame.exitType.contains(QStringLiteral("pressure"))
                         ? QStringLiteral("pressure") : QStringLiteral("flow");
+                    qDebug() << "MainController: Frame" << prevFrameIndex
+                             << "exit reason ambiguous - exitType:" << prevFrame.exitType
+                             << "pressure:" << m_lastPressure << "flow:" << m_lastFlow
+                             << "inferred:" << transitionReason;
                 }
             } else {
                 // No exit condition configured - frame ended by time

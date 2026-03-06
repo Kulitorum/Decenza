@@ -201,11 +201,13 @@ void DirectController::onShotSampleReceived(const ShotSample& sample) {
 
         // Check time-based exit
         if (m_frameElapsedTime >= frame.seconds) {
-            advanceToNextFrame();
+            advanceToNextFrame(QStringLiteral("time"));
         }
         // Check sensor-based exit conditions
         else if (checkExitCondition(frame, sample)) {
-            advanceToNextFrame();
+            QString reason = frame.exitType.contains(QStringLiteral("pressure"))
+                ? QStringLiteral("pressure") : QStringLiteral("flow");
+            advanceToNextFrame(reason);
         }
     }
 
@@ -225,7 +227,7 @@ void DirectController::onWeightChanged(double weight) {
         if (frame.exitWeight > 0) {
             if (weight >= frame.exitWeight) {
                 qDebug() << "DirectController: Frame weight exit reached:" << weight << "/" << frame.exitWeight;
-                advanceToNextFrame();
+                advanceToNextFrame(QStringLiteral("weight"));
                 return;
             }
         }
@@ -265,7 +267,7 @@ void DirectController::sendCurrentFrame() {
              << "temp=" << frame.temperature;
 }
 
-void DirectController::advanceToNextFrame() {
+void DirectController::advanceToNextFrame(const QString& transitionReason) {
     if (m_currentFrameIndex >= m_profile.steps().size() - 1) {
         // Last frame completed
         qDebug() << "DirectController: All frames completed";
@@ -280,8 +282,8 @@ void DirectController::advanceToNextFrame() {
 
     sendCurrentFrame();
 
-    qDebug() << "DirectController: Advanced to frame" << m_currentFrameIndex;
-    emit frameChanged(m_currentFrameIndex, currentFrameName(), QString());
+    qDebug() << "DirectController: Advanced to frame" << m_currentFrameIndex << "reason:" << transitionReason;
+    emit frameChanged(m_currentFrameIndex, currentFrameName(), transitionReason);
 }
 
 bool DirectController::checkExitCondition(const ProfileFrame& frame, const ShotSample& sample) {

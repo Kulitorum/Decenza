@@ -255,22 +255,26 @@ Page {
         target: MainController
         function onFrameChanged(frameIndex, frameName, transitionReason) {
             if (transitionReason === "" || frameName === "") return
-            frameTransitionFadeOut.stop()
-            frameTransitionLabel.text = _transitionText(transitionReason)
+            var text = _transitionText(transitionReason)
+            frameTransitionLifecycle.stop()
+            frameTransitionLabel.text = text
             frameTransitionPill.color = _transitionColor(transitionReason)
             frameTransitionPill.opacity = 1
-            frameTransitionPopIn.start()
-            frameTransitionFadeTimer.restart()
+            frameTransitionPill.scale = 1.0
+            frameTransitionLifecycle.start()
+            if (accessibilityEnabled()) {
+                AccessibilityManager.announce(text)
+            }
         }
     }
 
     function _transitionText(reason) {
         switch (reason) {
-            case "weight": return "Weight exit"
-            case "pressure": return "Pressure exit"
-            case "flow": return "Flow exit"
-            case "time": return "Time exit"
-            default: return "Next frame"
+            case "weight": return TranslationManager.translate("espresso.transition.weight", "Weight exit")
+            case "pressure": return TranslationManager.translate("espresso.transition.pressure", "Pressure exit")
+            case "flow": return TranslationManager.translate("espresso.transition.flow", "Flow exit")
+            case "time": return TranslationManager.translate("espresso.transition.time", "Time exit")
+            default: return TranslationManager.translate("espresso.transition.next", "Next frame")
         }
     }
 
@@ -339,7 +343,7 @@ Page {
         visible: opacity > 0
 
         SequentialAnimation {
-            id: frameTransitionPopIn
+            id: frameTransitionLifecycle
             NumberAnimation {
                 target: frameTransitionPill
                 property: "scale"
@@ -358,29 +362,22 @@ Page {
                 easing.type: Easing.OutBack
                 easing.overshoot: 1.5
             }
-        }
-
-        NumberAnimation {
-            id: frameTransitionFadeOut
-            target: frameTransitionPill
-            property: "opacity"
-            from: 1
-            to: 0
-            duration: 800
-            easing.type: Easing.InQuad
-        }
-
-        Timer {
-            id: frameTransitionFadeTimer
-            interval: 1500
-            onTriggered: frameTransitionFadeOut.start()
+            PauseAnimation { duration: 1500 }
+            NumberAnimation {
+                target: frameTransitionPill
+                property: "opacity"
+                to: 0
+                duration: 800
+                easing.type: Easing.InQuad
+            }
         }
 
         Text {
             id: frameTransitionLabel
             anchors.centerIn: parent
             color: Theme.textColor
-            font: Theme.bodyFont
+            font.family: Theme.bodyFont.family
+            font.pixelSize: Theme.bodyFont.pixelSize
             Accessible.ignored: true
         }
     }
