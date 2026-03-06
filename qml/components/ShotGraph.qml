@@ -82,7 +82,7 @@ ChartView {
     // Temperature axis (right Y) - hidden during shots to make room for weight
     ValueAxis {
         id: tempAxis
-        min: 80
+        min: 40
         max: 100
         tickCount: 5
         labelFormat: "%.0f"
