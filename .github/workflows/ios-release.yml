@@ -49,22 +49,6 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-ios-v4'
 
-      - name: Create ccache compiler wrappers
-        run: |
-          # For Xcode generator, use CMAKE_XCODE_ATTRIBUTE_CC/CXX to route
-          # compilation through ccache. Wrapper scripts handle the Xcode
-          # calling convention (compiler not passed as first arg).
-          WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
-          mkdir -p "$WRAPPER_DIR"
-          CLANG=$(xcrun -f clang)
-          CLANGPP=$(xcrun -f clang++)
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
-          chmod +x "$WRAPPER_DIR/launch-c" "$WRAPPER_DIR/launch-cxx"
-          echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
-          echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
-          echo "Created ccache wrappers: CC=$CLANG CXX=$CLANGPP"
-
       - name: Install Apple certificate and provisioning profile
         env:
           P12_CERTIFICATE_BASE64: ${{ secrets.P12_CERTIFICATE_BASE64 }}
@@ -104,11 +88,7 @@ jobs:
           cd build/ios
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
-            -DCMAKE_XCODE_ATTRIBUTE_LD="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS="$CCACHE_LAUNCH_CXX"
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
             
       - name: Build and Archive
         env:
