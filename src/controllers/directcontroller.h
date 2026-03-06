@@ -60,7 +60,7 @@ public:
 
 signals:
     void activeChanged();
-    void frameChanged(int index, const QString& name);
+    void frameChanged(int index, const QString& name, const QString& transitionReason);
     void progressUpdated();
     void shotCompleted();
     void errorOccurred(const QString& error);
@@ -72,7 +72,7 @@ private slots:
 
 private:
     void sendCurrentFrame();
-    void advanceToNextFrame();
+    void advanceToNextFrame(const QString& transitionReason = QString());
     bool checkExitCondition(const ProfileFrame& frame, const ShotSample& sample);
     void createDirectControlProfile();
     QByteArray frameToBytes(const ProfileFrame& frame, int frameIndex);

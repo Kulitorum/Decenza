@@ -3341,6 +3341,10 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                     // Condition was configured, values near threshold - machine likely triggered it
                     transitionReason = prevFrame.exitType.contains(QStringLiteral("pressure"))
                         ? QStringLiteral("pressure") : QStringLiteral("flow");
+                    qDebug() << "MainController: Frame" << prevFrameIndex
+                             << "exit reason ambiguous - exitType:" << prevFrame.exitType
+                             << "pressure:" << m_lastPressure << "flow:" << m_lastFlow
+                             << "inferred:" << transitionReason;
                 }
             } else {
                 // No exit condition configured - frame ended by time
@@ -3353,8 +3357,8 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         m_lastFrameNumber = sample.frameNumber;
         m_currentFrameName = frameName;  // Store for accessibility QML binding
 
-        // Accessibility: notify of frame change for tick sound
-        emit frameChanged(frameIndex, frameName);
+        // Notify of frame change (tick sound + transition reason for UI pill)
+        emit frameChanged(frameIndex, frameName, transitionReason);
     }
 
     // Forward to timing controller for unified timing

@@ -250,6 +250,44 @@ Page {
 
     // ========== END ACCESSIBILITY ANNOUNCEMENTS ==========
 
+    // Show animated notification on frame transitions
+    Connections {
+        target: MainController
+        function onFrameChanged(frameIndex, frameName, transitionReason) {
+            if (transitionReason === "" || frameName === "") return
+            var text = _transitionText(transitionReason)
+            frameTransitionLifecycle.stop()
+            frameTransitionLabel.text = text
+            frameTransitionPill.color = _transitionColor(transitionReason)
+            frameTransitionPill.opacity = 1
+            frameTransitionPill.scale = 1.0
+            frameTransitionLifecycle.start()
+            if (accessibilityEnabled()) {
+                AccessibilityManager.announce(text)
+            }
+        }
+    }
+
+    function _transitionText(reason) {
+        switch (reason) {
+            case "weight": return TranslationManager.translate("espresso.transition.weight", "Weight exit")
+            case "pressure": return TranslationManager.translate("espresso.transition.pressure", "Pressure exit")
+            case "flow": return TranslationManager.translate("espresso.transition.flow", "Flow exit")
+            case "time": return TranslationManager.translate("espresso.transition.time", "Time exit")
+            default: return TranslationManager.translate("espresso.transition.next", "Next frame")
+        }
+    }
+
+    function _transitionColor(reason) {
+        switch (reason) {
+            case "weight": return Theme.weightColor
+            case "pressure": return Theme.pressureColor
+            case "flow": return Theme.flowColor
+            case "time": return Theme.textSecondaryColor
+            default: return Theme.textSecondaryColor
+        }
+    }
+
     // Full-screen shot graph
     ShotGraph {
         id: shotGraph
@@ -283,6 +321,64 @@ Page {
             fallback: "PREHEATING..."
             color: Theme.textColor
             font: Theme.bodyFont
+            Accessible.ignored: true
+        }
+    }
+
+    // Frame transition notification (same position as preheating banner)
+    Rectangle {
+        id: frameTransitionPill
+        Accessible.ignored: true
+        anchors.top: parent.top
+        anchors.topMargin: Theme.pageTopMargin + Theme.scaled(20)
+        anchors.horizontalCenter: parent.horizontalCenter
+        z: 10
+
+        width: frameTransitionLabel.width + Theme.spacingLarge * 2
+        height: Theme.scaled(36)
+        radius: Theme.scaled(18)
+        color: Theme.textSecondaryColor
+        opacity: 0
+        scale: 1.0
+
+        visible: opacity > 0
+
+        SequentialAnimation {
+            id: frameTransitionLifecycle
+            NumberAnimation {
+                target: frameTransitionPill
+                property: "scale"
+                from: 0.8
+                to: 1.08
+                duration: 150
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.5
+            }
+            NumberAnimation {
+                target: frameTransitionPill
+                property: "scale"
+                from: 1.08
+                to: 1.0
+                duration: 300
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.5
+            }
+            PauseAnimation { duration: 1500 }
+            NumberAnimation {
+                target: frameTransitionPill
+                property: "opacity"
+                to: 0
+                duration: 800
+                easing.type: Easing.InQuad
+            }
+        }
+
+        Text {
+            id: frameTransitionLabel
+            anchors.centerIn: parent
+            color: Theme.textColor
+            font.family: Theme.bodyFont.family
+            font.pixelSize: Theme.bodyFont.pixelSize
             Accessible.ignored: true
         }
     }
