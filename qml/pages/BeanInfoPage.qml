@@ -926,7 +926,7 @@ Page {
             height: Theme.scaled(48)
             model: parent.model
             currentIndex: Math.max(0, model.indexOf(parent.currentValue))
-            font.pixelSize: Theme.scaled(18)
+            font.pixelSize: Theme.scaled(14)
             accessibleLabel: parent.label
             emptyItemText: TranslationManager.translate("shotmetadata.option.none", "(None)")
 

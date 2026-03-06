@@ -11,7 +11,7 @@ TextField {
     // Explicit accessible name (overrides placeholder for screen readers)
     property string accessibleName: ""
 
-    font.pixelSize: Theme.scaled(18)
+    font.pixelSize: Theme.scaled(14)
     color: Theme.textColor
     placeholderText: ""  // Disable Material's floating placeholder
 
@@ -55,7 +55,7 @@ TextField {
             verticalAlignment: Text.AlignVCenter
             text: control.placeholder || control.placeholderText
             color: Theme.textSecondaryColor
-            font.pixelSize: Theme.scaled(18)
+            font.pixelSize: Theme.scaled(14)
             elide: Text.ElideRight
             visible: !control.text && !control.activeFocus
         }
