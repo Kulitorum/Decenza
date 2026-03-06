@@ -445,7 +445,7 @@ Page {
                 radius: Theme.cardRadius
                 visible: _hasBeanCardData
                 Accessible.role: Accessible.Grouping
-                Accessible.name: TranslationManager.translate("shotdetail.beaninfo", "Beans")
+                Accessible.name: TranslationManager.translate("autofavoriteinfo.beanandgrinder", "Beans & Grinder")
 
                 ColumnLayout {
                     id: beanColumn
