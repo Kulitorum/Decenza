@@ -165,7 +165,7 @@ ChartView {
     }
 
     // Empty anchor series to keep the weight axis registered with ChartView
-    // (axes only display when at least one series references them)
+    // (required for weightAxis min/max properties to update correctly)
     LineSeries {
         name: ""
         axisX: timeAxis
@@ -374,7 +374,7 @@ ChartView {
         Accessible.name: chart.showWeightAxis ? "Right axis: Weight. Tap for Temperature"
                                               : "Right axis: Temperature. Tap for Weight"
         Accessible.focusable: true
-        Accessible.onPressAction: chart.toggleRightAxis()
+        Accessible.onPressAction: axisToggleArea.clicked(null)
 
         property color labelColor: chart.showWeightAxis ? Theme.weightColor : Theme.temperatureColor
 
@@ -410,6 +410,7 @@ ChartView {
         }
 
         MouseArea {
+            id: axisToggleArea
             anchors.fill: parent
             onClicked: chart.toggleRightAxis()
         }
