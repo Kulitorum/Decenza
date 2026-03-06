@@ -67,14 +67,17 @@ jobs:
 
       - name: Create ccache compiler wrappers
         run: |
-          # Xcode CC/CXX build settings need a path to a single executable.
+          # For Xcode generator, use CMAKE_XCODE_ATTRIBUTE_CC/CXX to route
+          # compilation through ccache via wrapper scripts.
           WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
           mkdir -p "$WRAPPER_DIR"
-          printf '#!/bin/sh\nexec ccache clang "$@"\n' > "$WRAPPER_DIR/clang"
-          printf '#!/bin/sh\nexec ccache clang++ "$@"\n' > "$WRAPPER_DIR/clang++"
-          chmod +x "$WRAPPER_DIR/clang" "$WRAPPER_DIR/clang++"
-          echo "CCACHE_CC=$WRAPPER_DIR/clang" >> $GITHUB_ENV
-          echo "CCACHE_CXX=$WRAPPER_DIR/clang++" >> $GITHUB_ENV
+          CLANG=$(xcrun -f clang)
+          CLANGPP=$(xcrun -f clang++)
+          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
+          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
+          chmod +x "$WRAPPER_DIR/launch-c" "$WRAPPER_DIR/launch-cxx"
+          echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
+          echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
 
       - name: Install Apple Developer ID certificate
         env:
@@ -148,6 +151,10 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
+            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
+            -DCMAKE_XCODE_ATTRIBUTE_LD="$CCACHE_LAUNCH_C" \
+            -DCMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS="$CCACHE_LAUNCH_CXX" \
             -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
             -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \
@@ -156,8 +163,7 @@ jobs:
       - name: Build Release
         run: |
           cd build/macos
-          # Inject ccache via Xcode CC/CXX build settings using wrapper scripts
-          cmake --build . --config Release --parallel -- CC="$CCACHE_CC" CXX="$CCACHE_CXX"
+          cmake --build . --config Release --parallel
 
       - name: Bundle Qt frameworks
         run: |
