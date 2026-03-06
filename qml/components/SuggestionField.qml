@@ -13,6 +13,7 @@ Item {
     property alias textField: textInput  // Expose internal text input for KeyboardAwareContainer registration
 
     signal textEdited(string text)
+    signal suggestionSelected(string text)  // Emitted when user picks from dropdown (not on keystroke)
     signal inputFocused(Item field)  // Emitted when text input gets focus (for keyboard handling)
 
     // Accessibility mode: show buttons below text field instead of overlapping
@@ -39,6 +40,7 @@ Item {
         textInput.text = selectedText
         // Don't set root.text directly - emit signal and let parent update via binding
         root.textEdited(selectedText)
+        root.suggestionSelected(selectedText)
         textInput.focus = false
         Qt.inputMethod.hide()
     }

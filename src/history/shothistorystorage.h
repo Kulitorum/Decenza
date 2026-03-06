@@ -270,8 +270,6 @@ public:
     Q_INVOKABLE void requestUpdateGrinderFields(const QString& oldBrand, const QString& oldModel,
                                                  const QString& newBrand, const QString& newModel,
                                                  const QString& newBurrs);
-    Q_INVOKABLE int countShotsWithGrinder(const QString& brand, const QString& model);
-
     // Get filter options with cascading filter (for dependent dropdowns)
     Q_INVOKABLE QStringList getDistinctProfilesFiltered(const QVariantMap& filter);
     Q_INVOKABLE QStringList getDistinctBeanBrandsFiltered(const QVariantMap& filter);

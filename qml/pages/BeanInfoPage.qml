@@ -664,7 +664,9 @@ Page {
                     }
                     onTextEdited: function(t) {
                         if (isEditMode) editGrinderBrand = t; else Settings.dyeGrinderBrand = t;
-                        // Clear model and burrs when brand changes
+                    }
+                    onSuggestionSelected: function(t) {
+                        // Clear model and burrs when a different brand is picked from dropdown
                         if (isEditMode) { editGrinderModel = ""; editGrinderBurrs = ""; }
                         else { Settings.dyeGrinderModel = ""; Settings.dyeGrinderBurrs = ""; }
                     }

@@ -500,80 +500,140 @@ bool ShotHistoryStorage::runMigrations()
     // Migration 8: Add grinder_brand and grinder_burrs columns, backfill from alias lookup, rebuild FTS
     if (currentVersion < 8) {
         qDebug() << "ShotHistoryStorage: Running migration to version 8 (structured grinder fields)";
-        m_db.transaction();
 
-        if (!hasColumn("shots", "grinder_brand"))
-            query.exec("ALTER TABLE shots ADD COLUMN grinder_brand TEXT");
-        if (!hasColumn("shots", "grinder_burrs"))
-            query.exec("ALTER TABLE shots ADD COLUMN grinder_burrs TEXT");
-
-        // Backfill: parse existing grinder_model through alias lookup
-        QSqlQuery readQuery(m_db);
-        readQuery.prepare("SELECT id, grinder_model FROM shots WHERE grinder_model IS NOT NULL AND grinder_model != ''");
-        if (readQuery.exec()) {
-            QSqlQuery updateQuery(m_db);
-            updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? WHERE id = ?");
-            int backfillCount = 0;
-
-            while (readQuery.next()) {
-                qint64 id = readQuery.value(0).toLongLong();
-                QString rawModel = readQuery.value(1).toString();
-                auto result = GrinderAliases::lookup(rawModel);
-                if (result.found) {
-                    updateQuery.bindValue(0, result.brand);
-                    updateQuery.bindValue(1, result.model);
-                    updateQuery.bindValue(2, result.stockBurrs);
-                    updateQuery.bindValue(3, id);
-                    updateQuery.exec();
-                    backfillCount++;
+        bool migrationOk = false;
+        if (!m_db.transaction()) {
+            qWarning() << "ShotHistoryStorage: Migration 8 failed to begin transaction:"
+                       << m_db.lastError().text();
+        } else {
+            bool schemaOk = true;
+            if (!hasColumn("shots", "grinder_brand")) {
+                if (!query.exec("ALTER TABLE shots ADD COLUMN grinder_brand TEXT")) {
+                    qWarning() << "ShotHistoryStorage: Migration 8 failed to add grinder_brand column:"
+                               << query.lastError().text();
+                    schemaOk = false;
                 }
             }
-            qDebug() << "ShotHistoryStorage: Migration 8 backfilled" << backfillCount << "shots with structured grinder data";
+            if (schemaOk && !hasColumn("shots", "grinder_burrs")) {
+                if (!query.exec("ALTER TABLE shots ADD COLUMN grinder_burrs TEXT")) {
+                    qWarning() << "ShotHistoryStorage: Migration 8 failed to add grinder_burrs column:"
+                               << query.lastError().text();
+                    schemaOk = false;
+                }
+            }
+
+            bool migrationFailed = !schemaOk;
+            if (schemaOk) {
+                // Backfill: parse existing grinder_model through alias lookup
+                QSqlQuery readQuery(m_db);
+                readQuery.prepare("SELECT id, grinder_model FROM shots WHERE grinder_model IS NOT NULL AND grinder_model != ''");
+                if (readQuery.exec()) {
+                    QSqlQuery updateQuery(m_db);
+                    updateQuery.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ? WHERE id = ?");
+                    int backfillCount = 0;
+
+                    while (readQuery.next()) {
+                        qint64 id = readQuery.value(0).toLongLong();
+                        QString rawModel = readQuery.value(1).toString();
+                        auto result = GrinderAliases::lookup(rawModel);
+                        if (result.found) {
+                            updateQuery.bindValue(0, result.brand);
+                            updateQuery.bindValue(1, result.model);
+                            updateQuery.bindValue(2, result.stockBurrs);
+                            updateQuery.bindValue(3, id);
+                            if (!updateQuery.exec()) {
+                                qWarning() << "ShotHistoryStorage: Migration 8 failed to update shot" << id
+                                           << ":" << updateQuery.lastError().text();
+                                migrationFailed = true;
+                                break;
+                            }
+                            backfillCount++;
+                        }
+                    }
+                    if (!migrationFailed)
+                        qDebug() << "ShotHistoryStorage: Migration 8 backfilled" << backfillCount << "shots with structured grinder data";
+                }
+            }
+
+            if (!migrationFailed) {
+                // Rebuild FTS to include grinder_brand and grinder_burrs
+                query.exec("DROP TRIGGER IF EXISTS shots_ai");
+                query.exec("DROP TRIGGER IF EXISTS shots_ad");
+                query.exec("DROP TRIGGER IF EXISTS shots_au");
+                query.exec("DROP TABLE IF EXISTS shots_fts");
+
+                if (!query.exec(R"(
+                    CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
+                        espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs,
+                        content='shots', content_rowid='id'
+                    )
+                )")) {
+                    qWarning() << "ShotHistoryStorage: Migration 8 failed to create FTS table:"
+                               << query.lastError().text();
+                    migrationFailed = true;
+                }
+            }
+
+            if (!migrationFailed) {
+                query.exec(R"(
+                    CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
+                        INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                        VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
+                    END
+                )");
+                query.exec(R"(
+                    CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
+                        INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                        VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
+                    END
+                )");
+                query.exec(R"(
+                    CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
+                        INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                        VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
+                        INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                        VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
+                    END
+                )");
+
+                // Rebuild FTS index
+                if (!query.exec(R"(
+                    INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
+                    SELECT id, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs FROM shots
+                )")) {
+                    qWarning() << "ShotHistoryStorage: Migration 8 failed to populate FTS index:"
+                               << query.lastError().text();
+                    migrationFailed = true;
+                }
+            }
+
+            if (migrationFailed) {
+                qWarning() << "ShotHistoryStorage: Migration 8 rolling back";
+                m_db.rollback();
+            } else {
+                if (!query.exec("DELETE FROM schema_version") ||
+                    !query.exec("INSERT INTO schema_version (version) VALUES (8)")) {
+                    qWarning() << "ShotHistoryStorage: Migration 8 failed to bump schema version:"
+                               << query.lastError().text();
+                    m_db.rollback();
+                } else if (!m_db.commit()) {
+                    qWarning() << "ShotHistoryStorage: Migration 8 commit failed:"
+                               << m_db.lastError().text();
+                    m_db.rollback();
+                } else {
+                    migrationOk = true;
+                }
+            }
         }
 
-        // Rebuild FTS to include grinder_brand and grinder_burrs
-        query.exec("DROP TRIGGER IF EXISTS shots_ai");
-        query.exec("DROP TRIGGER IF EXISTS shots_ad");
-        query.exec("DROP TRIGGER IF EXISTS shots_au");
-        query.exec("DROP TABLE IF EXISTS shots_fts");
-
-        query.exec(R"(
-            CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
-                espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs,
-                content='shots', content_rowid='id'
-            )
-        )");
-
-        query.exec(R"(
-            CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
-                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
-            END
-        )");
-        query.exec(R"(
-            CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
-                INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
-            END
-        )");
-        query.exec(R"(
-            CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
-                INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name, old.grinder_brand, old.grinder_model, old.grinder_burrs);
-                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-                VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name, new.grinder_brand, new.grinder_model, new.grinder_burrs);
-            END
-        )");
-
-        // Rebuild FTS index
-        query.exec(R"(
-            INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs)
-            SELECT id, espresso_notes, bean_brand, bean_type, profile_name, grinder_brand, grinder_model, grinder_burrs FROM shots
-        )");
-
-        query.exec("DELETE FROM schema_version");
-        query.exec("INSERT INTO schema_version (version) VALUES (8)");
-        m_db.commit();
+        // Schema changes are structural — always bump to version 8 so the app can start.
+        // If the transaction succeeded, version is already 8 in the DB.
+        // If it failed, bump outside the transaction so we don't retry on every launch.
+        if (!migrationOk) {
+            qWarning() << "ShotHistoryStorage: Migration 8 failed, bumping version anyway";
+            query.exec("DELETE FROM schema_version");
+            query.exec("INSERT INTO schema_version (version) VALUES (8)");
+        }
         currentVersion = 8;
     }
 
@@ -3918,19 +3978,6 @@ void ShotHistoryStorage::refreshTotalShots()
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
-}
-
-int ShotHistoryStorage::countShotsWithGrinder(const QString& brand, const QString& model)
-{
-    if (!m_ready) return 0;
-
-    QSqlQuery query(m_db);
-    query.prepare("SELECT COUNT(*) FROM shots WHERE grinder_brand = ? AND grinder_model = ?");
-    query.bindValue(0, brand);
-    query.bindValue(1, model);
-    if (query.exec() && query.next())
-        return query.value(0).toInt();
-    return 0;
 }
 
 void ShotHistoryStorage::requestUpdateGrinderFields(const QString& oldBrand, const QString& oldModel,

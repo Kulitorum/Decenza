@@ -212,7 +212,8 @@ Page {
         anchors.fill: parent
         textFields: [
             roasterField.textField, coffeeField.textField, roastDateField.textField,
-            grinderField.textField, settingField.textField, baristaField.textField,
+            grinderBrandField.textField, grinderModelField.textField, grinderBurrsField.textField,
+            settingField.textField, baristaField.textField,
             notesExpandable.textField
         ]
 
@@ -629,6 +630,10 @@ Page {
                         return merged
                     }
                     onTextEdited: function(t) { editGrinderBrand = t }
+                    onSuggestionSelected: function(t) {
+                        editGrinderModel = ""
+                        editGrinderBurrs = ""
+                    }
                 }
 
                 SuggestionField {

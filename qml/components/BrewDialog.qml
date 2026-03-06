@@ -638,6 +638,10 @@ Dialog {
                     text: root.grinderBrand
                     suggestions: _distinctCacheVersion >= 0 ? root.getGrinderBrandSuggestions() : []
                     onTextEdited: function(t) { root.grinderBrand = t }
+                    onSuggestionSelected: function(t) {
+                        root.grinderModel = ""
+                        root.grinderBurrs = ""
+                    }
                 }
 
                 SuggestionField {

@@ -301,7 +301,7 @@ Row 3: [Burrs]       [Setting]     [Barista]
 | FTS index | includes `grinder_model` | includes `grinder_brand`, `grinder_model` |
 | AI prompt | "Grinder: DF83V" | "Grinder: Turin DF83V with SSP HU 83mm burrs" |
 
-**Migration**: DB migration uses `resources/grinder_aliases.json` — a lookup table of ~90 grinders with aliases that map common user-typed strings to structured brand/model/stock_burrs. The migration:
+**Migration**: DB migration uses `src/core/grinderaliases.h` — a lookup table of ~90 grinders with aliases that map common user-typed strings to structured brand/model/stock_burrs. The migration:
 1. Lowercase-normalizes the existing `grinder_model` string
 2. Matches against aliases (e.g. "niche" → Niche/Zero, "df83v" → Turin/DF83V, "comandante" → Comandante/C40 MK4)
 3. On match: populates `grinder_brand`, `grinder_model`, and auto-fills `grinder_burrs` with `stock_burrs`
