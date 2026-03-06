@@ -63,6 +63,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: macos-universal
+          max-size: 500M
 
       - name: Install Apple Developer ID certificate
         env:
@@ -136,8 +137,6 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
             -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \
@@ -146,7 +145,8 @@ jobs:
       - name: Build Release
         run: |
           cd build/macos
-          cmake --build . --config Release --parallel
+          # Inject ccache via Xcode CC/CXX build settings
+          cmake --build . --config Release --parallel -- CC="ccache clang" CXX="ccache clang++"
 
       - name: Bundle Qt frameworks
         run: |

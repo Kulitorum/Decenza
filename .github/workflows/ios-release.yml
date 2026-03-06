@@ -53,6 +53,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ios-arm64
+          max-size: 500M
 
       - name: Install Apple certificate and provisioning profile
         env:
@@ -93,9 +94,7 @@ jobs:
           cd build/ios
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
             
       - name: Build and Archive
         env:
@@ -103,12 +102,14 @@ jobs:
         run: |
           cd build/ios
 
-          # Build archive
+          # Build archive (CC/CXX inject ccache for Xcode builds)
           xcodebuild archive \
             -project Decenza.xcodeproj \
             -scheme Decenza \
             -destination "generic/platform=iOS" \
             -archivePath $RUNNER_TEMP/Decenza.xcarchive \
+            CC="ccache clang" \
+            CXX="ccache clang++" \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=$TEAM_ID \
             CODE_SIGN_IDENTITY="iPhone Distribution" \

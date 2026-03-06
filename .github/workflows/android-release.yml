@@ -98,6 +98,24 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: android-arm64
+          max-size: 500M
+
+      - name: Wrap NDK compilers with ccache
+        run: |
+          # Qt's Android toolchain overrides CMAKE_*_COMPILER_LAUNCHER,
+          # so we wrap the actual NDK compiler binaries with ccache instead.
+          NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for COMP in clang clang++; do
+            if [ -f "$NDK_BIN/$COMP" ]; then
+              mv "$NDK_BIN/$COMP" "$NDK_BIN/$COMP.real"
+              cat > "$NDK_BIN/$COMP" <<'WRAPPER'
+          #!/bin/sh
+          exec ccache "$(dirname "$0")/$( basename "$0" ).real" "$@"
+          WRAPPER
+              chmod +x "$NDK_BIN/$COMP"
+              echo "Wrapped $NDK_BIN/$COMP with ccache"
+            fi
+          done
 
       - name: Decode Android keystore
         env:
@@ -112,9 +130,7 @@ jobs:
           cd build
           $QT_ROOT_DIR/bin/qt-cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
       - name: Build
         env:
