@@ -86,7 +86,7 @@ ChartView {
         titleBrush: Theme.textSecondaryColor
     }
 
-    // Temperature axis (right Y) - hidden, manual labels drawn below
+    // Temperature axis (right Y) - hidden; labels provided by rightAxisLabels
     ValueAxis {
         id: tempAxis
         min: 40
@@ -95,7 +95,7 @@ ChartView {
         visible: false
     }
 
-    // Weight axis (right Y) - hidden, manual labels drawn below
+    // Weight axis (right Y) - hidden; labels provided by rightAxisLabels
     ValueAxis {
         id: weightAxis
         min: 0
@@ -362,7 +362,8 @@ ChartView {
         Accessible.ignored: true
     }
 
-    // Manual right-axis labels (fixed position — no layout shift when swapping)
+    // Manual right-axis labels — built-in Qt Charts axes cause layout shift
+    // (plotArea resizes when axis visibility toggles), so we draw labels at a fixed position
     Item {
         id: rightAxisLabels
         x: chart.plotArea.x + chart.plotArea.width + Theme.scaled(4)
@@ -378,7 +379,7 @@ ChartView {
 
         property color labelColor: chart.showWeightAxis ? Theme.weightColor : Theme.temperatureColor
 
-        // Tick labels
+        // Tick labels — count must match tickCount on tempAxis/weightAxis
         Repeater {
             model: 5
             Text {
