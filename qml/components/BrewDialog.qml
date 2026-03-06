@@ -641,6 +641,12 @@ Dialog {
                     onSuggestionSelected: function(t) {
                         root.grinderModel = ""
                         root.grinderBurrs = ""
+                        var models = Settings.knownGrinderModels(t)
+                        if (models.length === 1) {
+                            root.grinderModel = models[0]
+                            var burrs = Settings.suggestedBurrs(t, models[0])
+                            if (burrs.length === 1) root.grinderBurrs = burrs[0]
+                        }
                     }
                 }
 
@@ -654,9 +660,8 @@ Dialog {
                     suggestions: _distinctCacheVersion >= 0 ? root.getGrinderModelSuggestions() : []
                     onTextEdited: function(t) { root.grinderModel = t }
                     onSuggestionSelected: function(t) {
-                        // Auto-fill burrs when model is picked from dropdown
                         var burrs = Settings.suggestedBurrs(root.grinderBrand, t)
-                        if (burrs.length > 0) root.grinderBurrs = burrs[0]
+                        if (burrs.length === 1) root.grinderBurrs = burrs[0]
                     }
                 }
             }

@@ -666,9 +666,17 @@ Page {
                         if (isEditMode) editGrinderBrand = t; else Settings.dyeGrinderBrand = t;
                     }
                     onSuggestionSelected: function(t) {
-                        // Clear model and burrs when a different brand is picked from dropdown
+                        // Clear model and burrs, then auto-fill if only one option
                         if (isEditMode) { editGrinderModel = ""; editGrinderBurrs = ""; }
                         else { Settings.dyeGrinderModel = ""; Settings.dyeGrinderBurrs = ""; }
+                        var models = Settings.knownGrinderModels(t)
+                        if (models.length === 1) {
+                            if (isEditMode) editGrinderModel = models[0]; else Settings.dyeGrinderModel = models[0];
+                            var burrs = Settings.suggestedBurrs(t, models[0])
+                            if (burrs.length === 1) {
+                                if (isEditMode) editGrinderBurrs = burrs[0]; else Settings.dyeGrinderBurrs = burrs[0];
+                            }
+                        }
                     }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -692,10 +700,10 @@ Page {
                         if (isEditMode) editGrinderModel = t; else Settings.dyeGrinderModel = t;
                     }
                     onSuggestionSelected: function(t) {
-                        // Auto-fill burrs when model is picked from dropdown
+                        // Auto-fill burrs if only one option
                         var brand = isEditMode ? editGrinderBrand : Settings.dyeGrinderBrand
                         var burrs = Settings.suggestedBurrs(brand, t)
-                        if (burrs.length > 0) {
+                        if (burrs.length === 1) {
                             if (isEditMode) editGrinderBurrs = burrs[0]; else Settings.dyeGrinderBurrs = burrs[0];
                         }
                     }

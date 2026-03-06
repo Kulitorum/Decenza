@@ -633,6 +633,12 @@ Page {
                     onSuggestionSelected: function(t) {
                         editGrinderModel = ""
                         editGrinderBurrs = ""
+                        var models = Settings.knownGrinderModels(t)
+                        if (models.length === 1) {
+                            editGrinderModel = models[0]
+                            var burrs = Settings.suggestedBurrs(t, models[0])
+                            if (burrs.length === 1) editGrinderBurrs = burrs[0]
+                        }
                     }
                 }
 
@@ -652,9 +658,8 @@ Page {
                     }
                     onTextEdited: function(t) { editGrinderModel = t }
                     onSuggestionSelected: function(t) {
-                        // Auto-fill burrs when model is picked from dropdown
                         var burrs = Settings.suggestedBurrs(editGrinderBrand, t)
-                        if (burrs.length > 0) editGrinderBurrs = burrs[0]
+                        if (burrs.length === 1) editGrinderBurrs = burrs[0]
                     }
                 }
 
