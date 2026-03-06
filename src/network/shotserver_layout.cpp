@@ -57,7 +57,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
     // GET /api/layout/item?id=X — return item properties
     if (method == "GET" && path.startsWith("/api/layout/item")) {
         QString itemId;
-        int qIdx = path.indexOf("?id=");
+        qsizetype qIdx = path.indexOf("?id=");
         if (qIdx >= 0) {
             itemId = QUrl::fromPercentEncoding(path.mid(qIdx + 4).toUtf8());
         }
@@ -100,9 +100,9 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 404, "text/plain", "Not found");
             return;
         }
-        int qIdx = path.indexOf("?id=");
+        qsizetype qIdx = path.indexOf("?id=");
         QString rawId = (qIdx >= 0) ? path.mid(qIdx + 4) : QString();
-        int ampIdx = rawId.indexOf('&');
+        qsizetype ampIdx = rawId.indexOf('&');
         if (ampIdx >= 0) rawId = rawId.left(ampIdx);
         QString entryId = QUrl::fromPercentEncoding(rawId.toUtf8());
         bool compact = path.contains("&compact=1");
@@ -136,7 +136,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendJson(socket, R"({"error":"Library not available"})");
             return;
         }
-        int qIdx = path.indexOf("?id=");
+        qsizetype qIdx = path.indexOf("?id=");
         QString entryId = (qIdx >= 0) ? QUrl::fromPercentEncoding(path.mid(qIdx + 4).toUtf8()) : QString();
         if (entryId.isEmpty()) {
             sendResponse(socket, 400, "application/json", R"({"error":"Missing id parameter"})");
