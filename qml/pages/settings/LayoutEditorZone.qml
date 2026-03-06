@@ -406,6 +406,7 @@ Rectangle {
                             { type: "steam", label: "Steam" },
                             { type: "steamTemperature", label: "Steam Temp" },
                             { type: "temperature", label: "Temperature" },
+                            { type: "batteryLevel", label: "Battery Level" },
                             { type: "waterLevel", label: "Water Level" },
                             // Utility (orange)
                             { type: "custom", label: "Custom" },
@@ -523,7 +524,7 @@ Rectangle {
             "flush": "Flush", "beans": "Beans", "history": "History",
             "autofavorites": "Favorites", "sleep": "Sleep", "settings": "Settings",
             "temperature": "Temp", "steamTemperature": "Steam Temp",
-            "waterLevel": "Water",
+            "batteryLevel": "Battery", "waterLevel": "Water",
             "connectionStatus": "Connection", "machineStatus": "Status", "scaleWeight": "Scale",
             "shotPlan": "Shot Plan", "pageTitle": "Page Title",
             "spacer": "Spacer", "separator": "Sep", "custom": "Custom",

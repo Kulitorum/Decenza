@@ -631,7 +631,7 @@ Rectangle {
             "flush": "Flush", "beans": "Beans", "history": "History",
             "autofavorites": "Favs", "sleep": "Sleep", "settings": "Settings",
             "temperature": "Temp", "steamTemperature": "Steam",
-            "waterLevel": "Water", "connectionStatus": "Conn",
+            "batteryLevel": "Batt", "waterLevel": "Water", "connectionStatus": "Conn",
             "scaleWeight": "Scale", "shotPlan": "Plan", "pageTitle": "Title",
             "spacer": "---", "separator": "|", "weather": "Weather", "quit": "Quit"
         }

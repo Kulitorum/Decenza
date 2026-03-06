@@ -2285,6 +2285,7 @@ QString ShotServer::generateLayoutPage() const
         {type:"steam",label:"Steam"},
         {type:"steamTemperature",label:"Steam Temp"},
         {type:"temperature",label:"Temperature"},
+        {type:"batteryLevel",label:"Battery Level"},
         {type:"waterLevel",label:"Water Level"},
         // Utility (orange)
         {type:"custom",label:"Custom",special:true},
@@ -2305,7 +2306,7 @@ QString ShotServer::generateLayoutPage() const
         espresso:"Espresso",steam:"Steam",hotwater:"Hot Water",flush:"Flush",
         beans:"Beans",history:"History",autofavorites:"Favorites",sleep:"Sleep",
         settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
-        waterLevel:"Water",connectionStatus:"Connection",scaleWeight:"Scale",
+        batteryLevel:"Battery",waterLevel:"Water",connectionStatus:"Connection",scaleWeight:"Scale",
         shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
         custom:"Custom",weather:"Weather",quit:"Quit",
         screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",

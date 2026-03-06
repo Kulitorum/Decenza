@@ -11,6 +11,7 @@
 #include "../core/settingsserializer.h"
 #include "../core/dbutils.h"
 #include "../ai/aimanager.h"
+#include "../core/batterymanager.h"
 #include "../core/memorymonitor.h"
 #include "version.h"
 
@@ -1567,6 +1568,12 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             result["scaleWeight"] = m_machineState->scaleWeight();
             result["scaleFlowRate"] = m_machineState->scaleFlowRate();
             result["targetWeight"] = m_machineState->targetWeight();
+        }
+        if (m_batteryManager) {
+            result["batteryPercent"] = m_batteryManager->batteryPercent();
+        }
+        if (m_settings) {
+            result["waterLevelDisplayUnit"] = m_settings->waterLevelDisplayUnit();
         }
         result["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
         sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));

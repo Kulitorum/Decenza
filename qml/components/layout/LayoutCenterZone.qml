@@ -21,6 +21,7 @@ Item {
             case "connectionStatus":
             case "machineStatus":
             case "steamTemperature":
+            case "batteryLevel":
             case "scaleWeight":
             case "weather":
                 return true

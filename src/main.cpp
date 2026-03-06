@@ -674,6 +674,8 @@ int main(int argc, char *argv[])
     batteryManager.setDE1Device(&de1Device);
     batteryManager.setSettings(&settings);
 
+    mainController.shotServer()->setBatteryManager(&batteryManager);
+
     MemoryMonitor memoryMonitor;
     mainController.shotServer()->setMemoryMonitor(&memoryMonitor);
 
