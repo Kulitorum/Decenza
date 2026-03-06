@@ -664,6 +664,9 @@ Page {
                     }
                     onTextEdited: function(t) {
                         if (isEditMode) editGrinderBrand = t; else Settings.dyeGrinderBrand = t;
+                        // Clear model and burrs when brand changes
+                        if (isEditMode) { editGrinderModel = ""; editGrinderBurrs = ""; }
+                        else { Settings.dyeGrinderModel = ""; Settings.dyeGrinderBurrs = ""; }
                     }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
