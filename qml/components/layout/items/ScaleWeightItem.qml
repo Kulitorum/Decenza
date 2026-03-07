@@ -13,10 +13,10 @@ Item {
     property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
     // Scale warning: saved BLE scale not connected or connection failed
-    // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement
+    // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
     property bool showScaleWarning: !root.scaleConnected
         && (BLEManager.scaleConnectionFailed || BLEManager.hasSavedScale)
-        && !UsbScaleManager.scaleConnected
+        && (Qt.platform.os === "ios" || !UsbScaleManager.scaleConnected)
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

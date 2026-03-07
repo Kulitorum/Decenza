@@ -7,6 +7,9 @@ import "../../components"
 Item {
     id: connectionsTab
 
+    // USB is not supported on iOS (no USB host mode)
+    readonly property bool usbAvailable: Qt.platform.os !== "ios"
+
     // Share Log Dialog
     Dialog {
         id: shareLogDialog
@@ -206,11 +209,11 @@ Item {
                 anchors.margins: Theme.scaled(15)
                 spacing: Theme.scaled(10)
 
-                // === USB-C view (shown when USB connected) ===
+                // === USB-C view (shown when USB connected, not available on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: USBManager.de1Connected
+                    visible: usbAvailable && USBManager.de1Connected
                     spacing: Theme.scaled(10)
 
                     // Title row with status badge
@@ -317,7 +320,7 @@ Item {
                         }
 
                         Connections {
-                            target: USBManager
+                            target: usbAvailable ? USBManager : null
                             function onLogMessage(message) {
                                 usbLogText.text += message + "\n"
                                 usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
@@ -327,7 +330,7 @@ Item {
                         // Also show DE1 transport logs (SerialTransport TX/RX) in the USB log panel
                         Connections {
                             target: BLEManager
-                            enabled: USBManager.de1Connected
+                            enabled: usbAvailable && USBManager.de1Connected
                             function onDe1LogMessage(message) {
                                 usbLogText.text += message + "\n"
                                 usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
@@ -336,11 +339,11 @@ Item {
                     }
                 }
 
-                // === BLE view (shown when no USB connection) ===
+                // === BLE view (shown when no USB connection, or always on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: !USBManager.de1Connected
+                    visible: !usbAvailable || !USBManager.de1Connected
                     spacing: Theme.scaled(10)
 
                     Tr {
@@ -452,8 +455,9 @@ Item {
                     }
                 }
 
-                // Serial USB toggle — bottom of machine connection card, always visible
+                // Serial USB toggle — not available on iOS
                 RowLayout {
+                    visible: usbAvailable
                     Layout.fillWidth: true
                     spacing: Theme.scaled(15)
 
@@ -499,11 +503,11 @@ Item {
                 anchors.margins: Theme.scaled(15)
                 spacing: Theme.scaled(10)
 
-                // === USB Scale view (shown when USB scale connected) ===
+                // === USB Scale view (shown when USB scale connected, not available on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: UsbScaleManager.scaleConnected
+                    visible: usbAvailable && UsbScaleManager.scaleConnected
                     spacing: Theme.scaled(10)
 
                     // Title row with status badge (mirrors USB machine panel)
@@ -608,7 +612,7 @@ Item {
                         }
 
                         Connections {
-                            target: UsbScaleManager
+                            target: usbAvailable ? UsbScaleManager : null
                             function onLogMessage(message) {
                                 usbScaleLogText.text += message + "\n"
                                 usbScaleLogScroll.ScrollBar.vertical.position = 1.0 - usbScaleLogScroll.ScrollBar.vertical.size
@@ -618,7 +622,7 @@ Item {
                         // Also show BLE scale log messages in USB view (for connection history)
                         Connections {
                             target: BLEManager
-                            enabled: UsbScaleManager.scaleConnected
+                            enabled: usbAvailable && UsbScaleManager.scaleConnected
                             function onScaleLogMessage(message) {
                                 usbScaleLogText.text += message + "\n"
                                 usbScaleLogScroll.ScrollBar.vertical.position = 1.0 - usbScaleLogScroll.ScrollBar.vertical.size
@@ -627,11 +631,11 @@ Item {
                     }
                 }
 
-                // === BLE Scale view (shown when no USB scale) ===
+                // === BLE Scale view (shown when no USB scale, or always on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: !UsbScaleManager.scaleConnected
+                    visible: !usbAvailable || !UsbScaleManager.scaleConnected
                     spacing: Theme.scaled(10)
 
                     Tr {

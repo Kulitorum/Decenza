@@ -25,7 +25,7 @@ Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE co
 
 - **ADB path**: `/c/Users/Micro/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 - **Uninstall app**: `adb uninstall io.github.kulitorum.decenza_de1`
-- **WiFi debugging**: `192.168.1.208:5555` (reconnect: `adb connect 192.168.1.208:5555`)
+- **WiFi debugging**: `192.168.1.212:5555` (reconnect: `adb connect 192.168.1.212:5555`)
 - **Qt version**: 6.10.2
 - **Qt path**: `C:/Qt/6.10.2/msvc2022_64`
 - **C++ standard**: C++17
