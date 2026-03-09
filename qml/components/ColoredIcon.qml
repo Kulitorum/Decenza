@@ -18,7 +18,16 @@ Button {
 
     flat: true
     padding: 0
+    topPadding: 0
+    bottomPadding: 0
+    leftPadding: 0
+    rightPadding: 0
+    topInset: 0
+    bottomInset: 0
+    leftInset: 0
+    rightInset: 0
     focusPolicy: Qt.NoFocus
+    display: Button.IconOnly
     icon.source: root.source
     background: Item {}
     Accessible.ignored: true

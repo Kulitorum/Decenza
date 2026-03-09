@@ -289,6 +289,11 @@ Dialog {
                 text: root.beanBrand
                 suggestions: _distinctCacheVersion >= 0 ? root.getBeanBrandSuggestions() : []
                 onTextEdited: function(t) { root.beanBrand = t }
+                onSuggestionSelected: function(t) {
+                    root.beanType = ""
+                    var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
+                    if (types.length === 1) root.beanType = types[0]
+                }
             }
         }
 

@@ -478,6 +478,7 @@ Item {
                                 iconColor: Theme.primaryColor
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Theme.scaled(24)
+                                height: Theme.scaled(24)
                                 visible: dialogSuggestionDelegate._isCurrent
                             }
 

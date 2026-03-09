@@ -609,6 +609,12 @@ Page {
                     text: editBeanBrand
                     suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
                     onTextEdited: function(t) { editBeanBrand = t }
+                    onSuggestionSelected: function(t) {
+                        editBeanType = ""
+                        editRoastDate = ""
+                        var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
+                        if (types.length === 1) editBeanType = types[0]
+                    }
                 }
 
                 SuggestionField {
@@ -618,6 +624,7 @@ Page {
                     text: editBeanType
                     suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
                     onTextEdited: function(t) { editBeanType = t }
+                    onSuggestionSelected: function(t) { editRoastDate = "" }
                 }
 
                 LabeledField {
