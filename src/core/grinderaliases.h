@@ -3,6 +3,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QRegularExpression>
 
 namespace GrinderAliases {
 
@@ -235,6 +236,58 @@ inline bool isBurrSwappable(const QString& brand, const QString& model)
         }
     }
     return false;
+}
+
+// Return a compact burr geometry string for AI enrichment (e.g. "83mm flat", "63mm conical").
+// Type (flat/conical) inferred from user's burrs string first, then stock burrs.
+// Size from database burrSizeMm first, then parsed from burrs strings.
+inline QString burrGeometry(const QString& brand, const QString& model, const QString& userBurrs = QString())
+{
+    // Infer burr type (flat/conical) from a descriptive string
+    auto inferType = [](const QString& s) -> QString {
+        QString lower = s.toLower();
+        if (lower.contains("conical")) return "conical";
+        if (lower.contains("flat")) return "flat";
+        return QString();
+    };
+
+    // Infer burr size from a descriptive string (e.g. "83mm flat steel" -> 83)
+    auto inferSize = [](const QString& s) -> int {
+        static const QRegularExpression rx("(\\d{2,3})\\s*mm");
+        auto match = rx.match(s);
+        return match.hasMatch() ? match.captured(1).toInt() : 0;
+    };
+
+    // Look up the grinder entry for burrSizeMm and stock burrs
+    const GrinderEntry* entry = nullptr;
+    const auto& grinders = allGrinders();
+    for (const auto& g : grinders) {
+        if (g.brand.compare(brand, Qt::CaseInsensitive) == 0 &&
+            g.model.compare(model, Qt::CaseInsensitive) == 0) {
+            entry = &g;
+            break;
+        }
+    }
+
+    // Determine burr type: prefer user burrs, fall back to stock burrs
+    QString type;
+    if (!userBurrs.isEmpty()) type = inferType(userBurrs);
+    if (type.isEmpty() && entry && !entry->stockBurrs.isEmpty())
+        type = inferType(entry->stockBurrs.first());
+
+    // Determine size: prefer entry's burrSizeMm, fall back to parsing strings
+    int size = (entry && entry->burrSizeMm > 0) ? entry->burrSizeMm : 0;
+    if (size == 0 && !userBurrs.isEmpty()) size = inferSize(userBurrs);
+    if (size == 0 && entry && !entry->stockBurrs.isEmpty())
+        size = inferSize(entry->stockBurrs.first());
+
+    if (size > 0 && !type.isEmpty())
+        return QString("%1mm %2").arg(size).arg(type);
+    if (size > 0)
+        return QString("%1mm").arg(size);
+    if (!type.isEmpty())
+        return type;
+    return QString();
 }
 
 // Get all known brands (unique, sorted)

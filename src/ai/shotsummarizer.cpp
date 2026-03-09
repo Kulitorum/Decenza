@@ -2,6 +2,7 @@
 #include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
+#include "../core/grinderaliases.h"
 
 #include <cmath>
 #include <algorithm>
@@ -440,6 +441,11 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
                : summary.grinderBrand + " " + summary.grinderModel);
         out << "- **Grinder**: " << grinderStr;
         if (!summary.grinderBurrs.isEmpty()) out << " with " << summary.grinderBurrs;
+        // Enrich with burr geometry (e.g. "83mm flat") from grinder database
+        QString geometry = GrinderAliases::burrGeometry(
+            summary.grinderBrand, summary.grinderModel, summary.grinderBurrs);
+        if (!geometry.isEmpty() && !summary.grinderBurrs.contains(geometry))
+            out << " (" << geometry << ")";
         if (!summary.grinderSetting.isEmpty()) out << " @ " << summary.grinderSetting;
         out << "\n";
     }
