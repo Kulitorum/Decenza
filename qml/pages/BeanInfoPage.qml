@@ -625,7 +625,12 @@ Page {
                     suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
                     onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else Settings.dyeBeanBrand = t; }
                     onSuggestionSelected: function(t) {
-                        if (isEditMode) editBeanType = ""; else Settings.dyeBeanType = "";
+                        if (isEditMode) { editBeanType = ""; editRoastDate = ""; }
+                        else { Settings.dyeBeanType = ""; Settings.dyeRoastDate = ""; }
+                        var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
+                        if (types.length === 1) {
+                            if (isEditMode) editBeanType = types[0]; else Settings.dyeBeanType = types[0];
+                        }
                     }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
