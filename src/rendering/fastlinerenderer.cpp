@@ -96,8 +96,7 @@ void FastLineRenderer::itemChange(ItemChange change, const ItemChangeData& data)
 }
 
 // Triangle strip vertex count: 2 vertices per point (left/right of the line center)
-static constexpr int STRIP_MAX_POINTS = 700;
-static constexpr int MAX_VERTICES = STRIP_MAX_POINTS * 2;
+static constexpr int MAX_VERTICES = FastLineRenderer::MAX_POINTS * 2;
 
 QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) {
     auto* gnode = static_cast<QSGGeometryNode*>(node);
