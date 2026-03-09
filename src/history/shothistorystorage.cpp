@@ -3746,7 +3746,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             grinder_brand, grinder_model, grinder_burrs, grinder_setting,
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
-            temperature_override, yield_override
+            temperature_override, yield_override, profile_kb_id
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
@@ -3754,7 +3754,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
-            :temperature_override, :yield_override
+            :temperature_override, :yield_override, :profile_kb_id
         )
     )");
 
@@ -3786,6 +3786,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     // Bind overrides (always have values - user override or profile default)
     query.bindValue(":temperature_override", record.temperatureOverride);
     query.bindValue(":yield_override", record.yieldOverride);
+    query.bindValue(":profile_kb_id", record.profileKbId.isEmpty() ? QVariant() : record.profileKbId);
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();
