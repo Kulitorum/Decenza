@@ -18,7 +18,7 @@ Item {
         target: TranslationManager
         function onTranslationSubmitted(success, message) {
             submitResultPopup.isSuccess = success
-            submitResultPopup.message = message
+            submitResultPopup.resultMessage = message
             submitResultPopup.open()
         }
         function onLanguageDownloaded(langCode, success, error) {
@@ -445,7 +445,7 @@ Item {
         closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool isSuccess: false
-        property string message: ""
+        property string resultMessage: ""
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -467,7 +467,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: submitResultPopup.message
+                text: submitResultPopup.resultMessage
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
