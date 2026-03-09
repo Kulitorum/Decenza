@@ -407,10 +407,28 @@ Page {
             }
 
             AccessibleButton {
-                text: "\u2630 " + TranslationManager.translate("shothistory.saved", "Saved")
                 accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
                 enabled: Settings.savedSearches.length > 0
                 onClicked: savedSearchesDialog.open()
+                contentItem: Row {
+                    spacing: Theme.scaled(6)
+                    anchors.centerIn: parent
+                    Image {
+                        source: "qrc:/icons/list.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
+                        anchors.verticalCenter: parent.verticalCenter
+                        opacity: parent.parent.enabled ? 1.0 : 0.5
+                    }
+                    Text {
+                        text: TranslationManager.translate("shothistory.saved", "Saved")
+                        font.pixelSize: Theme.scaled(16)
+                        font.family: Theme.bodyFont.family
+                        color: parent.parent.enabled ? Theme.textColor : Theme.textSecondaryColor
+                        verticalAlignment: Text.AlignVCenter
+                        Accessible.ignored: true
+                    }
+                }
             }
 
             // Sort field button

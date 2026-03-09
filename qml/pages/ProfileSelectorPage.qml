@@ -385,17 +385,27 @@ Page {
                             }
 
                             MenuItem {
-                                text: "\u270E  " + TranslationManager.translate("profileselector.menu.edit", "Edit Profile")
                                 onTriggered: {
                                     MainController.loadProfile(modelData.name)
                                     root.goToProfileEditor()
                                 }
 
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: Theme.textColor
-                                    font: Theme.bodyFont
+                                contentItem: Row {
+                                    spacing: Theme.scaled(8)
                                     leftPadding: Theme.scaled(8)
+                                    Image {
+                                        source: "qrc:/icons/edit.svg"
+                                        sourceSize.width: Theme.scaled(16)
+                                        sourceSize.height: Theme.scaled(16)
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Text {
+                                        text: TranslationManager.translate("profileselector.menu.edit", "Edit Profile")
+                                        color: Theme.textColor
+                                        font: Theme.bodyFont
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Accessible.ignored: true
+                                    }
                                 }
                                 background: Rectangle {
                                     color: parent.highlighted ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
@@ -415,7 +425,6 @@ Page {
 
                             MenuItem {
                                 visible: viewFilter.currentIndex === 0  // Only on "Selected" view
-                                text: "\u2212  " + TranslationManager.translate("profileselector.menu.remove_from_selected", "Remove from Selected")
                                 onTriggered: {
                                     if (profileDelegate.isBuiltIn) {
                                         Settings.removeSelectedBuiltInProfile(modelData.name)
@@ -424,11 +433,22 @@ Page {
                                     }
                                 }
 
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: Theme.errorColor
-                                    font: Theme.bodyFont
+                                contentItem: Row {
+                                    spacing: Theme.scaled(8)
                                     leftPadding: Theme.scaled(8)
+                                    Image {
+                                        source: "qrc:/icons/minus.svg"
+                                        sourceSize.width: Theme.scaled(16)
+                                        sourceSize.height: Theme.scaled(16)
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Text {
+                                        text: TranslationManager.translate("profileselector.menu.remove_from_selected", "Remove from Selected")
+                                        color: Theme.errorColor
+                                        font: Theme.bodyFont
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Accessible.ignored: true
+                                    }
                                 }
                                 background: Rectangle {
                                     color: parent.highlighted ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.2) : "transparent"
@@ -440,7 +460,6 @@ Page {
 
                             MenuItem {
                                 visible: !profileDelegate.isBuiltIn
-                                text: "\u2717  " + TranslationManager.translate("profileselector.menu.delete", "Delete Profile")
                                 onTriggered: {
                                     deleteDialog.profileName = modelData.name
                                     deleteDialog.profileTitle = modelData.title
@@ -448,11 +467,22 @@ Page {
                                     deleteDialog.open()
                                 }
 
-                                contentItem: Text {
-                                    text: parent.text
-                                    color: Theme.errorColor
-                                    font: Theme.bodyFont
+                                contentItem: Row {
+                                    spacing: Theme.scaled(8)
                                     leftPadding: Theme.scaled(8)
+                                    Image {
+                                        source: "qrc:/icons/trash.svg"
+                                        sourceSize.width: Theme.scaled(16)
+                                        sourceSize.height: Theme.scaled(16)
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Text {
+                                        text: TranslationManager.translate("profileselector.menu.delete", "Delete Profile")
+                                        color: Theme.errorColor
+                                        font: Theme.bodyFont
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        Accessible.ignored: true
+                                    }
                                 }
                                 background: Rectangle {
                                     color: parent.highlighted ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.2) : "transparent"
