@@ -294,7 +294,7 @@ KeyboardAwareContainer {
             anchors.centerIn: Overlay.overlay
             padding: Theme.scaled(24)
 
-            property string message: ""
+            property string resultMessage: ""
             property bool isError: false
 
             background: Rectangle {
@@ -316,7 +316,7 @@ KeyboardAwareContainer {
                 }
 
                 Text {
-                    text: importResultDialog.message
+                    text: importResultDialog.resultMessage
                     wrapMode: Text.Wrap
                     width: parent.width
                     font: Theme.bodyFont
@@ -337,7 +337,7 @@ KeyboardAwareContainer {
             target: MainController.shotImporter
             function onImportComplete(imported, skipped, failed) {
                 importResultDialog.title = "Import Complete"
-                importResultDialog.message = "Imported: " + imported + " shots\n" +
+                importResultDialog.resultMessage = "Imported: " + imported + " shots\n" +
                                              "Skipped (duplicates): " + skipped + "\n" +
                                              "Failed: " + failed + "\n\n" +
                                              "Total shots: " + (MainController.shotHistory ? MainController.shotHistory.totalShots : "?")
@@ -346,7 +346,7 @@ KeyboardAwareContainer {
             }
             function onImportError(message) {
                 importResultDialog.title = "Import Failed"
-                importResultDialog.message = message
+                importResultDialog.resultMessage = message
                 importResultDialog.isError = true
                 importResultDialog.open()
             }

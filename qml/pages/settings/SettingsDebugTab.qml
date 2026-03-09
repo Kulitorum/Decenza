@@ -275,13 +275,13 @@ Item {
                     if (errors > 0) {
                         msg += "\nErrors: " + errors
                     }
-                    profileConvertResultDialog.message = msg
+                    profileConvertResultDialog.resultMessage = msg
                     profileConvertResultDialog.isError = errors > 0
                     profileConvertResultDialog.open()
                 }
                 function onConversionError(message) {
                     profileConvertResultDialog.title = "Conversion Failed"
-                    profileConvertResultDialog.message = message
+                    profileConvertResultDialog.resultMessage = message
                     profileConvertResultDialog.isError = true
                     profileConvertResultDialog.open()
                 }
@@ -296,7 +296,7 @@ Item {
                 anchors.centerIn: Overlay.overlay
                 padding: Theme.scaled(24)
 
-                property string message: ""
+                property string resultMessage: ""
                 property bool isError: false
 
                 background: Rectangle {
@@ -318,7 +318,7 @@ Item {
                     }
 
                     Text {
-                        text: profileConvertResultDialog.message
+                        text: profileConvertResultDialog.resultMessage
                         wrapMode: Text.Wrap
                         width: parent.width
                         font: Theme.bodyFont
@@ -425,7 +425,7 @@ Item {
                     if (success) {
                         console.log("Database import successful")
                         importResultDialog.title = "Import Successful"
-                        importResultDialog.message = "Database imported successfully.\nTotal shots: " + MainController.shotHistory.totalShots
+                        importResultDialog.resultMessage = "Database imported successfully.\nTotal shots: " + MainController.shotHistory.totalShots
                         importResultDialog.isError = false
                         importResultDialog.open()
                     }
@@ -442,7 +442,7 @@ Item {
                 anchors.centerIn: Overlay.overlay
                 padding: Theme.scaled(24)
 
-                property string message: ""
+                property string resultMessage: ""
                 property bool isError: false
 
                 background: Rectangle {
@@ -464,7 +464,7 @@ Item {
                     }
 
                     Text {
-                        text: importResultDialog.message
+                        text: importResultDialog.resultMessage
                         wrapMode: Text.Wrap
                         width: parent.width
                         font: Theme.bodyFont
@@ -485,7 +485,7 @@ Item {
                 target: MainController.shotHistory
                 function onErrorOccurred(message) {
                     importResultDialog.title = "Import Failed"
-                    importResultDialog.message = message
+                    importResultDialog.resultMessage = message
                     importResultDialog.isError = true
                     importResultDialog.open()
                 }
