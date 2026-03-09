@@ -2485,6 +2485,60 @@ void MainController::computeAutoFlowCalibration() {
              << "(window:" << windowDuration << "s," << bestCount << "samples)";
 
     emit flowCalibrationAutoUpdated(m_currentProfile.title(), oldValue, computed);
+
+    // Update global to median of espresso per-profile values (helps new profiles converge faster)
+    updateGlobalFromPerProfileMedian();
+}
+
+void MainController::updateGlobalFromPerProfileMedian() {
+    QJsonObject map = m_settings->allProfileFlowCalibrations();
+
+    // Collect multipliers from espresso profiles only
+    QVector<double> values;
+    values.reserve(map.size());
+    for (auto it = map.begin(); it != map.end(); ++it) {
+        auto profileIt = std::find_if(m_allProfiles.begin(), m_allProfiles.end(),
+            [&](const ProfileInfo& p) { return p.filename == it.key(); });
+        if (profileIt != m_allProfiles.end() && profileIt->beverageType == "espresso") {
+            values.append(it.value().toDouble());
+        }
+    }
+
+    if (values.size() < 2) return;  // Need at least 2 espresso profiles
+
+    std::sort(values.begin(), values.end());
+
+    // Remove outliers using IQR fence method (1.5x IQR from Q1/Q3)
+    if (values.size() >= 4) {
+        int n = values.size();
+        double q1 = values[n / 4];
+        double q3 = values[3 * n / 4];
+        double iqr = q3 - q1;
+        double lower = q1 - 1.5 * iqr;
+        double upper = q3 + 1.5 * iqr;
+        QVector<double> filtered;
+        for (double v : values) {
+            if (v >= lower && v <= upper) filtered.append(v);
+        }
+        if (filtered.size() >= 2) {
+            values = filtered;
+        }
+        // If filtering leaves <2, use all values (outlier detection unreliable with tiny sets)
+    }
+
+    int n = values.size();
+    double median = (n % 2 == 0)
+        ? (values[n/2 - 1] + values[n/2]) / 2.0
+        : values[n/2];
+
+    // Only update if meaningfully different (>2% change)
+    double current = m_settings->flowCalibrationMultiplier();
+    if (current > 0.01 && qAbs(median - current) / current < 0.02) return;
+
+    m_settings->setFlowCalibrationMultiplier(median);
+    qDebug() << "Auto flow cal: updated global to espresso median" << median
+             << "from" << values.size() << "espresso profiles"
+             << "(" << map.size() << "total in map)";
 }
 
 void MainController::applyHeaterTweaks() {
