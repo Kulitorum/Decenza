@@ -225,17 +225,24 @@ Page {
                         anchors.margins: Theme.scaled(10)
                         spacing: Theme.scaled(10)
 
-                        // Status icon
-                        Image {
+                        // Status icon with semantic color
+                        Rectangle {
                             Layout.preferredWidth: Theme.scaled(24)
-                            Layout.preferredHeight: Theme.scaled(18)
+                            Layout.preferredHeight: Theme.scaled(24)
                             Layout.alignment: Qt.AlignVCenter
-                            source: profileDelegate.isNew ? "qrc:/icons/star-outline.svg" :
-                                    profileDelegate.isIdentical ? "qrc:/icons/tick.svg" :
-                                    "qrc:/icons/warning.svg"
-                            sourceSize.width: Theme.scaled(18)
-                            sourceSize.height: Theme.scaled(18)
-                            fillMode: Image.PreserveAspectFit
+                            radius: Theme.scaled(12)
+                            color: profileDelegate.isNew ? Theme.primaryColor :
+                                   profileDelegate.isIdentical ? Theme.successColor :
+                                   Theme.warningButtonColor
+
+                            Image {
+                                anchors.centerIn: parent
+                                source: profileDelegate.isNew ? "qrc:/icons/star-outline.svg" :
+                                        profileDelegate.isIdentical ? "qrc:/icons/tick.svg" :
+                                        "qrc:/icons/warning.svg"
+                                sourceSize.width: Theme.scaled(14)
+                                sourceSize.height: Theme.scaled(14)
+                            }
                         }
 
                         // Format badge (TCL/JSON)

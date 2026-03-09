@@ -15,6 +15,8 @@ endif()
 if(DEFINED MANIFEST_FILE AND DEFINED MANIFEST_TEMPLATE AND EXISTS "${MANIFEST_TEMPLATE}")
     set(CURRENT_VERSION_CODE ${VERSION_CODE})
     configure_file("${MANIFEST_TEMPLATE}" "${MANIFEST_FILE}" @ONLY)
+elseif(DEFINED MANIFEST_FILE AND DEFINED MANIFEST_TEMPLATE)
+    message(WARNING "AndroidManifest.xml.in template not found at ${MANIFEST_TEMPLATE} - manifest will not be generated")
 endif()
 
 # Update Windows installer version
