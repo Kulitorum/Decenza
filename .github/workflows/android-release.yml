@@ -106,25 +106,34 @@ jobs:
         run: |
           # Qt's Android toolchain overrides CMAKE_*_COMPILER_LAUNCHER,
           # so we wrap the actual NDK compiler binaries with ccache instead.
-          # We resolve symlinks first (clang++ is often a symlink to clang)
-          # and add --driver-mode=g++ for clang++ to preserve C++ linking.
+          # We must wrap ALL clang variants: bare clang/clang++, versioned
+          # clang-NN, and target-triple prefixed (aarch64-linux-androidNN-clang).
           NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+          # Find the real clang binary (resolve all symlinks)
           REAL_CLANG="$(readlink -f "$NDK_BIN/clang")"
-          for COMP in clang clang++; do
-            if [ -e "$NDK_BIN/$COMP" ]; then
-              rm -f "$NDK_BIN/$COMP"
-              if [ "$COMP" = "clang++" ]; then
-                DRIVER_FLAG="--driver-mode=g++ "
-              else
-                DRIVER_FLAG=""
-              fi
-              cat > "$NDK_BIN/$COMP" <<WRAPPER
-          #!/bin/sh
-          exec ccache "$REAL_CLANG" ${DRIVER_FLAG}"\$@"
-          WRAPPER
-              chmod +x "$NDK_BIN/$COMP"
-              echo "Wrapped $NDK_BIN/$COMP -> ccache $REAL_CLANG $DRIVER_FLAG"
+          echo "Real clang: $REAL_CLANG"
+
+          # Wrap every clang/clang++ variant in the NDK bin directory
+          for COMP in "$NDK_BIN"/clang "$NDK_BIN"/clang++ "$NDK_BIN"/clang-[0-9]* "$NDK_BIN"/*-clang "$NDK_BIN"/*-clang++; do
+            [ -e "$COMP" ] || continue
+            # Skip the real binary itself
+            RESOLVED="$(readlink -f "$COMP")"
+            if [ "$RESOLVED" = "$REAL_CLANG" ] && [ "$(basename "$COMP")" = "$(basename "$REAL_CLANG")" ]; then
+              echo "Skipping real binary: $COMP"
+              continue
             fi
+
+            # Determine if this is a C++ variant
+            case "$(basename "$COMP")" in
+              *clang++*|*c++*) DRIVER_FLAG="--driver-mode=g++ " ;;
+              *) DRIVER_FLAG="" ;;
+            esac
+
+            rm -f "$COMP"
+            printf '#!/bin/sh\nexec ccache "%s" %s"$@"\n' "$REAL_CLANG" "$DRIVER_FLAG" > "$COMP"
+            chmod +x "$COMP"
+            echo "Wrapped $(basename "$COMP") -> ccache $(basename "$REAL_CLANG") $DRIVER_FLAG"
           done
 
       - name: Decode Android keystore
