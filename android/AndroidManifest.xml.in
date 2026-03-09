@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Auto-generated from AndroidManifest.xml.in - do not edit directly -->
+<!-- Edit this template, then rebuild. Version comes from CMakeLists.txt + versioncode.txt -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.kulitorum.decenza_de1"
-    android:versionCode="3152"
-    android:versionName="1.5.6">
+    android:versionCode="@CURRENT_VERSION_CODE@"
+    android:versionName="@VERSION_STRING@">
 
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />

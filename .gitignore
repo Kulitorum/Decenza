@@ -21,7 +21,8 @@ cmake-build-*/
 *.apk
 *.aab
 
-# Installer
+# Generated files
+android/AndroidManifest.xml
 installer/setupvars.iss
 installer/version.iss
 installer/deploy/

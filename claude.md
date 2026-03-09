@@ -442,12 +442,14 @@ Each operation page (Steam, HotWater, Flush) has:
 - **Display version** (versionName): Set in `CMakeLists.txt` line 2: `project(Decenza VERSION x.y.z)`
 - **Version code** (versionCode): Stored in `versioncode.txt`. Does **not** auto-increment during local builds. CI workflows bump it on tag push, and the Android workflow commits the new value back to `main`.
 - **version.h**: Auto-generated from `src/version.h.in` with VERSION_STRING macro
+- **AndroidManifest.xml**: Auto-generated from `android/AndroidManifest.xml.in` by CMake at build time (gitignored). Both `versionCode` and `versionName` come from `versioncode.txt` and `CMakeLists.txt` respectively.
+- **installer/version.iss**: Auto-generated from `installer/version.iss.in` by CMake at build time (gitignored).
 - To release a new version: Update VERSION in CMakeLists.txt, commit, then follow the "Publishing Releases" process (create release first, then push tag)
 
 ## Git Workflow
 
 - **Version codes are managed by CI** — local builds use `versioncode.txt` as-is (no auto-increment). All 6 CI workflows bump the code identically on tag push. The Android workflow commits the bumped value back to `main`.
-- You do **not** need to manually commit version code files (`versioncode.txt`, `android/AndroidManifest.xml`) — CI handles this automatically. `installer/version.iss` is generated locally from `installer/version.iss.in` by CMake at build time and is gitignored.
+- You do **not** need to manually commit version code files — only `versioncode.txt` is tracked. `android/AndroidManifest.xml` and `installer/version.iss` are generated from `.in` templates by CMake at build time and are gitignored.
 
 ## Accessibility (TalkBack/VoiceOver)
 

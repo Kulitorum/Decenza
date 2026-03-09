@@ -11,21 +11,10 @@ if(DEFINED VERSION_CODE_CPP AND DEFINED VERSION_CODE_CPP_TEMPLATE)
     configure_file("${VERSION_CODE_CPP_TEMPLATE}" "${VERSION_CODE_CPP}" @ONLY)
 endif()
 
-# Update AndroidManifest.xml
-if(DEFINED MANIFEST_FILE AND EXISTS "${MANIFEST_FILE}")
-    file(READ "${MANIFEST_FILE}" MANIFEST_CONTENT)
-
-    # Update versionCode (build number from versioncode.txt)
-    string(REGEX REPLACE "android:versionCode=\"[0-9]+\""
-           "android:versionCode=\"${VERSION_CODE}\""
-           MANIFEST_CONTENT "${MANIFEST_CONTENT}")
-
-    # Update versionName to display version from CMake
-    string(REGEX REPLACE "android:versionName=\"[^\"]+\""
-           "android:versionName=\"${VERSION_STRING}\""
-           MANIFEST_CONTENT "${MANIFEST_CONTENT}")
-
-    file(WRITE "${MANIFEST_FILE}" "${MANIFEST_CONTENT}")
+# Generate AndroidManifest.xml from template
+if(DEFINED MANIFEST_FILE AND DEFINED MANIFEST_TEMPLATE AND EXISTS "${MANIFEST_TEMPLATE}")
+    set(CURRENT_VERSION_CODE ${VERSION_CODE})
+    configure_file("${MANIFEST_TEMPLATE}" "${MANIFEST_FILE}" @ONLY)
 endif()
 
 # Update Windows installer version

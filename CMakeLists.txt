@@ -660,6 +660,7 @@ add_custom_target(apply_version_code ALL
     COMMAND ${CMAKE_COMMAND}
         -DVERSION_CODE_FILE=${VERSION_CODE_FILE}
         -DMANIFEST_FILE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml
+        -DMANIFEST_TEMPLATE=${CMAKE_SOURCE_DIR}/android/AndroidManifest.xml.in
         -DVERSION_STRING=${PROJECT_VERSION}
         -DCMAKE_SOURCE_DIR=${CMAKE_SOURCE_DIR}
         -DVERSION_CODE_CPP=${VERSION_CODE_CPP}

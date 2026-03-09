@@ -39,7 +39,6 @@ jobs:
           CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
           NEXT=$((CURRENT + 1))
           echo "$NEXT" > versioncode.txt
-          sed -i "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$NEXT\"/" android/AndroidManifest.xml
           echo "build_code=$NEXT" >> $GITHUB_OUTPUT
           echo "Version code bumped: $CURRENT -> $NEXT"
 
@@ -298,8 +297,7 @@ jobs:
           git stash --include-untracked
           git checkout origin/main
           echo "$BUILD_CODE" > versioncode.txt
-          sed -i "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$BUILD_CODE\"/" android/AndroidManifest.xml
-          git add versioncode.txt android/AndroidManifest.xml
+          git add versioncode.txt
           # Only commit if there are changes
           if git diff --cached --quiet; then
             echo "No version code changes to commit"
