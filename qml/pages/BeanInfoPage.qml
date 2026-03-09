@@ -642,6 +642,9 @@ Page {
                     suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
                         isEditMode ? editBeanBrand : Settings.dyeBeanBrand) : []
                     onTextEdited: function(t) { if (isEditMode) editBeanType = t; else Settings.dyeBeanType = t; }
+                    onSuggestionSelected: function(t) {
+                        if (isEditMode) editRoastDate = ""; else Settings.dyeRoastDate = "";
+                    }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
 

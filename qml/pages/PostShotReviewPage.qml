@@ -624,6 +624,7 @@ Page {
                     text: editBeanType
                     suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
                     onTextEdited: function(t) { editBeanType = t }
+                    onSuggestionSelected: function(t) { editRoastDate = "" }
                 }
 
                 LabeledField {
