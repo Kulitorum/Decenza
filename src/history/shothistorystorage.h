@@ -207,7 +207,7 @@ public:
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
 
-    // Convert ShotRecord to QVariantMap (shared by getShot, requestShot, ShotServer, AIManager)
+    // Convert ShotRecord to QVariantMap (shared by requestShot, ShotServer, AIManager)
     static QVariantMap convertShotRecord(const ShotRecord& record);
 
     // Thread-safe shot save: opens a temporary connection, does all INSERTs + WAL checkpoint.
@@ -297,7 +297,7 @@ public:
 
     // Thread-safe import: opens separate connections for source and destination.
     // Safe to call from any thread (does not use m_db).
-    // Caller must invoke updateTotalShots()/invalidateDistinctCache() on the main thread afterward.
+    // Caller must invoke refreshTotalShots() on the main thread afterward (which also invalidates the distinct cache).
     static bool importDatabaseStatic(const QString& destDbPath, const QString& srcFilePath, bool merge);
 
     // Thread-safe shot count: opens a temporary connection.
@@ -336,7 +336,8 @@ private:
 
     // Helper for getDistinct* methods — cache-only, triggers async fetch on miss
     QStringList getDistinctValues(const QString& column);
-    // Internal wrappers used as fallbacks by parametric methods when parameter is empty
+    // Internal wrappers used as fallbacks by parametric methods when parameter is empty.
+    // Delegate to getDistinctValues() (cache-only).
     QStringList getDistinctBeanTypes();
     QStringList getDistinctGrinders();
     QStringList getDistinctGrinderSettings();

@@ -104,6 +104,8 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
         QSqlQuery countQuery(m_db);
         if (countQuery.exec("SELECT COUNT(*) FROM shots") && countQuery.next())
             m_totalShots = countQuery.value(0).toInt();
+        else
+            qWarning() << "ShotHistoryStorage: Failed to count shots at startup:" << countQuery.lastError().text();
     }
 
     m_ready = true;
@@ -1094,6 +1096,9 @@ void ShotHistoryStorage::requestDistinctCache()
                 // Clear entire cache (including composite keys like "bean_type:SomeRoaster")
                 // so stale filtered entries are also refreshed on next access
                 m_distinctCache.clear();
+                // Discard any in-flight single-key fetches — they queried before invalidation
+                // and would overwrite fresh cache data with stale results
+                m_pendingDistinctKeys.clear();
                 for (auto it = results.constBegin(); it != results.constEnd(); ++it)
                     m_distinctCache.insert(it.key(), it.value());
             } else
@@ -1122,9 +1127,13 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
 
     QThread* thread = QThread::create([this, dbPath, cacheKey, sql, bindValues, needsGrinderSort, destroyed]() {
         QStringList values;
-        withTempDb(dbPath, "shs_dv", [&](QSqlDatabase& db) {
+        bool opened = withTempDb(dbPath, "shs_dv", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
-            query.prepare(sql);
+            if (!query.prepare(sql)) {
+                qWarning() << "ShotHistoryStorage::requestDistinctValueAsync: prepare failed for"
+                           << cacheKey << ":" << query.lastError().text();
+                return;
+            }
             for (qsizetype i = 0; i < bindValues.size(); ++i)
                 query.bindValue(static_cast<int>(i), bindValues[i]);
             if (!query.exec()) {
@@ -1137,9 +1146,16 @@ void ShotHistoryStorage::requestDistinctValueAsync(const QString& cacheKey, cons
             }
         });
 
-        QMetaObject::invokeMethod(this, [this, cacheKey, values = std::move(values), needsGrinderSort, destroyed]() mutable {
+        QMetaObject::invokeMethod(this, [this, cacheKey, values = std::move(values), needsGrinderSort, opened, destroyed]() mutable {
             if (*destroyed) return;
-            m_pendingDistinctKeys.remove(cacheKey);
+            // If a full cache refresh cleared m_pendingDistinctKeys while we were in flight,
+            // this key is gone — discard the stale result
+            if (!m_pendingDistinctKeys.remove(cacheKey)) return;
+            if (!opened) {
+                qWarning() << "ShotHistoryStorage::requestDistinctValueAsync: DB open failed for"
+                           << cacheKey << "- not caching empty result";
+                return;
+            }
             if (needsGrinderSort)
                 sortGrinderSettings(values);
             m_distinctCache.insert(cacheKey, values);
@@ -1887,7 +1903,7 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
     thread->start();
 }
 
-// Helper for all getDistinct* methods
+// Allowed columns for getDistinctValues() and requestDistinctValueAsync()
 static const QStringList s_allowedColumns = {
     "profile_name", "bean_brand", "bean_type",
     "grinder_brand", "grinder_model", "grinder_setting", "barista", "roast_level"
@@ -2207,7 +2223,10 @@ void ShotHistoryStorage::updateTotalShots()
         int count = getShotCountStatic(dbPath);
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
             if (*destroyed) return;
-            if (count < 0) return;
+            if (count < 0) {
+                qWarning() << "ShotHistoryStorage::updateTotalShots: count query failed, keeping previous count" << m_totalShots;
+                return;
+            }
             if (count != m_totalShots) {
                 m_totalShots = count;
                 emit totalShotsChanged();
@@ -2752,6 +2771,8 @@ int ShotHistoryStorage::getShotCountStatic(const QString& dbPath)
             QSqlQuery query(db);
             if (query.exec("SELECT COUNT(*) FROM shots") && query.next())
                 count = query.value(0).toInt();
+            else
+                qWarning() << "ShotHistoryStorage::getShotCountStatic: COUNT query failed:" << query.lastError().text();
             db.close();
         } else {
             qWarning() << "ShotHistoryStorage::getShotCountStatic: Failed to open DB:" << db.lastError().text();
@@ -3062,7 +3083,10 @@ void ShotHistoryStorage::refreshTotalShots()
                 qDebug() << "ShotHistoryStorage: refreshTotalShots callback dropped (object destroyed)";
                 return;
             }
-            if (count < 0) return;  // Ignore errors, keep previous count
+            if (count < 0) {
+                qWarning() << "ShotHistoryStorage::refreshTotalShots: count query failed, keeping previous count" << m_totalShots;
+                return;
+            }
             if (count != m_totalShots) {
                 m_totalShots = count;
                 emit totalShotsChanged();
