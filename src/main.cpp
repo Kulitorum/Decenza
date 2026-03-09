@@ -906,6 +906,7 @@ int main(int argc, char *argv[])
         settings.setScaleAddress(getDeviceIdentifier(device));
         settings.setScaleType(type);
         settings.setScaleName(device.name());
+        bleManager.setSavedScaleAddress(getDeviceIdentifier(device), type, device.name());
 
         // Switch MachineState and TimingController to use physical scale instead of FlowScale
         machineState.setScale(physicalScale.get());
