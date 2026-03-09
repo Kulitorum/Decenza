@@ -1337,18 +1337,14 @@ Dialog {
                             spacing: Theme.scaled(8)
                             Accessible.ignored: true
 
-                            Button {
-                                flat: true; padding: 0
-                                icon.source: "qrc:/icons/tick.svg"
-                                icon.width: Theme.scaled(16)
-                                icon.height: Theme.scaled(16)
-                                icon.color: Theme.primaryColor
+                            ColoredIcon {
+                                source: "qrc:/icons/tick.svg"
+                                iconWidth: Theme.scaled(16)
+                                iconHeight: Theme.scaled(16)
+                                iconColor: Theme.primaryColor
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Theme.scaled(24)
                                 visible: apOptionDelegate.isSelected
-                                enabled: false
-                                background: Item {}
-                                Accessible.ignored: true
                             }
 
                             Text {

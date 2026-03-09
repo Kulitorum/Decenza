@@ -384,12 +384,12 @@ Rectangle {
                             width: Theme.scaled(16)
                             height: Theme.scaled(16)
 
-                            Image {
+                            ColoredIcon {
                                 anchors.centerIn: parent
                                 source: "qrc:/icons/cross.svg"
-                                sourceSize.width: Theme.scaled(10)
-                                sourceSize.height: Theme.scaled(10)
-                                opacity: 0.6
+                                iconWidth: Theme.scaled(10)
+                                iconHeight: Theme.scaled(10)
+                                iconColor: Theme.textSecondaryColor
                             }
 
                             Accessible.role: Accessible.Button

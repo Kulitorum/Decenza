@@ -1529,16 +1529,12 @@ ApplicationWindow {
                 border.color: Theme.primaryColor
                 border.width: 4
 
-                Button {
+                ColoredIcon {
                     anchors.centerIn: parent
-                    flat: true; padding: 0
-                    icon.source: "qrc:/icons/tick.svg"
-                    icon.width: 50
-                    icon.height: 50
-                    icon.color: Theme.primaryColor
-                    enabled: false
-                    background: Item {}
-                    Accessible.ignored: true
+                    source: "qrc:/icons/tick.svg"
+                    iconWidth: 50
+                    iconHeight: 50
+                    iconColor: Theme.primaryColor
                 }
             }
 

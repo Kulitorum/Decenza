@@ -366,12 +366,12 @@ Page {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(10)
                     anchors.verticalCenter: parent.verticalCenter
-                    Image {
+                    ColoredIcon {
                         anchors.centerIn: parent
                         source: "qrc:/icons/cross.svg"
-                        sourceSize.width: Theme.scaled(14)
-                        sourceSize.height: Theme.scaled(14)
-                        opacity: 0.6
+                        iconWidth: Theme.scaled(14)
+                        iconHeight: Theme.scaled(14)
+                        iconColor: Theme.textSecondaryColor
                     }
 
                     MouseArea {
@@ -635,17 +635,13 @@ Page {
                             border.color: parent.checked ? Theme.primaryColor : Theme.borderColor
                             border.width: 2
 
-                            Button {
+                            ColoredIcon {
                                 anchors.centerIn: parent
-                                flat: true; padding: 0
-                                icon.source: "qrc:/icons/tick.svg"
-                                icon.width: Theme.scaled(16)
-                                icon.height: Theme.scaled(16)
-                                icon.color: Theme.primaryColor
+                                source: "qrc:/icons/tick.svg"
+                                iconWidth: Theme.scaled(16)
+                                iconHeight: Theme.scaled(16)
+                                iconColor: Theme.primaryColor
                                 visible: parent.parent.checked
-                                enabled: false
-                                background: Item {}
-                                Accessible.ignored: true
                             }
                         }
                     }
@@ -1174,16 +1170,12 @@ Page {
                             Accessible.ignored: true
                         }
 
-                        Button {
-                            flat: true; padding: 0
-                            icon.source: "qrc:/icons/tick.svg"
-                            icon.width: Theme.scaled(16)
-                            icon.height: Theme.scaled(16)
-                            icon.color: Theme.primaryColor
+                        ColoredIcon {
+                            source: "qrc:/icons/tick.svg"
+                            iconWidth: Theme.scaled(16)
+                            iconHeight: Theme.scaled(16)
+                            iconColor: Theme.primaryColor
                             visible: sortField === modelData
-                            enabled: false
-                            background: Item {}
-                            Accessible.ignored: true
                         }
                     }
 

@@ -226,23 +226,18 @@ Page {
                         spacing: Theme.scaled(10)
 
                         // Status icon with semantic color
-                        Button {
+                        ColoredIcon {
                             Layout.preferredWidth: Theme.scaled(24)
                             Layout.preferredHeight: Theme.scaled(24)
                             Layout.alignment: Qt.AlignVCenter
-                            flat: true
-                            padding: 0
-                            icon.source: profileDelegate.isNew ? "qrc:/icons/star-outline.svg" :
-                                         profileDelegate.isIdentical ? "qrc:/icons/tick.svg" :
-                                         "qrc:/icons/warning.svg"
-                            icon.width: Theme.scaled(18)
-                            icon.height: Theme.scaled(18)
-                            icon.color: profileDelegate.isNew ? Theme.primaryColor :
-                                        profileDelegate.isIdentical ? Theme.successColor :
-                                        Theme.warningButtonColor
-                            enabled: false
-                            background: Item {}
-                            Accessible.ignored: true
+                            source: profileDelegate.isNew ? "qrc:/icons/star-outline.svg" :
+                                    profileDelegate.isIdentical ? "qrc:/icons/tick.svg" :
+                                    "qrc:/icons/warning.svg"
+                            iconWidth: Theme.scaled(18)
+                            iconHeight: Theme.scaled(18)
+                            iconColor: profileDelegate.isNew ? Theme.primaryColor :
+                                       profileDelegate.isIdentical ? Theme.successColor :
+                                       Theme.warningButtonColor
                         }
 
                         // Format badge (TCL/JSON)
@@ -311,17 +306,12 @@ Page {
                         }
 
                         // Already imported indicator
-                        Button {
+                        ColoredIcon {
                             visible: profileDelegate.isIdentical
-                            flat: true
-                            padding: 0
-                            icon.source: "qrc:/icons/tick.svg"
-                            icon.width: Theme.scaled(18)
-                            icon.height: Theme.scaled(18)
-                            icon.color: Theme.successColor
-                            enabled: false
-                            background: Item {}
-                            Accessible.ignored: true
+                            source: "qrc:/icons/tick.svg"
+                            iconWidth: Theme.scaled(18)
+                            iconHeight: Theme.scaled(18)
+                            iconColor: Theme.successColor
                         }
                     }
                 }

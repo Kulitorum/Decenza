@@ -640,12 +640,12 @@ Page {
                             height: Theme.scaled(20)
                             visible: model.aiTranslation && model.aiTranslation !== ""
 
-                            Image {
+                            ColoredIcon {
                                 anchors.centerIn: parent
                                 source: "qrc:/icons/cross.svg"
-                                sourceSize.width: Theme.scaled(12)
-                                sourceSize.height: Theme.scaled(12)
-                                opacity: aiClearArea.pressed ? 1.0 : 0.6
+                                iconWidth: Theme.scaled(12)
+                                iconHeight: Theme.scaled(12)
+                                iconColor: aiClearArea.pressed ? Theme.warningColor : Theme.textSecondaryColor
                             }
 
                             Accessible.role: Accessible.Button

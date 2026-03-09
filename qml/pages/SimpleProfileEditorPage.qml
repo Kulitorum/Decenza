@@ -725,13 +725,12 @@ Page {
                     Accessible.focusable: true
                     Accessible.onPressAction: tempCloseArea.clicked(null)
 
-                    Image {
+                    ColoredIcon {
                         anchors.centerIn: parent
                         source: "qrc:/icons/cross.svg"
-                        sourceSize.width: Theme.scaled(14)
-                        sourceSize.height: Theme.scaled(14)
-                        opacity: 0.6
-                        Accessible.ignored: true
+                        iconWidth: Theme.scaled(14)
+                        iconHeight: Theme.scaled(14)
+                        iconColor: Theme.textSecondaryColor
                     }
                     MouseArea {
                         id: tempCloseArea

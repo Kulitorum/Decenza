@@ -436,31 +436,23 @@ Page {
                                         }
 
                                         // Checkmark for identical or already imported
-                                        Button {
+                                        ColoredIcon {
                                             anchors.centerIn: parent
-                                            flat: true; padding: 0
-                                            icon.source: "qrc:/icons/tick.svg"
-                                            icon.width: Theme.scaled(18)
-                                            icon.height: Theme.scaled(18)
-                                            icon.color: Theme.successColor
-                                            enabled: false
-                                            background: Item {}
+                                            source: "qrc:/icons/tick.svg"
+                                            iconWidth: Theme.scaled(18)
+                                            iconHeight: Theme.scaled(18)
+                                            iconColor: Theme.successColor
                                             visible: !parent.isInvalid && !parent.canImport
-                                            Accessible.ignored: true
                                         }
 
                                         // Star for importable profiles
-                                        Button {
+                                        ColoredIcon {
                                             anchors.centerIn: parent
-                                            flat: true; padding: 0
-                                            icon.source: "qrc:/icons/star-outline.svg"
-                                            icon.width: Theme.scaled(20)
-                                            icon.height: Theme.scaled(20)
-                                            icon.color: Theme.textSecondaryColor
-                                            enabled: false
-                                            background: Item {}
+                                            source: "qrc:/icons/star-outline.svg"
+                                            iconWidth: Theme.scaled(20)
+                                            iconHeight: Theme.scaled(20)
+                                            iconColor: Theme.textSecondaryColor
                                             visible: parent.canImport && !MainController.visualizerImporter.importing
-                                            Accessible.ignored: true
                                         }
 
                                         // Loading indicator when importing
@@ -756,17 +748,13 @@ Page {
 
                             Row {
                                 spacing: Theme.spacingSmall
-                                Button {
-                                    flat: true; padding: 0
-                                    icon.source: "qrc:/icons/tick.svg"
-                                    icon.width: Theme.scaled(18)
-                                    icon.height: Theme.scaled(18)
-                                    icon.color: Theme.successColor
+                                ColoredIcon {
+                                    source: "qrc:/icons/tick.svg"
+                                    iconWidth: Theme.scaled(18)
+                                    iconHeight: Theme.scaled(18)
+                                    iconColor: Theme.successColor
                                     width: Theme.scaled(24)
-                                    enabled: false
-                                    background: Item {}
                                     anchors.verticalCenter: parent.verticalCenter
-                                    Accessible.ignored: true
                                 }
                                 Text {
                                     text: "Already imported (same frames)"
@@ -778,17 +766,13 @@ Page {
 
                             Row {
                                 spacing: Theme.spacingSmall
-                                Button {
-                                    flat: true; padding: 0
-                                    icon.source: "qrc:/icons/star-outline.svg"
-                                    icon.width: Theme.scaled(18)
-                                    icon.height: Theme.scaled(18)
-                                    icon.color: Theme.textSecondaryColor
+                                ColoredIcon {
+                                    source: "qrc:/icons/star-outline.svg"
+                                    iconWidth: Theme.scaled(18)
+                                    iconHeight: Theme.scaled(18)
+                                    iconColor: Theme.textSecondaryColor
                                     width: Theme.scaled(24)
-                                    enabled: false
-                                    background: Item {}
                                     anchors.verticalCenter: parent.verticalCenter
-                                    Accessible.ignored: true
                                 }
                                 Text {
                                     text: "Tap to import"
