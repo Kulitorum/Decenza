@@ -638,8 +638,9 @@ bool ShotHistoryStorage::runMigrations()
     }
 
     // Migration 9: Add profile_kb_id column for AI knowledge base matching.
-    // New shots get this computed at save time. Old shots fall back to fuzzy
-    // title matching + editorType matching at analysis time — no backfill needed.
+    // New shots get this computed at save time. Old shots won't appear in
+    // dial-in history queries (getRecentShotsByKbId), but system prompt
+    // profile matching falls back to fuzzy title/editorType matching.
     if (currentVersion < 9) {
         qDebug() << "ShotHistoryStorage: Running migration to version 9 (profile_kb_id)";
 

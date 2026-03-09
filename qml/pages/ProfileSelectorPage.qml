@@ -279,6 +279,7 @@ Page {
                                     color: Theme.textColor
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
+                                    Accessible.ignored: true
                                 }
 
                                 Image {
@@ -288,6 +289,7 @@ Page {
                                     sourceSize.height: Theme.scaled(14)
                                     Layout.alignment: Qt.AlignVCenter
                                     opacity: 0.6
+                                    Accessible.ignored: true
                                 }
                             }
 

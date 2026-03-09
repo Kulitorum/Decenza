@@ -217,7 +217,7 @@ public:
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
 private:
-    // Transient (not serialized to JSON) — AI knowledge base ID
+    // AI knowledge base ID — persisted in profile JSON, computed at load time if missing
     QString m_knowledgeBaseId;
 
     // Metadata

@@ -43,7 +43,7 @@
 
 ### What the AI Now Knows (Profile Knowledge Base)
 
-When the shot uses one of ~17 curated profiles, the system prompt includes:
+When the shot uses one of ~18 curated profiles, the system prompt includes:
 - Expected curve shapes (pressure, flow, temperature behavior)
 - What is intentional vs. problematic (e.g., declining pressure in D-Flow is by design)
 - Roast suitability and grind guidance
@@ -117,7 +117,7 @@ Blooming Espresso:
 
 **Who writes it**: Could be maintained by the developer/community, updated with app releases. Alternatively, seeded from community knowledge and refined over time.
 
-**Status**: **Implemented.** Knowledge base lives in [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) (human-readable, source-tagged) and [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) (AI-optimized, loaded as Qt resource). 17 profiles documented with expected curve behavior, temperature, flow rates, grind guidance, and "DO NOT flag" instructions. Data sourced from Decent blog posts, the "4 mothers" theory, and transcripts from three Decent video tutorials (light/medium/dark roast profiles). Profile matching in `ShotSummarizer::shotAnalysisSystemPrompt()` with fuzzy title matching and alias support.
+**Status**: **Implemented.** Knowledge base lives in [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) (human-readable, source-tagged) and [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) (AI-optimized, loaded as Qt resource). 18 profiles documented with expected curve behavior, temperature, flow rates, grind guidance, and "DO NOT flag" instructions. Data sourced from Decent blog posts, the "4 mothers" theory, and transcripts from three Decent video tutorials (light/medium/dark roast profiles). Profile matching in `ShotSummarizer::shotAnalysisSystemPrompt()` with fuzzy title matching and alias support.
 
 ### 3. User History Summary
 
@@ -377,7 +377,7 @@ Total context today: ~5-7K tokens. With all layers: ~12-16K tokens, with ~50-70%
 
 ### Phase 3: Personalization (app-side work)
 6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same `knowledge_base_id` are included in the user prompt with full recipe, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::getRecentShotsByKbId()`.
-7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 17 profiles documented, integrated into system prompt via `shotAnalysisSystemPrompt()`.
+7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 18 profiles documented, integrated into system prompt via `shotAnalysisSystemPrompt()`.
 8. **User history summary across profiles** (idea #3 remaining) — Aggregate shot history into per-session summary showing which profiles the user has tried, average ratings, best/worst combos. Would enable cross-profile recommendations.
 9. **Cross-profile recommendation guidance** (idea #6) — Depends on #1 being in place. Deferred until bean database integration enables profile recommendations.
 
@@ -388,9 +388,9 @@ Total context today: ~5-7K tokens. With all layers: ~12-16K tokens, with ~50-70%
 
 ### External Dependencies
 - **Loffee Labs API access**: Keith responded (March 2026) — API undergoing modernization, new keys paused. Beta access in ~1 month, full production ~2-3 months. Free usage offered. No manual key approval on new system. Required for Phase 2, step 4
-- ~~**Profile knowledge content**~~ — **Done.** 17 profiles documented from official Decent sources
+- ~~**Profile knowledge content**~~ — **Done.** 18 profiles documented from official Decent sources
 
 ## Completed Data Collection
-- **Profile Knowledge Base**: [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) — 17 profiles with source-attributed guidance on roast suitability, temperature, ratio, grind, expected curve behavior, and dial-in tips. Enriched from three Decent video tutorials (light/medium/dark roast profiles).
+- **Profile Knowledge Base**: [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) — 18 profiles with source-attributed guidance on roast suitability, temperature, ratio, grind, expected curve behavior, and dial-in tips. Enriched from three Decent video tutorials (light/medium/dark roast profiles).
 - **AI Profile Knowledge Resource**: [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) — AI-optimized extract loaded as Qt resource. Injected into system prompt per-profile via `ShotSummarizer::shotAnalysisSystemPrompt()`.
 - **Grinder Database**: [`docs/GRINDER_DATABASE.md`](GRINDER_DATABASE.md) — ~150 grinders across premium, mid-range, budget, commercial, and hand grinder categories with burr specs, plus aftermarket burr sets and grind-setting guidance

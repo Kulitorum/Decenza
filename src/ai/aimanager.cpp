@@ -245,7 +245,8 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
         summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
-    // Append recent shot history for dial-in context (same profile family)
+    // Append recent shot history for dial-in context (same profile family).
+    // Synchronous query OK: indexed on profile_kb_id, LIMIT 5, result needed before async AI call.
     if (m_shotHistory && !summary.profileKbId.isEmpty()) {
         QVariantList recentShots = m_shotHistory->getRecentShotsByKbId(
             summary.profileKbId, 5, m_shotHistory->lastSavedShotId());
@@ -297,7 +298,8 @@ QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
         summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
-    // Append recent shot history for dial-in context
+    // Append recent shot history for dial-in context.
+    // Synchronous query OK: indexed on profile_kb_id, LIMIT 5, result needed before building prompt.
     if (m_shotHistory && !summary.profileKbId.isEmpty()) {
         QVariantList recentShots = m_shotHistory->getRecentShotsByKbId(
             summary.profileKbId, 5, m_shotHistory->lastSavedShotId());
