@@ -18,6 +18,8 @@ class FastLineRenderer : public QQuickItem {
     Q_PROPERTY(double maxY READ maxY WRITE setMaxY NOTIFY maxYChanged)
 
 public:
+    static constexpr int MAX_POINTS = 700;  // 2 min at 5Hz + margin
+
     explicit FastLineRenderer(QQuickItem* parent = nullptr);
 
     QColor color() const { return m_color; }
@@ -62,5 +64,4 @@ private:
     bool m_geometryDirty = true;
     bool m_materialDirty = true;
 
-    static constexpr int MAX_POINTS = 700;  // 2 min at 5Hz + margin
 };
