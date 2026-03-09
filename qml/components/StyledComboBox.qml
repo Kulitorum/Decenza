@@ -204,13 +204,17 @@ ComboBox {
                             spacing: Theme.scaled(8)
                             Accessible.ignored: true
 
-                            Image {
-                                source: "qrc:/icons/tick.svg"
-                                sourceSize.width: Theme.scaled(16)
-                                sourceSize.height: Theme.scaled(16)
+                            Button {
+                                flat: true; padding: 0
+                                icon.source: "qrc:/icons/tick.svg"
+                                icon.width: Theme.scaled(16)
+                                icon.height: Theme.scaled(16)
+                                icon.color: Theme.primaryColor
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Theme.scaled(24)
                                 visible: optionDelegate._isCurrent
+                                enabled: false
+                                background: Item {}
                                 Accessible.ignored: true
                             }
 

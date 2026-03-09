@@ -933,11 +933,16 @@ KeyboardAwareContainer {
                                 color: Theme.successColor + "30"
                                 visible: waterLevelCard.refillKitActive
 
-                                Image {
+                                Button {
                                     anchors.centerIn: parent
-                                    source: "qrc:/icons/tick.svg"
-                                    sourceSize.width: Theme.scaled(12)
-                                    sourceSize.height: Theme.scaled(12)
+                                    flat: true; padding: 0
+                                    icon.source: "qrc:/icons/tick.svg"
+                                    icon.width: Theme.scaled(12)
+                                    icon.height: Theme.scaled(12)
+                                    icon.color: Theme.successColor
+                                    enabled: false
+                                    background: Item {}
+                                    Accessible.ignored: true
                                 }
                             }
 

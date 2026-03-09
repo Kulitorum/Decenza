@@ -635,12 +635,16 @@ Page {
                             border.color: parent.checked ? Theme.primaryColor : Theme.borderColor
                             border.width: 2
 
-                            Image {
+                            Button {
                                 anchors.centerIn: parent
-                                source: "qrc:/icons/tick.svg"
-                                sourceSize.width: Theme.scaled(16)
-                                sourceSize.height: Theme.scaled(16)
+                                flat: true; padding: 0
+                                icon.source: "qrc:/icons/tick.svg"
+                                icon.width: Theme.scaled(16)
+                                icon.height: Theme.scaled(16)
+                                icon.color: Theme.primaryColor
                                 visible: parent.parent.checked
+                                enabled: false
+                                background: Item {}
                                 Accessible.ignored: true
                             }
                         }
@@ -1170,11 +1174,15 @@ Page {
                             Accessible.ignored: true
                         }
 
-                        Image {
-                            source: "qrc:/icons/tick.svg"
-                            sourceSize.width: Theme.scaled(16)
-                            sourceSize.height: Theme.scaled(16)
+                        Button {
+                            flat: true; padding: 0
+                            icon.source: "qrc:/icons/tick.svg"
+                            icon.width: Theme.scaled(16)
+                            icon.height: Theme.scaled(16)
+                            icon.color: Theme.primaryColor
                             visible: sortField === modelData
+                            enabled: false
+                            background: Item {}
                             Accessible.ignored: true
                         }
                     }

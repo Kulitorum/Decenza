@@ -226,23 +226,23 @@ Page {
                         spacing: Theme.scaled(10)
 
                         // Status icon with semantic color
-                        Rectangle {
+                        Button {
                             Layout.preferredWidth: Theme.scaled(24)
                             Layout.preferredHeight: Theme.scaled(24)
                             Layout.alignment: Qt.AlignVCenter
-                            radius: Theme.scaled(12)
-                            color: profileDelegate.isNew ? Theme.primaryColor :
-                                   profileDelegate.isIdentical ? Theme.successColor :
-                                   Theme.warningButtonColor
-
-                            Image {
-                                anchors.centerIn: parent
-                                source: profileDelegate.isNew ? "qrc:/icons/star-outline.svg" :
-                                        profileDelegate.isIdentical ? "qrc:/icons/tick.svg" :
-                                        "qrc:/icons/warning.svg"
-                                sourceSize.width: Theme.scaled(14)
-                                sourceSize.height: Theme.scaled(14)
-                            }
+                            flat: true
+                            padding: 0
+                            icon.source: profileDelegate.isNew ? "qrc:/icons/star-outline.svg" :
+                                         profileDelegate.isIdentical ? "qrc:/icons/tick.svg" :
+                                         "qrc:/icons/warning.svg"
+                            icon.width: Theme.scaled(18)
+                            icon.height: Theme.scaled(18)
+                            icon.color: profileDelegate.isNew ? Theme.primaryColor :
+                                        profileDelegate.isIdentical ? Theme.successColor :
+                                        Theme.warningButtonColor
+                            enabled: false
+                            background: Item {}
+                            Accessible.ignored: true
                         }
 
                         // Format badge (TCL/JSON)
@@ -311,11 +311,17 @@ Page {
                         }
 
                         // Already imported indicator
-                        Image {
+                        Button {
                             visible: profileDelegate.isIdentical
-                            source: "qrc:/icons/tick.svg"
-                            sourceSize.width: Theme.scaled(18)
-                            sourceSize.height: Theme.scaled(18)
+                            flat: true
+                            padding: 0
+                            icon.source: "qrc:/icons/tick.svg"
+                            icon.width: Theme.scaled(18)
+                            icon.height: Theme.scaled(18)
+                            icon.color: Theme.successColor
+                            enabled: false
+                            background: Item {}
+                            Accessible.ignored: true
                         }
                     }
                 }
