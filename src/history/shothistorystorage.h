@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSqlDatabase>
 #include <QHash>
+#include <QSet>
 #include <QVariantList>
 #include <QVector>
 #include <QPointF>
@@ -192,39 +193,16 @@ public:
                     double temperatureOverride,
                     double yieldOverride);
 
-    // Update visualizer info after upload
-    Q_INVOKABLE bool updateVisualizerInfo(qint64 shotId,
-                                           const QString& visualizerId,
-                                           const QString& visualizerUrl);
-
-    // Async version: runs update on background thread, emits visualizerInfoUpdated()
+    // Async: runs update on background thread, emits visualizerInfoUpdated()
     Q_INVOKABLE void requestUpdateVisualizerInfo(qint64 shotId,
                                                   const QString& visualizerId,
                                                   const QString& visualizerUrl);
 
-    // Query shots (paginated)
-    Q_INVOKABLE QVariantList getShots(int offset = 0, int limit = 50);
-    Q_INVOKABLE QVariantList getShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
-
-    // Async version: runs SQL on a background thread and emits shotsFilteredReady()
+    // Async: runs SQL on a background thread and emits shotsFilteredReady()
     Q_INVOKABLE void requestShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
 
-    // Get recent shots by profile knowledge base ID (for AI dial-in history context).
-    // Returns lightweight records (no time-series) with dial-in fields, most recent first.
-    QVariantList getRecentShotsByKbId(const QString& profileKbId, int limit = 5, qint64 excludeShotId = -1);
-
-    // Get just the timestamp of a shot (lightweight, no time-series)
-    Q_INVOKABLE qint64 getShotTimestamp(qint64 shotId);
-
-    // Get full shot record (loads time-series data)
-    Q_INVOKABLE QVariantMap getShot(qint64 shotId);
-    ShotRecord getShotRecord(qint64 shotId);
-
-    // Async version: runs on background thread, emits shotReady()
+    // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
-
-    // Get multiple shots for comparison (efficient batch load)
-    QList<ShotRecord> getShotsForComparison(const QList<qint64>& shotIds);
 
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
@@ -237,20 +215,16 @@ public:
     static qint64 saveShotStatic(const QString& dbPath, const ShotSaveData& data);
 
     // Delete shot(s)
-    Q_INVOKABLE bool deleteShot(qint64 shotId);
     Q_INVOKABLE void deleteShots(const QVariantList& shotIds);
 
-    // Async version: runs delete on background thread, emits shotDeleted()
+    // Async: runs delete on background thread, emits shotDeleted()
     Q_INVOKABLE void requestDeleteShot(qint64 shotId);
-
-    // Update shot metadata (for editing existing shots)
-    Q_INVOKABLE bool updateShotMetadata(qint64 shotId, const QVariantMap& metadata);
 
     // Thread-safe metadata update: caller provides their own connection.
     // Safe to call from any thread (does not use m_db). Returns true on success.
     static bool updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata);
 
-    // Async version: runs update on background thread, emits shotMetadataUpdated()
+    // Async: runs update on background thread, emits shotMetadataUpdated()
     Q_INVOKABLE void requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata);
 
     // Async: fetch most recent shot ID on background thread, emits mostRecentShotIdReady()
@@ -260,16 +234,11 @@ public:
     // Called at init (pre-warm) and by invalidateDistinctCache() after data changes.
     Q_INVOKABLE void requestDistinctCache();
 
-    // Get filter options (for dropdowns)
-    Q_INVOKABLE QStringList getDistinctProfiles();
+    // Get filter options (cache-only, returns {} on miss and triggers async fetch)
     Q_INVOKABLE QStringList getDistinctBeanBrands();
-    Q_INVOKABLE QStringList getDistinctBeanTypes();
-    Q_INVOKABLE QStringList getDistinctGrinders();
-    Q_INVOKABLE QStringList getDistinctGrinderSettings();
     Q_INVOKABLE QStringList getDistinctBaristas();
-    Q_INVOKABLE QStringList getDistinctRoastLevels();
 
-    // Get filter options with parent-based filtering
+    // Get filter options with parent-based filtering (cache-only)
     Q_INVOKABLE QStringList getDistinctBeanTypesForBrand(const QString& beanBrand);
     Q_INVOKABLE QStringList getDistinctGrinderBrands();
     Q_INVOKABLE QStringList getDistinctGrinderModelsForBrand(const QString& grinderBrand);
@@ -280,32 +249,11 @@ public:
     Q_INVOKABLE void requestUpdateGrinderFields(const QString& oldBrand, const QString& oldModel,
                                                  const QString& newBrand, const QString& newModel,
                                                  const QString& newBurrs);
-    // Get filter options with cascading filter (for dependent dropdowns)
-    Q_INVOKABLE QStringList getDistinctProfilesFiltered(const QVariantMap& filter);
-    Q_INVOKABLE QStringList getDistinctBeanBrandsFiltered(const QVariantMap& filter);
-    Q_INVOKABLE QStringList getDistinctBeanTypesFiltered(const QVariantMap& filter);
 
-    // Get count of shots matching filter
-    Q_INVOKABLE int getFilteredShotCount(const QVariantMap& filter);
-
-    // Get auto-favorites: unique combinations of bean/profile/grinder from history
-    // groupBy: "bean", "profile", "bean_profile", "bean_profile_grinder"
-    Q_INVOKABLE QVariantList getAutoFavorites(const QString& groupBy, int maxItems);
-
-    // Async version: runs query on background thread, emits autoFavoritesReady()
+    // Async: runs query on background thread, emits autoFavoritesReady()
     Q_INVOKABLE void requestAutoFavorites(const QString& groupBy, int maxItems);
 
-    // Get aggregated details for a specific auto-favorite group
-    // Returns: avgTds, avgEy, avgDuration, avgDose, avgYield, avgTemperature, notes[]
-    Q_INVOKABLE QVariantMap getAutoFavoriteGroupDetails(const QString& groupBy,
-                                                         const QString& beanBrand,
-                                                         const QString& beanType,
-                                                         const QString& profileName,
-                                                         const QString& grinderBrand,
-                                                         const QString& grinderModel,
-                                                         const QString& grinderSetting);
-
-    // Async version: runs query on background thread, emits autoFavoriteGroupDetailsReady()
+    // Async: runs query on background thread, emits autoFavoriteGroupDetailsReady()
     Q_INVOKABLE void requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                       const QString& beanBrand,
                                                       const QString& beanType,
@@ -314,19 +262,10 @@ public:
                                                       const QString& grinderModel,
                                                       const QString& grinderSetting);
 
-    // Export debug log for bug report
-    Q_INVOKABLE QString exportShotData(qint64 shotId);
-
-    // Create backup at specified path (for scheduled backups)
-    Q_INVOKABLE QString createBackup(const QString& destPath);
-
-    // Async version: runs backup on background thread, emits backupFinished()
+    // Async: runs backup on background thread, emits backupFinished()
     Q_INVOKABLE void requestCreateBackup(const QString& destPath);
 
-    // Import database from file path (merge=true adds new entries, merge=false replaces all)
-    Q_INVOKABLE bool importDatabase(const QString& filePath, bool merge);
-
-    // Async version: runs import on background thread, emits importDatabaseFinished()
+    // Async: runs import on background thread, emits importDatabaseFinished()
     Q_INVOKABLE void requestImportDatabase(const QString& filePath, bool merge);
 
     // Import a shot record directly (for .shot file import)
@@ -395,13 +334,20 @@ private:
     ShotFilter parseFilterMap(const QVariantMap& filterMap);
     QString formatFtsQuery(const QString& userInput);
 
-    // Helper for getDistinct* methods - column is the DB column name
+    // Helper for getDistinct* methods — cache-only, triggers async fetch on miss
     QStringList getDistinctValues(const QString& column);
-    // Helper for getDistinct*Filtered methods - excludeColumn is not filtered on itself
-    QStringList getDistinctValuesFiltered(const QString& column, const QString& excludeColumn,
-                                          const QVariantMap& filter);
+    // Internal wrappers used as fallbacks by parametric methods when parameter is empty
+    QStringList getDistinctBeanTypes();
+    QStringList getDistinctGrinders();
+    QStringList getDistinctGrinderSettings();
     // Helper to apply smart sorting for grinder settings
     void sortGrinderSettings(QStringList& settings);
+    // Async cache-miss fetcher: runs SQL on background thread, populates cache, emits distinctCacheReady()
+    void requestDistinctValueAsync(const QString& cacheKey, const QString& sql,
+                                    const QVariantList& bindValues = {});
+
+    // Internal sync delete — only called from importShotRecord() (main-thread, see TODO)
+    bool deleteShot(qint64 shotId);
 
     // Backfill beverage_type from profile_json for existing rows
     void backfillBeverageType();
@@ -426,6 +372,7 @@ private:
     QHash<QString, QStringList> m_distinctCache;
     bool m_distinctCacheRefreshing = false;  // Debounce guard for requestDistinctCache()
     bool m_distinctCacheDirty = false;       // Re-queue flag: set when invalidation arrives during refresh
+    QSet<QString> m_pendingDistinctKeys;     // De-duplicate in-flight requestDistinctValueAsync() calls
 
     // Async filter support
     bool m_loadingFiltered = false;

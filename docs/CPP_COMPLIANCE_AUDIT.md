@@ -98,35 +98,37 @@ All declared in `src/history/shothistorystorage.h` and callable from QML on the 
 |--------|-------------|--------|
 | `getShots()` | `LastShotItem.qml` | **Fixed** (PR #362) — uses `requestMostRecentShotId()` |
 | `getShot()` | `PostShotReviewPage.qml` | **Fixed** (PR #362) — uses `editShotData` + `Object.assign` |
-| `getDistinctBeanBrands()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback only on cold cache |
-| `getDistinctBeanTypesForBrand()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback on filtered cache miss |
-| `getDistinctGrinders()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback only on cold cache |
-| `getDistinctGrinderSettingsForGrinder()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback on filtered cache miss |
-| `getDistinctBaristas()` | `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Mitigated** (PR #362) — async cache pre-warm; sync fallback only on cold cache |
+| `getDistinctBeanBrands()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only, returns `{}` on miss and triggers async `requestDistinctValueAsync()` |
+| `getDistinctBeanTypesForBrand()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only with async miss handler |
+| `getDistinctGrinderBrands()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — pre-warmed by `requestDistinctCache()`, cache-only on access |
+| `getDistinctGrinderModelsForBrand()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only with async miss handler |
+| `getDistinctGrinderBurrsForModel()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only with async miss handler |
+| `getDistinctGrinderSettingsForGrinder()` | `BrewDialog.qml`, `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only with async miss handler |
+| `getDistinctBaristas()` | `PostShotReviewPage.qml`, `BeanInfoPage.qml` | **Fixed** — cache-only, returns `{}` on miss and triggers async fetch |
 | `updateVisualizerInfo()` | `PostShotReviewPage.qml`, `ShotDetailPage.qml` | **Fixed** (PR #362) — uses `requestUpdateVisualizerInfo()` |
 
-**Declared synchronous but no direct QML callers found (called from C++ or unused):**
+**Dead synchronous methods removed (zero callers):**
 
-- [ ] `getShotsFiltered(...)` — has async counterpart `requestShotsFiltered()`
-- [ ] `getShotTimestamp(qint64 shotId)` — blocking SQL SELECT
-- [ ] `getShotRecord(qint64 shotId)` — C++ return type, not Q_INVOKABLE
-- [ ] `getShotsForComparison(...)` — blocking batch full-record load loop
-- [ ] `deleteShot(qint64 shotId)` — blocking SQL DELETE; batch `deleteShots()` is async
-- [ ] `updateShotMetadata(...)` — has async counterpart `requestUpdateShotMetadata()`
-- [ ] `getDistinctProfiles()`, `getDistinctBeanTypes()`, `getDistinctGrinderSettings()`, `getDistinctRoastLevels()` — synchronous with caching
-- [ ] `getDistinctProfilesFiltered()`, `getDistinctBeanBrandsFiltered()`, `getDistinctBeanTypesFiltered()` — synchronous
-- [ ] `getFilteredShotCount(...)` — blocking SQL SELECT COUNT
-- [ ] `getAutoFavorites(...)` — has async counterpart `requestAutoFavorites()`
-- [ ] `getAutoFavoriteGroupDetails(...)` — has async counterpart `requestAutoFavoriteGroupDetails()`
-- [ ] `exportShotData(...)` — blocking full record load + JSON serialization
-- [ ] `createBackup(...)` — blocking WAL checkpoint + file copy; has async `requestCreateBackup()`
-- [ ] `importDatabase(...)` — blocking full DB import; has async `requestImportDatabase()`
+- [x] `getShots()`, `getShotsFiltered()`, `getShotTimestamp()`, `getShot()`, `getShotRecord()`, `getShotsForComparison()` — removed (async equivalents exist)
+- [x] `updateShotMetadata()`, `updateVisualizerInfo()` — removed (async equivalents exist)
+- [x] `getDistinctProfiles()`, `getDistinctRoastLevels()` — removed (no callers)
+- [x] `getDistinctProfilesFiltered()`, `getDistinctBeanBrandsFiltered()`, `getDistinctBeanTypesFiltered()`, `getDistinctValuesFiltered()` — removed (no callers)
+- [x] `getFilteredShotCount()` — removed (no callers)
+- [x] `getAutoFavorites()`, `getAutoFavoriteGroupDetails()` — removed (async equivalents exist)
+- [x] `exportShotData()` — removed (no callers)
+- [x] `createBackup()`, `importDatabase()` — removed (async equivalents exist)
+- [x] `getRecentShotsByKbId()` — removed (no callers)
 
-**Mitigating factors:**
-- The `getDistinct*()` methods have an in-memory cache (`m_distinctCache`) pre-warmed asynchronously at init and refreshed async on invalidation. Sync fallback only occurs on filtered cache miss (composite keys like `bean_type:<brand>`), which are fast indexed queries cached after first access.
-- `getShots()`, `getShot()`, and `updateVisualizerInfo()` QML callers have been fully migrated to async counterparts.
+**Other fixes:**
 
-**Remaining work:** The `getDistinct*()` filtered cache-miss sync fallback is the only remaining gap. Low priority — the queries are fast (single-column DISTINCT with WHERE on indexed column) and cached until the next invalidation.
+- [x] `updateTotalShots()` — converted to async (uses `getShotCountStatic()` on background thread); sync count only during `initialize()` (before UI)
+- [x] `grinder_brand` added to `requestDistinctCache()` pre-warm list (was missing, caused cache miss on first access)
+- [x] `getDistinctValues()` — converted to cache-only (returns `{}` on miss, triggers `requestDistinctValueAsync()`)
+
+**Remaining known violation:**
+
+- [ ] `importShotRecord()` — called synchronously on main thread from `ShotImporter::onProcessNextFile()` via `QTimer::singleShot` batching. Needs refactor to background-thread batch processing (see TODO in `shotimporter.cpp`).
+- [ ] `deleteShot()` — called from `importShotRecord()` (internal, same main-thread constraint)
 
 ### 3b. ShotServer synchronous DB calls in HTTP handlers
 
@@ -301,7 +303,7 @@ These areas were verified clean on 2026-03-04:
 | **High** | Main-thread I/O (QML-facing): shot metadata | 1 caller | 3c | **Fixed** |
 | **High** | Main-thread I/O (QML-facing): flow calibration | 1 caller | 3d | **Fixed** |
 | **High** | Timer guards (fixable) | 3 instances | 2 | **Fixed** |
-| **Medium** | Main-thread I/O (QML sync callers) | 8 confirmed callers | 3a | **Mostly fixed** (PR #362) — 3 fully async, 5 mitigated via cache |
+| **Medium** | Main-thread I/O (QML sync callers) | 8 confirmed callers | 3a | **Fixed** — all cache-only (no sync DB), 21 dead methods removed |
 | **Medium** | Timer guards (platform constraints) | 5+1 instances | 2 | Accepted / 1 **Fixed** (queueDrained) |
 | **Medium** | Main-thread I/O (ShotServer) | 10 call sites | 3b | **Fixed** |
 | **Medium** | Scale LOG macros route errors to `qDebug()` | 10 files | 5a | **Fixed** |
@@ -320,9 +322,9 @@ These areas were verified clean on 2026-03-04:
 ### Priority rationale
 
 - **High = directly affects primary touch UI.** Sections 3c/3d/3e blocked the QML UI thread during user interactions (loading shots, flow calibration, AI queries) — all now fixed.
-- **Medium = affects secondary interfaces, mitigated, or developer experience.** Section 3a had 8 confirmed QML callers — 3 fully migrated to async (PR #362), 5 `getDistinct*()` methods mitigated via async cache pre-warming with sync fallback only on filtered cache miss. Timer platform constraints (§2) have no event-based alternative — accepted. ShotServer async (§3b) only stalls the web UI. Scale log macros (§5a) and connection timeout (§5c) now use `qWarning()` for errors.
+- **Medium = affects secondary interfaces, mitigated, or developer experience.** Section 3a: all 8 QML callers now cache-only (return `{}` on miss, trigger async fetch via `requestDistinctValueAsync()`). 21 dead synchronous methods removed. Only remaining violation: `importShotRecord()` runs on main thread via timer batching (flagged as TODO). Timer platform constraints (§2) have no event-based alternative — accepted. ShotServer async (§3b) only stalls the web UI. Scale log macros (§5a) and connection timeout (§5c) now use `qWarning()` for errors.
 - **Low = correctness improvements with minimal user impact.** JS fetch fixes protect against edge cases on a localhost server. BLE log levels, naming conventions, and dead code removal are hygiene.
 
-### All items complete
+### Status
 
-All audit items are now either **Fixed** or **Accepted** (platform constraints with no event-based alternative, API-style slots where `on*` convention reads poorly).
+All audit items are now either **Fixed** or **Accepted**, with one remaining known violation: `importShotRecord()` runs on the main thread via `QTimer::singleShot` batching in `ShotImporter` (flagged as TODO for future background-thread refactor).

@@ -515,7 +515,9 @@ void ShotImporter::onProcessNextFile()
             qWarning() << "Failed to parse" << filename << ":" << result.errorMessage;
             m_failedFiles++;
         } else {
-            // Try to import into database
+            // TODO: importShotRecord() runs synchronously on the main thread via
+            // QTimer::singleShot batching. Should be moved to a background thread
+            // with batch processing to comply with the "no DB I/O on main thread" rule.
             qint64 shotId = m_storage->importShotRecord(result.record, m_overwriteExisting);
 
             if (shotId > 0) {
