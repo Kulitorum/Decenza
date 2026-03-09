@@ -471,14 +471,13 @@ Item {
                             spacing: Theme.scaled(8)
                             Accessible.ignored: true
 
-                            Text {
-                                text: dialogSuggestionDelegate._isCurrent ? "\u2713" : ""
-                                font.pixelSize: Theme.scaled(16)
-                                font.family: Theme.bodyFont.family
-                                color: Theme.primaryColor
+                            Image {
+                                source: "qrc:/icons/tick.svg"
+                                sourceSize.width: Theme.scaled(16)
+                                sourceSize.height: Theme.scaled(16)
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Theme.scaled(24)
-                                horizontalAlignment: Text.AlignHCenter
+                                visible: dialogSuggestionDelegate._isCurrent
                                 Accessible.ignored: true
                             }
 

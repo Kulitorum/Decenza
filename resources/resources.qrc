@@ -58,6 +58,8 @@
         <file>icons/download.svg</file>
         <file>icons/minus.svg</file>
         <file>icons/trash.svg</file>
+        <file>icons/warning.svg</file>
+        <file>icons/more-vertical.svg</file>
         <!-- GHC Simulator -->
         <file>GHC_Small.png</file>
         <!-- Shot Map Screensaver -->

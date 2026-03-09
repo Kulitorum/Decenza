@@ -1082,12 +1082,11 @@ KeyboardAwareContainer {
                     radius: Theme.scaled(12)
                     color: Theme.successColor
 
-                    Text {
+                    Image {
                         anchors.centerIn: parent
-                        text: "\u2713"
-                        color: "white"
-                        font.pixelSize: Theme.scaled(14)
-                        font.bold: true
+                        source: "qrc:/icons/tick.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
                     }
                 }
 

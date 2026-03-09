@@ -1337,14 +1337,13 @@ Dialog {
                             spacing: Theme.scaled(8)
                             Accessible.ignored: true
 
-                            Text {
-                                text: apOptionDelegate.isSelected ? "\u2713" : ""
-                                font.pixelSize: Theme.scaled(16)
-                                font.family: Theme.bodyFont.family
-                                color: Theme.primaryColor
+                            Image {
+                                source: "qrc:/icons/tick.svg"
+                                sourceSize.width: Theme.scaled(16)
+                                sourceSize.height: Theme.scaled(16)
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Theme.scaled(24)
-                                horizontalAlignment: Text.AlignHCenter
+                                visible: apOptionDelegate.isSelected
                                 Accessible.ignored: true
                             }
 

@@ -436,21 +436,20 @@ Page {
                                         }
 
                                         // Checkmark for identical or already imported
-                                        Text {
+                                        Image {
                                             anchors.centerIn: parent
-                                            text: "\u2713"
-                                            color: Theme.successColor
-                                            font.pixelSize: Theme.scaled(20)
-                                            font.bold: true
+                                            source: "qrc:/icons/tick.svg"
+                                            sourceSize.width: Theme.scaled(18)
+                                            sourceSize.height: Theme.scaled(18)
                                             visible: !parent.isInvalid && !parent.canImport
                                         }
 
                                         // Star for importable profiles
-                                        Text {
+                                        Image {
                                             anchors.centerIn: parent
-                                            text: "\u2606"
-                                            color: Theme.textSecondaryColor
-                                            font.pixelSize: Theme.scaled(24)
+                                            source: "qrc:/icons/star-outline.svg"
+                                            sourceSize.width: Theme.scaled(20)
+                                            sourceSize.height: Theme.scaled(20)
                                             visible: parent.canImport && !MainController.visualizerImporter.importing
                                         }
 
@@ -747,13 +746,12 @@ Page {
 
                             Row {
                                 spacing: Theme.spacingSmall
-                                Text {
-                                    text: "\u2713"
-                                    color: Theme.successColor
-                                    font.pixelSize: Theme.scaled(20)
-                                    font.bold: true
+                                Image {
+                                    source: "qrc:/icons/tick.svg"
+                                    sourceSize.width: Theme.scaled(18)
+                                    sourceSize.height: Theme.scaled(18)
                                     width: Theme.scaled(24)
-                                    horizontalAlignment: Text.AlignHCenter
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Text {
                                     text: "Already imported (same frames)"
@@ -765,12 +763,12 @@ Page {
 
                             Row {
                                 spacing: Theme.spacingSmall
-                                Text {
-                                    text: "\u2606"
-                                    color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(24)
+                                Image {
+                                    source: "qrc:/icons/star-outline.svg"
+                                    sourceSize.width: Theme.scaled(18)
+                                    sourceSize.height: Theme.scaled(18)
                                     width: Theme.scaled(24)
-                                    horizontalAlignment: Text.AlignHCenter
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Text {
                                     text: "Tap to import"

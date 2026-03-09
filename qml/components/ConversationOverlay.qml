@@ -380,10 +380,17 @@ Rectangle {
                             Layout.fillWidth: true
                         }
 
-                        Text {
-                            text: "\u2715"
-                            font.pixelSize: Theme.scaled(12)
-                            color: Theme.textSecondaryColor
+                        Item {
+                            width: Theme.scaled(16)
+                            height: Theme.scaled(16)
+
+                            Image {
+                                anchors.centerIn: parent
+                                source: "qrc:/icons/cross.svg"
+                                sourceSize.width: Theme.scaled(10)
+                                sourceSize.height: Theme.scaled(10)
+                                opacity: 0.6
+                            }
 
                             Accessible.role: Accessible.Button
                             Accessible.name: TranslationManager.translate("conversation.dismissshot.accessible", "Remove shot data")

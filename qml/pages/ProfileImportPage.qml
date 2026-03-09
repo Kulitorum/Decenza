@@ -226,17 +226,16 @@ Page {
                         spacing: Theme.scaled(10)
 
                         // Status icon
-                        Text {
+                        Image {
                             Layout.preferredWidth: Theme.scaled(24)
+                            Layout.preferredHeight: Theme.scaled(18)
                             Layout.alignment: Qt.AlignVCenter
-                            text: profileDelegate.isNew ? "\u2606" :      // Hollow star - new
-                                  profileDelegate.isIdentical ? "\u2713" : // Checkmark - identical
-                                  "\u26A0"                                  // Warning - different
-                            font.pixelSize: Theme.scaled(18)
-                            color: profileDelegate.isNew ? Theme.primaryColor :
-                                   profileDelegate.isIdentical ? Theme.successColor :
-                                   Theme.warningButtonColor  // Orange for different
-                            horizontalAlignment: Text.AlignHCenter
+                            source: profileDelegate.isNew ? "qrc:/icons/star-outline.svg" :
+                                    profileDelegate.isIdentical ? "qrc:/icons/tick.svg" :
+                                    "qrc:/icons/warning.svg"
+                            sourceSize.width: Theme.scaled(18)
+                            sourceSize.height: Theme.scaled(18)
+                            fillMode: Image.PreserveAspectFit
                         }
 
                         // Format badge (TCL/JSON)
@@ -305,11 +304,11 @@ Page {
                         }
 
                         // Already imported indicator
-                        Text {
+                        Image {
                             visible: profileDelegate.isIdentical
-                            text: "\u2713"
-                            font.pixelSize: Theme.scaled(20)
-                            color: Theme.successColor
+                            source: "qrc:/icons/tick.svg"
+                            sourceSize.width: Theme.scaled(18)
+                            sourceSize.height: Theme.scaled(18)
                         }
                     }
                 }

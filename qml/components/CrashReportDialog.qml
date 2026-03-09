@@ -321,11 +321,11 @@ Dialog {
                         radius: Theme.scaled(16)
                         color: Theme.primaryColor
 
-                        Text {
+                        Image {
                             anchors.centerIn: parent
-                            text: "\u2713"
-                            font.pixelSize: Theme.scaled(20)
-                            color: "white"
+                            source: "qrc:/icons/tick.svg"
+                            sourceSize.width: Theme.scaled(18)
+                            sourceSize.height: Theme.scaled(18)
                         }
                     }
 

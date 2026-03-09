@@ -725,11 +725,12 @@ Page {
                     Accessible.focusable: true
                     Accessible.onPressAction: tempCloseArea.clicked(null)
 
-                    Text {
+                    Image {
                         anchors.centerIn: parent
-                        text: "\u2715"
-                        font.pixelSize: Theme.scaled(16)
-                        color: Theme.textSecondaryColor
+                        source: "qrc:/icons/cross.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
+                        opacity: 0.6
                         Accessible.ignored: true
                     }
                     MouseArea {

@@ -299,7 +299,7 @@ Page {
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
-                                text: profileDelegate.isSelected ? "\u2605" : "\u2606"
+                                icon.source: profileDelegate.isSelected ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
                                 active: profileDelegate.isSelected
                                 accessibleName: profileDelegate.isSelected ? TranslationManager.translate("profileselector.accessible.remove_from_selected", "Remove from selected") : TranslationManager.translate("profileselector.accessible.add_to_selected", "Add to selected")
 
@@ -332,7 +332,7 @@ Page {
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
                                 enabled: profileDelegate.isFavorite || Settings.favoriteProfiles.length < 50
-                                text: profileDelegate.isFavorite ? "\u2605" : "\u2606"
+                                icon.source: profileDelegate.isFavorite ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
                                 active: profileDelegate.isFavorite
                                 accessibleName: profileDelegate.isFavorite ? TranslationManager.translate("profileselector.accessible.remove_from_favorites", "Remove from favorites") : TranslationManager.translate("profileselector.accessible.add_to_favorites", "Add to favorites")
 
@@ -359,8 +359,7 @@ Page {
                                 Layout.preferredWidth: Theme.scaled(40)
                                 Layout.preferredHeight: Theme.scaled(40)
                                 Layout.alignment: Qt.AlignVCenter
-                                text: "\u22EE"  // Vertical ellipsis ⋮
-                                font.pixelSize: Theme.scaled(24)
+                                icon.source: "qrc:/icons/more-vertical.svg"
                                 inactiveColor: Theme.textColor
                                 accessibleName: TranslationManager.translate("profileselector.accessible.more_options", "More options for") + " " + modelData.title
 
@@ -565,7 +564,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     key: "profileselector.favorites.empty"
-                    fallback: "No favorites yet.\nUse the \u22EE menu on a profile\nto add it to favorites."
+                    fallback: "No favorites yet.\nUse the ... menu on a profile\nto add it to favorites."
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
@@ -666,11 +665,11 @@ Page {
                                 spacing: Theme.scaled(8)
 
                                 // Drag handle
-                                Text {
-                                    text: "\u2261"  // Hamburger menu icon
-                                    font.pixelSize: Theme.scaled(24)
-                                    color: index === Settings.selectedFavoriteProfile ?
-                                           "white" : Theme.textSecondaryColor
+                                Image {
+                                    source: "qrc:/icons/list.svg"
+                                    sourceSize.width: Theme.scaled(18)
+                                    sourceSize.height: Theme.scaled(18)
+                                    opacity: index === Settings.selectedFavoriteProfile ? 1.0 : 0.5
 
                                     MouseArea {
                                         id: dragArea
@@ -737,8 +736,7 @@ Page {
                                     id: removeFavoriteButton
                                     Layout.preferredWidth: Theme.scaled(36)
                                     Layout.preferredHeight: Theme.scaled(36)
-                                    text: "\u00D7"  // × multiplication sign
-                                    font.pixelSize: Theme.scaled(20)
+                                    icon.source: "qrc:/icons/cross.svg"
                                     inactiveColor: Theme.errorColor
                                     accessibleName: modelData ? (TranslationManager.translate("profileselector.accessible.remove", "Remove") + " " + root.cleanForSpeech(modelData.name) + " " + TranslationManager.translate("profileselector.accessible.from_favorites", "from favorites")) : ""
 

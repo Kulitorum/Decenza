@@ -854,11 +854,10 @@ Page {
                 anchors.centerIn: parent
                 spacing: Theme.scaled(6)
 
-                Text {
-                    text: "\u2713"  // Checkmark
-                    font.pixelSize: Theme.scaled(18)
-                    font.bold: true
-                    color: "white"
+                Image {
+                    source: "qrc:/icons/tick.svg"
+                    sourceSize.width: Theme.scaled(16)
+                    sourceSize.height: Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
                 }

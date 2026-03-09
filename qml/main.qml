@@ -543,10 +543,10 @@ ApplicationWindow {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
-            Text {
-                text: "✓"
-                font.pixelSize: Theme.scaled(16)
-                color: "white"
+            Image {
+                source: "qrc:/icons/tick.svg"
+                sourceSize.width: Theme.scaled(14)
+                sourceSize.height: Theme.scaled(14)
                 Accessible.ignored: true
             }
 
@@ -1529,12 +1529,11 @@ ApplicationWindow {
                 border.color: Theme.primaryColor
                 border.width: 4
 
-                Text {
+                Image {
                     anchors.centerIn: parent
-                    text: "\u2713"  // Checkmark
-                    font.pixelSize: 60
-                    font.bold: true
-                    color: Theme.primaryColor
+                    source: "qrc:/icons/tick.svg"
+                    sourceSize.width: 50
+                    sourceSize.height: 50
                 }
             }
 
