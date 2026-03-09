@@ -1696,10 +1696,9 @@ bool ShotHistoryStorage::deleteShot(qint64 shotId)
         return false;
     }
 
-    updateTotalShots();
-    invalidateDistinctCache();
-    emit shotDeleted(shotId);
-
+    // Note: no updateTotalShots()/invalidateDistinctCache()/shotDeleted() here.
+    // This method is only called from importShotRecord() during overwrite, which
+    // handles refresh via ShotImporter::refreshTotalShots() after the full batch.
     qDebug() << "ShotHistoryStorage: Deleted shot" << shotId;
     return true;
 }
@@ -2609,8 +2608,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         drink_tds, drink_ey,
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
-                        temperature_override, yield_override)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        temperature_override, yield_override, profile_kb_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -2642,6 +2641,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcShots.value("debug_log"));
                 insert.addBindValue(srcShots.value("temperature_override"));
                 insert.addBindValue(srcShots.value("yield_override"));
+                insert.addBindValue(srcShots.value("profile_kb_id"));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
