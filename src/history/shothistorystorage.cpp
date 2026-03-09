@@ -643,8 +643,15 @@ bool ShotHistoryStorage::runMigrations()
     if (currentVersion < 9) {
         qDebug() << "ShotHistoryStorage: Running migration to version 9 (profile_kb_id)";
 
-        if (!hasColumn("shots", "profile_kb_id"))
-            query.exec("ALTER TABLE shots ADD COLUMN profile_kb_id TEXT");
+        bool ok = true;
+        if (!hasColumn("shots", "profile_kb_id")) {
+            ok = query.exec("ALTER TABLE shots ADD COLUMN profile_kb_id TEXT");
+            if (!ok)
+                qWarning() << "ShotHistoryStorage: Migration 9 ALTER TABLE failed:" << query.lastError().text();
+        }
+        if (ok) {
+            query.exec("CREATE INDEX IF NOT EXISTS idx_shots_profile_kb_id ON shots(profile_kb_id)");
+        }
 
         query.exec("DELETE FROM schema_version");
         query.exec("INSERT INTO schema_version (version) VALUES (9)");
@@ -1572,7 +1579,10 @@ QVariantList ShotHistoryStorage::getRecentShotsByKbId(const QString& profileKbId
     sql += QStringLiteral(" ORDER BY timestamp DESC LIMIT ?");
 
     QSqlQuery query(m_db);
-    if (!query.prepare(sql)) return results;
+    if (!query.prepare(sql)) {
+        qWarning() << "ShotHistoryStorage::getRecentShotsByKbId: prepare failed:" << query.lastError().text();
+        return results;
+    }
 
     int idx = 0;
     query.bindValue(idx++, profileKbId);
@@ -1581,7 +1591,10 @@ QVariantList ShotHistoryStorage::getRecentShotsByKbId(const QString& profileKbId
     }
     query.bindValue(idx, limit);
 
-    if (!query.exec()) return results;
+    if (!query.exec()) {
+        qWarning() << "ShotHistoryStorage::getRecentShotsByKbId: exec failed:" << query.lastError().text();
+        return results;
+    }
 
     while (query.next()) {
         QVariantMap shot;

@@ -625,6 +625,10 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         double dose = shot.value("doseWeight", 0.0).toDouble();
         double yield = shot.value("finalWeight", 0.0).toDouble();
         double duration = shot.value("duration", 0.0).toDouble();
+
+        // Skip entries with no meaningful data (corrupt or incomplete records)
+        if (dose <= 0 && yield <= 0 && duration <= 0) continue;
+
         double ratio = dose > 0 ? yield / dose : 0;
         int score = shot.value("enjoyment", 0).toInt();
 
@@ -740,13 +744,13 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 void ShotSummarizer::loadProfileKnowledge()
 {
     if (s_knowledgeLoaded) return;
-    s_knowledgeLoaded = true;
 
     QFile file(QStringLiteral(":/ai/profile_knowledge.md"));
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
         return;
     }
+    s_knowledgeLoaded = true;
 
     QString content = QTextStream(&file).readAll();
     file.close();

@@ -199,7 +199,7 @@ public:
     QByteArray toDirectControlFrame(int frameIndex, const ProfileFrame& frame) const;
 
     // === AI Knowledge Base ===
-    // Transient (not serialized) — computed when profile is loaded, survives Save As
+    // Persisted in JSON as "knowledge_base_id" — survives Save As and reboots
     QString knowledgeBaseId() const { return m_knowledgeBaseId; }
     void setKnowledgeBaseId(const QString& id) { m_knowledgeBaseId = id; }
 
