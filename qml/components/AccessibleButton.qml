@@ -25,19 +25,40 @@ Button {
     leftPadding: Theme.scaled(20)
     rightPadding: Theme.scaled(20)
 
-    contentItem: Text {
-        text: root.text
-        font.pixelSize: Theme.scaled(16)
-        font.family: Theme.bodyFont.family
-        color: {
-            if (!root.enabled) return Theme.textSecondaryColor
-            if (root.primary || root.subtle || root.destructive || root.warning) return "white"
-            return Theme.textColor
-        }
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        // Decorative - accessibility handled by Button itself
+    // Icon styling — set icon.source to show an icon before the text
+    icon.width: Theme.scaled(16)
+    icon.height: Theme.scaled(16)
+    icon.color: {
+        if (!root.enabled) return Theme.textSecondaryColor
+        if (root.primary || root.subtle || root.destructive || root.warning) return "white"
+        return Theme.textColor
+    }
+
+    contentItem: Row {
+        spacing: root.icon.source.toString() !== "" && root.text !== "" ? Theme.scaled(6) : 0
+        anchors.centerIn: parent
         Accessible.ignored: true
+
+        Image {
+            source: root.icon.source
+            sourceSize.width: root.icon.width
+            sourceSize.height: root.icon.height
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.icon.source.toString() !== ""
+            opacity: root.enabled ? 1.0 : 0.5
+            Accessible.ignored: true
+        }
+
+        Text {
+            text: root.text
+            font.pixelSize: Theme.scaled(16)
+            font.family: Theme.bodyFont.family
+            color: root.icon.color
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            visible: root.text !== ""
+            Accessible.ignored: true
+        }
     }
 
     background: Rectangle {

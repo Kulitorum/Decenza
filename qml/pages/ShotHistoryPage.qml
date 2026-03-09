@@ -389,12 +389,7 @@ Page {
             AccessibleButton {
                 visible: searchField.text.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
                 accessibleName: TranslationManager.translate("shothistory.clearsearch", "Clear search")
-                contentItem: Image {
-                    source: "qrc:/icons/cross.svg"
-                    sourceSize.width: Theme.scaled(14)
-                    sourceSize.height: Theme.scaled(14)
-                    anchors.centerIn: parent
-                }
+                icon.source: "qrc:/icons/cross.svg"
                 onClicked: {
                     searchField.text = ""
                     searchField.focus = false
@@ -416,28 +411,11 @@ Page {
             }
 
             AccessibleButton {
+                text: TranslationManager.translate("shothistory.saved", "Saved")
                 accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
+                icon.source: "qrc:/icons/list.svg"
                 enabled: Settings.savedSearches.length > 0
                 onClicked: savedSearchesDialog.open()
-                contentItem: Row {
-                    spacing: Theme.scaled(6)
-                    anchors.centerIn: parent
-                    Image {
-                        source: "qrc:/icons/list.svg"
-                        sourceSize.width: Theme.scaled(14)
-                        sourceSize.height: Theme.scaled(14)
-                        anchors.verticalCenter: parent.verticalCenter
-                        opacity: parent.parent.enabled ? 1.0 : 0.5
-                    }
-                    Text {
-                        text: TranslationManager.translate("shothistory.saved", "Saved")
-                        font.pixelSize: Theme.scaled(16)
-                        font.family: Theme.bodyFont.family
-                        color: parent.parent.enabled ? Theme.textColor : Theme.textSecondaryColor
-                        verticalAlignment: Text.AlignVCenter
-                        Accessible.ignored: true
-                    }
-                }
             }
 
             // Sort field button
@@ -504,26 +482,10 @@ Page {
                 }
 
                 AccessibleButton {
+                    text: TranslationManager.translate("shothistory.clearFilter", "Clear")
                     accessibleName: TranslationManager.translate("shothistory.clearFilterAccessible", "Clear favorites filter")
+                    icon.source: "qrc:/icons/cross.svg"
                     onClicked: clearInitialFilter()
-                    contentItem: Row {
-                        spacing: Theme.scaled(6)
-                        anchors.centerIn: parent
-                        Image {
-                            source: "qrc:/icons/cross.svg"
-                            sourceSize.width: Theme.scaled(12)
-                            sourceSize.height: Theme.scaled(12)
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        Text {
-                            text: TranslationManager.translate("shothistory.clearFilter", "Clear")
-                            font.pixelSize: Theme.scaled(16)
-                            font.family: Theme.bodyFont.family
-                            color: Theme.textColor
-                            verticalAlignment: Text.AlignVCenter
-                            Accessible.ignored: true
-                        }
-                    }
                 }
             }
         }
