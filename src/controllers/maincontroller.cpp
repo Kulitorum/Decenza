@@ -2510,7 +2510,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
 
     // Remove outliers using IQR fence method (1.5x IQR from Q1/Q3)
     if (values.size() >= 4) {
-        int n = values.size();
+        qsizetype n = values.size();
         double q1 = values[n / 4];
         double q3 = values[3 * n / 4];
         double iqr = q3 - q1;
@@ -2526,7 +2526,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
         // If filtering leaves <2, use all values (outlier detection unreliable with tiny sets)
     }
 
-    int n = values.size();
+    qsizetype n = values.size();
     double median = (n % 2 == 0)
         ? (values[n/2 - 1] + values[n/2]) / 2.0
         : values[n/2];
