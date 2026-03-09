@@ -360,12 +360,15 @@ Page {
                 }
 
                 // Clear button (inline, hidden in accessibility mode to avoid overlapping elements)
-                Text {
+                Item {
                     id: searchClearButton
+                    width: Theme.scaled(20)
+                    height: Theme.scaled(20)
                     visible: searchField.text.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(10)
                     anchors.verticalCenter: parent.verticalCenter
+
                     ColoredIcon {
                         anchors.centerIn: parent
                         source: "qrc:/icons/cross.svg"

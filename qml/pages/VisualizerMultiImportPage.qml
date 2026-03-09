@@ -757,7 +757,7 @@ Page {
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Text {
-                                    text: "Already imported (same frames)"
+                                    text: TranslationManager.translate("visualizer.legend.alreadyimported", "Already imported (same frames)")
                                     color: Theme.textSecondaryColor
                                     font: Theme.captionFont
                                     anchors.verticalCenter: parent.verticalCenter
@@ -775,7 +775,7 @@ Page {
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Text {
-                                    text: "Tap to import"
+                                    text: TranslationManager.translate("visualizer.legend.taptoimport", "Tap to import")
                                     color: Theme.textSecondaryColor
                                     font: Theme.captionFont
                                     anchors.verticalCenter: parent.verticalCenter
