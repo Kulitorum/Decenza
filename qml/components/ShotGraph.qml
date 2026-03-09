@@ -25,10 +25,10 @@ ChartView {
         Settings.setValue("graph/showWeightAxis", showWeightAxis)
     }
 
-    margins.top: 0
+    margins.top: Theme.scaled(10)
     margins.bottom: 0
-    margins.left: 0
-    margins.right: Theme.scaled(35)
+    margins.left: Theme.scaled(40)
+    margins.right: Theme.scaled(55)
 
     // Register goal/marker LineSeries with C++ model (infrequent updates, replace() is fine)
     Component.onCompleted: {

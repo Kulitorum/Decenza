@@ -1,4 +1,5 @@
 #include "fastlinerenderer.h"
+#include <cmath>
 
 FastLineRenderer::FastLineRenderer(QQuickItem* parent)
     : QQuickItem(parent)
@@ -94,16 +95,17 @@ void FastLineRenderer::itemChange(ItemChange change, const ItemChangeData& data)
     QQuickItem::itemChange(change, data);
 }
 
+// Triangle strip vertex count: 2 vertices per point (left/right of the line center)
+static constexpr int MAX_VERTICES = FastLineRenderer::MAX_POINTS * 2;
+
 QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) {
     auto* gnode = static_cast<QSGGeometryNode*>(node);
 
     if (!gnode) {
-        // First call: create geometry node with pre-allocated buffer
         gnode = new QSGGeometryNode();
 
-        auto* geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), MAX_POINTS);
-        geometry->setDrawingMode(QSGGeometry::DrawLineStrip);
-        geometry->setLineWidth(m_lineWidth);
+        auto* geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), MAX_VERTICES);
+        geometry->setDrawingMode(QSGGeometry::DrawTriangleStrip);
         geometry->setVertexDataPattern(QSGGeometry::StreamPattern);
 
         gnode->setGeometry(geometry);
@@ -118,7 +120,6 @@ QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) 
         m_materialDirty = false;
     }
 
-    // Update material color if changed
     if (m_materialDirty) {
         auto* material = static_cast<QSGFlatColorMaterial*>(gnode->material());
         material->setColor(m_color);
@@ -126,38 +127,101 @@ QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) 
         m_materialDirty = false;
     }
 
-    // Update line width if changed
-    auto* geometry = gnode->geometry();
-    if (m_lineWidth != geometry->lineWidth()) {
-        geometry->setLineWidth(m_lineWidth);
-    }
-
-    // Transform data-space points to pixel-space and write to pre-allocated buffer
     if (m_geometryDirty) {
+        auto* geometry = gnode->geometry();
         auto* v = geometry->vertexDataAsPoint2D();
         const float w = static_cast<float>(width());
         const float h = static_cast<float>(height());
         const double rangeX = m_maxX - m_minX;
         const double rangeY = m_maxY - m_minY;
+        const float halfWidth = m_lineWidth * 0.5f;
 
-        if (rangeX > 0 && rangeY > 0 && m_pointCount > 0) {
+        if (rangeX > 0 && rangeY > 0 && m_pointCount > 1) {
             const double scaleX = w / rangeX;
             const double scaleY = h / rangeY;
 
+            // Convert data points to pixel coordinates in a temp buffer
+            struct Pt { float x, y; };
+            QVarLengthArray<Pt, 1024> px(m_pointCount);
             for (int i = 0; i < m_pointCount; ++i) {
-                float px = static_cast<float>((m_points[i].x() - m_minX) * scaleX);
-                float py = h - static_cast<float>((m_points[i].y() - m_minY) * scaleY);
-                v[i].set(px, py);
+                px[i].x = static_cast<float>((m_points[i].x() - m_minX) * scaleX);
+                px[i].y = h - static_cast<float>((m_points[i].y() - m_minY) * scaleY);
             }
 
-            // Fill remaining with last valid point (degenerate zero-length segments)
-            QSGGeometry::Point2D last = v[m_pointCount - 1];
-            for (int i = m_pointCount; i < MAX_POINTS; ++i) {
+            // Generate triangle strip: for each point, emit two vertices offset
+            // perpendicular to the line direction by halfWidth
+            int vi = 0;
+            for (int i = 0; i < m_pointCount; ++i) {
+                float nx, ny;
+                if (i == 0) {
+                    // First point: use direction to next point
+                    float dx = px[1].x - px[0].x;
+                    float dy = px[1].y - px[0].y;
+                    float len = std::sqrt(dx * dx + dy * dy);
+                    if (len < 1e-6f) len = 1.0f;
+                    nx = -dy / len;
+                    ny = dx / len;
+                } else if (i == m_pointCount - 1) {
+                    // Last point: use direction from previous point
+                    float dx = px[i].x - px[i - 1].x;
+                    float dy = px[i].y - px[i - 1].y;
+                    float len = std::sqrt(dx * dx + dy * dy);
+                    if (len < 1e-6f) len = 1.0f;
+                    nx = -dy / len;
+                    ny = dx / len;
+                } else {
+                    // Middle points: average the normals of adjacent segments (miter join)
+                    float dx1 = px[i].x - px[i - 1].x;
+                    float dy1 = px[i].y - px[i - 1].y;
+                    float len1 = std::sqrt(dx1 * dx1 + dy1 * dy1);
+                    if (len1 < 1e-6f) len1 = 1.0f;
+                    float nx1 = -dy1 / len1;
+                    float ny1 = dx1 / len1;
+
+                    float dx2 = px[i + 1].x - px[i].x;
+                    float dy2 = px[i + 1].y - px[i].y;
+                    float len2 = std::sqrt(dx2 * dx2 + dy2 * dy2);
+                    if (len2 < 1e-6f) len2 = 1.0f;
+                    float nx2 = -dy2 / len2;
+                    float ny2 = dx2 / len2;
+
+                    nx = (nx1 + nx2) * 0.5f;
+                    ny = (ny1 + ny2) * 0.5f;
+                    float nlen = std::sqrt(nx * nx + ny * ny);
+                    if (nlen < 1e-6f) { nx = nx1; ny = ny1; }
+                    else {
+                        // Scale miter normal so the perpendicular offset equals halfWidth.
+                        // dot(avgNormal, segNormal) gives the cosine of the half-angle;
+                        // dividing by it corrects the miter length. Clamp to avoid spikes.
+                        float dot = nx * nx1 + ny * ny1;
+                        float miterLen = (dot > 0.25f) ? (nlen / dot) : 2.0f;
+                        if (miterLen > 2.0f) miterLen = 2.0f;
+                        nx = nx / nlen * miterLen;
+                        ny = ny / nlen * miterLen;
+                    }
+                }
+
+                v[vi].set(px[i].x + nx * halfWidth, px[i].y + ny * halfWidth);
+                v[vi + 1].set(px[i].x - nx * halfWidth, px[i].y - ny * halfWidth);
+                vi += 2;
+            }
+
+            // Fill remaining vertices with degenerate (last point)
+            QSGGeometry::Point2D last = v[vi - 1];
+            for (int i = vi; i < MAX_VERTICES; ++i) {
                 v[i] = last;
             }
+        } else if (rangeX > 0 && rangeY > 0 && m_pointCount == 1) {
+            // Single point: draw a small dot
+            float px = static_cast<float>((m_points[0].x() - m_minX) * (w / rangeX));
+            float py = h - static_cast<float>((m_points[0].y() - m_minY) * (h / rangeY));
+            v[0].set(px - halfWidth, py - halfWidth);
+            v[1].set(px + halfWidth, py - halfWidth);
+            for (int i = 2; i < MAX_VERTICES; ++i) {
+                v[i].set(px, py);
+            }
         } else {
-            // No data or invalid range: all vertices at origin (invisible)
-            for (int i = 0; i < MAX_POINTS; ++i) {
+            for (int i = 0; i < MAX_VERTICES; ++i) {
                 v[i].set(0.0f, 0.0f);
             }
         }
