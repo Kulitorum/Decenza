@@ -1213,24 +1213,40 @@ void MainController::refreshProfiles() {
     m_allProfiles.clear();
     m_profileJsonCache.clear();
 
+    // Helper to extract profile metadata from a JSON object
+    auto extractProfileMeta = [](const QJsonObject& obj) -> std::tuple<QString, QString, bool, bool, QString> {
+        QString editorType;
+        bool isRecipeMode = obj["is_recipe_mode"].toBool(false);
+        if (isRecipeMode && obj.contains("recipe")) {
+            editorType = obj["recipe"].toObject()["editorType"].toString();
+        }
+        bool hasKb = obj.contains("knowledge_base_id");
+        // If no baked-in KB ID, try computing one from title/editorType
+        if (!hasKb) {
+            hasKb = !ShotSummarizer::computeProfileKbId(obj["title"].toString(), editorType).isEmpty();
+        }
+        return {obj["title"].toString(), obj["beverage_type"].toString(),
+                isRecipeMode, hasKb, editorType};
+    };
+
     // Helper to load profile metadata from file path
-    auto loadProfileMeta = [](const QString& path) -> std::tuple<QString, QString, bool, bool> {
+    auto loadProfileMeta = [&extractProfileMeta](const QString& path) -> std::tuple<QString, QString, bool, bool> {
         QFile file(path);
         if (file.open(QIODevice::ReadOnly)) {
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-            QJsonObject obj = doc.object();
-            return {obj["title"].toString(), obj["beverage_type"].toString(),
-                    obj["is_recipe_mode"].toBool(false), obj.contains("knowledge_base_id")};
+            auto [title, bevType, isRecipe, hasKb, editorType] = extractProfileMeta(doc.object());
+            Q_UNUSED(editorType);
+            return {title, bevType, isRecipe, hasKb};
         }
         return {QString(), QString(), false, false};
     };
 
     // Helper to load profile metadata from JSON string
-    auto loadProfileMetaFromJson = [](const QString& jsonContent) -> std::tuple<QString, QString, bool, bool> {
+    auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent) -> std::tuple<QString, QString, bool, bool> {
         QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
-        QJsonObject obj = doc.object();
-        return {obj["title"].toString(), obj["beverage_type"].toString(),
-                obj["is_recipe_mode"].toBool(false), obj.contains("knowledge_base_id")};
+        auto [title, bevType, isRecipe, hasKb, editorType] = extractProfileMeta(doc.object());
+        Q_UNUSED(editorType);
+        return {title, bevType, isRecipe, hasKb};
     };
 
     QStringList filters;
