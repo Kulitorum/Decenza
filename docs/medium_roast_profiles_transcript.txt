@@ -1,0 +1,675 @@
+In today's live stream, we're going to do 
+five profiles for medium roasted beans. Now, this is what I drink actually mostly, and so you would have 
+thought that I would do it first, but this is actually the 
+most difficult of all of them. And that's because medium roasted 
+encompasses a very wide compass 
+from medium light to medium dark. I know they both say medium in them, but let me just define what I 
+mean by light, medium and dark, and you'll see where the problem is. So for light roasts, I think of any bean that 
+doesn't taste of the roasting process. So in the bag description, not 
+only will you not see chocolate, but 
+you shouldn't see caramel either. You might see pear. Pear would be a flavor sometimes that 
+people give for a very light roasting flavor, but that would be as dark as you'd see it, and you definitely wouldn't see toffee, 
+nor would you see bitter chocolate. Medium would be kind 
+of bang in the middle, meaning there's no fruity light flavor. Something that's actually positively 
+medium is just going to be chocolate. Maybe they're going to 
+talk about red fruits, maybe. And then dark you're having bitter 
+chocolate and burnt notes as well.  They might not say burnt notes on the 
+bag, but you can certainly smell them. So the challenge is that 
+medium is right in the middle,  because medium light is going to give 
+you flavors of the roasting process. So you're going to have 
+right in the middle chocolate, darker you might have toffee, and lighter you might have caramel, really light you might have pear. But that's where medium light is sitting 
+is definitely giving you chocolate flavors, but no bitter chocolate, and then medium dark is 
+going to be no fruit really at all. None of the fruity flavors 
+are going to be there, but none of the char either. So if you're a fan of dark roasted coffee, 
+and you're wondering what to try next, I would probably suggest 
+you try medium dark roasted, because you'll still get that 
+bitter chocolate that you like, but what you will no longer have is the 
+burn flavors, the oxidation, the rancidity 
+that comes from oils coming out. Medium is kind of the 
+most boring of all of them. When you talk about a medium roasted 
+bean, you probably talk about 
+something that's just comfort food. If it's an espresso, you just sip it 
+and it's pleasant, if it's a milk 
+espresso drink, it's just a nice base. So generally, people are talking 
+about medium dark for the 
+bitter chocolate flavors, or medium light - medium 
+is almost like an insult, it just doesn't really sit anywhere. Most people who get on this 
+espresso adventure already are 
+in a medium to dark world, and as they buy a nicer machine, they tend to go lighter 
+and lighter roast over time, and where they settle kind of depends 
+on their tolerance for more difficult 
+flavors, such as bitterness and acidity. And when I started, I was 
+absolutely a fan of Italian roasts, and I didn't even drink medium, I just drank dark roasted coffee. That's what I liked when I milked it, and then way back when I would 
+even add chocolate syrup to it. But as I got better at espresso, I started moving more towards 
+the milk chocolate world, what I call, like, lint chocolate, 
+where you have layers of chocolate, 
+so you still have fruitiness, and you have a lot of complexity, but 
+nothing unpleasant, still very comfortable. Where I personally have landed 
+now is medium light, where I 
+think a lot of people land. I think when we survey 
+our customers face to face, we're mostly getting people in 
+the medium, medium light world. In this video, we're going to talk 
+about five different approaches, but here are the profiles from Default, a flow profile for milky drinks, but 
+there's also a flow profile for espresso, Adaptive and Londinium, and then finally D-Flow. And D-Flow is kind of a category of its 
+own, because it can be many profiles. And I'll talk about that a bit more. The reason I talked about 
+what are medium beans is because how we extract them 
+and what we're trying to do with 
+them really affects what we do here. We're going to start with a Default profile, and the reason it's the Default 
+profile is not because it's boring, 
+but because it works. It's a very classic profile - can you hit settings and 
+let's take a look at it? So here it is going to 8.6 six bar 
+with a fast pre-infusion, coming down to 6 bar. Now, that's not that dissimilar 
+to the Best Overall profile, but this is essentially the traditional 
+lever profile when people would 
+make a shot in 25 to say 35 seconds, take the cup away as it's 
+starting to slow down, and it's just a very straightforward 
+way to make great espresso. When I mean straightforward, I mean 
+straightforward if you happen to have a 
+$3,000 or $4,000 lever machine. Those of you with flat 9 bar machines 
+can't achieve anything like this. So this is the default profile, 
+because it does good things. The declining pressure profile 
+here is going to automatically slow 
+the shot down as it extracts, and it peaks for very little time here. And one of the things about this 
+profile and the reason it's default is we have two different grinders here, a very large flat burr grinder that's 
+not going to have many fines and then a Niche grinder that's 
+going to have a lot of fines. More fines helps puck integrity. This Default profile works 
+with either grinder. And the reason it works with either 
+grinder is because it doesn't hold 
+peak pressure for very long. And that peak pressure is when the puck 
+integrity is going to be most stressed. And especially with this that doesn't 
+have as many fines, the nicer grinder, you're more likely to have 
+channeling at that point. So this profile very quickly moves on. Now, we could change this 
+right here, this Rise and Hold, from 4 sec to something longer, if 
+our puck integrity was holding. So the nice thing about this Default 
+profile is it's meant to fiddle with. So you could change this if your puck 
+integrity was holding really well. You could lower this pressure, if your 
+puck integrity is falling apart here. So if you have, say, a grinder that you paid 
+$300 US for, or let's say a hand grinder, those things will tend to not be 
+able to survive high pressure. And so lowering this would 
+be a way to deal with that. And then finally a very middle 
+of the road temperature; this 
+is 88°C for the extraction, which is a really nice temperature
+for the medium world. Generally, you're going to lower 
+that for darker roasts and you're going 
+to increase it for um lighter roasts. So something like 92°C, even 
+maybe 94°C for light roasts, and 88°C, going down to as low 
+as 80°C for the very dark roasts. Alright, so that's the theory there. Are we all ready to pull a Default shot? Mhm. Ok, great. Yeah. And I've got two different beans 
+here while Mark is going in here, and they're meant to illustrate the 
+two different approaches. So this is from Dark Arts in London. Despite their name of Dark Arts, they're 
+mostly in the light roast world, and this happens to be what 
+I consider a medium dark bean. It's a bean... sorry, there's a lot written 
+on the label here; chocolate, marzipan, cherry bramble. So the fact that there's chocolate 
+and cherry automatically is telling 
+me this is this is a darker roast. I mean cherry is also quite full flavor 
+on the chocolate spectrum, it's not cherry and pineapple, 
+you know, or cherry and mango or 
+something a little bit fruity like that. And I thought this was a very good powerful 
+shot when I made this for my partner. She finds it too intense. I have to put more milk in it. It extracts very fully. The more roasted a bean is, the more it's 
+going to give up coffee flavor to the water and the more intense, like, 
+the more the concentration 
+of the espresso is going to be.  So darker roast, if you're going to milk 
+it, you're also going to put more milk in. And then over here we've got some beans 
+from L'Alchimiste in Bordeaux, France, and these are very much medium light. And they tell me the description 
+here, okay, they say very little, they just say fruity and complex. And I don't really mind roasters who don't 
+tell me what I'm supposed to taste. But definitely fruity and complex; 
+they're not even making a nod in saying 
+that it might be medium roast. So let's just get two cups, and I'm going to put some beans 
+in, while Mark makes that shot. So we are using 18 g baskets 
+like we do for all these. Let's get that top camera for a second. It's not a world of difference. This one is a bit lighter than this one. You can also see there's a few lighter 
+beans, like this is quite a bit lighter, whereas in the Dark Arts one, 
+it's kind of the other way around; you have some beans that 
+are the same color as that and some other ones that 
+are quite a bit darker. So in deciding, I'd literally 
+be smelling them, and smell-wise, I'm just getting a 
+whole lot of chocolate, I'm not getting much else there. And smell-wise caramel and a lot of fruitiness, 
+like red wine fruits, red fruits, some tropical fruits, too. It's kind of amazing, given the 
+roast colors are quite similar, how different this is smelling, and so this, though the color is telling 
+me this is medium, it's smelling fruity. Now, it also means by looking at the color, I probably don't want to use any of 
+the light roast extraction methods; it's going to over extract this, 
+it's not going to be pleasant. So something more traditional. This would be what I serve to 
+someone who comes in saying 
+I like dark roasted coffee, just to see if I can pull them off of the 
+rancid burn flavors and if they like it. If they're really traditional, they won't. But I'd like to see if I can pull dark 
+roasted people to medium dark, 
+because it removes a lot of the defects. Both these beans I should 
+mention, nothing bad. So I open them and I'm smelling, 
+like the most common defect I 
+would get would be wet cardboard. Like that's a bad smell. How are we doing on the shots here? Here. That looks alright. So this is our Default shot here. So looking at this, we 
+got some nice crema. And just going to do that. A reasonable amount of crema. These are the Dark Art beans. Mhm. Mhm. Go ahead. So what are you tasting there, Mark? I can taste it's quite intense. It just shows up right in the first sip, and dark chocolate, I would say, yeah. Do you taste any defects? We did dark roasts last week, 
+how do you compare this to that? So compared to last week, 
+I would say last week it's very easy that you end up with those 
+kind of charcoal more heavier notes in that, and this is more your Belgian dark 
+chocolate, those kind of chocolate pellets 
+that you will use in baking, for example, so that's more pleasant, 
+more delicate, I would say. Yeah. Yeah, I completely agree. For me, this actually is like 2/3 
+of the flavor I had in those Italian 
+dark roasted beans, are here, too. I've got absolutely baker's chocolate. I mean this is intense there's 
+nothing light chocolate about this, this does not taste like 
+artisanal chocolate, but there's a very slight hint of char in it, but it's like 1/10 of what 
+the Italian bean had. Overall, I'd also say this just 
+tastes way more expensive. I mean this...and it probably 
+is 3 to 4 times the price per bean 
+bag of the Italian roast. So what we're getting 
+there is virtually no defects. Very powerful, I agree with you. There's nothing subtle about this, but if you like a medium to 
+dark roasted chocolate milk, this is the coffee version of that. Mhm. I thought it was pretty full body, 
+there's a little bit of acidity. Yeah. I mean, I think anyone who was a 
+traditional espresso liker would go, 
+"That's a traditional espresso." Mhm. And they'd be happy. Now, they might go, "So why should I 
+spend a lot of money on this machine [laughing] if you've just made me 
+a traditional espresso?" I mean one thing with the DE1 is 
+definitely you know where your 
+extraction goes wrong or goes right. Yeah. Yeah, and in fact so this was a fairly quick 
+shot, which I'm really okay with on this. So it's a different style. So with this bean, we can 
+pull it two different ways. We can pull it in a way that you and I 
+prefer more, which is not quite as thick, and if there is some range of flavor in it, 
+they'll be there and that would be faster. Right? So we've done 18g in 37g out here, and the puck integrity was really good. Puck integrity is always going to 
+be good um with the darker roasts. They just make life easy. So he went up to 8.6 bar, declined, 
+and then our flow rate increased, and you can see as the pressure went 
+down, the flow rate flattened out. The other thing to know about this 
+profile is it goes to 8.6 bar, not 9. Might be a small thing, but the 
+lower pressure just stresses 
+the machine a little bit less. Something that's not very well 
+known is machines that claim to 
+be 9 bar are actually about 8.6 bar. And the reason for that is they 
+measure their pressure at it's pump, pressure sensor and then what's 
+called a flow constrictor or gicleur and then boiler and then it 
+goes to the group head. And in that chain, there's a bit of air 
+space in the boiler or anything else could 
+happen and you lose a bit of pressure. And the reason I know it's 
+8.6 is because at the specialty 
+coffee association competitions they recalibrate the machines, so 
+that at the group head they're 9 bar, and generally, they find they're 
+around 8.5 bar when they are 
+supposedly 9 bar machines. So that's why I did 8.6 bar, because 
+we measure at the group and I was 
+trying to do traditional espresso. One thing to note also, I don't 
+bring the settings up, but you generally 
+don't want to go above 9.5 bar. When people say "Why was 
+espresso made at nine bar?" I 
+puzzled over that for a long time, and it was James Hoffman, who 
+challenged me at one point, because he'd read something that said 
+"What do you think about this issue that you get more compression and 
+less flow as pressure goes up?" And I said "That doesn't make sense. If pressure goes up, flow should go up." Right? The harder you push, the more 
+stuff should come out. And so I had a knee-jerk reaction to him, and then the next day, I 
+realized we can test this. And the community did, in fact, John 
+Weiss did - Weiss Distribution Technique. He's an owner and very active, and he did a test at 
+various different pressures, and what he showed was at about 9.5 bar, 
+increasing pressure would decrease flow. It's just the opposite of what you thought. Until 9.5 bar, increased 
+pressure increases flow, 9.5 bar it decreases, and at 10.5 bar, 
+it almost shut down completely. And what's interesting is you go up 9.5, 10.5 and it's almost slow, and then if you 
+go back to 9.5, the flow increases again. And then back up at that. And the reason that test was 
+important is one of the theories was that the high pressure was permanently 
+warping the beans and somehow making 
+them go into a more organized fashion. But we saw that wasn't the 
+case, because when we lowered 
+the pressure from 10.5 to 9.5, the flow went up again 
+back to 10.5, down 9.5. And so the current theory that's 
+as good as any is that the bean grounds themselves are essentially 
+distorting under the higher pressure, and when the pressure is then 
+released, they undistort and go 
+back to their normal shape. Okay, so that's a long way of 
+saying why are we at 9 bar, because at 9.5 bar your flow rate 
+decreases as you increase pressure. So 9 bar is a really safe place to 
+go as high pressure as you can, before the physical reality of 
+coffee starts to break down, where increased pressure gets less out. So that's why we're at 9 bar, 
+reality is around 8.6 bar, and we generally find that the 
+puck compresses around 4 bar, and so between 4 and 9 bar 
+is the world of espresso. Generally, people like the 
+flavors starting at 6 bar. That's what people think of 
+as being the range of espresso. So the profile we just saw 
+went to 8.6 bar, lowered to 6, because it's staying inside that range 
+of what is actually still espresso. So a bit of theory for us there, that was the Default profile, 
+great place to start, especially in the world of medium beans. We're not probably going to get 
+a huge amount of fruit from this, 
+because there's no pre-infusion. The medium light beans, being 
+lighter roasted, are going to want 
+some more time soaking. So let's go ahead and do the 
+flow profile for milky drinks. So we're at 1.7 ml/s. So there's two flow profiles: flow 
+profile for milky drinks and flow 
+profile for espresso. They have different flow rates. But the different flow rates derive 
+from different grind sizes. Here, we're going to want to try and 
+make an espresso, so this is not 
+a profile that's used that much. But it's a good theoretical shot. What I mean is there's theory backing 
+it up, which is constant flow is 
+desirable in the extraction of flavors. The tricky bit about this profile is you 
+have to match the flow rate to the grind 
+size or the dose, the combination. So this was set to 
+1.2 ml/s for milky drinks, and that's because it's assuming a 
+darker roast and quite finely ground, and a shot time in the 40 
+to 50 second range. So if you had a medium dark and you 
+wanted to have a quite thick shot that was 
+just chocolate and not a lot of subtlety, 1.2 ml/s flow rate would be good, but you'd be looking...you want 
+the grind to give you some 
+pressure between 6 and 9 bar. The milk the uh flow profile for 
+espresso is I think at 2 ml/s, and that's asking you to be coarser 
+and to make a faster shot. So those two approaches. And in both cases, pressure is going to go 
+up and go down if you've dialed in right. Okay? And he's dialed in nicely, so here we 
+are at a constant flow rate of 1.7 ml/s, we've gone up to 9 bar and 
+this curve comes out. Now, at this point, I would probably 
+pull this as a ristretto, and the reason I would is that 
+we've now lost pressure here. And the reason we've lost pressure 
+is because this flow rate is not 
+enough to maintain this. But this is a classic curve that comes 
+out of the theory of extraction. See how straight this is? This is linear extraction. What's happening is we've 
+got water on the puck, and now coffee material is 
+coming out into our cup. And as coffee material comes out, there's 
+less puck there and less resistance. And this nice linear line here is indicating 
+that nothing went wrong with that. If we had some channeling, it would go 
+like this and then it would crash, you'd see an inflection. If he was using a grinder with a lot 
+of fines, you might see it go down 
+and then come back up again as the fines were migrating. So this is a really nice cup. And one of the reasons I wanted to 
+pull this shot is we see here, around 
+here, extraction's kind of done, by which I mean the puck resistance 
+should go down as the shot is continuing. Coffee material is coming out 
+of the puck into the cup. So there's less coffee resisting 
+the same amount of water. If pressure is not going down, 
+or it's going down quite slowly, our extraction has stalled; it's taken 
+all the material out that it can. Very little more coffee 
+material is coming out now. And so there is a theory, and I quite like it, of using this kind of profile and then 
+stopping it manually here at the elbow. That's when your extraction 
+has completed. Now, shots like the Adaptive profile 
+are a modification of this theory. What Adaptive does is look at 
+the flow rate here at this point, and then it continues that flow rate. So Adaptive would have continued the 
+flow rate here at about 3ml/s. And it does that automatically for you, 
+that's why it's called Adaptive. Let's have a taste. We are good. Mhm. Wow that tastes so different. That's crazy. And what's funny 23 seconds, 
+almost exactly the amount of time. Yes. Tell me what you're tasting there. It tastes way more fruity 
+notes coming out compared to the previous cup. The first one Default profile I 
+only taste like dark chocolate, more intense, but this 
+one tastes more delicate, and somehow the after taste 
+also lasts longer in my mouth. So here's our flow rate, here, during 
+extraction, we had a flow rate of 1.7. Can you hit the back button and 
+let's look at the previous shot. Yes. Okay. So this started at about 
+1.1ml/s and ended at 2.9. Okay, so this was kind of all over the place and the focus of this profile 
+was to maintain pressure. This was a pressure profile. Whereas the one we just 
+did was a flow profile, and the taste that comes 
+out is quite different. This is one, I would say, where maybe 
+crema and flavors that come out under 
+pressure are being really prioritized, whereas let's go back to the 
+last one, the most recent one, whereas this the pressure was allowed to 
+crash as long as we had constant flow. Almost exactly 18.22 seconds 
+versus 18.23 seconds, constant flow versus increasing. And I agree with you. I think I'm really surprised 
+it's even the same bean, [laughing] because there's now there 
+actually is some fruit to it, it isn't just a really simple nice base, this actually feels like a 
+more expensive coffee now. Mhm. So that's quite interesting. And what I would do if I wanted 
+to fiddle with this some more is I might change this to 
+be a little bit higher. Let's pull up settings on this. So there's a couple things I would do. One is I might change 
+this 1.7 to go up to 2, which is the flow profile for espresso, and then I'll just do this, 
+it's describing here. What I might do is instead 
+of having it decline like so, I might have it go up. Okay? And that's because as the puck 
+erodes, pressure goes down. So I might tinker with 
+this and start with a 2, and then start to increase it to 
+try and find the balance between a 
+constant flow and keeping pressure. But...oops. Actually I can just type it in. 1.1. Okay. So this shot here from 1.1 to 3 is 
+actually a flow controlled profile that would now mimic what 
+the first Default profile did, because while that other shot 
+was pressure oriented, right, 
+9 bar or 8.6 bar going down to 6, we saw the flow rate went from 1.1 to 2.9. We can just plug that right in and say we 
+want our flow rate to go from 1.1 to 2.9, and then we'll see what 
+kind of pressure comes out. So it's kind of interesting, because 
+with a shot, you can decide do you 
+want to control pressure or flow. You control one, the other one happens. And I think not enough people 
+play with the flow profile shots, and that's because I think of the tradition 
+of everything being pressure oriented, because of the plumbing over pressure 
+valves make it easy to control pressure, whereas flow is something that they 
+haven't really been able to control, 
+except for manual levers...visually. Let's go ahead and make a Londinium. Now, Londinium and Adaptive are 
+profiles we've talked about before, and the key thing we're going to see that's 
+different is we're going to have a fast fill, 
+but then we're going to have a pause here. And we're going to change beans. We're first going to do the dark arts. Is that right? We said we're going to do 
+Londinium two ways, is that what we said? Yes. Okay, good. So Londinium is a spring lever 
+profile that has a pause in the 
+middle of it that's pressurized. And I would say the framework of that 
+profile how that works is generally the best So fast fill with a pause, a soak time I 
+guess is the way you might call it, Scott Rao's Blooming Espresso calls it a 
+bloom time, because he has it go so long, and then followed by a pressure 
+rise and then an extraction. And Londinium on the DE1 is saved 
+under two names; LRV2 and LRV3, because it's the Londinium R machine 
+and version two and version three. The difference is that at the 
+end of Londinium v2, if the 
+flow rate's going too high, the profile goes down and 
+goes to a lower flow rate, whereas Londinium v3 
+is always pressure controlled. They're both really good, it's really a 
+microscopic difference between them. But try them both. See, yeah, different people 
+like different ones. Here, we're using Londinium v3, which 
+is going to be pressure profiled. The key thing about Londinium is that 
+it has this pressurized soak time, And you don't want to 
+use Londinium for light roasts, because this here, you can see 
+water is going through the puck, 
+a fair amount of it, actually, right? and a lot more than we want. And this shot is going to be too coarse. So we're going to have to 
+pull this shot again. And I knew it was going to be too coarse, 
+because of this pressurized time here. So we filled, and then we kept a bit 
+of pressure, 3 bar on the puck, and then it was supposed to compress 
+and come out nice and thick and even. This profile I wouldn't recommend 
+for light roasts, because light 
+roasts don't survive this. Light roasts just don't have the viscosity 
+to hold up against a long 3 bar soak time. And the water just kind of pours 
+through and you get a sour shot. With medium light and darker, probably 
+iffy with dark roast, but medium light to 
+medium dark, this works really well. But what you're looking for is dripping 
+here somewhere between 2 and 8 g. Here, we  had 17g. So that's a really nice way 
+to um dial in your grind. And when we talk about D-Flow, we'll 
+see that D-Flow is able to move beyond 
+this soak time by using the scale, which is a pretty cool trick. So other things we can see 
+besides the shot time, 20 sec, 
+not that far off actually, but the big thing is 
+peak pressure of 5.5 bar, and this dripping time, this 
+dripping volume being quite high. So here we are trying it again. So once again, this is Dark 
+Arts that we're here? Yes. Okay. And now our dripping is more 
+under control so we're at 4g 
+we're probably going to hit 8g. We hit 10 g of dripping, so we're 
+still a hair too coarse, but not bad. And notice what this profile has 
+done, which is kind of interesting; it's peaked at just under 7 bar, 6.7 bar, uh sorry 6.9 bar here. It didn't make a gusher. And that's one of the things 
+I like about Londinium; it has some logic in here 
+that I won't go into to prevent a really terrible 
+shot from happening. Shot time 21 seconds. The thing that's going to be different 
+about this is this looks really 
+different from our previous shots, right, cause we have this soak time 
+here before we have the pressure rise. But with shots that are darker, they 
+extract quite easily in the water, and this 3 bars here gives 
+us a lot of nice flavors. You don't want to do this with dark roasts, 
+because you're going to over extract. You don't want to do it with a light 
+roast, because it'll just pour through. Right, tell me what you're tasting. There's still acidity similar to 
+the previous one but it's milder than the flow profile for milky drinks, but I feel like the there's 
+more layer to it, right, this one. Yeah. So you're preferring the 
+Londinium like this? Yes. Okay. I would say more like acidity driven, yeah. And what's happening is this 
+phase here is getting us more 
+of like a filter coffee extraction, right, there's this long soak time, 
+so we're getting more flavor out. It's not quite dusty yet. I'm not getting that feeling. It's much less thick. Mhm. Right, the mouth feel has 
+really really dropped. I am not a huge fan of that for this bean. Go ahead and and I'll keep 
+babbling on while you make the 
+Qararo with the same one. And that's because for me, this bean just 
+doesn't have a whole lot of fruity flavors. Mhm. And so, I feel like we've just gotten 
+a bit too much bitter here, and we've strayed too far 
+from the nature of this coffee, which to me is baker's chocolate 
+with a little bit of fruit. And they talk about cherry; 
+we talked about the the red fruit 
+flavors coming out of that. So possibly if we ground 
+this finer and I... Is this the one that you did a long 
+shot at 50 seconds, of these beans? Uh yes. Yes. And you really liked that. Yeah. Yeah. And that was a very smooth shot. Yes. Yeah. So what Mark did earlier during 
+the testing, because he spent 
+the day prepping for this, is like a 45, 50 sec 
+version...53 seconds, okay, Londinium with those Dark Art beans, and he much preferred it to I 
+think like a 35 second shot you did. Mhm. And so I'm not going to say 
+Londinium is the wrong profile, I'm going to say with these beans 
+that are darker, not very fruity, I would want to grind finer 
+and have less dripping. And I'd want the shot to last longer. And Londinium, remember, is a 
+lever machine; lever machines are 
+generally for classic coffee beans. Some of them can do other beans, 
+but that's what their design was for. So I would highly recommend Londinium 
+with a grind that's a bit finer, and that might just do what you like. Alright, so here we have 
+something quite a bit finer. And we're now on Qararo, which are the 
+medium light beans from L'Alchimiste. So but I think what we're going to 
+find is, because they're lighter, as the pressure increases, they're 
+going to extract at a reasonable rate. These lighter roast beans are not going 
+to have nearly as much puck resistance. We're also um yeah so we're also using a grinder 
+that doesn't have a lot of fines. And what happened here, which 
+is one of the things I find 
+very interesting at Londinium, is pressure went up, flow was going up, notice the flow being nice and linear. Again, nice extraction. But at this flow rate here, the 
+programming for Londinium says 
+that's as fast as we want to go. The Londinium is not optimized 
+for light roast beans that want 
+really fast flow rates, it's optimized really for medium 
+light to medium dark, and when this flow rate went too high, it switched from being pressure 
+profiled to being flow profiled and dropped the flow from 
+this higher rate here to 2 ml/s. And that caused the pressure to crash. Now, that's essentially a safety measure. The shot is being salvaged, especially since all shots, 
+as the puck degrades, puck resistance goes down; if 
+you hold pressure, flow will go up. That's what we're seeing here. The problem is - this is why 
+we don't like 9 bar machines - is in the last 5, 10 seconds, that 
+flow is going really fast, you're 
+getting a lot of acidity. Londinium is preventing that by 
+saying when the shot gets too fast, let the pressure drop and go back to flow. Let's have a taste. Tell me what you're tasting there. Well, first of all, you can really taste the 
+the fruity driven profile from this bean. And also, I really like one after I swallow 
+it there's still a lot of flavor coming out. Yeah, a lot of length. 30 seconds in, and the 
+flavors are still there. Yes. It isn't...and it didn't actually hit me 
+as quite as hard as the other one. Mhm, yes. It wasn't a full cup the same way. Yeah I agree. This is now, I 
+don't know, we're now 60 seconds in, and I'm still getting length and flavors. I don't get any baker's chocolate No, yes. on this. We're now kind of like a mid 
+roast if not light roast chocolate, And it's not a blend, like it doesn't 
+taste like a light roast bean, but it's very fruit forward. Yes, yeah. I still can milk this. Acidity is not bad, like it's what they call pleasing acidity. Mhm. Right, like the balance is nice, it isn't acidity like a channeled 
+shot or a citric acid, Mhm mhm mhm, yeah. it's fruit; it's acidity like 
+you might find to a fruit. And this was a quite successful shot. At home, I pull these quite fast actually on I have a Niche, and I'm pulling the 
+same beans, I'm pulling it as a 23 sec shot And that's because I'm coarser; I don't have a ton of dripping, 
+because the Niche has got fines. So I'm still in this sort of dripping range. So really, focusing on dripping only makes 
+sense if we've got the same grinders. So he's quite fine here on this grinder in 
+order to keep this dripping under control, but he's so fine that the 
+shot was 31 seconds. My morning shot is 23 sec, 
+same amount in cup. In both cases, very fruity. The shorter length, sorry, the faster shot with a grinder 
+that has fines is going to keep the 
+higher flow and give you more fruit. With no fines, you might 
+want to grind finer. Alright, let us go to Adaptive. Now the main thing that's 
+going to change with Adaptive is this section here that's pressurized is 
+not going to be pressurized anymore. And that's because adaptive is 
+meant to work with light roasts 
+and medium roast beans. And with light roast beans, 
+this is a terrible idea. The dripping really goes high. So but with a medium roast bean, 
+Adaptive is going to work okay. We're going to see this pressure go up 
+here, and then the flow will cut, and the water just cuts out and 
+the pressure is just going to 
+decline on its own. If you have a very light roast, the pressure 
+will just crash quickly and you have a soak, and the difference is that when 
+you keep pressure on the puck, you generally have more crema, because you took the puck 
+and you compressed it and 
+you held it compressed, and then when you rised the pressure, 
+it never expanded, it didn't bloom, you also get this very nice, smooth curve. So if you're struggling with this nice 
+pressure rise here, avoiding gushers, Londinium's going to be better because 
+it's going to have this compressed puck. However, if your beans are on the 
+lighter side you might have a really hard 
+time controlling this dripping here. And that's why you might want to use 
+Adaptive, that's not going to have that. But adaptive not pressurizing 
+during this dripping time, it's going to make the pressure rise be 
+more stressful for the coffee puck, and more likely to channel. And so here we are pressurizing. You can see the flow 
+is significantly higher. So quite different than Londinium. 
+Same grind or different grind? Different grind. What did we do with the grind here? So in the Londinium the 
+grind was 1.1, and this is 1.3. Okay, so we've gone coarser for Adaptive. Why do we go coarser? So in my testing before, we find 
+it this bean in particular, if I grind it a little bit coarser compared 
+to Londinium, it just extract better, yeah. Yeah, ok. Here's...so we had the fast fill, and you can see the water 
+just cut off and went to zero, you can see pressure, instead 
+of staying at 3, started to come 
+down, but it didn't crash. And it's great that it didn't crash. So these are...um yeah these 
+are Ethiopian beans, which will 
+tend to have more fines as well. So the fact that we're using a low fines 
+grinder is somewhat mitigated by the 
+fact that we're using a high fines bean. And the reason I can see that 
+is this pressure didn't crash. If I had some other beans that 
+had less fines in them, this pressure
+ is more likely to go down. That's fine, that's what 
+Adaptive is meant for, but it's also one of the reasons these 
+beans in that grinder work on Londinium, because the fines worked 
+to hold things here. So some of the things to notice: The second thing about Adaptive 
+is when the pressure rises, it 
+times out after 6 seconds; it says that's enough. Where did we reach? We reached 6.5 bar 
+and then the flow rate was maintained. So remember when we're doing the 
+flow rate shot, the second profile, we're saying it to dial in the 
+flow rate to the grind. This is doing that for you. This pressurize stage is determining 
+the coarseness of the grind. So in 6 seconds, we pressure up, see 
+where the flow rate is, that's the 
+flow rate we want, continue here. If this was very finely ground, this would 
+go to the max, the flow would be down 
+here and we'd have a slow flow rate. So that's quite handy. Adaptive is essentially taking that flow 
+profile shots, but doing it automatically as 
+is appropriate to your grind and bean. I feel like that's a really major innovation, 
+makes your life a whole lot simpler. And as your bean changes day-to-day, 
+as it ages, you don't have to 
+necessarily get the grind right, because the profile is going to 
+automatically adjust the flow profile. So um let's uh have we tasted this yet? I don't think we have. No. So... Tell me what you're tasting there. I feel like this one the Adaptive the fruitiness tastes more like a citric, more I would say it's more obvious Mhm. acidity compared to the previous one. The after taste still quite strong probably 
+not as long as lengthy as the previous one but it's more like layer driven Mhm. taste. I feel like we're making this more and 
+more taste like a light roast. Yes, yes. And so that's one of the things I quite 
+like about medium light beans, it's one 
+of the reasons that's our house bean is that depending on how we 
+profile it, we can make it kind 
+of muted and nice with milk, all the way to something that a 
+light roast person will be okay with. And at this point I'm not even necessarily 
+getting chocolate it's more like carob, it's pulled back on that, the 
+roast flavors are very minor. It still tastes like coffee, 
+if you know what I mean, it doesn't taste like tea, 
+which some beans can do. But and he's gone coarser also to try and 
+accentuate that light roastness of this. You could go finer with this, with Adaptive, but this wouldn't be the 
+profile I would do that with. If you go finer, I would go with 
+Londinium that maintains that 
+shot, gives you a really thick one. So you've got D-Flow next, and the reason I put D-Flow at 
+the end is is D-Flow is not a profile. D-Flow is the family of profiles 
+that look like Londinium. And what I mean by that is they're fast fill, 
+soak time under pressure, and then rise 
+pressure and then some stuff happens. So let's pull up the D-Flow 
+and let's take a look. Alright, so advanced D-Flow. So what first thing you'll notice is the 
+the shot editor is completely different, and I'll walk you through it. The idea here is that instead of having 
+all the programming steps of a profile, what's been done here is the coffee 
+relevant variables are all here, and you adjust the coffee relevant 
+variables here of the Londinium family, and this line here, this 
+chart here is going to change. So your dose weight and the temperature, 
+temperature of the pre-infusion this part 
+here, temperature of the infusion here, there's also temperature here for the 
+extraction, which is this part here. Right? Infuse here and pour here. The pressure here is this, which 
+is how much pressure to leave 
+during the soak time, and you could bring that down to 
+zero and have it work like Adaptive if you set that on zero. Now, this infusion here is 
+saying infuse until either, and it's a bit of a swap here in terms of 
+it's not really doing what it's saying, because there's time, volume, 
+and weight; time is 1 min, volume 
+is 100 mls, weight is 4 grams. Of those, only one is actually 
+relevant, because D-Flow is 
+assuming you own a scale. And with a scale, it's going to 
+wait for 4 grams of dripping, and then it's going to 
+move on to the next step. That's a quite neat concept, because what it's saying is that if 
+your grind is really coarse, let's 
+just have a short infusion time and if your grind is really fine, let's 
+wait until it's really saturated. Now the reason that's useful 
+is that if you grind too fine, you might not give enough time 
+for the whole puck to saturate. There's there's kind of two reasons 
+to have this infusion time: one is just to let all the beans soak, but the other is to make sure the 
+whole puck is fully saturated. That's why it's called pre-infusion. When the infusion happens, you 
+think that the whole puck is now 
+wet and you're going to is extract, but if you look at the bottom 
+of a 9 bar espresso, you'll notice that water or the coffee 
+starts coming out within like 3 seconds, and it comes out of specific spots of 
+the puck, and then after a few seconds, 
+the whole puck is extracting. And that's because if you hit a puck 
+really hard without any pre-infusion, it's going to find certain faster paths, and then from there, the 
+water is going to spread out. And so you get less of an extraction, 
+also an uneven extraction, because those first spots where 
+the coffee first came out will have 
+had the most time with the water. And this is trying to fight that. What it's doing is putting water on 
+the puck, the puck resists, and 
+then water is mostly turned off. But there's still pressure on it. And the reason for the pressure 
+is to push the water as quickly as 
+possible through the whole puck. So if you have a medium to 
+dark roast bean, you look below, you might just see like very typically 
+what's called doughnut extraction, so you'll see coffee coming from 
+the outside and then slowly coming 
+in and filling on the inside. This is making sure that the 
+pressure doesn't rise until the 
+whole coffee puck is wet. And that's going to give 
+you a much more even extraction. It's also going to avoid channeling, because pushing water through a 
+puck that has dry and wet spots is 
+really asking for more channeling. So this Londinium recipe, and I really, 
+I...god, you know, hats off to the 
+guy who invented this machine, because this is really 
+a good way to make coffee. It was a a big aha moment 
+for me to realize that the Slayer style pre-infusion, 
+which is slower water flow, was less good than this, because that just used capillary action, so water going to the next 
+parts and slowly spreading. And the problem with the 
+capillary action is it's quite slow 
+for the whole puck to get wet. But if you do capillary action 
+under pressure, then the whole 
+puck gets wet much quicker, and you get a much more even 
+extraction you get a higher 
+EY (extraction yield) as well. So that's what's going on here. So 4 g dripping, temperature on the extraction, and then this is the clever bit; instead of defining pressure 
+and/or flow, you define both. And what he's doing here is he's saying 
+the maximum flow rate I want is 1.7 ml/s, but I also don't want to go over 8.5 bar. So what's going to happen here? And I had to sort of look at this and then 
+I...that Damian guy is pretty clever, because what's gonna happen here 
+is two different possible shots; 1) Your grind is too fine. You're just going to have an 8.5 bar shot. Nothing wrong with that. It's going to be a perfectly good 
+traditional shot, 8.5 bars. If your grind is about right, what's going 
+to happen is you're going to hit 8.5 bar, your puck is going to erode, 
+your flow rate is going to go up, it's going to go faster than 1.7 ml/s 
+and then flow is going to kick in 
+and control flow. I know I just said a whole lot of stuff, 
+but that's what Londinium just did. But he simplified it 
+down to just two variables. There. And then if you're too coarse, (2) and 
+you can't get anywhere near 8.5 bar and 
+your flow rate starts to go way up, you're going to get a kind 
+of Sweet and Gentle shot. It's going to keep the flow rate under 1.7, the pressure is going to rise 
+to whatever 1.7 ml/s does, and then it's going to go 
+down as the puck erodes. So it's like these little two things here, he 
+simplified three profiles right in there. Right? There's an Italian espresso, flat 
+9 bar E61, if you're ground too fine, if you're just right, it's going 
+to look like Londinium, and if you're a bit too coarse, it's 
+going to do um a Sweet and Gentle. I was pretty impressed. So I don't think enough people 
+spend time working on D-Flow. And what I just explained 
+about how the profile is essentially mimicking different profiles 
+based on what happens to the grind size that's pretty clever. And when I have asked people... Go ahead and pull the shot. When I've asked people are you 
+mostly making good espresso, occasionally making good espresso, 
+or never making good espresso, the people who were in the always 
+making good espresso camp the profiles that got mentioned 
+over and over were D-Flow, 
+ExtramundoDos, and Adaptive. Those were the profiles. And the thing about all three of those is they all have their own approach 
+for dealing with the grind being 
+in various ways. And Extramundo Dos being what 
+I'd recommend for people who 
+are using light roast, Adaptive a good medium, 
+Londinium also a good medium, D-Flow good everywhere. And if you've got light roast beans and 
+you want to have a much longer time here, I would lower this pressure down to zero and increase the time of the dripping. So what we're going to see 
+here is where our grind is. And we are still on the 
+fruity Qararo beans, and this could be anything. I don't know how the grinds are set up. Right? So this is quite fine. You can see the pre-infusion 
+grams are quite low, so we might get a traditional shot here 
+that looks kind of like a flat 8.5 bar Advancing to next step, 
+because we got 4 g there. Not what I expected. And partially, it's the beans. So this was ground quite fine, we 
+didn't have much dripping, but then 
+we didn't get much pressure. Probably very long soak time, meant that we weren't 
+able to make much pressure. But let's taste it. So there we are, not a whole lot of 
+crema, which is to be expected 
+because we didn't get much pressure. So what do you think about that? It doesn't taste like the 
+same bean actually. There's more almost like 
+floral flavor coming out. Yeah like kind of rose kind of thing. Can you do me a favor, go two 
+settings finer on your grind and 
+let's just pull the same shot, cause I want to show D-Flow adapting. So I think what's going to happen is 
+we're going to have even less here, and hopefully a higher pressure. Okay, so, okay, finer, got it. Right, so you see that doughnut 
+extraction, see how the center is dry, that's 
+what this pressurized soak is doing. Is it's waiting to rise pressure, until 
+now the whole puck has been wet, and what that means is now 
+when the pressure is going to rise, hopefully we're going to see a 
+shot that's a little bit more even. So we are seeing some 
+extraction on the side, but it's still looking pretty good. So what this shot did we once again did 3.7 ml, it took longer 
+for our pre-infusion to give us that time and I think these light roasted 
+beans are having trouble giving 
+pressure after a long soak, that's the bean and that's a combination 
+also of the grinder not having fines. And if I were using the Niche, 
+I could go coarser, and I would still get not much dripping 
+and the pressure would go up higher. And again, that linear 
+extraction on constant flow. Remember I said if the flow rate's 
+too high, it'll limit it to 1.7 which 
+is what happened here; we got a 1.7 flow rate, top 
+was 1.8, ending in 1.7 here, and then some sort of pressure came out. And this is indicating in the end, I 
+would say the puck prep 
+distribution was not great on that, because at the beginning we 
+could see like one side got 
+water and then the outside and took quite a long time 
+for the whole puck to get wet, but it didn't matter too much,  because this very long soak 
+under pressure repaired the puck And I know it repaired it, because 
+we were able to rise in pressure and then have a nice linear extraction, 
+even though we had constant flow. So I really love this pressurized 
+long soak as a way to heal a puck that hasn't been that homogeneous. Tell me what you taste there. I feel like this one, compared 
+to the previous, one there's 
+definitely more flavor coming out. And the aftertaste is pretty long actually. It's a really good shot. Yeah. I'm really impressed um with this shot. I agree, it's like almost like a 
+concentrated mango coming in, which I haven't really gotten until now. Also has some mouth feel, which is great. Tremendous length. Dried mango. Like true stuff is what I'm imagining. And still some nice chocolate, 
+I mean who doesn't like chocolate 
+bars with some mango bits in it. That's a nice thing, right? And the shot looks beautiful. What's interesting about D-Flow is 
+because it triggers here based on weight, you can have a very long soak. And I could have changed it and been 
+time-based like Londinium and Adaptive is, and that would give different flavors. But the whole point of this 
+profile is that once you know 
+a bit about extraction theory and the relationship between 
+pressure and soak time, then you can just directly adjust those 
+without becoming a profile programmer. And I feel like that's a major contribution, to be able to apply your coffee knowledge 
+and your tasting knowledge, without having to become so technical. So give that a try. Thanks for watching. Now, we're going to just quickly do some 
+of the questions that have come in, and there's a bunch of questions 
+about is this time correct, like is 35 to 45 seconds correct, 
+is this Omnirose correct? There's no such thing as correct 
+coffee, it is way too complicated, 
+you're going to have to taste, and you're going to have to say 
+"I like that more, I like that less." Look at the chart and go "Okay I taste 
+now thinner and that line is lower." I think John talked about that. [laughing] And so if this pressure goes down, 
+you're going to have less mouth feel, because you got less pressure. More pressure gives you more mouth feel. Do you want more mouth feel or 
+do you want more fruit? It's up to you. But what's interesting is if 
+you stick with the same bean, then the curves looking a certain way 
+are going to give you certain flavors. And you're going to know what it 
+tastes like before you taste it if 
+you've seen that curve before. I hope that was helpful. There's no shortcuts, AI is not 
+going to solve the human pallet, nor the complexity of these coffees. Thanks for watching.

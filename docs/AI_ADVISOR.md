@@ -24,7 +24,7 @@
 
 ### What the AI Receives Today
 
-**System prompt** (~3-4K tokens): Espresso or filter-specific guidance covering DE1 machine behavior, pressure/flow interpretation, common shot patterns, roast considerations, grinder/burr geometry, and response guidelines.
+**System prompt** (~3-4K tokens base + ~150-300 tokens per-profile section): Espresso or filter-specific guidance covering DE1 machine behavior, pressure/flow interpretation, common shot patterns, roast considerations, grinder/burr geometry, and response guidelines. When the shot's profile matches a curated entry in the profile knowledge base (`resources/ai/profile_knowledge.md`), a profile-specific section is appended describing expected curve behavior, intentional design choices, and what NOT to flag as problems.
 
 **Per-shot user prompt** (~1-2K tokens):
 - Profile name, author, type, intent (notes)
@@ -37,16 +37,36 @@
 - Tasting notes and enjoyment score — **only if user enters it manually**
 - Anomaly flags (channeling, temperature instability)
 
+**Dial-in history** (~200-500 tokens per historical shot, up to 5): When the current shot has a `knowledge_base_id`, the system queries the last 5 shots with the same KB ID from `ShotHistoryStorage::getRecentShotsByKbId()`. Each historical shot includes: profile name, recipe (frame-by-frame), dose/yield/ratio, duration, grind setting, temperature override, bean info, TDS/EY, score, and tasting notes. This lets the AI see what changed between shots (e.g., "you went 2 clicks finer and the sourness improved").
+
 **Multi-shot conversations**: Previous shots are summarized and compressed. Older messages get trimmed to manage token count.
+
+### What the AI Now Knows (Profile Knowledge Base)
+
+When the shot uses one of ~18 curated profiles, the system prompt includes:
+- Expected curve shapes (pressure, flow, temperature behavior)
+- What is intentional vs. problematic (e.g., declining pressure in D-Flow is by design)
+- Roast suitability and grind guidance
+- Duration and ratio expectations
+
+This prevents the AI from flagging intentional profile behaviors as problems (e.g., D-Flow's declining pressure, Blooming's 30s pause, Allongé's high ratio).
+
+**Profile matching** (three-tier priority):
+1. **Direct KB ID**: `knowledge_base_id` stored in profile JSON (Decenza extension field, de1app ignores unknown keys) and persisted in the shots DB (`profile_kb_id` column, migration 9). Survives Save As, reboots, and profile inheritance.
+2. **Fuzzy title matching**: `normalizeProfileKey()` strips accents (é→e), normalizes punctuation (& → and), then tries direct → prefix → substring match against KB section headers and aliases.
+3. **EditorType fallback**: For custom-named D-Flow/A-Flow profiles, maps the recipe editor type ("dflow" → "d-flow / default", "aflow" → "a-flow").
+
+**Implementation**: `ShotSummarizer::shotAnalysisSystemPrompt()` tries the direct KB ID first, then falls back to `matchProfileKey()` for fuzzy matching. `ShotSummarizer::computeProfileKbId()` computes the ID at profile load time and stores it on the `Profile` object. 31 stock profiles ship with `knowledge_base_id` baked into their JSON files.
+
+**UI indicator**: Profiles with a knowledge base entry show a sparkle icon (from `qrc:/icons/sparkle.svg`) in the profile selector list. The `hasKnowledgeBase` flag is read from the JSON during `refreshProfiles()` and exposed through all profile list methods.
 
 ### What the AI Does NOT Know Today
 
 1. What other profiles are available on the machine
-2. What profiles might work better for the user's beans/roast
+2. What profiles might work better for the user's beans/roast (deferred until bean database integration)
 3. Community recommendations for bean/profile pairings
-4. The user's history with other profiles
-5. Details about the roaster or bean beyond what the user typed
-6. What other users' experiences are with the same beans
+4. Details about the roaster or bean beyond what the user typed
+5. What other users' experiences are with the same beans
 
 ---
 
@@ -97,13 +117,13 @@ Blooming Espresso:
 
 **Who writes it**: Could be maintained by the developer/community, updated with app releases. Alternatively, seeded from community knowledge and refined over time.
 
-**Status**: Initial content started in [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md), seeded from Decent's official blog posts on profiles for light/medium/dark roasts and the "4 mothers" theory. Needs expansion with specific temperatures, ratios, and community feedback.
+**Status**: **Implemented.** Knowledge base lives in [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) (human-readable, source-tagged) and [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) (AI-optimized, loaded as Qt resource). 18 profiles documented with expected curve behavior, temperature, flow rates, grind guidance, and "DO NOT flag" instructions. Data sourced from Decent blog posts, the "4 mothers" theory, and transcripts from three Decent video tutorials (light/medium/dark roast profiles). Profile matching in `ShotSummarizer::shotAnalysisSystemPrompt()` with fuzzy title matching and alias support.
 
 ### 3. User History Summary
 
-**Problem**: The AI doesn't know the user's track record — which profiles they've tried, what worked, what didn't.
+**Same-profile dial-in history** — **Implemented.** When analyzing a shot, up to 5 recent shots with the same `knowledge_base_id` are included in the user prompt via `ShotHistoryStorage::getRecentShotsByKbId()`. Each historical shot includes the full profile recipe, grind setting, temperature, dose/yield, score, and tasting notes. This lets the AI track dial-in progression and correlate changes with results (e.g., "you ground 2 clicks finer and the sourness resolved").
 
-**Approach**: At conversation start, query `ShotHistoryStorage` and generate a summary:
+**Cross-profile history** — Not yet implemented. The AI doesn't know the user's track record *across* different profiles. A session-level summary would enable:
 
 ```
 YOUR PROFILE HISTORY (last 90 days):
@@ -119,7 +139,7 @@ YOUR PROFILE HISTORY (last 90 days):
 
 **Enables**: "You've been averaging 78 on D-Flow with light roasts but 84 on Blooming. Your data suggests Blooming works much better for your light roasts."
 
-**Status**: Not implemented. Data is available in `ShotHistoryStorage`. Needs aggregation query + summary generation.
+**Status**: Same-profile history done. Cross-profile summary needs aggregation query + summary generation.
 
 ### 4. Bean Data Enrichment
 
@@ -329,14 +349,16 @@ For non-swappable grinders (e.g. Eureka Mignon, Comandante), the field auto-fill
 
 Summary of the layered context approach:
 
-| Layer | Content | Size | Changes | Caching |
-|-------|---------|------|---------|---------|
-| Static knowledge | System prompt + profile catalog + curated knowledge base | ~8-10K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) |
-| Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt |
-| User history | Profile usage stats, best/worst shots, preferences | ~1-2K tokens | Per session | Could be second cached block |
-| Current shot | Shot data, phase breakdown, tasting notes | ~1-2K tokens | Every request | Not cacheable |
+| Layer | Content | Size | Changes | Caching | Status |
+|-------|---------|------|---------|---------|--------|
+| Static knowledge | System prompt + curated profile knowledge base | ~2-2.5K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) | **Done** |
+| Profile catalog | Compact one-liner per profile for cross-profile awareness | ~2-3K tokens | Per app release | System prompt caching | Not implemented |
+| Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt | Not implemented |
+| Dial-in history | Last 5 shots with same profile family (recipe, grind, temp, score, notes) | ~1-2.5K tokens | Every request | Not cacheable | **Done** |
+| User history | Profile usage stats across all profiles, best/worst shots | ~1-2K tokens | Per session | Could be second cached block | Not implemented |
+| Current shot | Shot data, phase breakdown, tasting notes | ~1-2K tokens | Every request | Not cacheable | **Done** |
 
-Total context: ~12-16K tokens, with ~70-80% cacheable.
+Total context today: ~5-7K tokens. With all layers: ~12-16K tokens, with ~50-70% cacheable.
 
 ---
 
@@ -354,9 +376,10 @@ Total context: ~12-16K tokens, with ~70-80% cacheable.
 5. **New bean preset fields + AI integration** — Add origin, processing, variety, altitude, roaster tasting notes to bean presets. Extend `ShotSummarizer::buildUserPrompt()` to include enriched data.
 
 ### Phase 3: Personalization (app-side work)
-6. **User history summary** (idea #3) — Aggregate shot history into per-session summary. Data already exists in `ShotHistoryStorage`.
-7. **Curated profile knowledge base** (idea #2) — Needs content authoring, biggest impact on profile recommendation quality.
-8. **Cross-profile recommendation guidance** (idea #6) — Depends on #1/#2 being in place.
+6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same `knowledge_base_id` are included in the user prompt with full recipe, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::getRecentShotsByKbId()`.
+7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 18 profiles documented, integrated into system prompt via `shotAnalysisSystemPrompt()`.
+8. **User history summary across profiles** (idea #3 remaining) — Aggregate shot history into per-session summary showing which profiles the user has tried, average ratings, best/worst combos. Would enable cross-profile recommendations.
+9. **Cross-profile recommendation guidance** (idea #6) — Depends on #1 being in place. Deferred until bean database integration enables profile recommendations.
 
 ### Phase 4: Optimization
 9. **Gemini context caching** (idea #5) — Implement when context size grows from above additions.
@@ -365,8 +388,9 @@ Total context: ~12-16K tokens, with ~70-80% cacheable.
 
 ### External Dependencies
 - **Loffee Labs API access**: Keith responded (March 2026) — API undergoing modernization, new keys paused. Beta access in ~1 month, full production ~2-3 months. Free usage offered. No manual key approval on new system. Required for Phase 2, step 4
-- **Profile knowledge content**: Needs someone with Decent community expertise — required for Phase 3
+- ~~**Profile knowledge content**~~ — **Done.** 18 profiles documented from official Decent sources
 
 ## Completed Data Collection
-- **Profile Knowledge Base**: [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) — ~16 profiles with source-attributed guidance on roast suitability, temperature, ratio, and grind
+- **Profile Knowledge Base**: [`docs/PROFILE_KNOWLEDGE_BASE.md`](PROFILE_KNOWLEDGE_BASE.md) — 18 profiles with source-attributed guidance on roast suitability, temperature, ratio, grind, expected curve behavior, and dial-in tips. Enriched from three Decent video tutorials (light/medium/dark roast profiles).
+- **AI Profile Knowledge Resource**: [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) — AI-optimized extract loaded as Qt resource. Injected into system prompt per-profile via `ShotSummarizer::shotAnalysisSystemPrompt()`.
 - **Grinder Database**: [`docs/GRINDER_DATABASE.md`](GRINDER_DATABASE.md) — ~150 grinders across premium, mid-range, budget, commercial, and hand grinder categories with burr specs, plus aftermarket burr sets and grind-setting guidance

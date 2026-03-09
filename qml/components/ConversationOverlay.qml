@@ -450,7 +450,7 @@ Rectangle {
                             var sent = false
                             if (!conversation.hasHistory) {
                                 var bevType = (overlay.beverageType || "espresso").toLowerCase()
-                                var systemPrompt = conversation.multiShotSystemPrompt(bevType)
+                                var systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedProfileName)
                                 conversation.ask(systemPrompt, message)
                                 sent = true
                             } else {

@@ -397,6 +397,7 @@ endif()
 # Resources
 qt_add_resources(RESOURCES resources/resources.qrc)
 qt_add_resources(RESOURCES resources/emoji.qrc)
+qt_add_resources(RESOURCES resources/ai.qrc)
 
 # Main executable
 qt_add_executable(Decenza

@@ -1,5 +1,6 @@
 {
     "title": "Default Espresso",
+    "knowledge_base_id": "default",
     "author": "Decenza",
     "notes": "Simple pressure profiled espresso with preinfusion",
     "beverage_type": "espresso",

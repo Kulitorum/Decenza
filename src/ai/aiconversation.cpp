@@ -295,7 +295,9 @@ QString AIConversation::getConversationText() const
     return text;
 }
 
-void AIConversation::addShotContext(const QString& shotSummary, const QString& shotLabel, const QString& beverageType)
+void AIConversation::addShotContext(const QString& shotSummary, const QString& shotLabel,
+                                     const QString& beverageType, const QString& profileTitle,
+                                     const QString& profileType, const QString& profileKbId)
 {
     if (m_busy) {
         qWarning() << "AIConversation::addShotContext ignored — already busy";
@@ -304,9 +306,9 @@ void AIConversation::addShotContext(const QString& shotSummary, const QString& s
         return;
     }
 
-    // If no existing conversation, set up the system prompt based on beverage type
+    // If no existing conversation, set up the system prompt based on beverage type + profile
     if (m_systemPrompt.isEmpty()) {
-        m_systemPrompt = multiShotSystemPrompt(beverageType);
+        m_systemPrompt = multiShotSystemPrompt(beverageType, profileTitle, profileType, profileKbId);
     }
 
     // Add the new shot as context with its date/time label
@@ -371,10 +373,11 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, c
     return processed;
 }
 
-QString AIConversation::multiShotSystemPrompt(const QString& beverageType)
+QString AIConversation::multiShotSystemPrompt(const QString& beverageType, const QString& profileTitle,
+                                               const QString& profileType, const QString& profileKbId)
 {
-    // Use the full single-shot system prompt (has all patterns, guidelines, target vs limiter explanation)
-    QString base = ShotSummarizer::systemPrompt(beverageType);
+    // Use the profile-aware system prompt (base + per-profile knowledge section)
+    QString base = ShotSummarizer::shotAnalysisSystemPrompt(beverageType, profileTitle, profileType, profileKbId);
     base += QStringLiteral(
         "\n\n## Multi-Shot Context\n\n"
         "You are helping the user dial in across multiple shots in a single session. "

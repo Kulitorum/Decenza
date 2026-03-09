@@ -9,6 +9,27 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QDebug>
+#include <QFile>
+#include <QTextStream>
+
+// Static members for profile knowledge cache
+QMap<QString, ShotSummarizer::ProfileKnowledge> ShotSummarizer::s_profileKnowledge;
+bool ShotSummarizer::s_knowledgeLoaded = false;
+
+// Normalize a profile key: lowercase, strip diacritics, normalize punctuation
+static QString normalizeProfileKey(const QString& key)
+{
+    QString normalized = key.toLower().trimmed();
+    // Normalize common diacritics (é→e, è→e, ê→e, ë→e, etc.)
+    normalized.replace(QChar(0x00E9), 'e');  // é
+    normalized.replace(QChar(0x00E8), 'e');  // è
+    normalized.replace(QChar(0x00EA), 'e');  // ê
+    normalized.replace(QChar(0x00EB), 'e');  // ë
+    // Normalize & ↔ and
+    normalized.replace(QStringLiteral(" & "), QStringLiteral(" and "));
+    return normalized;
+}
 
 ShotSummarizer::ShotSummarizer(QObject* parent)
     : QObject(parent)
@@ -83,9 +104,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.targetWeight = profile->targetWeight();
 
         // Profile style from editor type — tells the AI what kind of extraction curve to expect
+        QString editorStr;
         if (profile->isRecipeMode()) {
             // Convert EditorType enum to string for the shared helper
-            QString editorStr;
             switch (profile->recipeParams().editorType) {
             case EditorType::DFlow: editorStr = "dflow"; break;
             case EditorType::AFlow: editorStr = "aflow"; break;
@@ -95,6 +116,13 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
             summary.profileType = profileTypeDescription(editorStr);
         } else {
             summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
+        }
+
+        // Use pre-computed knowledge base ID (set when profile was loaded, survives Save As).
+        // Fall back to computing it here if not set (e.g. profiles loaded outside MainController).
+        summary.profileKbId = profile->knowledgeBaseId();
+        if (summary.profileKbId.isEmpty()) {
+            summary.profileKbId = computeProfileKbId(profile->title(), editorStr);
         }
     }
 
@@ -263,6 +291,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     summary.profileTitle = shotData.value("profileName", "Unknown").toString();
     summary.beverageType = shotData.value("beverageType", "espresso").toString();
     summary.profileNotes = shotData.value("profileNotes").toString();
+    summary.profileKbId = shotData.value("profileKbId").toString();
 
     // Extract profile type from stored profile JSON
     QString profileJson = shotData.value("profileJson").toString();
@@ -579,12 +608,300 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     return prompt;
 }
 
+QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
+{
+    if (recentShots.isEmpty()) return QString();
+
+    QString result;
+    QTextStream out(&result);
+
+    out << "## Recent Shot History (same profile family, newest first)\n\n";
+    out << "Use this to identify dial-in trends — what changed between shots and how it affected the result.\n\n";
+
+    for (qsizetype i = 0; i < recentShots.size(); ++i) {
+        QVariantMap shot = recentShots[i].toMap();
+
+        QString dateTime = shot.value("dateTime").toString();
+        double dose = shot.value("doseWeight", 0.0).toDouble();
+        double yield = shot.value("finalWeight", 0.0).toDouble();
+        double duration = shot.value("duration", 0.0).toDouble();
+
+        // Skip entries with no meaningful data (corrupt or incomplete records)
+        if (dose <= 0 && yield <= 0 && duration <= 0) continue;
+
+        double ratio = dose > 0 ? yield / dose : 0;
+        int score = shot.value("enjoyment", 0).toInt();
+
+        out << "### Shot " << (i + 1) << " (" << dateTime << ")\n";
+        out << "- Profile: " << shot.value("profileName").toString() << "\n";
+        out << "- Dose: " << QString::number(dose, 'f', 1) << "g → Yield: "
+            << QString::number(yield, 'f', 1) << "g (1:" << QString::number(ratio, 'f', 1) << ")\n";
+        out << "- Duration: " << QString::number(duration, 'f', 0) << "s\n";
+
+        // Grinder info
+        QString grinderBrand = shot.value("grinderBrand").toString();
+        QString grinderModel = shot.value("grinderModel").toString();
+        QString grinderSetting = shot.value("grinderSetting").toString();
+        if (!grinderBrand.isEmpty() || !grinderModel.isEmpty() || !grinderSetting.isEmpty()) {
+            out << "- Grinder: ";
+            if (!grinderBrand.isEmpty()) out << grinderBrand;
+            if (!grinderModel.isEmpty()) {
+                if (!grinderBrand.isEmpty()) out << " ";
+                out << grinderModel;
+            }
+            if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
+            out << "\n";
+        }
+
+        // Temperature override
+        double tempOverride = shot.value("temperatureOverride", 0.0).toDouble();
+        if (tempOverride > 0) {
+            out << "- Temperature override: " << QString::number(tempOverride, 'f', 1) << "°C\n";
+        }
+
+        // Bean info
+        QString beanBrand = shot.value("beanBrand").toString();
+        QString beanType = shot.value("beanType").toString();
+        if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
+            out << "- Beans: " << beanBrand;
+            if (!beanBrand.isEmpty() && !beanType.isEmpty()) out << " - ";
+            out << beanType;
+            QString roastLevel = shot.value("roastLevel").toString();
+            if (!roastLevel.isEmpty()) out << " (" << roastLevel << ")";
+            out << "\n";
+        }
+
+        // Extraction measurements
+        double tds = shot.value("drinkTds", 0.0).toDouble();
+        double ey = shot.value("drinkEy", 0.0).toDouble();
+        if (tds > 0 || ey > 0) {
+            out << "- Extraction: ";
+            if (tds > 0) out << "TDS " << QString::number(tds, 'f', 2) << "%";
+            if (tds > 0 && ey > 0) out << ", ";
+            if (ey > 0) out << "EY " << QString::number(ey, 'f', 1) << "%";
+            out << "\n";
+        }
+
+        // Score and tasting notes
+        if (score > 0) {
+            out << "- Score: " << score << "/100\n";
+        }
+        QString notes = shot.value("espressoNotes").toString();
+        if (!notes.isEmpty()) {
+            out << "- Notes: \"" << notes << "\"\n";
+        }
+
+        // Profile recipe (from stored JSON)
+        QString profileJson = shot.value("profileJson").toString();
+        if (!profileJson.isEmpty()) {
+            QString recipe = Profile::describeFramesFromJson(profileJson);
+            if (!recipe.isEmpty()) {
+                out << "- Recipe: " << recipe << "\n";
+            }
+        }
+
+        out << "\n";
+    }
+
+    return result;
+}
+
 QString ShotSummarizer::systemPrompt(const QString& beverageType)
 {
     if (beverageType.toLower() == "filter" || beverageType.toLower() == "pourover") {
         return filterSystemPrompt();
     }
     return espressoSystemPrompt();
+}
+
+QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, const QString& profileTitle,
+                                                   const QString& profileType, const QString& profileKbId)
+{
+    QString base = systemPrompt(beverageType);
+
+    // Look up profile-specific knowledge
+    // Try direct KB ID first (from database), then fall back to fuzzy title/editorType matching
+    QString profileSection;
+    if (!profileKbId.isEmpty()) {
+        loadProfileKnowledge();
+        if (s_profileKnowledge.contains(profileKbId)) {
+            profileSection = s_profileKnowledge.value(profileKbId).content;
+        }
+    }
+    if (profileSection.isEmpty()) {
+        profileSection = findProfileSection(profileTitle, profileType);
+    }
+    if (!profileSection.isEmpty()) {
+        base += QStringLiteral("\n\n## Current Profile Knowledge\n\n"
+            "The following is curated knowledge about the specific profile used in this shot. "
+            "Use this to understand what is INTENTIONAL behavior vs. what indicates a problem.\n\n")
+            + profileSection;
+    }
+
+    return base;
+}
+
+void ShotSummarizer::loadProfileKnowledge()
+{
+    if (s_knowledgeLoaded) return;
+
+    QFile file(QStringLiteral(":/ai/profile_knowledge.md"));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "ShotSummarizer: Failed to load profile knowledge resource";
+        return;
+    }
+    s_knowledgeLoaded = true;
+
+    QString content = QTextStream(&file).readAll();
+    file.close();
+
+    // Parse markdown sections: each "## Title" starts a new profile
+    // Build a map from lowercase key → ProfileKnowledge
+    const QStringList lines = content.split('\n');
+    QString currentTitle;
+    QString currentContent;
+
+    auto commitSection = [&]() {
+        if (currentTitle.isEmpty() || currentContent.isEmpty()) return;
+
+        ProfileKnowledge pk;
+        pk.name = currentTitle;
+        pk.content = currentContent.trimmed();
+
+        // Extract the main name and any aliases from "Also matches:" line
+        QStringList keys;
+
+        // Primary title may have " / " separators (e.g. "D-Flow / Damian's D-Flow / D-Flow/Q")
+        const QStringList titleParts = currentTitle.split(QStringLiteral(" / "));
+        for (const QString& part : titleParts) {
+            keys << part.trimmed().toLower();
+        }
+
+        // Check for "Also matches:" line in content
+        for (const QString& line : currentContent.split('\n')) {
+            if (line.startsWith(QStringLiteral("Also matches:"))) {
+                QString aliases = line.mid(14).trimmed();
+                // Remove surrounding quotes and split by comma
+                const QStringList aliasParts = aliases.split(',');
+                for (const QString& alias : aliasParts) {
+                    QString clean = alias.trimmed();
+                    clean.remove('"');
+                    if (!clean.isEmpty()) {
+                        keys << clean.toLower();
+                    }
+                }
+                break;
+            }
+        }
+
+        // Register all keys (normalized for accent/punctuation matching)
+        for (const QString& key : keys) {
+            s_profileKnowledge.insert(normalizeProfileKey(key), pk);
+        }
+    };
+
+    for (const QString& line : lines) {
+        if (line.startsWith(QStringLiteral("## ")) && !line.startsWith(QStringLiteral("### "))) {
+            // Commit previous section
+            commitSection();
+            currentTitle = line.mid(3).trimmed();
+            currentContent.clear();
+        } else if (!currentTitle.isEmpty()) {
+            currentContent += line + '\n';
+        }
+    }
+    // Commit last section
+    commitSection();
+
+    qDebug() << "ShotSummarizer: Loaded" << s_profileKnowledge.size()
+             << "profile knowledge entries";
+}
+
+// Shared matching logic: returns the matched key in s_profileKnowledge, or empty string.
+// profileTitle: the profile's display name (e.g. "D-Flow / my recipe")
+// editorTypeHint: either the raw editorType string ("dflow", "aflow") or the
+//   profileType description string ("D-Flow (lever-style...)") — both are handled.
+QString ShotSummarizer::matchProfileKey(const QMap<QString, ShotSummarizer::ProfileKnowledge>& knowledge,
+                                        const QString& profileTitle, const QString& editorTypeHint)
+{
+    if (knowledge.isEmpty()) return QString();
+
+    // Try title-based matching first
+    if (!profileTitle.isEmpty()) {
+        QString key = normalizeProfileKey(profileTitle);
+
+        // Direct match
+        if (knowledge.contains(key)) {
+            return key;
+        }
+
+        // Try without version suffixes (e.g., "Adaptive v2.1" → "adaptive v2")
+        // Try progressively shorter prefixes
+        for (const auto& knownKey : knowledge.keys()) {
+            if (key.startsWith(knownKey) || knownKey.startsWith(key)) {
+                return knownKey;
+            }
+        }
+
+        // Fuzzy: check if any known key is contained within the profile title
+        for (const auto& knownKey : knowledge.keys()) {
+            if (knownKey.length() >= 4 && key.contains(knownKey)) {
+                return knownKey;
+            }
+        }
+    }
+
+    // Fallback: match by editor type
+    // This handles user-created profiles from the D-Flow/A-Flow editors
+    // that may have completely custom titles
+    if (!editorTypeHint.isEmpty()) {
+        // Map raw editorType strings and description prefixes to knowledge base keys
+        static const QMap<QString, QString> editorTypeToKey = {
+            { QStringLiteral("dflow"),  QStringLiteral("d-flow / default") },
+            { QStringLiteral("aflow"),  QStringLiteral("a-flow") },
+            { QStringLiteral("D-Flow"), QStringLiteral("d-flow / default") },
+            { QStringLiteral("A-Flow"), QStringLiteral("a-flow") },
+        };
+
+        // Try exact match first (raw editorType like "dflow")
+        if (editorTypeToKey.contains(editorTypeHint)) {
+            const QString& mapped = editorTypeToKey.value(editorTypeHint);
+            if (knowledge.contains(mapped)) return mapped;
+        }
+
+        // Try prefix match (description string like "D-Flow (lever-style...)")
+        for (auto it = editorTypeToKey.constBegin(); it != editorTypeToKey.constEnd(); ++it) {
+            if (editorTypeHint.startsWith(it.key())) {
+                if (knowledge.contains(it.value())) {
+                    return it.value();
+                }
+            }
+        }
+    }
+
+    return QString();
+}
+
+QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QString& profileType)
+{
+    if (profileTitle.isEmpty() && profileType.isEmpty()) return QString();
+
+    loadProfileKnowledge();
+
+    QString key = matchProfileKey(s_profileKnowledge, profileTitle, profileType);
+    if (!key.isEmpty()) {
+        return s_profileKnowledge.value(key).content;
+    }
+    return QString();
+}
+
+QString ShotSummarizer::computeProfileKbId(const QString& profileTitle, const QString& editorType)
+{
+    if (profileTitle.isEmpty() && editorType.isEmpty()) return QString();
+
+    loadProfileKnowledge();
+
+    return matchProfileKey(s_profileKnowledge, profileTitle, editorType);
 }
 
 QString ShotSummarizer::espressoSystemPrompt()
@@ -701,9 +1018,10 @@ Never give these generic responses without evidence from the data:
 
 1. **Start with taste** — what did the user experience?
 2. **Check profile intent** — did the shot achieve what the profile was designed to do?
-3. **Identify ONE issue** — the most impactful thing to change
-4. **Recommend ONE adjustment** — specific and actionable, with reasoning
-5. **Explain what to look for** — how will we know if it worked?
+3. **Check dial-in history** — if recent shots are provided, identify what changed (grind, temp, dose, recipe) and whether the changes helped or hurt. Reference specific shots by date.
+4. **Identify ONE issue** — the most impactful thing to change
+5. **Recommend ONE adjustment** — specific and actionable, with reasoning
+6. **Explain what to look for** — how will we know if it worked?
 
 If the shot tasted good (score 80+), acknowledge success! Suggest only minor refinements if any.
 

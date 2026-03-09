@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QList>
+#include <QMap>
 #include <QVector>
 #include <QPointF>
 #include <QVariant>
@@ -79,6 +80,9 @@ struct ShotSummary {
     double preinfusionDuration = 0;
     double mainExtractionDuration = 0;
 
+    // Profile knowledge base ID (from DB or computed at summarize time)
+    QString profileKbId;
+
     // Anomaly flags
     bool channelingDetected = false;  // Sudden flow spikes
     bool temperatureUnstable = false; // >2C variation
@@ -117,10 +121,24 @@ public:
     // Generate text prompt from summary
     QString buildUserPrompt(const ShotSummary& summary) const;
 
+    // Format recent shot history as AI context (lightweight, no curve data)
+    static QString buildHistoryContext(const QVariantList& recentShots);
+
     // Get the system prompt based on beverage type
     static QString systemPrompt(const QString& beverageType = "espresso");
     static QString espressoSystemPrompt();
     static QString filterSystemPrompt();
+
+    // Profile-aware system prompt: base prompt + per-profile knowledge section.
+    // profileKbId: direct knowledge base key (from DB), bypasses fuzzy matching if set.
+    // profileType: editor type description string, used as fallback for custom-titled profiles.
+    static QString shotAnalysisSystemPrompt(const QString& beverageType, const QString& profileTitle,
+                                               const QString& profileType = QString(),
+                                               const QString& profileKbId = QString());
+
+    // Compute the knowledge base ID for a profile (for storage in shot history DB).
+    // Returns empty string if no match found. Uses title + editorType fallback.
+    static QString computeProfileKbId(const QString& profileTitle, const QString& editorType = QString());
 
 private:
     // Helper methods
@@ -136,4 +154,16 @@ private:
     void detectChannelingInPhases(ShotSummary& summary, const QVector<QPointF>& flowData) const;
     void calculateTemperatureStability(ShotSummary& summary,
         const QVector<QPointF>& tempData, const QVector<QPointF>& tempGoalData) const;
+
+    // Profile knowledge base
+    struct ProfileKnowledge {
+        QString name;       // Display name (e.g. "D-Flow")
+        QString content;    // Full markdown section for this profile
+    };
+    static QMap<QString, ProfileKnowledge> s_profileKnowledge;
+    static bool s_knowledgeLoaded;
+    static void loadProfileKnowledge();
+    static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
+                                   const QString& profileTitle, const QString& editorTypeHint);
+    static QString findProfileSection(const QString& profileTitle, const QString& profileType = QString());
 };

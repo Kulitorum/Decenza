@@ -86,6 +86,9 @@ struct ShotRecord {
 
     // Profile snapshot
     QString profileJson;
+
+    // AI knowledge base ID (e.g. "d-flow", "blooming espresso") for profile-aware analysis
+    QString profileKbId;
 };
 
 // Filter criteria for queries
@@ -148,6 +151,9 @@ struct ShotSaveData {
     QString profileNotes;
     QString debugLog;
 
+    // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
+    QString profileKbId;
+
     // Pre-compressed sample data blob
     QByteArray compressedSamples;
     int sampleCount = 0;
@@ -202,6 +208,10 @@ public:
 
     // Async version: runs SQL on a background thread and emits shotsFilteredReady()
     Q_INVOKABLE void requestShotsFiltered(const QVariantMap& filter, int offset = 0, int limit = 50);
+
+    // Get recent shots by profile knowledge base ID (for AI dial-in history context).
+    // Returns lightweight records (no time-series) with dial-in fields, most recent first.
+    QVariantList getRecentShotsByKbId(const QString& profileKbId, int limit = 5, qint64 excludeShotId = -1);
 
     // Get just the timestamp of a shot (lightweight, no time-series)
     Q_INVOKABLE qint64 getShotTimestamp(qint64 shotId);

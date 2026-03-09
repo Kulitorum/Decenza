@@ -175,6 +175,79 @@ ShotMetadata AIManager::buildMetadata(const QString& beanBrand,
     return metadata;
 }
 
+// File-scope helper: runs on a background thread with its own SQLite connection.
+// Returns recent shots matching the given knowledge base ID, for AI dial-in history.
+static QVariantList loadRecentShotsByKbId(
+    const QString& dbPath, const QString& connName,
+    const QString& profileKbId, int limit, qint64 excludeShotId)
+{
+    QVariantList results;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+        db.setDatabaseName(dbPath);
+        if (!db.open()) {
+            qWarning() << "AIManager::loadRecentShotsByKbId: Failed to open DB:" << db.lastError().text();
+        } else {
+            QString sql = QStringLiteral(R"(
+                SELECT id, timestamp, profile_name, duration_seconds,
+                       final_weight, dose_weight, bean_brand, bean_type, roast_level,
+                       grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+                       drink_tds, drink_ey, enjoyment, espresso_notes,
+                       temperature_override, profile_json
+                FROM shots
+                WHERE profile_kb_id = ?
+            )");
+            if (excludeShotId >= 0)
+                sql += QStringLiteral(" AND id != ?");
+            sql += QStringLiteral(" ORDER BY timestamp DESC LIMIT ?");
+
+            QSqlQuery query(db);
+            if (!query.prepare(sql)) {
+                qWarning() << "AIManager::loadRecentShotsByKbId: prepare failed:" << query.lastError().text();
+            } else {
+                int idx = 0;
+                query.bindValue(idx++, profileKbId);
+                if (excludeShotId >= 0)
+                    query.bindValue(idx++, excludeShotId);
+                query.bindValue(idx, limit);
+
+                if (!query.exec()) {
+                    qWarning() << "AIManager::loadRecentShotsByKbId: failed:" << query.lastError().text();
+                } else {
+                    while (query.next()) {
+                        QVariantMap shot;
+                        shot["id"] = query.value(0).toLongLong();
+                        shot["timestamp"] = query.value(1).toLongLong();
+                        shot["profileName"] = query.value(2).toString();
+                        shot["duration"] = query.value(3).toDouble();
+                        shot["finalWeight"] = query.value(4).toDouble();
+                        shot["doseWeight"] = query.value(5).toDouble();
+                        shot["beanBrand"] = query.value(6).toString();
+                        shot["beanType"] = query.value(7).toString();
+                        shot["roastLevel"] = query.value(8).toString();
+                        shot["grinderBrand"] = query.value(9).toString();
+                        shot["grinderModel"] = query.value(10).toString();
+                        shot["grinderBurrs"] = query.value(11).toString();
+                        shot["grinderSetting"] = query.value(12).toString();
+                        shot["drinkTds"] = query.value(13).toDouble();
+                        shot["drinkEy"] = query.value(14).toDouble();
+                        shot["enjoyment"] = query.value(15).toInt();
+                        shot["espressoNotes"] = query.value(16).toString();
+                        shot["temperatureOverride"] = query.value(17).toDouble();
+                        shot["profileJson"] = query.value(18).toString();
+                        QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(1).toLongLong());
+                        // Fixed format for AI consumption (not locale-dependent display)
+                        shot["dateTime"] = dt.toString("yyyy-MM-dd HH:mm");
+                        results.append(shot);
+                    }
+                }
+            }
+        }
+    }
+    QSqlDatabase::removeDatabase(connName);
+    return results;
+}
+
 void AIManager::analyzeShot(ShotDataModel* shotData,
                              Profile* profile,
                              double doseWeight,
@@ -239,13 +312,40 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                                           grinderSetting, enjoymentScore, tastingNotes);
     ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
 
-    // Build prompts (select system prompt based on beverage type)
-    QString systemPrompt = ShotSummarizer::systemPrompt(summary.beverageType);
+    // Build prompts (select system prompt based on beverage type + profile knowledge)
+    // profileKbId is the direct knowledge base key; profileType is the fallback for custom titles
+    QString systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
+        summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
-    // Use conversation to track history for follow-ups
-    // This sets m_analyzing via analyze() and enables follow-up questions
-    m_conversation->ask(systemPrompt, userPrompt);
+    // Fetch recent shot history on a background thread, then send to AI on callback
+    if (m_shotHistory && !summary.profileKbId.isEmpty()) {
+        const QString dbPath = m_shotHistory->databasePath();
+        const QString kbId = summary.profileKbId;
+        const qint64 excludeId = m_shotHistory->lastSavedShotId();
+        QPointer<AIManager> self(this);
+
+        QThread* thread = QThread::create([self, dbPath, kbId, excludeId, systemPrompt, userPrompt]() {
+            const QString connName = QString("ai_kb_history_%1")
+                .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+            QVariantList recentShots = loadRecentShotsByKbId(dbPath, connName, kbId, 5, excludeId);
+
+            QMetaObject::invokeMethod(qApp, [self, systemPrompt, userPrompt, recentShots = std::move(recentShots)]() {
+                if (!self) return;
+                QString finalUserPrompt = userPrompt;
+                QString historyContext = ShotSummarizer::buildHistoryContext(recentShots);
+                if (!historyContext.isEmpty()) {
+                    finalUserPrompt += "\n\n" + historyContext;
+                }
+                self->m_conversation->ask(systemPrompt, finalUserPrompt);
+            }, Qt::QueuedConnection);
+        });
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        thread->start();
+    } else {
+        // No history to fetch — send directly
+        m_conversation->ask(systemPrompt, userPrompt);
+    }
 }
 
 QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
@@ -281,8 +381,13 @@ QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
         metadataMap.value("tastingNotes").toString());
     ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
 
-    QString systemPrompt = ShotSummarizer::systemPrompt(summary.beverageType);
+    QString systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
+        summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
+
+    // Note: dial-in history is omitted here because this method returns synchronously
+    // and DB queries must not run on the main thread. The email prompt is a one-off export
+    // so historical context is less critical than in interactive analysis.
 
     return systemPrompt + "\n\n---\n\n" + userPrompt +
            "\n\n---\n\nGenerated by Decenza. Paste into ChatGPT, Claude, or your preferred AI.";

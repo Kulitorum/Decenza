@@ -398,6 +398,11 @@ QJsonDocument Profile::toJson() const {
         obj["recipe"] = m_recipeParams.toJson();
     }
 
+    // AI knowledge base ID (Decenza extension — de1app ignores unknown keys)
+    if (!m_knowledgeBaseId.isEmpty()) {
+        obj["knowledge_base_id"] = m_knowledgeBaseId;
+    }
+
     return QJsonDocument(obj);
 }
 
@@ -505,6 +510,9 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         // Set preinfuse frame count based on generated preinfusion frames
         profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
     }
+
+    // AI knowledge base ID (Decenza extension)
+    profile.m_knowledgeBaseId = obj["knowledge_base_id"].toString();
 
     // Recipe mode data
     profile.m_isRecipeMode = obj["is_recipe_mode"].toBool(false);

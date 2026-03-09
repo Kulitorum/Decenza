@@ -82,8 +82,14 @@ public:
      * Add new shot context to existing conversation (for multi-shot dialing)
      * This appends shot data as a new user message without clearing history.
      * shotLabel is a human-readable date/time string (e.g. "Feb 15, 14:30") identifying the shot.
+     * profileTitle/profileType/profileKbId are forwarded to shotAnalysisSystemPrompt()
+     * for profile-aware knowledge injection when initializing a new conversation.
      */
-    Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& shotLabel, const QString& beverageType = "espresso");
+    Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& shotLabel,
+                                     const QString& beverageType = "espresso",
+                                     const QString& profileTitle = QString(),
+                                     const QString& profileType = QString(),
+                                     const QString& profileKbId = QString());
 
     /**
      * Process a shot summary for conversation: prepends a "changes from previous" section.
@@ -94,9 +100,12 @@ public:
 
     /**
      * Get the full system prompt for multi-shot conversations.
-     * Uses the rich single-shot system prompt plus multi-shot guidance.
+     * Uses the profile-aware system prompt (base + per-profile knowledge) plus multi-shot guidance.
      */
-    Q_INVOKABLE QString multiShotSystemPrompt(const QString& beverageType = "espresso");
+    Q_INVOKABLE QString multiShotSystemPrompt(const QString& beverageType = "espresso",
+                                               const QString& profileTitle = QString(),
+                                               const QString& profileType = QString(),
+                                               const QString& profileKbId = QString());
 
     /**
      * Save conversation history to persistent storage
