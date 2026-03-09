@@ -47,6 +47,7 @@ struct ProfileInfo {
     QString beverageType;
     ProfileSource source;
     bool isRecipeMode = false;
+    bool hasKnowledgeBase = false;
 };
 
 class MainController : public QObject {

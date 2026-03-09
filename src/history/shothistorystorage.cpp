@@ -1552,6 +1552,68 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     thread->start();
 }
 
+QVariantList ShotHistoryStorage::getRecentShotsByKbId(const QString& profileKbId, int limit, qint64 excludeShotId)
+{
+    QVariantList results;
+    if (!m_ready || profileKbId.isEmpty()) return results;
+
+    QString sql = QStringLiteral(R"(
+        SELECT id, timestamp, profile_name, duration_seconds,
+               final_weight, dose_weight, bean_brand, bean_type, roast_level,
+               grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+               drink_tds, drink_ey, enjoyment, espresso_notes,
+               temperature_override, profile_json
+        FROM shots
+        WHERE profile_kb_id = ?
+    )");
+    if (excludeShotId >= 0) {
+        sql += QStringLiteral(" AND id != ?");
+    }
+    sql += QStringLiteral(" ORDER BY timestamp DESC LIMIT ?");
+
+    QSqlQuery query(m_db);
+    if (!query.prepare(sql)) return results;
+
+    int idx = 0;
+    query.bindValue(idx++, profileKbId);
+    if (excludeShotId >= 0) {
+        query.bindValue(idx++, excludeShotId);
+    }
+    query.bindValue(idx, limit);
+
+    if (!query.exec()) return results;
+
+    while (query.next()) {
+        QVariantMap shot;
+        shot["id"] = query.value(0).toLongLong();
+        shot["timestamp"] = query.value(1).toLongLong();
+        shot["profileName"] = query.value(2).toString();
+        shot["duration"] = query.value(3).toDouble();
+        shot["finalWeight"] = query.value(4).toDouble();
+        shot["doseWeight"] = query.value(5).toDouble();
+        shot["beanBrand"] = query.value(6).toString();
+        shot["beanType"] = query.value(7).toString();
+        shot["roastLevel"] = query.value(8).toString();
+        shot["grinderBrand"] = query.value(9).toString();
+        shot["grinderModel"] = query.value(10).toString();
+        shot["grinderBurrs"] = query.value(11).toString();
+        shot["grinderSetting"] = query.value(12).toString();
+        shot["drinkTds"] = query.value(13).toDouble();
+        shot["drinkEy"] = query.value(14).toDouble();
+        shot["enjoyment"] = query.value(15).toInt();
+        shot["espressoNotes"] = query.value(16).toString();
+        shot["temperatureOverride"] = query.value(17).toDouble();
+        shot["profileJson"] = query.value(18).toString();
+
+        QDateTime dt = QDateTime::fromSecsSinceEpoch(query.value(1).toLongLong());
+        shot["dateTime"] = dt.toString(use12h() ? "yyyy-MM-dd h:mm AP" : "yyyy-MM-dd HH:mm");
+
+        results.append(shot);
+    }
+
+    return results;
+}
+
 qint64 ShotHistoryStorage::getShotTimestamp(qint64 shotId)
 {
     if (!m_ready) return 0;

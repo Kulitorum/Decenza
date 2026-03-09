@@ -121,6 +121,9 @@ public:
     // Generate text prompt from summary
     QString buildUserPrompt(const ShotSummary& summary) const;
 
+    // Format recent shot history as AI context (lightweight, no curve data)
+    static QString buildHistoryContext(const QVariantList& recentShots);
+
     // Get the system prompt based on beverage type
     static QString systemPrompt(const QString& beverageType = "espresso");
     static QString espressoSystemPrompt();

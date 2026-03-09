@@ -266,14 +266,29 @@ Page {
                                                  TranslationManager.translate("profileselector.accessible.user_profile", "User profile")
                             }
 
-                            // Profile name
-                            Text {
+                            // Profile name + AI knowledge indicator
+                            RowLayout {
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
-                                text: modelData.title
-                                color: Theme.textColor
-                                font: Theme.bodyFont
-                                elide: Text.ElideRight
+                                spacing: Theme.scaled(4)
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: modelData.title
+                                    color: Theme.textColor
+                                    font: Theme.bodyFont
+                                    elide: Text.ElideRight
+                                }
+
+                                Image {
+                                    visible: modelData.hasKnowledgeBase === true
+                                    source: "qrc:/icons/sparkle.svg"
+                                    sourceSize.width: Theme.scaled(14)
+                                    sourceSize.height: Theme.scaled(14)
+                                    Layout.alignment: Qt.AlignVCenter
+                                    opacity: 0.6
+                                }
                             }
 
                             // Profile info button

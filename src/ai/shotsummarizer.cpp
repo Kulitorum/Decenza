@@ -608,6 +608,100 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
     return prompt;
 }
 
+QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
+{
+    if (recentShots.isEmpty()) return QString();
+
+    QString result;
+    QTextStream out(&result);
+
+    out << "## Recent Shot History (same profile family, newest first)\n\n";
+    out << "Use this to identify dial-in trends — what changed between shots and how it affected the result.\n\n";
+
+    for (qsizetype i = 0; i < recentShots.size(); ++i) {
+        QVariantMap shot = recentShots[i].toMap();
+
+        QString dateTime = shot.value("dateTime").toString();
+        double dose = shot.value("doseWeight", 0.0).toDouble();
+        double yield = shot.value("finalWeight", 0.0).toDouble();
+        double duration = shot.value("duration", 0.0).toDouble();
+        double ratio = dose > 0 ? yield / dose : 0;
+        int score = shot.value("enjoyment", 0).toInt();
+
+        out << "### Shot " << (i + 1) << " (" << dateTime << ")\n";
+        out << "- Profile: " << shot.value("profileName").toString() << "\n";
+        out << "- Dose: " << QString::number(dose, 'f', 1) << "g → Yield: "
+            << QString::number(yield, 'f', 1) << "g (1:" << QString::number(ratio, 'f', 1) << ")\n";
+        out << "- Duration: " << QString::number(duration, 'f', 0) << "s\n";
+
+        // Grinder info
+        QString grinderBrand = shot.value("grinderBrand").toString();
+        QString grinderModel = shot.value("grinderModel").toString();
+        QString grinderSetting = shot.value("grinderSetting").toString();
+        if (!grinderBrand.isEmpty() || !grinderModel.isEmpty() || !grinderSetting.isEmpty()) {
+            out << "- Grinder: ";
+            if (!grinderBrand.isEmpty()) out << grinderBrand;
+            if (!grinderModel.isEmpty()) {
+                if (!grinderBrand.isEmpty()) out << " ";
+                out << grinderModel;
+            }
+            if (!grinderSetting.isEmpty()) out << " @ " << grinderSetting;
+            out << "\n";
+        }
+
+        // Temperature override
+        double tempOverride = shot.value("temperatureOverride", 0.0).toDouble();
+        if (tempOverride > 0) {
+            out << "- Temperature override: " << QString::number(tempOverride, 'f', 1) << "°C\n";
+        }
+
+        // Bean info
+        QString beanBrand = shot.value("beanBrand").toString();
+        QString beanType = shot.value("beanType").toString();
+        if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
+            out << "- Beans: " << beanBrand;
+            if (!beanBrand.isEmpty() && !beanType.isEmpty()) out << " - ";
+            out << beanType;
+            QString roastLevel = shot.value("roastLevel").toString();
+            if (!roastLevel.isEmpty()) out << " (" << roastLevel << ")";
+            out << "\n";
+        }
+
+        // Extraction measurements
+        double tds = shot.value("drinkTds", 0.0).toDouble();
+        double ey = shot.value("drinkEy", 0.0).toDouble();
+        if (tds > 0 || ey > 0) {
+            out << "- Extraction: ";
+            if (tds > 0) out << "TDS " << QString::number(tds, 'f', 2) << "%";
+            if (tds > 0 && ey > 0) out << ", ";
+            if (ey > 0) out << "EY " << QString::number(ey, 'f', 1) << "%";
+            out << "\n";
+        }
+
+        // Score and tasting notes
+        if (score > 0) {
+            out << "- Score: " << score << "/100\n";
+        }
+        QString notes = shot.value("espressoNotes").toString();
+        if (!notes.isEmpty()) {
+            out << "- Notes: \"" << notes << "\"\n";
+        }
+
+        // Profile recipe (from stored JSON)
+        QString profileJson = shot.value("profileJson").toString();
+        if (!profileJson.isEmpty()) {
+            QString recipe = Profile::describeFramesFromJson(profileJson);
+            if (!recipe.isEmpty()) {
+                out << "- Recipe: " << recipe << "\n";
+            }
+        }
+
+        out << "\n";
+    }
+
+    return result;
+}
+
 QString ShotSummarizer::systemPrompt(const QString& beverageType)
 {
     if (beverageType.toLower() == "filter" || beverageType.toLower() == "pourover") {
@@ -920,9 +1014,10 @@ Never give these generic responses without evidence from the data:
 
 1. **Start with taste** — what did the user experience?
 2. **Check profile intent** — did the shot achieve what the profile was designed to do?
-3. **Identify ONE issue** — the most impactful thing to change
-4. **Recommend ONE adjustment** — specific and actionable, with reasoning
-5. **Explain what to look for** — how will we know if it worked?
+3. **Check dial-in history** — if recent shots are provided, identify what changed (grind, temp, dose, recipe) and whether the changes helped or hurt. Reference specific shots by date.
+4. **Identify ONE issue** — the most impactful thing to change
+5. **Recommend ONE adjustment** — specific and actionable, with reasoning
+6. **Explain what to look for** — how will we know if it worked?
 
 If the shot tasted good (score 80+), acknowledge success! Suggest only minor refinements if any.
 

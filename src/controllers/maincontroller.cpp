@@ -539,6 +539,7 @@ QVariantList MainController::selectedProfiles() const {
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
             profile["isRecipeMode"] = info.isRecipeMode;
+            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             result.append(profile);
         }
     }
@@ -563,6 +564,7 @@ QVariantList MainController::allBuiltInProfiles() const {
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
             profile["isRecipeMode"] = info.isRecipeMode;
+            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             result.append(profile);
         }
     }
@@ -588,6 +590,7 @@ QVariantList MainController::cleaningProfiles() const {
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
             profile["isRecipeMode"] = info.isRecipeMode;
+            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             result.append(profile);
         }
     }
@@ -612,6 +615,7 @@ QVariantList MainController::downloadedProfiles() const {
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
             profile["isRecipeMode"] = info.isRecipeMode;
+            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             result.append(profile);
         }
     }
@@ -636,6 +640,7 @@ QVariantList MainController::userCreatedProfiles() const {
             profile["beverageType"] = info.beverageType;
             profile["source"] = static_cast<int>(info.source);
             profile["isRecipeMode"] = info.isRecipeMode;
+            profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
             result.append(profile);
         }
     }
@@ -659,6 +664,7 @@ QVariantList MainController::allProfilesList() const {
         profile["beverageType"] = info.beverageType;
         profile["source"] = static_cast<int>(info.source);
         profile["isRecipeMode"] = info.isRecipeMode;
+        profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
         result.append(profile);
     }
 
@@ -1208,21 +1214,23 @@ void MainController::refreshProfiles() {
     m_profileJsonCache.clear();
 
     // Helper to load profile metadata from file path
-    auto loadProfileMeta = [](const QString& path) -> std::tuple<QString, QString, bool> {
+    auto loadProfileMeta = [](const QString& path) -> std::tuple<QString, QString, bool, bool> {
         QFile file(path);
         if (file.open(QIODevice::ReadOnly)) {
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
             QJsonObject obj = doc.object();
-            return {obj["title"].toString(), obj["beverage_type"].toString(), obj["is_recipe_mode"].toBool(false)};
+            return {obj["title"].toString(), obj["beverage_type"].toString(),
+                    obj["is_recipe_mode"].toBool(false), obj.contains("knowledge_base_id")};
         }
-        return {QString(), QString(), false};
+        return {QString(), QString(), false, false};
     };
 
     // Helper to load profile metadata from JSON string
-    auto loadProfileMetaFromJson = [](const QString& jsonContent) -> std::tuple<QString, QString, bool> {
+    auto loadProfileMetaFromJson = [](const QString& jsonContent) -> std::tuple<QString, QString, bool, bool> {
         QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
         QJsonObject obj = doc.object();
-        return {obj["title"].toString(), obj["beverage_type"].toString(), obj["is_recipe_mode"].toBool(false)};
+        return {obj["title"].toString(), obj["beverage_type"].toString(),
+                obj["is_recipe_mode"].toBool(false), obj.contains("knowledge_base_id")};
     };
 
     QStringList filters;
@@ -1233,7 +1241,7 @@ void MainController::refreshProfiles() {
     QStringList files = builtInDir.entryList(filters, QDir::Files);
     for (const QString& file : files) {
         QString name = file.left(file.length() - 5);  // Remove .json
-        auto [title, beverageType, isRecipeMode] = loadProfileMeta(":/profiles/" + file);
+        auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMeta(":/profiles/" + file);
 
         ProfileInfo info;
         info.filename = name;
@@ -1241,6 +1249,7 @@ void MainController::refreshProfiles() {
         info.beverageType = beverageType;
         info.source = ProfileSource::BuiltIn;
         info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+        info.hasKnowledgeBase = hasKnowledgeBase;
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1261,7 +1270,7 @@ void MainController::refreshProfiles() {
             // Cache for loadProfile() to avoid re-reading from storage
             m_profileJsonCache[name] = jsonContent;
 
-            auto [title, beverageType, isRecipeMode] = loadProfileMetaFromJson(jsonContent);
+            auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMetaFromJson(jsonContent);
 
             ProfileInfo info;
             info.filename = name;
@@ -1269,6 +1278,7 @@ void MainController::refreshProfiles() {
             info.beverageType = beverageType;
             info.source = ProfileSource::UserCreated;
             info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+            info.hasKnowledgeBase = hasKnowledgeBase;
 
             if (m_availableProfiles.contains(name)) {
                 // Override built-in entry so list matches what loadProfile() actually loads
@@ -1295,7 +1305,7 @@ void MainController::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, isRecipeMode] = loadProfileMeta(downloadedDir.filePath(file));
+        auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMeta(downloadedDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
@@ -1303,6 +1313,7 @@ void MainController::refreshProfiles() {
         info.beverageType = beverageType;
         info.source = ProfileSource::Downloaded;
         info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+        info.hasKnowledgeBase = hasKnowledgeBase;
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
@@ -1318,7 +1329,7 @@ void MainController::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, isRecipeMode] = loadProfileMeta(userDir.filePath(file));
+        auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMeta(userDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
@@ -1326,6 +1337,7 @@ void MainController::refreshProfiles() {
         info.beverageType = beverageType;
         info.source = ProfileSource::UserCreated;
         info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
+        info.hasKnowledgeBase = hasKnowledgeBase;
         m_allProfiles.append(info);
 
         m_availableProfiles.append(name);
