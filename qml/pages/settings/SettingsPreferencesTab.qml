@@ -831,7 +831,7 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration (beta)")
+                                text: TranslationManager.translate("settings.preferences.disableAutoCalibration", "Disable auto calibration")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                             }
@@ -839,9 +839,9 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             StyledSwitch {
-                                checked: Settings.autoFlowCalibration
-                                accessibleName: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration (beta)")
-                                onToggled: Settings.autoFlowCalibration = checked
+                                checked: !Settings.autoFlowCalibration
+                                accessibleName: TranslationManager.translate("settings.preferences.disableAutoCalibration", "Disable auto calibration")
+                                onToggled: Settings.autoFlowCalibration = !checked
                             }
                         }
 

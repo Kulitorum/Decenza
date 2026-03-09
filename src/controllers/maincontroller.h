@@ -295,6 +295,7 @@ private:
     void applyHeaterTweaks();
     void applyFlowCalibration();
     void computeAutoFlowCalibration();
+    void updateGlobalFromPerProfileMedian();
     double getGroupTemperature() const;
     void sendMachineSettings();
 

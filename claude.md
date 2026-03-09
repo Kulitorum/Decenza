@@ -192,6 +192,7 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 - Members: `m_` prefix
 - Slots: `onEventName()`
 - Use `Q_PROPERTY` with `NOTIFY` for bindable properties
+- Use `qsizetype` (not `int`) for container sizes — `QVector::size()`, `QList::size()`, `QString::size()` etc. return `qsizetype` (64-bit on iOS/macOS). Assigning to `int` causes `-Wshorten-64-to-32` warnings.
 
 ### QML
 - Files: `PascalCase.qml`

@@ -138,6 +138,14 @@ Settings::Settings(QObject* parent)
         qDebug() << "Settings: Migrated flat shader params to shader/crt/ namespace";
     }
 
+    // One-time migration: auto flow calibration graduates from opt-in beta to default-on.
+    // Remove old key so new default (true) applies. Users can still disable via toggle.
+    if (!m_settings.contains("calibration/autoFlowCalMigrated")) {
+        m_settings.remove("calibration/autoFlowCalibration");
+        m_settings.setValue("calibration/autoFlowCalMigrated", true);
+        qDebug() << "Settings: Migrated auto flow calibration to default-on";
+    }
+
     // Migrate legacy DYE grinder field: split combined model into brand/model/burrs
     if (!m_settings.contains("dye/grinderBrand") || m_settings.value("dye/grinderBrand").toString().isEmpty()) {
         QString oldModel = m_settings.value("dye/grinderModel").toString();
@@ -2957,7 +2965,7 @@ void Settings::setFlowCalibrationMultiplier(double multiplier) {
 // Auto flow calibration
 
 bool Settings::autoFlowCalibration() const {
-    return m_settings.value("calibration/autoFlowCalibration", false).toBool();
+    return m_settings.value("calibration/autoFlowCalibration", true).toBool();
 }
 
 void Settings::setAutoFlowCalibration(bool enabled) {

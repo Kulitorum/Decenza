@@ -1,4 +1,4 @@
-# Auto Flow Calibration (Beta)
+# Auto Flow Calibration
 
 ## Problem
 
@@ -58,24 +58,36 @@ The computed multiplier is clamped to [0.5, 1.8]. Values outside this range indi
 
 ## User Experience
 
-- **Beta toggle**: Settings > Preferences > Flow Calibration > "Auto calibration (beta)"
-- **Default OFF**: No behavior change until explicitly enabled
-- **Automatic operation**: Once enabled, calibration happens silently after each qualifying shot
+- **Default ON**: Auto calibration is enabled by default for all users
+- **Disable toggle**: Settings > Preferences > Flow Calibration > "Disable auto calibration"
+- **Automatic operation**: Calibration happens silently after each qualifying shot
 - **Toast notification**: Brief notification when a calibration update occurs (e.g., "Flow cal updated for Filter 3: 1.00 → 1.08")
 - **Profile Info**: Shows the effective multiplier with "(global)" or "(auto)" label
 - **Manual override disabled**: When auto-cal is on, the Calibrate button is greyed out
+- **Migration**: Existing users were migrated to default-on via a one-time settings migration that clears the old key
 
 ## Technical Details
 
 ### Settings Storage
 
-- `autoFlowCalibration` (bool): Master toggle
+- `autoFlowCalibration` (bool, default `true`): Master toggle
 - `calibration/perProfileFlow` (JSON object): Maps profile filename → multiplier
+- `flowCalibrationMultiplier` (double, default 1.0): Global multiplier, auto-updated to espresso median
 - Effective multiplier: per-profile if auto-cal is on and one exists, otherwise falls back to global `flowCalibrationMultiplier`
 
 ### Profile Load Hook
 
 When a profile is loaded (user switch or startup), `applyFlowCalibration()` is called. If auto-cal is on and a per-profile multiplier exists for the loaded profile, that value is sent to the machine. Otherwise the global multiplier is used.
+
+### Global from Espresso Median
+
+After each per-profile calibration update, the global multiplier is updated to the median of all espresso per-profile values. This helps new profiles converge faster — instead of starting at 1.0, they start near the machine's actual calibration.
+
+- Requires at least 2 espresso profiles with per-profile calibrations
+- Uses IQR fence method (1.5× IQR from Q1/Q3) to remove outliers when 4+ profiles exist
+- Falls back to all values if outlier filtering leaves fewer than 2
+- Only updates the global if the median differs from current by more than 2%
+- Non-espresso profiles (e.g., filter) are excluded from the median since they operate at very different flow rates
 
 ### MMR Write
 
