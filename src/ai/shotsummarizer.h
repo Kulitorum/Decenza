@@ -80,6 +80,9 @@ struct ShotSummary {
     double preinfusionDuration = 0;
     double mainExtractionDuration = 0;
 
+    // Profile knowledge base ID (from DB or computed at summarize time)
+    QString profileKbId;
+
     // Anomaly flags
     bool channelingDetected = false;  // Sudden flow spikes
     bool temperatureUnstable = false; // >2C variation
@@ -123,9 +126,16 @@ public:
     static QString espressoSystemPrompt();
     static QString filterSystemPrompt();
 
-    // Profile-aware system prompt: base prompt + per-profile knowledge section
+    // Profile-aware system prompt: base prompt + per-profile knowledge section.
+    // profileKbId: direct knowledge base key (from DB), bypasses fuzzy matching if set.
+    // profileType: editor type description string, used as fallback for custom-titled profiles.
     static QString shotAnalysisSystemPrompt(const QString& beverageType, const QString& profileTitle,
-                                               const QString& profileType = QString());
+                                               const QString& profileType = QString(),
+                                               const QString& profileKbId = QString());
+
+    // Compute the knowledge base ID for a profile (for storage in shot history DB).
+    // Returns empty string if no match found. Uses title + editorType fallback.
+    static QString computeProfileKbId(const QString& profileTitle, const QString& editorType = QString());
 
 private:
     // Helper methods

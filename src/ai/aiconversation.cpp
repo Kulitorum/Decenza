@@ -297,7 +297,7 @@ QString AIConversation::getConversationText() const
 
 void AIConversation::addShotContext(const QString& shotSummary, const QString& shotLabel,
                                      const QString& beverageType, const QString& profileTitle,
-                                     const QString& profileType)
+                                     const QString& profileType, const QString& profileKbId)
 {
     if (m_busy) {
         qWarning() << "AIConversation::addShotContext ignored — already busy";
@@ -308,7 +308,7 @@ void AIConversation::addShotContext(const QString& shotSummary, const QString& s
 
     // If no existing conversation, set up the system prompt based on beverage type + profile
     if (m_systemPrompt.isEmpty()) {
-        m_systemPrompt = multiShotSystemPrompt(beverageType, profileTitle, profileType);
+        m_systemPrompt = multiShotSystemPrompt(beverageType, profileTitle, profileType, profileKbId);
     }
 
     // Add the new shot as context with its date/time label
@@ -374,10 +374,10 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, c
 }
 
 QString AIConversation::multiShotSystemPrompt(const QString& beverageType, const QString& profileTitle,
-                                               const QString& profileType)
+                                               const QString& profileType, const QString& profileKbId)
 {
     // Use the profile-aware system prompt (base + per-profile knowledge section)
-    QString base = ShotSummarizer::shotAnalysisSystemPrompt(beverageType, profileTitle, profileType);
+    QString base = ShotSummarizer::shotAnalysisSystemPrompt(beverageType, profileTitle, profileType, profileKbId);
     base += QStringLiteral(
         "\n\n## Multi-Shot Context\n\n"
         "You are helping the user dial in across multiple shots in a single session. "

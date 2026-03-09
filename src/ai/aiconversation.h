@@ -86,7 +86,8 @@ public:
     Q_INVOKABLE void addShotContext(const QString& shotSummary, const QString& shotLabel,
                                      const QString& beverageType = "espresso",
                                      const QString& profileTitle = QString(),
-                                     const QString& profileType = QString());
+                                     const QString& profileType = QString(),
+                                     const QString& profileKbId = QString());
 
     /**
      * Process a shot summary for conversation: prepends a "changes from previous" section.
@@ -101,7 +102,8 @@ public:
      */
     Q_INVOKABLE QString multiShotSystemPrompt(const QString& beverageType = "espresso",
                                                const QString& profileTitle = QString(),
-                                               const QString& profileType = QString());
+                                               const QString& profileType = QString(),
+                                               const QString& profileKbId = QString());
 
     /**
      * Save conversation history to persistent storage

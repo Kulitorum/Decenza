@@ -240,10 +240,9 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
     ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
 
     // Build prompts (select system prompt based on beverage type + profile knowledge)
-    // profileType carries editor type info (e.g. "D-Flow (lever-style...)") for fallback matching
-    // when user-created profiles have custom titles that don't match known profile names
+    // profileKbId is the direct knowledge base key; profileType is the fallback for custom titles
     QString systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
-        summary.beverageType, summary.profileTitle, summary.profileType);
+        summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
     // Use conversation to track history for follow-ups
@@ -285,7 +284,7 @@ QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
     ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
 
     QString systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
-        summary.beverageType, summary.profileTitle, summary.profileType);
+        summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
     QString userPrompt = m_summarizer->buildUserPrompt(summary);
 
     return systemPrompt + "\n\n---\n\n" + userPrompt +

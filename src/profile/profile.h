@@ -198,6 +198,11 @@ public:
     // Generate a single frame for direct control mode
     QByteArray toDirectControlFrame(int frameIndex, const ProfileFrame& frame) const;
 
+    // === AI Knowledge Base ===
+    // Transient (not serialized) — computed when profile is loaded, survives Save As
+    QString knowledgeBaseId() const { return m_knowledgeBaseId; }
+    void setKnowledgeBaseId(const QString& id) { m_knowledgeBaseId = id; }
+
     // === AI Description ===
     // Generate a compact text description of the frame sequence for AI analysis
     QString describeFrames() const;
@@ -212,6 +217,9 @@ public:
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
 private:
+    // Transient (not serialized to JSON) — AI knowledge base ID
+    QString m_knowledgeBaseId;
+
     // Metadata
     QString m_title = "Default";
     QString m_author;

@@ -86,6 +86,9 @@ struct ShotRecord {
 
     // Profile snapshot
     QString profileJson;
+
+    // AI knowledge base ID (e.g. "d-flow", "blooming espresso") for profile-aware analysis
+    QString profileKbId;
 };
 
 // Filter criteria for queries
@@ -147,6 +150,9 @@ struct ShotSaveData {
     QString barista;
     QString profileNotes;
     QString debugLog;
+
+    // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
+    QString profileKbId;
 
     // Pre-compressed sample data blob
     QByteArray compressedSamples;

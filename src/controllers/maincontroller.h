@@ -281,6 +281,7 @@ private slots:
 
 private:
     void loadDefaultProfile();
+    void updateProfileKnowledgeBaseId();  // Compute and set AI KB ID on m_currentProfile
     void migrateProfileFolders();
     void migrateProfileFormat();
     void migrateRecipeFrames();

@@ -104,9 +104,9 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
         summary.targetWeight = profile->targetWeight();
 
         // Profile style from editor type — tells the AI what kind of extraction curve to expect
+        QString editorStr;
         if (profile->isRecipeMode()) {
             // Convert EditorType enum to string for the shared helper
-            QString editorStr;
             switch (profile->recipeParams().editorType) {
             case EditorType::DFlow: editorStr = "dflow"; break;
             case EditorType::AFlow: editorStr = "aflow"; break;
@@ -116,6 +116,13 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
             summary.profileType = profileTypeDescription(editorStr);
         } else {
             summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
+        }
+
+        // Use pre-computed knowledge base ID (set when profile was loaded, survives Save As).
+        // Fall back to computing it here if not set (e.g. profiles loaded outside MainController).
+        summary.profileKbId = profile->knowledgeBaseId();
+        if (summary.profileKbId.isEmpty()) {
+            summary.profileKbId = computeProfileKbId(profile->title(), editorStr);
         }
     }
 
@@ -284,6 +291,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const QVariantMap& shotData) co
     summary.profileTitle = shotData.value("profileName", "Unknown").toString();
     summary.beverageType = shotData.value("beverageType", "espresso").toString();
     summary.profileNotes = shotData.value("profileNotes").toString();
+    summary.profileKbId = shotData.value("profileKbId").toString();
 
     // Extract profile type from stored profile JSON
     QString profileJson = shotData.value("profileJson").toString();
@@ -609,12 +617,22 @@ QString ShotSummarizer::systemPrompt(const QString& beverageType)
 }
 
 QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, const QString& profileTitle,
-                                                   const QString& profileType)
+                                                   const QString& profileType, const QString& profileKbId)
 {
     QString base = systemPrompt(beverageType);
 
-    // Look up profile-specific knowledge (title match first, then editorType fallback)
-    QString profileSection = findProfileSection(profileTitle, profileType);
+    // Look up profile-specific knowledge
+    // Try direct KB ID first (from database), then fall back to fuzzy title/editorType matching
+    QString profileSection;
+    if (!profileKbId.isEmpty()) {
+        loadProfileKnowledge();
+        if (s_profileKnowledge.contains(profileKbId)) {
+            profileSection = s_profileKnowledge.value(profileKbId).content;
+        }
+    }
+    if (profileSection.isEmpty()) {
+        profileSection = findProfileSection(profileTitle, profileType);
+    }
     if (!profileSection.isEmpty()) {
         base += QStringLiteral("\n\n## Current Profile Knowledge\n\n"
             "The following is curated knowledge about the specific profile used in this shot. "
@@ -701,64 +719,91 @@ void ShotSummarizer::loadProfileKnowledge()
              << "profile knowledge entries";
 }
 
-QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QString& profileType)
+// Shared matching logic: returns the matched key in s_profileKnowledge, or empty string.
+// profileTitle: the profile's display name (e.g. "D-Flow / my recipe")
+// editorTypeHint: either the raw editorType string ("dflow", "aflow") or the
+//   profileType description string ("D-Flow (lever-style...)") — both are handled.
+static QString matchProfileKey(const QMap<QString, ShotSummarizer::ProfileKnowledge>& knowledge,
+                               const QString& profileTitle, const QString& editorTypeHint)
 {
-    if (profileTitle.isEmpty() && profileType.isEmpty()) return QString();
-
-    loadProfileKnowledge();
-
-    if (s_profileKnowledge.isEmpty()) return QString();
+    if (knowledge.isEmpty()) return QString();
 
     // Try title-based matching first
     if (!profileTitle.isEmpty()) {
         QString key = normalizeProfileKey(profileTitle);
 
         // Direct match
-        if (s_profileKnowledge.contains(key)) {
-            return s_profileKnowledge.value(key).content;
+        if (knowledge.contains(key)) {
+            return key;
         }
 
         // Try without version suffixes (e.g., "Adaptive v2.1" → "adaptive v2")
         // Try progressively shorter prefixes
-        for (const auto& knownKey : s_profileKnowledge.keys()) {
-            // Check if the profile title starts with a known key
-            if (key.startsWith(knownKey)) {
-                return s_profileKnowledge.value(knownKey).content;
-            }
-            // Check if a known key starts with the profile title
-            if (knownKey.startsWith(key)) {
-                return s_profileKnowledge.value(knownKey).content;
+        for (const auto& knownKey : knowledge.keys()) {
+            if (key.startsWith(knownKey) || knownKey.startsWith(key)) {
+                return knownKey;
             }
         }
 
         // Fuzzy: check if any known key is contained within the profile title
-        for (const auto& knownKey : s_profileKnowledge.keys()) {
+        for (const auto& knownKey : knowledge.keys()) {
             if (knownKey.length() >= 4 && key.contains(knownKey)) {
-                return s_profileKnowledge.value(knownKey).content;
+                return knownKey;
             }
         }
     }
 
-    // Fallback: match by editor type (profileType description string)
+    // Fallback: match by editor type
     // This handles user-created profiles from the D-Flow/A-Flow editors
     // that may have completely custom titles
-    if (!profileType.isEmpty()) {
-        // Map profileType description to knowledge base keys
+    if (!editorTypeHint.isEmpty()) {
+        // Map raw editorType strings and description prefixes to knowledge base keys
         static const QMap<QString, QString> editorTypeToKey = {
+            { QStringLiteral("dflow"),  QStringLiteral("d-flow / default") },
+            { QStringLiteral("aflow"),  QStringLiteral("a-flow") },
             { QStringLiteral("D-Flow"), QStringLiteral("d-flow / default") },
             { QStringLiteral("A-Flow"), QStringLiteral("a-flow") },
         };
 
+        // Try exact match first (raw editorType like "dflow")
+        if (editorTypeToKey.contains(editorTypeHint)) {
+            const QString& mapped = editorTypeToKey.value(editorTypeHint);
+            if (knowledge.contains(mapped)) return mapped;
+        }
+
+        // Try prefix match (description string like "D-Flow (lever-style...)")
         for (auto it = editorTypeToKey.constBegin(); it != editorTypeToKey.constEnd(); ++it) {
-            if (profileType.startsWith(it.key())) {
-                if (s_profileKnowledge.contains(it.value())) {
-                    return s_profileKnowledge.value(it.value()).content;
+            if (editorTypeHint.startsWith(it.key())) {
+                if (knowledge.contains(it.value())) {
+                    return it.value();
                 }
             }
         }
     }
 
     return QString();
+}
+
+QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QString& profileType)
+{
+    if (profileTitle.isEmpty() && profileType.isEmpty()) return QString();
+
+    loadProfileKnowledge();
+
+    QString key = matchProfileKey(s_profileKnowledge, profileTitle, profileType);
+    if (!key.isEmpty()) {
+        return s_profileKnowledge.value(key).content;
+    }
+    return QString();
+}
+
+QString ShotSummarizer::computeProfileKbId(const QString& profileTitle, const QString& editorType)
+{
+    if (profileTitle.isEmpty() && editorType.isEmpty()) return QString();
+
+    loadProfileKnowledge();
+
+    return matchProfileKey(s_profileKnowledge, profileTitle, editorType);
 }
 
 QString ShotSummarizer::espressoSystemPrompt()

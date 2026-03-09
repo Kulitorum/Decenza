@@ -637,6 +637,20 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 8;
     }
 
+    // Migration 9: Add profile_kb_id column for AI knowledge base matching.
+    // New shots get this computed at save time. Old shots fall back to fuzzy
+    // title matching + editorType matching at analysis time — no backfill needed.
+    if (currentVersion < 9) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 9 (profile_kb_id)";
+
+        if (!hasColumn("shots", "profile_kb_id"))
+            query.exec("ALTER TABLE shots ADD COLUMN profile_kb_id TEXT");
+
+        query.exec("DELETE FROM schema_version");
+        query.exec("INSERT INTO schema_version (version) VALUES (9)");
+        currentVersion = 9;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -764,6 +778,11 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.profileNotes = profile ? profile->profileNotes() : QString();
     data.debugLog = debugLog;
 
+    // Use pre-computed AI knowledge base ID (set when profile was loaded, survives Save As)
+    if (profile) {
+        data.profileKbId = profile->knowledgeBaseId();
+    }
+
     // Compress sample data on main thread (reads QObject data vectors)
     data.compressedSamples = compressSampleData(shotData);
     data.sampleCount = static_cast<int>(shotData->pressureData().size());
@@ -862,7 +881,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
-                    temperature_override, yield_override
+                    temperature_override, yield_override, profile_kb_id
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -870,7 +889,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
-                    :temperature_override, :yield_override
+                    :temperature_override, :yield_override, :profile_kb_id
                 )
             )");
 
@@ -900,6 +919,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":debug_log", data.debugLog);
             query.bindValue(":temperature_override", data.temperatureOverride);
             query.bindValue(":yield_override", data.yieldOverride);
+            query.bindValue(":profile_kb_id", data.profileKbId.isEmpty() ? QVariant() : data.profileKbId);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1622,6 +1642,7 @@ QVariantMap ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     result["temperatureOverride"] = record.temperatureOverride;
     result["yieldOverride"] = record.yieldOverride;
     result["profileJson"] = record.profileJson;
+    result["profileKbId"] = record.profileKbId;
 
     auto pointsToVariant = [](const QVector<QPointF>& points) {
         QVariantList list;
@@ -1677,7 +1698,7 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
                grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
-               temperature_override, yield_override, beverage_type
+               temperature_override, yield_override, beverage_type, profile_kb_id
         FROM shots WHERE id = ?
     )");
     query.bindValue(0, shotId);
@@ -1718,6 +1739,7 @@ ShotRecord ShotHistoryStorage::getShotRecord(qint64 shotId)
     record.temperatureOverride = query.value(26).toDouble();  // toDouble() returns 0.0 for NULL
     record.yieldOverride = query.value(27).toDouble();  // toDouble() returns 0.0 for NULL
     record.summary.beverageType = query.value(28).toString();
+    record.profileKbId = query.value(29).toString();
 
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
@@ -1771,7 +1793,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                grinder_brand, grinder_model, grinder_burrs, grinder_setting,
                drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                profile_notes, visualizer_id, visualizer_url, debug_log,
-               temperature_override, yield_override, beverage_type
+               temperature_override, yield_override, beverage_type, profile_kb_id
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1813,6 +1835,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.temperatureOverride = query.value(26).toDouble();
     record.yieldOverride = query.value(27).toDouble();
     record.summary.beverageType = query.value(28).toString();
+    record.profileKbId = query.value(29).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     if (query.prepare("SELECT data_blob FROM shot_samples WHERE shot_id = ?")) {

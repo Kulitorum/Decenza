@@ -11,6 +11,7 @@
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
 #include "../ai/aimanager.h"
+#include "../ai/shotsummarizer.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../history/shotdebuglogger.h"
@@ -336,6 +337,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     if (QFile::exists(tempPath)) {
         qDebug() << "Loading modified profile from temp file:" << tempPath;
         m_currentProfile = Profile::loadFromFile(tempPath);
+        updateProfileKnowledgeBaseId();
         m_profileModified = true;
         // Get the base profile name from settings
         if (m_settings) {
@@ -961,6 +963,8 @@ void MainController::loadProfile(const QString& profileName) {
         }
     }
 
+    updateProfileKnowledgeBaseId();
+
     // Track the base profile name (filename without extension)
     m_baseProfileName = resolvedName;
     bool wasModified = m_profileModified;
@@ -1030,6 +1034,7 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
     }
 
     m_currentProfile = Profile::loadFromJsonString(jsonContent);
+    updateProfileKnowledgeBaseId();
 
     if (m_currentProfile.title().isEmpty() || m_currentProfile.steps().isEmpty()) {
         qWarning() << "loadProfileFromJson: Failed to parse profile JSON";
@@ -1698,6 +1703,7 @@ void MainController::createNewProfileWithEditorType(EditorType type, const QStri
     recipe.clamp();  // Ensure values are within hardware limits
 
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
+    updateProfileKnowledgeBaseId();
     m_baseProfileName = "";
     m_profileModified = true;
 
@@ -3510,6 +3516,19 @@ void MainController::loadDefaultProfile() {
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
     }
+}
+
+void MainController::updateProfileKnowledgeBaseId()
+{
+    // If already set (persisted in profile JSON from a previous Save As), keep it
+    if (!m_currentProfile.knowledgeBaseId().isEmpty()) return;
+
+    QString editorType;
+    if (m_currentProfile.isRecipeMode()) {
+        editorType = editorTypeToString(m_currentProfile.recipeParams().editorType);
+    }
+    m_currentProfile.setKnowledgeBaseId(
+        ShotSummarizer::computeProfileKbId(m_currentProfile.title(), editorType));
 }
 
 QString MainController::profilesPath() const {
