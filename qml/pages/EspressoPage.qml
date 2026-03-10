@@ -326,7 +326,6 @@ Page {
         sourceComponent: {
             switch (espressoPage.extractionViewMode) {
                 case "cupFill": return cupFillComponent
-                case "phaseTimeline": return phaseTimelineComponent
                 default: return shotGraphComponent
             }
         }

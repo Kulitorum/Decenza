@@ -1172,7 +1172,6 @@ KeyboardAwareContainer {
                             model: ListModel {
                                 ListElement { mode: "chart"; icon: "qrc:/icons/Graph.svg"; labelKey: "settings.preferences.viewChart"; labelFallback: "Shot Chart" }
                                 ListElement { mode: "cupFill"; icon: "qrc:/icons/espresso.svg"; labelKey: "settings.preferences.viewCupFill"; labelFallback: "Cup Fill" }
-                                ListElement { mode: "phaseTimeline"; icon: "qrc:/icons/list.svg"; labelKey: "settings.preferences.viewTimeline"; labelFallback: "Phase Timeline" }
                             }
 
                             delegate: Rectangle {

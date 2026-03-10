@@ -55,14 +55,6 @@ Dialog {
                     descKey: "espresso.viewSelector.cupFillDesc"
                     descFallback: "Animated cup filling with extraction progress"
                 }
-                ListElement {
-                    mode: "phaseTimeline"
-                    icon: "qrc:/icons/list.svg"
-                    labelKey: "espresso.viewSelector.phaseTimeline"
-                    labelFallback: "Phase Timeline"
-                    descKey: "espresso.viewSelector.phaseTimelineDesc"
-                    descFallback: "Visual journey through extraction phases"
-                }
             }
 
             delegate: Rectangle {
