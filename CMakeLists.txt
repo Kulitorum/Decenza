@@ -568,6 +568,9 @@ set(QML_FILES
     qml/components/ComparisonDataTable.qml
     qml/components/ComparisonShotTable.qml
     qml/components/GraphLegend.qml
+    qml/components/CupFillView.qml
+    qml/components/PhaseTimelineView.qml
+    qml/components/ExtractionViewSelector.qml
     qml/components/StyledSwitch.qml
     qml/components/StyledComboBox.qml
     qml/components/StyledIconButton.qml

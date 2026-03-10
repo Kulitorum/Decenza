@@ -44,18 +44,18 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.autoSleep"
-                            fallback: "Auto-Sleep"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
-                            key: "settings.preferences.autoSleepDesc"
-                            fallback: "Put the machine to sleep after inactivity"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.autoSleepDesc", "Put the machine to sleep after inactivity")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
@@ -94,18 +94,18 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.postShotReviewClose"
-                            fallback: "Close Shot Review Screen"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.postShotReviewClose", "Close Shot Review Screen")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
-                            key: "settings.preferences.postShotReviewCloseDesc"
-                            fallback: "Return to idle after reviewing shot"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.postShotReviewCloseDesc", "Return to idle after reviewing shot")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
@@ -154,19 +154,19 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(8)
                         opacity: parent.kitAvailable ? 1.0 : 0.5
 
-                        Tr {
-                            key: "settings.preferences.refillKit"
-                            fallback: "Refill Kit"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.refillKit", "Refill Kit")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.preferences.refillKitDesc"
-                            fallback: "Control whether the machine uses an automatic water refill kit"
+                            text: TranslationManager.translate("settings.preferences.refillKitDesc", "Control whether the machine uses an automatic water refill kit")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -179,6 +179,7 @@ KeyboardAwareContainer {
                                 return TranslationManager.translate("settings.preferences.refillKitUnknown", "Status: Unknown")
                             }
                             color: DE1Device.refillKitDetected === 1 ? Theme.successColor : Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
@@ -255,19 +256,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(8)
 
-                        Tr {
-                            key: "settings.preferences.offlineMode"
-                            fallback: "Offline Mode"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.offlineMode", "Offline Mode")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.preferences.offlineModeDesc"
-                            fallback: "Use the app without a connected DE1 machine"
+                            text: TranslationManager.translate("settings.preferences.offlineModeDesc", "Use the app without a connected DE1 machine")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -275,10 +276,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.preferences.unlockGui"
-                                fallback: "Unlock GUI"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.unlockGui", "Unlock GUI")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -318,12 +319,12 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        Tr {
+                        Text {
                             id: restartRequiredText
                             visible: Settings.simulationMode !== DE1Device.simulationMode
-                            key: "settings.preferences.restartRequired"
-                            fallback: "Restart required for this change to take effect"
+                            text: TranslationManager.translate("settings.preferences.restartRequired", "Restart required for this change to take effect")
                             color: Theme.warningColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             Layout.leftMargin: Theme.scaled(15)
                             Layout.bottomMargin: Theme.scaled(5)
@@ -347,19 +348,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(8)
 
-                        Tr {
-                            key: "settings.options.launcherMode"
-                            fallback: "Launcher Mode"
+                        Text {
+                            text: TranslationManager.translate("settings.options.launcherMode", "Launcher Mode")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.options.launcherModeDesc"
-                            fallback: "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher."
+                            text: TranslationManager.translate("settings.options.launcherModeDesc", "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher.")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -367,10 +368,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.options.useAsLauncher"
-                                fallback: "Use as Home Screen"
+                            Text {
+                                text: TranslationManager.translate("settings.options.useAsLauncher", "Use as Home Screen")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -384,12 +385,12 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
                             visible: Settings.launcherMode
-                            key: "settings.options.launcherModeHint"
-                            fallback: "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\"."
+                            text: TranslationManager.translate("settings.options.launcherModeHint", "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\".")
                             color: Theme.warningColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                         }
@@ -411,19 +412,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.shotmap.title"
-                            fallback: "Shot Map"
+                        Text {
+                            text: TranslationManager.translate("settings.shotmap.title", "Shot Map")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.shotmap.description"
-                            fallback: "Share your shots on the global map at decenza.coffee"
+                            text: TranslationManager.translate("settings.shotmap.description", "Share your shots on the global map at decenza.coffee")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -431,10 +432,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.shotmap.enable"
-                                fallback: "Enable Shot Map"
+                            Text {
+                                text: TranslationManager.translate("settings.shotmap.enable", "Enable Shot Map")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -470,6 +471,7 @@ KeyboardAwareContainer {
                                 return prefix + city + (country ? ", " + country : "") + " (" + lat + ", " + lon + ")"
                             }
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -483,6 +485,7 @@ KeyboardAwareContainer {
                                   ? "GPS disabled - tap to open Settings"
                                   : "No location - tap to enable"
                             color: Theme.primaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             font.underline: true
                             wrapMode: Text.WordWrap
@@ -569,19 +572,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.perScreenScale"
-                            fallback: "Per-Screen Scale"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.perScreenScale", "Per-Screen Scale")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.preferences.perScreenScaleDesc"
-                            fallback: "Adjust UI scale individually for each screen to optimize readability."
+                            text: TranslationManager.translate("settings.preferences.perScreenScaleDesc", "Adjust UI scale individually for each screen to optimize readability.")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -590,10 +593,10 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(10)
 
-                            Tr {
-                                key: "settings.preferences.configureScalePerScreen"
-                                fallback: "Configure scale per screen"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.configureScalePerScreen", "Configure scale per screen")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -612,12 +615,12 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        Tr {
+                        Text {
                             visible: preferencesTab.configurePageScaleEnabled
                             Layout.fillWidth: true
-                            key: "settings.preferences.scaleHint"
-                            fallback: "Navigate to each screen and use the floating control to adjust its scale."
+                            text: TranslationManager.translate("settings.preferences.scaleHint", "Navigate to each screen and use the floating control to adjust its scale.")
                             color: Theme.primaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                         }
@@ -637,10 +640,10 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(10)
                         spacing: Theme.scaled(4)
 
-                        Tr {
-                            key: "settings.preferences.batteryCharging"
-                            fallback: "Battery Charging"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.batteryCharging", "Battery Charging")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
@@ -696,19 +699,21 @@ KeyboardAwareContainer {
 
                             Item { Layout.fillWidth: true }
 
-                            Tr {
-                                key: BatteryManager.isCharging ? "settings.preferences.charging" : "settings.preferences.notCharging"
-                                fallback: BatteryManager.isCharging ? "Charging" : "Not charging"
+                            Text {
+                                text: TranslationManager.translate(
+                                    BatteryManager.isCharging ? "settings.preferences.charging" : "settings.preferences.notCharging",
+                                    BatteryManager.isCharging ? "Charging" : "Not charging")
                                 color: BatteryManager.isCharging ? Theme.successColor : Theme.textSecondaryColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(12)
                             }
                         }
 
                         // Smart charging mode selector
-                        Tr {
-                            key: "settings.preferences.smartChargingMode"
-                            fallback: "Smart Charging Mode"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.smartChargingMode", "Smart Charging Mode")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
@@ -786,10 +791,10 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             visible: BatteryManager.chargingMode === 0
 
-                            Tr {
-                                key: "settings.preferences.usbCharger"
-                                fallback: "USB Charger"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.usbCharger", "USB Charger")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -917,10 +922,10 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(8)
 
-                            Tr {
-                                key: "settings.options.waterLevel"
-                                fallback: "Water Level"
+                            Text {
+                                text: TranslationManager.translate("settings.options.waterLevel", "Water Level")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
                             }
@@ -942,10 +947,10 @@ KeyboardAwareContainer {
                                 }
                             }
 
-                            Tr {
-                                key: "settings.options.refillKitActive"
-                                fallback: "Auto-refill active"
+                            Text {
+                                text: TranslationManager.translate("settings.options.refillKitActive", "Auto-refill active")
                                 color: Theme.successColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(12)
                                 visible: waterLevelCard.refillKitActive
                             }
@@ -1009,10 +1014,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.options.showInMl"
-                                fallback: "Show in milliliters (ml)"
+                            Text {
+                                text: TranslationManager.translate("settings.options.showInMl", "Show in milliliters (ml)")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -1061,6 +1066,7 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.options.waterRefillLevelDesc", "Water level at which the machine warns you to refill")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -1097,10 +1103,10 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.options.headlessMachine"
-                            fallback: "Headless Machine"
+                        Text {
+                            text: TranslationManager.translate("settings.options.headlessMachine", "Headless Machine")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
@@ -1108,10 +1114,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.options.singlePressStopPurge"
-                                fallback: "Single press to stop & purge"
+                            Text {
+                                text: TranslationManager.translate("settings.options.singlePressStopPurge", "Single press to stop & purge")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -1136,6 +1142,126 @@ KeyboardAwareContainer {
                 Layout.alignment: Qt.AlignTop
                 spacing: Theme.scaled(15)
 
+                // Extraction View Mode
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: extractionViewContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: extractionViewContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        property string currentMode: Settings.value("espresso/extractionView", "chart")
+
+                        Connections {
+                            target: Settings
+                            function onValueChanged(key) {
+                                if (key === "espresso/extractionView") {
+                                    extractionViewContent.currentMode = Settings.value("espresso/extractionView", "chart")
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.extractionView", "Extraction View")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.extractionViewDesc", "Visualization during espresso extraction")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        Repeater {
+                            model: ListModel {
+                                ListElement { mode: "chart"; icon: "qrc:/icons/Graph.svg"; labelKey: "settings.preferences.viewChart"; labelFallback: "Shot Chart" }
+                                ListElement { mode: "cupFill"; icon: "qrc:/icons/espresso.svg"; labelKey: "settings.preferences.viewCupFill"; labelFallback: "Cup Fill" }
+                            }
+
+                            delegate: Rectangle {
+                                id: viewOptionCard
+                                Layout.fillWidth: true
+                                height: Theme.scaled(44)
+                                radius: Theme.scaled(8)
+                                color: extractionViewContent.currentMode === model.mode
+                                    ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+                                    : Theme.backgroundColor
+                                border.color: extractionViewContent.currentMode === model.mode
+                                    ? Theme.primaryColor : Theme.borderColor
+                                border.width: extractionViewContent.currentMode === model.mode
+                                    ? Theme.scaled(2) : Theme.scaled(1)
+
+                                Accessible.ignored: true
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.scaled(12)
+                                    anchors.rightMargin: Theme.scaled(12)
+                                    spacing: Theme.scaled(10)
+
+                                    Image {
+                                        source: model.icon
+                                        sourceSize.width: Theme.scaled(20)
+                                        sourceSize.height: Theme.scaled(20)
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
+
+                                    Text {
+                                        text: TranslationManager.translate(model.labelKey, model.labelFallback)
+                                        color: Theme.textColor
+                                        font.family: Theme.bodyFont.family
+                                        font.pixelSize: Theme.bodyFont.pixelSize
+                                        Layout.fillWidth: true
+                                        Accessible.ignored: true
+                                    }
+
+                                    // Radio indicator
+                                    Rectangle {
+                                        width: Theme.scaled(18)
+                                        height: Theme.scaled(18)
+                                        radius: Theme.scaled(9)
+                                        border.color: extractionViewContent.currentMode === model.mode
+                                            ? Theme.primaryColor : Theme.textSecondaryColor
+                                        border.width: Theme.scaled(2)
+                                        color: "transparent"
+                                        Layout.alignment: Qt.AlignVCenter
+
+                                        Rectangle {
+                                            anchors.centerIn: parent
+                                            width: Theme.scaled(8)
+                                            height: Theme.scaled(8)
+                                            radius: Theme.scaled(4)
+                                            color: Theme.primaryColor
+                                            visible: extractionViewContent.currentMode === model.mode
+                                        }
+                                    }
+                                }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: TranslationManager.translate(model.labelKey, model.labelFallback)
+                                    accessibleItem: viewOptionCard
+                                    onAccessibleClicked: {
+                                        extractionViewContent.currentMode = model.mode
+                                        Settings.setValue("espresso/extractionView", model.mode)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Steam Heater Settings
                 Rectangle {
                     Layout.fillWidth: true
@@ -1151,18 +1277,18 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.steamHeater"
-                            fallback: "Steam Heater"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.steamHeater", "Steam Heater")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
-                            key: "settings.preferences.steamHeaterDesc"
-                            fallback: "Pre-heat for faster steaming"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
@@ -1170,16 +1296,17 @@ KeyboardAwareContainer {
                             property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
                             text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + temp.toFixed(0) + "°C"
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.preferences.keepSteamHeaterOn"
-                                fallback: "Keep heater on when idle"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
 
                                 Accessible.role: Accessible.StaticText
@@ -1255,6 +1382,7 @@ KeyboardAwareContainer {
                             text: TranslationManager.translate("settings.preferences.virtualScaleDesc",
                                   "Estimate cup weight from the machine's flow sensor when no Bluetooth scale is connected. Accuracy depends on dose weight being set correctly.")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -1300,10 +1428,10 @@ KeyboardAwareContainer {
                         property var selectedDayData: schedule[selectedDay] || {enabled: false, hour: 7, minute: 0}
 
                         // Title
-                        Tr {
-                            key: "settings.options.autoWake"
-                            fallback: "Auto-Wake Timer"
+                        Text {
+                            text: TranslationManager.translate("settings.options.autoWake", "Auto-Wake Timer")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
@@ -1587,6 +1715,7 @@ KeyboardAwareContainer {
                         Text {
                             text: TranslationManager.translate("settings.calibration.description", "Idle temp, warmup flow rates, timeout")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
                     }

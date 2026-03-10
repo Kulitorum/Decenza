@@ -74,6 +74,8 @@ class MainController : public QObject {
     Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT)
     Q_PROPERTY(Profile* currentProfilePtr READ currentProfilePtr CONSTANT)
     Q_PROPERTY(QString currentFrameName READ currentFrameName NOTIFY frameChanged)
+    Q_PROPERTY(double filteredGoalPressure READ filteredGoalPressure NOTIFY goalsChanged)
+    Q_PROPERTY(double filteredGoalFlow READ filteredGoalFlow NOTIFY goalsChanged)
     Q_PROPERTY(ShotHistoryStorage* shotHistory READ shotHistory CONSTANT)
     Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)
     Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT)
@@ -102,6 +104,8 @@ public:
                            QObject* parent = nullptr);
 
     QString currentProfileName() const;
+    double filteredGoalPressure() const { return m_filteredGoalPressure; }
+    double filteredGoalFlow() const { return m_filteredGoalFlow; }
 
     QString baseProfileName() const { return m_baseProfileName; }
     bool isProfileModified() const { return m_profileModified; }
@@ -255,6 +259,9 @@ signals:
     void allBuiltInProfileListChanged();
     void sawSettlingChanged();
 
+    // Filtered goal setpoints (zeroed for non-active mode, reset when extraction ends)
+    void goalsChanged();
+
     // Accessibility: emitted when extraction frame changes
     void frameChanged(int frameIndex, const QString& frameName, const QString& transitionReason);
 
@@ -324,6 +331,9 @@ private:
     double m_lastShotTime = 0;    // Last shot sample time relative to shot start (for weight sync)
     bool m_extractionStarted = false;
     int m_lastFrameNumber = -1;
+    int m_trackLogCounter = 0;
+    double m_filteredGoalPressure = 0.0;
+    double m_filteredGoalFlow = 0.0;
     int m_frameWeightSkipSent = -1;  // Frame number for which we've sent a weight-based skip command
     double m_frameStartTime = 0;     // Shot-relative time when current frame started
     double m_lastPressure = 0;       // Last sample pressure (for transition reason inference)

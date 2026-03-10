@@ -2814,9 +2814,15 @@ void MainController::onEspressoCycleStarted() {
     m_lastShotTime = 0;
     m_extractionStarted = false;
     m_lastFrameNumber = -1;
+    m_trackLogCounter = 0;
     m_frameWeightSkipSent = -1;
     m_frameStartTime = 0;
     m_lastPressure = 0;
+    if (m_filteredGoalPressure != 0 || m_filteredGoalFlow != 0) {
+        m_filteredGoalPressure = 0;
+        m_filteredGoalFlow = 0;
+        emit goalsChanged();
+    }
     m_lastFlow = 0;
     m_tareDone = true;
     if (m_shotDataModel) {
@@ -2858,6 +2864,13 @@ void MainController::onEspressoCycleStarted() {
 }
 
 void MainController::onShotEnded() {
+    // Clear filtered goals so CupFillView doesn't show stale tracking colors
+    if (m_filteredGoalPressure != 0 || m_filteredGoalFlow != 0) {
+        m_filteredGoalPressure = 0;
+        m_filteredGoalFlow = 0;
+        emit goalsChanged();
+    }
+
     // Capture brew overrides before clearing temperature (used later when saving shot)
     // These ALWAYS have values - either user override or profile default
     double shotTemperatureOverride = 0.0;
@@ -3383,6 +3396,13 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
 
     }
 
+    // Update filtered goals for QML (zeroed for non-active mode)
+    if (m_filteredGoalPressure != pressureGoal || m_filteredGoalFlow != flowGoal) {
+        m_filteredGoalPressure = pressureGoal;
+        m_filteredGoalFlow = flowGoal;
+        emit goalsChanged();
+    }
+
     // Detect frame changes and add markers with frame names from profile
     // Only track during actual extraction phases (not preheating - frame numbers are unreliable then)
     if (isExtracting && sample.frameNumber >= 0 && sample.frameNumber != m_lastFrameNumber) {
@@ -3463,6 +3483,29 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                                sample.mixTemp,
                                pressureGoal, flowGoal, sample.setTempGoal,
                                sample.frameNumber, isFlowMode);
+
+    // Log tracking delta every 10 shot samples for debug (at the DE1's ~5Hz sample rate,
+    // this is roughly every 2 seconds). Only log when a goal is active.
+    if (isExtracting && m_trackLogCounter++ % 10 == 0) {
+        double goal = isFlowMode ? flowGoal : pressureGoal;
+        if (goal > 0) {
+            double actual = isFlowMode ? sample.groupFlow : sample.groupPressure;
+            double delta = qAbs(actual - goal);
+            // Thresholds must match Theme.trackingColor() in Theme.qml
+            double floorGood = isFlowMode ? 0.4 : 0.8;
+            double floorWarn = isFlowMode ? 0.8 : 1.8;
+            double threshGood = qMax(floorGood, goal * 0.25);
+            double threshWarn = qMax(floorWarn, goal * 0.50);
+            QString color = delta < threshGood ? "GREEN" : (delta < threshWarn ? "YELLOW" : "RED");
+            qDebug() << "[ExtractionTrack]" << (isFlowMode ? "flow" : "pressure")
+                     << "actual=" << QString::number(actual, 'f', 2)
+                     << "goal=" << QString::number(goal, 'f', 2)
+                     << "delta=" << QString::number(delta, 'f', 2)
+                     << "threshG=" << QString::number(threshGood, 'f', 2)
+                     << "threshW=" << QString::number(threshWarn, 'f', 2)
+                     << color;
+        }
+    }
 }
 
 void MainController::onScaleWeightChanged(double weight) {

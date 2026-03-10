@@ -12,6 +12,12 @@ Page {
     // Local weight property - updated directly in signal handler for immediate display
     property real currentWeight: 0.0
 
+    // Frame name display — only updates when the same frame name is seen on
+    // consecutive frame-change events, filtering out short transitional frames.
+    property string displayedFrameName: ""
+    property string pendingFrameName: ""
+    property int pendingFrameCount: 0
+
     // Accessibility: value announcement cycling (swipe left/right)
     property int accessibilityValueIndex: 0
     readonly property var accessibilityValueNames: ["Frame", "Time", "Pressure", "Flow", "Temperature", "Weight"]
@@ -168,6 +174,11 @@ Page {
     Connections {
         target: MachineState
         function onShotStarted() {
+            // Reset frame name so previous shot's last frame doesn't linger
+            espressoPage.displayedFrameName = ""
+            espressoPage.pendingFrameName = ""
+            espressoPage.pendingFrameCount = 0
+
             if (!accessibilityEnabled()) return
             lastAnnouncedWeight = 0
             AccessibilityManager.announce(
@@ -254,6 +265,25 @@ Page {
     Connections {
         target: MainController
         function onFrameChanged(frameIndex, frameName, transitionReason) {
+            // Frame name filtering: show immediately if it matches the pending name
+            // (confirming it's a real phase, not a brief transition), or queue it.
+            if (frameName !== "") {
+                if (frameName === espressoPage.pendingFrameName) {
+                    espressoPage.pendingFrameCount++
+                    // Second consecutive event with same name — it's stable, show it
+                    if (espressoPage.pendingFrameCount >= 2 && espressoPage.displayedFrameName !== frameName) {
+                        espressoPage.displayedFrameName = frameName
+                    }
+                } else {
+                    // New frame name — if it's the first frame or display is empty, show immediately
+                    espressoPage.pendingFrameName = frameName
+                    espressoPage.pendingFrameCount = 1
+                    if (espressoPage.displayedFrameName === "") {
+                        espressoPage.displayedFrameName = frameName
+                    }
+                }
+            }
+
             if (transitionReason === "" || frameName === "") return
             var text = _transitionText(transitionReason)
             frameTransitionLifecycle.stop()
@@ -288,50 +318,211 @@ Page {
         }
     }
 
-    // Full-screen shot graph
-    ShotGraph {
-        id: shotGraph
+    // Extraction view mode setting
+    property string extractionViewMode: Settings.value("espresso/extractionView", "chart")
+    property bool showPhaseIndicator: {
+        var v = Settings.value("espresso/showPhaseIndicator", true)
+        return v === true || v === "true"
+    }
+
+    // Sync from Settings changes made elsewhere (e.g. SettingsPreferencesTab)
+    Connections {
+        target: Settings
+        function onValueChanged(key) {
+            if (key === "espresso/extractionView")
+                espressoPage.extractionViewMode = Settings.value("espresso/extractionView", "chart")
+            else if (key === "espresso/showPhaseIndicator") {
+                var v = Settings.value("espresso/showPhaseIndicator", true)
+                espressoPage.showPhaseIndicator = (v === true || v === "true")
+            }
+        }
+    }
+
+    // Extraction view switcher (Loader swaps between ShotGraph and CupFill)
+    Loader {
+        id: extractionViewLoader
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: graphLegend.top
+        anchors.bottom: graphLegend.visible ? graphLegend.top
+                      : (espressoStopButton.visible ? espressoStopButton.top : infoBar.top)
         anchors.topMargin: Theme.scaled(50)
+        sourceComponent: {
+            switch (espressoPage.extractionViewMode) {
+                case "cupFill": return cupFillComponent
+                case "chart": return shotGraphComponent
+                default:
+                    console.warn("Unknown extraction view mode:", espressoPage.extractionViewMode, "— falling back to chart")
+                    return shotGraphComponent
+            }
+        }
     }
 
-    // Status indicator for preheating
+    Component {
+        id: shotGraphComponent
+        ShotGraph { }
+    }
+
+    Component {
+        id: cupFillComponent
+        CupFillView {
+            currentWeight: espressoPage.currentWeight
+            targetWeight: MainController.targetWeight
+            currentFlow: DE1Device.flow
+            currentPressure: DE1Device.pressure
+            goalPressure: MainController.filteredGoalPressure
+            goalFlow: MainController.filteredGoalFlow
+            shotTime: MachineState.shotTime
+            phase: MachineState.phase
+        }
+    }
+
+    // View mode selector button (top-right)
+    Rectangle {
+        id: viewModeButton
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: Theme.pageTopMargin + Theme.scaled(16)
+        anchors.rightMargin: Theme.spacingMedium
+        z: 10
+        width: Theme.scaled(44)
+        height: Theme.scaled(44)
+        radius: Theme.scaled(22)
+        color: Theme.surfaceColor
+        border.color: Theme.borderColor
+        border.width: Theme.scaled(1)
+
+        Accessible.ignored: true
+
+        Image {
+            anchors.centerIn: parent
+            source: "qrc:/icons/Graph.svg"
+            sourceSize.width: Theme.scaled(22)
+            sourceSize.height: Theme.scaled(22)
+        }
+
+        AccessibleMouseArea {
+            anchors.fill: parent
+            accessibleName: TranslationManager.translate("espresso.viewMode.button", "Change extraction view")
+            accessibleItem: viewModeButton
+            onAccessibleClicked: viewSelectorDialog.open()
+        }
+    }
+
+    // View selector dialog
+    ExtractionViewSelector {
+        id: viewSelectorDialog
+        currentMode: espressoPage.extractionViewMode
+        showPhaseIndicator: espressoPage.showPhaseIndicator
+        onModeSelected: function(mode) {
+            espressoPage.extractionViewMode = mode
+            Settings.setValue("espresso/extractionView", mode)
+        }
+        onPhaseIndicatorToggled: function(enabled) {
+            espressoPage.showPhaseIndicator = enabled
+            Settings.setValue("espresso/showPhaseIndicator", enabled)
+        }
+    }
+
+    // Phase indicator (centered over chart, top-left over cup fill)
     Rectangle {
         id: statusBanner
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin + Theme.scaled(20)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: statusText.width + Theme.spacingLarge * 2
+        x: espressoPage.extractionViewMode === "chart"
+           ? (parent.width - width) / 2
+           : Theme.spacingMedium
+        z: 10
+        width: phaseRow.width + Theme.spacingMedium * 2
         height: Theme.scaled(36)
         radius: Theme.scaled(18)
-        color: MachineState.phase === MachineStateType.Phase.EspressoPreheating ?
-               Theme.accentColor : "transparent"
-        visible: MachineState.phase === MachineStateType.Phase.EspressoPreheating
+        color: {
+            switch (MachineState.phase) {
+                case MachineStateType.Phase.EspressoPreheating: return Theme.accentColor
+                case MachineStateType.Phase.Preinfusion: return Theme.pressureColor
+                case MachineStateType.Phase.Pouring: return Theme.flowColor
+                case MachineStateType.Phase.Ending: return Theme.successColor
+                default: return "transparent"
+            }
+        }
+        opacity: 0.85
+        visible: espressoPage.showPhaseIndicator &&
+                 (MachineState.phase === MachineStateType.Phase.EspressoPreheating ||
+                  MachineState.phase === MachineStateType.Phase.Preinfusion ||
+                  MachineState.phase === MachineStateType.Phase.Pouring ||
+                  MachineState.phase === MachineStateType.Phase.Ending)
 
         Accessible.role: Accessible.Alert
-        Accessible.name: TranslationManager.translate("espresso.accessible.preheating", "Preheating")
+        Accessible.name: phaseLabelText.text
 
-        Tr {
-            id: statusText
+        Row {
+            id: phaseRow
             anchors.centerIn: parent
-            key: "espresso.status.preheating"
-            fallback: "PREHEATING..."
-            color: Theme.textColor
-            font: Theme.bodyFont
-            Accessible.ignored: true
+            spacing: Theme.scaled(6)
+
+            // Phase dot
+            Rectangle {
+                id: phaseDot
+                width: Theme.scaled(8)
+                height: Theme.scaled(8)
+                radius: Theme.scaled(4)
+                color: Theme.textColor
+                anchors.verticalCenter: parent.verticalCenter
+                opacity: 1.0
+
+                property bool animating: MachineState.phase === MachineStateType.Phase.EspressoPreheating ||
+                                         MachineState.phase === MachineStateType.Phase.Pouring
+
+                onAnimatingChanged: {
+                    if (!animating) phaseDot.opacity = 1.0
+                }
+
+                SequentialAnimation on opacity {
+                    running: phaseDot.animating
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.3; duration: 600 }
+                    NumberAnimation { to: 1.0; duration: 600 }
+                }
+            }
+
+            Text {
+                id: phaseLabelText
+                text: {
+                    switch (MachineState.phase) {
+                        case MachineStateType.Phase.EspressoPreheating:
+                            return TranslationManager.translate("espresso.phase.preheating", "Preheating")
+                        case MachineStateType.Phase.Preinfusion:
+                        case MachineStateType.Phase.Pouring:
+                        case MachineStateType.Phase.Ending:
+                            // Show frame name if available (advanced/flow profiles),
+                            // fall back to generic phase name
+                            var frameName = espressoPage.displayedFrameName
+                            if (frameName)
+                                return frameName
+                            if (MachineState.phase === MachineStateType.Phase.Preinfusion)
+                                return TranslationManager.translate("espresso.phase.preinfusion", "Pre-infusion")
+                            if (MachineState.phase === MachineStateType.Phase.Pouring)
+                                return TranslationManager.translate("espresso.phase.pouring", "Pouring")
+                            return TranslationManager.translate("espresso.phase.ending", "Ending")
+                        default: return ""
+                    }
+                }
+                color: Theme.textColor
+                font.family: Theme.bodyFont.family
+                font.pixelSize: Theme.bodyFont.pixelSize
+                font.weight: Font.Bold
+                Accessible.ignored: true
+            }
         }
     }
 
-    // Frame transition notification (same position as preheating banner)
+    // Frame transition notification (anchored next to phase pill)
     Rectangle {
         id: frameTransitionPill
         Accessible.ignored: true
-        anchors.top: parent.top
-        anchors.topMargin: Theme.pageTopMargin + Theme.scaled(20)
-        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: statusBanner.verticalCenter
+        anchors.left: statusBanner.right
+        anchors.leftMargin: Theme.scaled(8)
         z: 10
 
         width: frameTransitionLabel.width + Theme.spacingLarge * 2
@@ -341,7 +532,7 @@ Page {
         opacity: 0
         scale: 1.0
 
-        visible: opacity > 0
+        visible: espressoPage.showPhaseIndicator && opacity > 0
 
         SequentialAnimation {
             id: frameTransitionLifecycle
@@ -419,10 +610,11 @@ Page {
         }
     }
 
-    // Tappable legend to toggle graph lines
+    // Tappable legend to toggle graph lines (only visible in chart mode)
     GraphLegend {
         id: graphLegend
-        graph: shotGraph
+        graph: extractionViewLoader.item || {}
+        visible: espressoPage.extractionViewMode === "chart"
         width: parent.width
         anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top
         anchors.bottomMargin: Theme.spacingSmall
@@ -508,8 +700,14 @@ Page {
 
             // Pressure
             ColumnLayout {
+                id: pressureColumn
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
+
+                property real goal: MainController.filteredGoalPressure
+                property bool trackReady: goal > 0
+                property real delta: trackReady ? Math.abs(DE1Device.pressure - goal) : 0
+                property color trackColor: trackReady ? Theme.trackingColor(delta, goal, true) : Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("espresso.accessible.pressure", "Pressure:") + " " + DE1Device.pressure.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.bar", "bar")
@@ -521,19 +719,37 @@ Page {
                     font.weight: Font.Medium
                     Accessible.ignored: true
                 }
-                Tr {
-                    key: "espresso.unit.bar"
-                    fallback: "bar"
-                    color: Theme.textSecondaryColor
-                    font: Theme.captionFont
-                    Accessible.ignored: true
+                RowLayout {
+                    spacing: Theme.scaled(4)
+                    Rectangle {
+                        width: Theme.scaled(6)
+                        height: Theme.scaled(6)
+                        radius: Theme.scaled(3)
+                        color: pressureColumn.trackColor
+                        visible: pressureColumn.trackReady
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    Text {
+                        text: pressureColumn.trackReady
+                            ? "→" + pressureColumn.goal.toFixed(1) + " " + TranslationManager.translate("espresso.unit.bar", "bar")
+                            : TranslationManager.translate("espresso.unit.bar", "bar")
+                        color: pressureColumn.trackReady ? pressureColumn.trackColor : Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        Accessible.ignored: true
+                    }
                 }
             }
 
             // Flow
             ColumnLayout {
+                id: flowColumn
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
+
+                property real goal: MainController.filteredGoalFlow
+                property bool trackReady: goal > 0
+                property real delta: trackReady ? Math.abs(DE1Device.flow - goal) : 0
+                property color trackColor: trackReady ? Theme.trackingColor(delta, goal, false) : Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("espresso.accessible.flow", "Flow:") + " " + DE1Device.flow.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.mlPerSec", "milliliters per second")
@@ -545,12 +761,24 @@ Page {
                     font.weight: Font.Medium
                     Accessible.ignored: true
                 }
-                Tr {
-                    key: "espresso.unit.flowRate"
-                    fallback: "mL/s"
-                    color: Theme.textSecondaryColor
-                    font: Theme.captionFont
-                    Accessible.ignored: true
+                RowLayout {
+                    spacing: Theme.scaled(4)
+                    Rectangle {
+                        width: Theme.scaled(6)
+                        height: Theme.scaled(6)
+                        radius: Theme.scaled(3)
+                        color: flowColumn.trackColor
+                        visible: flowColumn.trackReady
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    Text {
+                        text: flowColumn.trackReady
+                            ? "→" + flowColumn.goal.toFixed(1) + " " + TranslationManager.translate("espresso.unit.flowRate", "mL/s")
+                            : TranslationManager.translate("espresso.unit.flowRate", "mL/s")
+                        color: flowColumn.trackReady ? flowColumn.trackColor : Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        Accessible.ignored: true
+                    }
                 }
             }
 
@@ -772,7 +1000,7 @@ Page {
     // Swipe gestures on chart for accessibility (swipe left/right to navigate values)
     MouseArea {
         id: chartTapArea
-        anchors.fill: shotGraph
+        anchors.fill: extractionViewLoader
         enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
         property real startX: 0
@@ -801,7 +1029,7 @@ Page {
 
     // Two-finger tap on chart for full status announcement
     MultiPointTouchArea {
-        anchors.fill: shotGraph
+        anchors.fill: extractionViewLoader
         enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
         minimumTouchPoints: 2
         maximumTouchPoints: 2

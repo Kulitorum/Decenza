@@ -153,6 +153,9 @@ void DE1Device::setSimulationMode(bool enabled) {
         m_subState = DE1::SubState::Ready;
         m_pressure = 0.0;
         m_flow = 0.0;
+        m_goalPressure = 0.0;
+        m_goalFlow = 0.0;
+        m_goalTemperature = 0.0;
         m_headTemp = 93.0;
         m_mixTemp = 92.5;
         m_waterLevel = 75.0;
@@ -206,6 +209,9 @@ void DE1Device::emitSimulatedShotSample(const ShotSample& sample) {
     m_headTemp = sample.headTemp;
     m_mixTemp = sample.mixTemp;
     m_steamTemp = sample.steamTemp;
+    m_goalPressure = sample.setPressureGoal;
+    m_goalFlow = sample.setFlowGoal;
+    m_goalTemperature = sample.setTempGoal;
 
     emit shotSampleReceived(sample);
 }
@@ -340,6 +346,9 @@ void DE1Device::parseShotSample(const QByteArray& data) {
     m_mixTemp = sample.mixTemp;
     m_headTemp = sample.headTemp;
     m_steamTemp = sample.steamTemp;
+    m_goalPressure = sample.setPressureGoal;
+    m_goalFlow = sample.setFlowGoal;
+    m_goalTemperature = sample.setTempGoal;
 
     emit shotSampleReceived(sample);
 }

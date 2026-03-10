@@ -1701,7 +1701,25 @@ ApplicationWindow {
     Timer {
         id: stopOverlayTimer
         interval: 3000
-        onTriggered: stopOverlayVisible = false
+        onTriggered: {
+            stopOverlayVisible = false
+            if (root.pendingMetadataNavigation) {
+                root.pendingMetadataNavigation = false
+                // Settings.value() may return string on Windows (REG_SZ), coerce to Number
+                var timeout = Number(Settings.value("postShotReviewTimeout", 31))
+                if (timeout === 0) {
+                    console.log("Post-shot review timeout is Instant, skipping review page")
+                    goToIdle()
+                    return
+                }
+                if (root.pendingShotId > 0) {
+                    goToShotMetadata(root.pendingShotId)
+                } else {
+                    console.warn("Post-shot navigation: no valid pendingShotId, going to idle")
+                    goToIdle()
+                }
+            }
+        }
     }
 
     Connections {
@@ -1717,6 +1735,7 @@ ApplicationWindow {
                                          phase === MachineStateType.Phase.Pouring)
             root.stopReason = ""
             root.stopOverlayVisible = false
+            root.pendingMetadataNavigation = false
             stopOverlayTimer.stop()
         }
         function onShotEnded() {
@@ -2516,26 +2535,19 @@ ApplicationWindow {
         }
     }
 
-    // DYE: Navigate to shot metadata page after shot ends
+    // DYE: Navigate to shot metadata page after stop overlay dismisses (event-driven)
+    property int pendingShotId: -1
+    property bool pendingMetadataNavigation: false
+
     Connections {
         target: MainController
 
         function onShotEndedShowMetadata() {
-            console.log("Shot ended, showing metadata page with shotId:", MainController.lastSavedShotId)
-            // Restart timer to ensure overlay survives page change
+            root.pendingShotId = MainController.lastSavedShotId
+            root.pendingMetadataNavigation = true
+            console.log("Shot ended, will navigate after stop overlay. shotId:", root.pendingShotId)
+            // Restart stop overlay timer to ensure it survives the page change
             stopOverlayTimer.restart()
-
-            // Post-shot review timeout: 0 = instant (skip review, go to idle)
-            // Note: Settings.value() may return a string on Windows (REG_SZ),
-            // so coerce to Number to avoid "0" === 0 being false
-            var timeout = Number(Settings.value("postShotReviewTimeout", 31))
-            if (timeout === 0) {
-                console.log("Post-shot review timeout is Instant, skipping review page")
-                goToIdle()
-                return
-            }
-
-            goToShotMetadata(MainController.lastSavedShotId)
         }
     }
 

@@ -60,6 +60,9 @@ class DE1Device : public QObject {
     Q_PROPERTY(double pressure READ pressure NOTIFY shotSampleReceived)
     Q_PROPERTY(double flow READ flow NOTIFY shotSampleReceived)
     Q_PROPERTY(double temperature READ temperature NOTIFY shotSampleReceived)
+    Q_PROPERTY(double goalPressure READ goalPressure NOTIFY shotSampleReceived)
+    Q_PROPERTY(double goalFlow READ goalFlow NOTIFY shotSampleReceived)
+    Q_PROPERTY(double goalTemperature READ goalTemperature NOTIFY shotSampleReceived)
     Q_PROPERTY(double steamTemperature READ steamTemperature NOTIFY shotSampleReceived)
     Q_PROPERTY(double waterLevel READ waterLevel NOTIFY waterLevelChanged)
     Q_PROPERTY(double waterLevelMm READ waterLevelMm NOTIFY waterLevelChanged)
@@ -88,6 +91,9 @@ public:
     double pressure() const { return m_pressure; }
     double flow() const { return m_flow; }
     double temperature() const { return m_headTemp; }
+    double goalPressure() const { return m_goalPressure; }
+    double goalFlow() const { return m_goalFlow; }
+    double goalTemperature() const { return m_goalTemperature; }
     double mixTemperature() const { return m_mixTemp; }
     double steamTemperature() const { return m_steamTemp; }
     double waterLevel() const { return m_waterLevel; }
@@ -217,6 +223,9 @@ private:
     double m_flow = 0.0;
     double m_mixTemp = 0.0;
     double m_headTemp = 0.0;
+    double m_goalPressure = 0.0;
+    double m_goalFlow = 0.0;
+    double m_goalTemperature = 0.0;
     double m_steamTemp = 0.0;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)

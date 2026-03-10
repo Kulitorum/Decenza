@@ -67,6 +67,11 @@ void WeightProcessor::processWeight(double weight)
         if (sampleTs > maxAhead) {
             sampleTs = maxAhead;
         }
+        // Enforce monotonicity after capping — cap could push below m_lastSampleTs.
+        // Use estimated interval (not +1ms) to avoid near-zero dt in LSLR.
+        if (sampleTs < m_lastSampleTs) {
+            sampleTs = m_lastSampleTs + m_estimatedIntervalMs;
+        }
     } else {
         // Batched but uncalibrated: use wall-clock (LSLR may see dt≈0 until calibrated)
         sampleTs = wallClock;
