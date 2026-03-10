@@ -3,6 +3,7 @@ import Decenza
 
 // Animated cup-fill visualization for espresso extraction.
 // Realistic ceramic cup with portafilter, crema, steam, and reflections.
+// Cup outline color tracks extraction goal accuracy (green/yellow/red).
 Item {
     id: root
 
@@ -18,31 +19,13 @@ Item {
     // Tracking color: green = on track, yellow = drifting, red = way off
     readonly property bool hasGoal: (goalPressure > 0 || goalFlow > 0) &&
         phase !== MachineStateType.Phase.EspressoPreheating
-    // Proportional tracking — percentage of goal with a minimum floor
-    // so low goals (e.g. 0.5 mL/s flow) don't trigger red on tiny deltas
     readonly property color trackColor: {
         if (!hasGoal) return Theme.textSecondaryColor
-
-        var delta, goal, floorGood, floorWarn
-        if (goalPressure > 0) {
-            delta = Math.abs(currentPressure - goalPressure)
-            goal = goalPressure
-            floorGood = 0.8   // minimum 0.8 bar for green
-            floorWarn = 1.8   // minimum 1.8 bar for yellow
-        } else {
-            delta = Math.abs(currentFlow - goalFlow)
-            goal = goalFlow
-            floorGood = 0.4   // minimum 0.4 mL/s for green
-            floorWarn = 0.8   // minimum 0.8 mL/s for yellow
-        }
-
-        // Thresholds scale with goal: 25%/50%, but never tighter than floor
-        var threshGood = Math.max(floorGood, goal * 0.25)
-        var threshWarn = Math.max(floorWarn, goal * 0.50)
-
-        if (delta < threshGood) return Theme.trackOnTargetColor
-        if (delta < threshWarn) return Theme.trackDriftingColor
-        return Theme.trackOffTargetColor
+        var isPressure = goalPressure > 0
+        var delta = isPressure ? Math.abs(currentPressure - goalPressure)
+                               : Math.abs(currentFlow - goalFlow)
+        var goal = isPressure ? goalPressure : goalFlow
+        return Theme.trackingColor(delta, goal, isPressure)
     }
 
     property real wavePhase: 0
@@ -128,6 +111,8 @@ Item {
             var interiorH = cupH - Theme.scaled(4)
             var fillH = fillRatio * interiorH
             var fillTopY = botCy - fillH
+            var isPouring = root.phase === MachineStateType.Phase.Preinfusion ||
+                            root.phase === MachineStateType.Phase.Pouring
 
             // ============================================================
             // Drop shadow (layered soft ellipses)
@@ -593,8 +578,6 @@ Item {
                 ctx.fillRect(cx + fillRx - menW, fillTopY - Theme.scaled(4), menW, menH)
 
                 // ---- Ripple rings (where stream impacts liquid) ----
-                var isPouring = root.phase === MachineStateType.Phase.Preinfusion ||
-                                root.phase === MachineStateType.Phase.Pouring
                 if (isPouring && root.currentFlow > 0.3 && fillRatio < 0.95) {
                     for (var rp = 0; rp < 3; rp++) {
                         var rpAge = (root.ripplePhase + rp * 2.0) % 6.0
@@ -626,9 +609,7 @@ Item {
             // ============================================================
             // Bottomless portafilter + single stream (during extraction)
             // ============================================================
-            var isPouring2 = root.phase === MachineStateType.Phase.Preinfusion ||
-                             root.phase === MachineStateType.Phase.Pouring
-            if (isPouring2 && root.currentFlow > 0.3 && fillRatio < 1.0) {
+            if (isPouring && root.currentFlow > 0.3 && fillRatio < 1.0) {
                 var pfCy = rimCy - rimOvalH - Theme.scaled(36)  // center of portafilter
                 var pfRx = cupW * 0.48    // ellipse half-width (seen from below at angle)
                 var pfRy = pfRx * 0.28    // perspective squish

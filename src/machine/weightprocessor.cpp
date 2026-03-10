@@ -67,6 +67,10 @@ void WeightProcessor::processWeight(double weight)
         if (sampleTs > maxAhead) {
             sampleTs = maxAhead;
         }
+        // Enforce monotonicity after capping — cap could push below m_lastSampleTs
+        if (sampleTs < m_lastSampleTs) {
+            sampleTs = m_lastSampleTs + 1;
+        }
     } else {
         // Batched but uncalibrated: use wall-clock (LSLR may see dt≈0 until calibrated)
         sampleTs = wallClock;

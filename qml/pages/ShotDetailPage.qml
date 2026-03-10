@@ -602,7 +602,7 @@ Page {
                 Layout.preferredHeight: baristaRow.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: shotData.barista !== undefined && shotData.barista !== ""
+                visible: !!shotData.barista && shotData.barista !== ""
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.barista", "Barista:") + " " + (shotData.barista || "")
 
@@ -670,7 +670,7 @@ Page {
                 Layout.preferredHeight: Theme.scaled(50)
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
-                visible: shotData.visualizerId !== undefined && shotData.visualizerId !== ""
+                visible: !!shotData.visualizerId && shotData.visualizerId !== ""
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("shotdetail.uploadedtovisualizer",
                     "Uploaded to Visualizer") + ": " + (shotData.visualizerId || "")

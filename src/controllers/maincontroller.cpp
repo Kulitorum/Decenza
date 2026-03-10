@@ -3465,23 +3465,26 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                                pressureGoal, flowGoal, sample.setTempGoal,
                                sample.frameNumber, isFlowMode);
 
-    // Log cup tracking delta (every ~2s during extraction for debug)
+    // Log tracking delta every 10 shot samples for debug (at the DE1's ~5Hz sample rate,
+    // this is roughly every 2 seconds). Only log when a goal is active.
     if (isExtracting && m_trackLogCounter++ % 10 == 0) {
         double goal = isFlowMode ? flowGoal : pressureGoal;
-        double actual = isFlowMode ? sample.groupFlow : sample.groupPressure;
-        double delta = qAbs(actual - goal);
-        double floorGood = isFlowMode ? 0.4 : 0.8;
-        double floorWarn = isFlowMode ? 0.8 : 1.8;
-        double threshGood = qMax(floorGood, goal * 0.25);
-        double threshWarn = qMax(floorWarn, goal * 0.50);
-        QString color = delta < threshGood ? "GREEN" : (delta < threshWarn ? "YELLOW" : "RED");
-        qDebug() << "[CupTrack]" << (isFlowMode ? "flow" : "pressure")
-                 << "actual=" << QString::number(actual, 'f', 2)
-                 << "goal=" << QString::number(goal, 'f', 2)
-                 << "delta=" << QString::number(delta, 'f', 2)
-                 << "threshG=" << QString::number(threshGood, 'f', 2)
-                 << "threshW=" << QString::number(threshWarn, 'f', 2)
-                 << color;
+        if (goal > 0) {
+            double actual = isFlowMode ? sample.groupFlow : sample.groupPressure;
+            double delta = qAbs(actual - goal);
+            double floorGood = isFlowMode ? 0.4 : 0.8;
+            double floorWarn = isFlowMode ? 0.8 : 1.8;
+            double threshGood = qMax(floorGood, goal * 0.25);
+            double threshWarn = qMax(floorWarn, goal * 0.50);
+            QString color = delta < threshGood ? "GREEN" : (delta < threshWarn ? "YELLOW" : "RED");
+            qDebug() << "[ExtractionTrack]" << (isFlowMode ? "flow" : "pressure")
+                     << "actual=" << QString::number(actual, 'f', 2)
+                     << "goal=" << QString::number(goal, 'f', 2)
+                     << "delta=" << QString::number(delta, 'f', 2)
+                     << "threshG=" << QString::number(threshGood, 'f', 2)
+                     << "threshW=" << QString::number(threshWarn, 'f', 2)
+                     << color;
+        }
     }
 }
 

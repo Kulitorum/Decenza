@@ -4,8 +4,7 @@ import QtQuick.Layouts
 import Decenza
 import "."
 
-// Dialog for selecting espresso extraction view mode:
-// Shot Chart, Cup Fill, or Phase Timeline.
+// Dialog for selecting espresso extraction view mode: Shot Chart or Cup Fill.
 Dialog {
     id: selectorDialog
 

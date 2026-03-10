@@ -2517,6 +2517,8 @@ ApplicationWindow {
     }
 
     // DYE: Navigate to shot metadata page after shot ends (with brief pause to show final state)
+    property int pendingShotId: -1
+
     Timer {
         id: postShotNavigationTimer
         interval: 3000
@@ -2527,7 +2529,12 @@ ApplicationWindow {
                 goToIdle()
                 return
             }
-            goToShotMetadata(MainController.lastSavedShotId)
+            if (root.pendingShotId > 0) {
+                goToShotMetadata(root.pendingShotId)
+            } else {
+                console.warn("Post-shot navigation: no valid pendingShotId, going to idle")
+                goToIdle()
+            }
         }
     }
 
@@ -2535,7 +2542,8 @@ ApplicationWindow {
         target: MainController
 
         function onShotEndedShowMetadata() {
-            console.log("Shot ended, pausing before metadata page. shotId:", MainController.lastSavedShotId)
+            root.pendingShotId = MainController.lastSavedShotId
+            console.log("Shot ended, pausing before metadata page. shotId:", root.pendingShotId)
             // Restart stop overlay timer to ensure it survives the delay + page change
             stopOverlayTimer.restart()
             postShotNavigationTimer.restart()

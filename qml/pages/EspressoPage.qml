@@ -12,7 +12,8 @@ Page {
     // Local weight property - updated directly in signal handler for immediate display
     property real currentWeight: 0.0
 
-    // Debounced frame name — holds each value for at least 1 second
+    // Debounced frame name — holds each value for at least 1 second to prevent
+    // rapid flickering when the profile has short transitional frames.
     property string displayedFrameName: ""
     property string pendingFrameName: ""
 
@@ -182,6 +183,11 @@ Page {
     Connections {
         target: MachineState
         function onShotStarted() {
+            // Reset debounced frame name so previous shot's last frame doesn't linger
+            espressoPage.displayedFrameName = ""
+            espressoPage.pendingFrameName = ""
+            frameNameDebounce.stop()
+
             if (!accessibilityEnabled()) return
             lastAnnouncedWeight = 0
             AccessibilityManager.announce(
@@ -313,7 +319,10 @@ Page {
 
     // Extraction view mode setting
     property string extractionViewMode: Settings.value("espresso/extractionView", "chart")
-    property bool showPhaseIndicator: Settings.value("espresso/showPhaseIndicator", true)
+    property bool showPhaseIndicator: {
+        var v = Settings.value("espresso/showPhaseIndicator", true)
+        return v === true || v === "true"
+    }
 
     // Extraction view switcher (Loader swaps between ShotGraph, CupFill, PhaseTimeline)
     Loader {
@@ -327,7 +336,10 @@ Page {
         sourceComponent: {
             switch (espressoPage.extractionViewMode) {
                 case "cupFill": return cupFillComponent
-                default: return shotGraphComponent
+                case "chart": return shotGraphComponent
+                default:
+                    console.warn("Unknown extraction view mode:", espressoPage.extractionViewMode, "— falling back to chart")
+                    return shotGraphComponent
             }
         }
     }
@@ -348,23 +360,6 @@ Page {
             goalFlow: DE1Device.goalFlow
             shotTime: MachineState.shotTime
             phase: MachineState.phase
-        }
-    }
-
-    Component {
-        id: phaseTimelineComponent
-        PhaseTimelineView {
-            phase: MachineState.phase
-            shotTime: MachineState.shotTime
-            currentFrame: MainController.currentFrameName
-            currentWeight: espressoPage.currentWeight
-            targetWeight: MainController.targetWeight
-            currentFlow: DE1Device.flow
-            currentPressure: DE1Device.pressure
-            doseWeight: MainController.brewByRatioDose
-            weightFlowRate: MachineState.smoothedScaleFlowRate
-            goalPressure: DE1Device.goalPressure
-            goalFlow: DE1Device.goalFlow
         }
     }
 
@@ -683,13 +678,14 @@ Page {
 
             // Pressure
             ColumnLayout {
+                id: pressureColumn
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
                 property real goal: DE1Device.goalPressure
                 property bool trackReady: goal > 0 && MachineState.phase !== MachineStateType.Phase.EspressoPreheating
                 property real delta: trackReady ? Math.abs(DE1Device.pressure - goal) : 0
-                property color trackColor: trackReady ? (delta < 0.5 ? Theme.trackOnTargetColor : (delta < 1.5 ? Theme.trackDriftingColor : Theme.trackOffTargetColor)) : Theme.textSecondaryColor
+                property color trackColor: trackReady ? Theme.trackingColor(delta, goal, true) : Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("espresso.accessible.pressure", "Pressure:") + " " + DE1Device.pressure.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.bar", "bar")
@@ -703,20 +699,19 @@ Page {
                 }
                 RowLayout {
                     spacing: Theme.scaled(4)
-                    // Tracking dot
                     Rectangle {
                         width: Theme.scaled(6)
                         height: Theme.scaled(6)
                         radius: Theme.scaled(3)
-                        color: parent.parent.trackColor
-                        visible: parent.parent.trackReady
+                        color: pressureColumn.trackColor
+                        visible: pressureColumn.trackReady
                         Layout.alignment: Qt.AlignVCenter
                     }
                     Text {
-                        text: parent.parent.trackReady
-                            ? "→" + parent.parent.goal.toFixed(1) + " bar"
+                        text: pressureColumn.trackReady
+                            ? "→" + pressureColumn.goal.toFixed(1) + " " + TranslationManager.translate("espresso.unit.bar", "bar")
                             : TranslationManager.translate("espresso.unit.bar", "bar")
-                        color: parent.parent.trackReady ? parent.parent.trackColor : Theme.textSecondaryColor
+                        color: pressureColumn.trackReady ? pressureColumn.trackColor : Theme.textSecondaryColor
                         font: Theme.captionFont
                         Accessible.ignored: true
                     }
@@ -725,13 +720,14 @@ Page {
 
             // Flow
             ColumnLayout {
+                id: flowColumn
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
                 property real goal: DE1Device.goalFlow
                 property bool trackReady: goal > 0 && MachineState.phase !== MachineStateType.Phase.EspressoPreheating
                 property real delta: trackReady ? Math.abs(DE1Device.flow - goal) : 0
-                property color trackColor: trackReady ? (delta < 0.3 ? Theme.trackOnTargetColor : (delta < 0.8 ? Theme.trackDriftingColor : Theme.trackOffTargetColor)) : Theme.textSecondaryColor
+                property color trackColor: trackReady ? Theme.trackingColor(delta, goal, false) : Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("espresso.accessible.flow", "Flow:") + " " + DE1Device.flow.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.mlPerSec", "milliliters per second")
@@ -749,15 +745,15 @@ Page {
                         width: Theme.scaled(6)
                         height: Theme.scaled(6)
                         radius: Theme.scaled(3)
-                        color: parent.parent.trackColor
-                        visible: parent.parent.trackReady
+                        color: flowColumn.trackColor
+                        visible: flowColumn.trackReady
                         Layout.alignment: Qt.AlignVCenter
                     }
                     Text {
-                        text: parent.parent.trackReady
-                            ? "→" + parent.parent.goal.toFixed(1) + " ml/s"
+                        text: flowColumn.trackReady
+                            ? "→" + flowColumn.goal.toFixed(1) + " " + TranslationManager.translate("espresso.unit.flowRate", "mL/s")
                             : TranslationManager.translate("espresso.unit.flowRate", "mL/s")
-                        color: parent.parent.trackReady ? parent.parent.trackColor : Theme.textSecondaryColor
+                        color: flowColumn.trackReady ? flowColumn.trackColor : Theme.textSecondaryColor
                         font: Theme.captionFont
                         Accessible.ignored: true
                     }

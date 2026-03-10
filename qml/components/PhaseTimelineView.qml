@@ -19,27 +19,20 @@ Item {
     property real goalPressure: 0
     property real goalFlow: 0
 
-    // Profile tracking
+    // Profile tracking — uses Theme.trackingColor() for consistent thresholds
     readonly property bool hasGoal: (goalPressure > 0 || goalFlow > 0) &&
         phase !== MachineStateType.Phase.EspressoPreheating
-    readonly property real trackDelta: {
-        if (!hasGoal) return 0
-        if (goalPressure > 0) return Math.abs(currentPressure - goalPressure)
-        return Math.abs(currentFlow - goalFlow)
-    }
     readonly property color trackColor: {
         if (!hasGoal) return Theme.weightColor
-        if (trackDelta < 0.5) return Theme.trackOnTargetColor
-        if (trackDelta < 1.5) return Theme.trackDriftingColor
-        return Theme.trackOffTargetColor
+        var isPressure = goalPressure > 0
+        var delta = isPressure ? Math.abs(currentPressure - goalPressure)
+                               : Math.abs(currentFlow - goalFlow)
+        var goal = isPressure ? goalPressure : goalFlow
+        return Theme.trackingColor(delta, goal, isPressure)
     }
 
-    // Phase elapsed time tracking
-    property real phaseStartTime: 0
-    property real phaseElapsed: shotTime - phaseStartTime
-    onPhaseChanged: phaseStartTime = shotTime
-
-    // Map machine phase enum to timeline index (0-3), -1 if not an espresso phase
+    // Map machine phase enum to timeline index: 0=Preheat, 1=Pre-infusion, 2=Pouring, 3=Ending.
+    // Returns -1 for non-espresso phases (shows 'waiting' state).
     readonly property int activeIndex: {
         switch (phase) {
             case MachineStateType.Phase.EspressoPreheating: return 0
@@ -49,13 +42,6 @@ Item {
             default: return -1
         }
     }
-
-    readonly property var phaseNames: [
-        TranslationManager.translate("espresso.phase.preheat", "Preheat"),
-        TranslationManager.translate("espresso.phase.preinfusion", "Pre-infusion"),
-        TranslationManager.translate("espresso.phase.pouring", "Pouring"),
-        TranslationManager.translate("espresso.phase.ending", "Ending")
-    ]
 
     // ========== PROGRESS DOTS (top) ==========
     Row {
@@ -193,7 +179,7 @@ Item {
                     border.width: Theme.scaled(4)
                 }
 
-                // Pressure arc (simulated with a rotating clipped fill)
+                // Pressure arc overlay
                 Rectangle {
                     anchors.centerIn: parent
                     width: parent.width
@@ -202,10 +188,7 @@ Item {
                     color: "transparent"
                     border.color: Theme.pressureColor
                     border.width: Theme.scaled(4)
-                    opacity: 0.8
-
-                    // Scale opacity with pressure (0-12 bar range)
-                    property real pressureFraction: Math.min(root.currentPressure / 12, 1.0)
+                    opacity: Math.min(root.currentPressure / 12, 1.0)
                 }
 
                 // Center text
@@ -222,7 +205,7 @@ Item {
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "bar"
+                        text: TranslationManager.translate("espresso.unit.bar", "bar")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                     }
