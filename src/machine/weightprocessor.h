@@ -78,6 +78,7 @@ private:
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;
     qint64 m_lastLowFlowLogMs = 0;
+    bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
 
     // Configuration (set once at shot start, read-only during extraction)
     double m_targetWeight = 0;

@@ -44,10 +44,19 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
 
 #ifdef Q_OS_ANDROID
     // Clear install-intent flag when app returns to foreground (event-based guard).
+    // Require that the app actually left Active state first — on some Android versions
+    // the install dialog shows as an overlay without backgrounding, causing
+    // applicationStateChanged(Active) to fire immediately (~180ms). Without this
+    // check, the guard clears before the user interacts with the dialog, allowing
+    // a second install intent to be launched from the cached-APK fast-path.
     connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-        if (state == Qt::ApplicationActive && m_installIntentPending) {
+        if (state != Qt::ApplicationActive && m_installIntentPending) {
+            m_installIntentLeftActive = true;
+        }
+        if (state == Qt::ApplicationActive && m_installIntentPending && m_installIntentLeftActive) {
             m_installIntentPending = false;
-            qDebug() << "UpdateChecker: app resumed, install intent guard cleared";
+            m_installIntentLeftActive = false;
+            qDebug() << "UpdateChecker: app resumed from background, install intent guard cleared";
         }
     });
 #endif
@@ -318,6 +327,14 @@ void UpdateChecker::downloadAndInstall()
     // Event-based dedup guard: prevent rapid taps from spawning multiple download+install flows.
     // Flag is set when install intent launches, cleared when app returns to foreground.
     // Placed after the cached-APK fast-path so permission-flow retaps still work.
+    // If the install dialog was dismissed without the app ever leaving Active (overlay scenario),
+    // m_installIntentPending stays set. This explicit user tap clears the stale guard so
+    // the user can retry. The cached-APK fast-path above already handled direct reinstall.
+    if (m_installIntentPending && !m_installIntentLeftActive) {
+        // App never left Active — overlay was dismissed, user is explicitly retrying.
+        qDebug() << "UpdateChecker: clearing stale install guard (overlay dismissed without backgrounding)";
+        m_installIntentPending = false;
+    }
     if (m_installIntentPending) {
         qDebug() << "UpdateChecker: install intent still pending; ignoring duplicate request";
         return;

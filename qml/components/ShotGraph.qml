@@ -50,10 +50,25 @@ ChartView {
     // Calculate axis max: data fills frame with exactly 5 scaled pixels padding at right
     // Solve: max = rawTime + paddingPixels * (max / plotWidth)
     // => max = rawTime * plotWidth / (plotWidth - paddingPixels)
+    //
+    // NOTE: calculatedMax intentionally does NOT bind to chart.plotArea.width.
+    // plotArea.width depends on timeAxis.max (axis changes trigger ChartView relayout),
+    // which would create a binding loop: plotArea → calculatedMax → timeAxis.max → plotArea.
+    // Instead, we cache plotWidth and update it imperatively via onPlotAreaChanged.
     property double minTime: 5.0
     property double paddingPixels: Theme.scaled(5)
-    property double plotWidth: Math.max(1, chart.plotArea.width)
-    property double calculatedMax: ShotDataModel.rawTime * plotWidth / Math.max(1, plotWidth - paddingPixels)
+    property double cachedPlotWidth: 1
+    property double calculatedMax: ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
+
+    onPlotAreaChanged: {
+        // Update cached width imperatively to break the binding loop.
+        // This fires after ChartView relayout, so setting it here won't re-trigger
+        // timeAxis.max → relayout → plotArea in a tight loop.
+        var w = Math.max(1, chart.plotArea.width)
+        if (Math.abs(w - cachedPlotWidth) > 1) {
+            cachedPlotWidth = w
+        }
+    }
 
     // Time axis - fills frame, expands only when data pushes against right edge
     ValueAxis {
