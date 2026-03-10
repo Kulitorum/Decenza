@@ -36,7 +36,9 @@ Item {
         id: animTimer
         interval: 33
         repeat: true
-        running: root.currentFlow > 0.1 || root.currentWeight > 0
+        running: root.currentFlow > 0.1 ||
+                 (root.currentWeight > 0 && root.phase >= MachineStateType.Phase.EspressoPreheating
+                                         && root.phase <= MachineStateType.Phase.Ending)
         onTriggered: {
             if (root.currentFlow > 0.1) {
                 root.wavePhase += 0.15
@@ -948,29 +950,29 @@ Item {
                     var d2x = Math.sin(phOff * 1.2 + 2) * Theme.scaled(8 + sp * 2)
                     var d2y = steamH * 0.66
 
+                    // Bezier helpers for steam S-curve (hoisted out of loop)
+                    function steamX(tt, offX, cd1x, cd2x) {
+                        var sx0 = cx + offX
+                        var sx1 = cx + offX + cd1x
+                        var sx2 = cx + offX + cd2x
+                        var sx3 = cx + offX + cd1x * 0.5
+                        var u = 1 - tt
+                        return u*u*u*sx0 + 3*u*u*tt*sx1 + 3*u*tt*tt*sx2 + tt*tt*tt*sx3
+                    }
+                    function steamY(tt, sY, cdy1, cdy2, eY) {
+                        var sy0 = sY
+                        var sy1 = sY - cdy1
+                        var sy2 = sY - cdy2
+                        var sy3 = eY
+                        var u = 1 - tt
+                        return u*u*u*sy0 + 3*u*u*tt*sy1 + 3*u*tt*tt*sy2 + tt*tt*tt*sy3
+                    }
+
                     // Fade out at top, thicken slightly in middle
                     var segments = 12
                     for (var seg = 0; seg < segments; seg++) {
                         var segT0 = seg / segments
                         var segT1 = (seg + 1) / segments
-
-                        // Bezier sample at t
-                        function steamX(tt) {
-                            var sx0 = cx + steamOffX
-                            var sx1 = cx + steamOffX + d1x
-                            var sx2 = cx + steamOffX + d2x
-                            var sx3 = cx + steamOffX + d1x * 0.5
-                            var u = 1 - tt
-                            return u*u*u*sx0 + 3*u*u*tt*sx1 + 3*u*tt*tt*sx2 + tt*tt*tt*sx3
-                        }
-                        function steamY(tt) {
-                            var sy0 = steamStartY
-                            var sy1 = steamStartY - d1y
-                            var sy2 = steamStartY - d2y
-                            var sy3 = steamEndY
-                            var u = 1 - tt
-                            return u*u*u*sy0 + 3*u*u*tt*sy1 + 3*u*tt*tt*sy2 + tt*tt*tt*sy3
-                        }
 
                         var segAlpha = steamAlphaBase * (1 - segT0 * 0.85) * (0.5 + sp * 0.12)
                         var segWidth = Theme.scaled(1 + Math.sin(segT0 * Math.PI) * 1.5)
@@ -979,8 +981,8 @@ Item {
                         ctx.lineWidth = segWidth
                         ctx.lineCap = "round"
                         ctx.beginPath()
-                        ctx.moveTo(steamX(segT0), steamY(segT0))
-                        ctx.lineTo(steamX(segT1), steamY(segT1))
+                        ctx.moveTo(steamX(segT0, steamOffX, d1x, d2x), steamY(segT0, steamStartY, d1y, d2y, steamEndY))
+                        ctx.lineTo(steamX(segT1, steamOffX, d1x, d2x), steamY(segT1, steamStartY, d1y, d2y, steamEndY))
                         ctx.stroke()
                     }
                 }
