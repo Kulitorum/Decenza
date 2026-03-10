@@ -252,19 +252,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(8)
 
-                        Tr {
-                            key: "settings.preferences.offlineMode"
-                            fallback: "Offline Mode"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.offlineMode", "Offline Mode")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.preferences.offlineModeDesc"
-                            fallback: "Use the app without a connected DE1 machine"
+                            text: TranslationManager.translate("settings.preferences.offlineModeDesc", "Use the app without a connected DE1 machine")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -272,10 +272,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.preferences.unlockGui"
-                                fallback: "Unlock GUI"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.unlockGui", "Unlock GUI")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -315,12 +315,12 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        Tr {
+                        Text {
                             id: restartRequiredText
                             visible: Settings.simulationMode !== DE1Device.simulationMode
-                            key: "settings.preferences.restartRequired"
-                            fallback: "Restart required for this change to take effect"
+                            text: TranslationManager.translate("settings.preferences.restartRequired", "Restart required for this change to take effect")
                             color: Theme.warningColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             Layout.leftMargin: Theme.scaled(15)
                             Layout.bottomMargin: Theme.scaled(5)
@@ -344,19 +344,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(8)
 
-                        Tr {
-                            key: "settings.options.launcherMode"
-                            fallback: "Launcher Mode"
+                        Text {
+                            text: TranslationManager.translate("settings.options.launcherMode", "Launcher Mode")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.options.launcherModeDesc"
-                            fallback: "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher."
+                            text: TranslationManager.translate("settings.options.launcherModeDesc", "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher.")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -364,10 +364,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.options.useAsLauncher"
-                                fallback: "Use as Home Screen"
+                            Text {
+                                text: TranslationManager.translate("settings.options.useAsLauncher", "Use as Home Screen")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -381,12 +381,12 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
                             visible: Settings.launcherMode
-                            key: "settings.options.launcherModeHint"
-                            fallback: "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\"."
+                            text: TranslationManager.translate("settings.options.launcherModeHint", "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\".")
                             color: Theme.warningColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                         }
@@ -408,19 +408,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.shotmap.title"
-                            fallback: "Shot Map"
+                        Text {
+                            text: TranslationManager.translate("settings.shotmap.title", "Shot Map")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.shotmap.description"
-                            fallback: "Share your shots on the global map at decenza.coffee"
+                            text: TranslationManager.translate("settings.shotmap.description", "Share your shots on the global map at decenza.coffee")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -428,10 +428,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.shotmap.enable"
-                                fallback: "Enable Shot Map"
+                            Text {
+                                text: TranslationManager.translate("settings.shotmap.enable", "Enable Shot Map")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -566,19 +566,19 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.perScreenScale"
-                            fallback: "Per-Screen Scale"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.perScreenScale", "Per-Screen Scale")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.preferences.perScreenScaleDesc"
-                            fallback: "Adjust UI scale individually for each screen to optimize readability."
+                            text: TranslationManager.translate("settings.preferences.perScreenScaleDesc", "Adjust UI scale individually for each screen to optimize readability.")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
                         }
@@ -587,10 +587,10 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(10)
 
-                            Tr {
-                                key: "settings.preferences.configureScalePerScreen"
-                                fallback: "Configure scale per screen"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.configureScalePerScreen", "Configure scale per screen")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -609,12 +609,12 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        Tr {
+                        Text {
                             visible: preferencesTab.configurePageScaleEnabled
                             Layout.fillWidth: true
-                            key: "settings.preferences.scaleHint"
-                            fallback: "Navigate to each screen and use the floating control to adjust its scale."
+                            text: TranslationManager.translate("settings.preferences.scaleHint", "Navigate to each screen and use the floating control to adjust its scale.")
                             color: Theme.primaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                         }
@@ -634,10 +634,10 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(10)
                         spacing: Theme.scaled(4)
 
-                        Tr {
-                            key: "settings.preferences.batteryCharging"
-                            fallback: "Battery Charging"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.batteryCharging", "Battery Charging")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
@@ -693,19 +693,21 @@ KeyboardAwareContainer {
 
                             Item { Layout.fillWidth: true }
 
-                            Tr {
-                                key: BatteryManager.isCharging ? "settings.preferences.charging" : "settings.preferences.notCharging"
-                                fallback: BatteryManager.isCharging ? "Charging" : "Not charging"
+                            Text {
+                                text: TranslationManager.translate(
+                                    BatteryManager.isCharging ? "settings.preferences.charging" : "settings.preferences.notCharging",
+                                    BatteryManager.isCharging ? "Charging" : "Not charging")
                                 color: BatteryManager.isCharging ? Theme.successColor : Theme.textSecondaryColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(12)
                             }
                         }
 
                         // Smart charging mode selector
-                        Tr {
-                            key: "settings.preferences.smartChargingMode"
-                            fallback: "Smart Charging Mode"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.smartChargingMode", "Smart Charging Mode")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
@@ -783,10 +785,10 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             visible: BatteryManager.chargingMode === 0
 
-                            Tr {
-                                key: "settings.preferences.usbCharger"
-                                fallback: "USB Charger"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.usbCharger", "USB Charger")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -914,10 +916,10 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(8)
 
-                            Tr {
-                                key: "settings.options.waterLevel"
-                                fallback: "Water Level"
+                            Text {
+                                text: TranslationManager.translate("settings.options.waterLevel", "Water Level")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
                             }
@@ -939,10 +941,10 @@ KeyboardAwareContainer {
                                 }
                             }
 
-                            Tr {
-                                key: "settings.options.refillKitActive"
-                                fallback: "Auto-refill active"
+                            Text {
+                                text: TranslationManager.translate("settings.options.refillKitActive", "Auto-refill active")
                                 color: Theme.successColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(12)
                                 visible: waterLevelCard.refillKitActive
                             }
@@ -1006,10 +1008,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.options.showInMl"
-                                fallback: "Show in milliliters (ml)"
+                            Text {
+                                text: TranslationManager.translate("settings.options.showInMl", "Show in milliliters (ml)")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -1094,10 +1096,10 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.options.headlessMachine"
-                            fallback: "Headless Machine"
+                        Text {
+                            text: TranslationManager.translate("settings.options.headlessMachine", "Headless Machine")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
@@ -1105,10 +1107,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.options.singlePressStopPurge"
-                                fallback: "Single press to stop & purge"
+                            Text {
+                                text: TranslationManager.translate("settings.options.singlePressStopPurge", "Single press to stop & purge")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
@@ -1258,18 +1260,18 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.steamHeater"
-                            fallback: "Steam Heater"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.steamHeater", "Steam Heater")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
-                            key: "settings.preferences.steamHeaterDesc"
-                            fallback: "Pre-heat for faster steaming"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming")
                             color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
 
@@ -1283,10 +1285,10 @@ KeyboardAwareContainer {
                         RowLayout {
                             Layout.fillWidth: true
 
-                            Tr {
-                                key: "settings.preferences.keepSteamHeaterOn"
-                                fallback: "Keep heater on when idle"
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.keepSteamHeaterOn", "Keep heater on when idle")
                                 color: Theme.textColor
+                                font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
 
                                 Accessible.role: Accessible.StaticText
@@ -1407,10 +1409,10 @@ KeyboardAwareContainer {
                         property var selectedDayData: schedule[selectedDay] || {enabled: false, hour: 7, minute: 0}
 
                         // Title
-                        Tr {
-                            key: "settings.options.autoWake"
-                            fallback: "Auto-Wake Timer"
+                        Text {
+                            text: TranslationManager.translate("settings.options.autoWake", "Auto-Wake Timer")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
