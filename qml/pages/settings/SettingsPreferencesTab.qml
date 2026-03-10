@@ -44,17 +44,16 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.autoSleep"
-                            fallback: "Auto-Sleep"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
-                            key: "settings.preferences.autoSleepDesc"
-                            fallback: "Put the machine to sleep after inactivity"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.autoSleepDesc", "Put the machine to sleep after inactivity")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }
@@ -94,17 +93,16 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
-                        Tr {
-                            key: "settings.preferences.postShotReviewClose"
-                            fallback: "Close Shot Review Screen"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.postShotReviewClose", "Close Shot Review Screen")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
-                            key: "settings.preferences.postShotReviewCloseDesc"
-                            fallback: "Return to idle after reviewing shot"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.postShotReviewCloseDesc", "Return to idle after reviewing shot")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }
@@ -154,18 +152,17 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(8)
                         opacity: parent.kitAvailable ? 1.0 : 0.5
 
-                        Tr {
-                            key: "settings.preferences.refillKit"
-                            fallback: "Refill Kit"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.refillKit", "Refill Kit")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.preferences.refillKitDesc"
-                            fallback: "Control whether the machine uses an automatic water refill kit"
+                            text: TranslationManager.translate("settings.preferences.refillKitDesc", "Control whether the machine uses an automatic water refill kit")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
@@ -1153,17 +1150,16 @@ KeyboardAwareContainer {
 
                         property string currentMode: Settings.value("espresso/extractionView", "chart")
 
-                        Tr {
-                            key: "settings.preferences.extractionView"
-                            fallback: "Extraction View"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.extractionView", "Extraction View")
                             color: Theme.textColor
+                            font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
                         }
 
-                        Tr {
-                            key: "settings.preferences.extractionViewDesc"
-                            fallback: "Visualization during espresso extraction"
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.extractionViewDesc", "Visualization during espresso extraction")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }

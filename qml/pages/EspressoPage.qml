@@ -324,7 +324,20 @@ Page {
         return v === true || v === "true"
     }
 
-    // Extraction view switcher (Loader swaps between ShotGraph, CupFill, PhaseTimeline)
+    // Sync from Settings changes made elsewhere (e.g. SettingsPreferencesTab)
+    Connections {
+        target: Settings
+        function onValueChanged(key) {
+            if (key === "espresso/extractionView")
+                espressoPage.extractionViewMode = Settings.value("espresso/extractionView", "chart")
+            else if (key === "espresso/showPhaseIndicator") {
+                var v = Settings.value("espresso/showPhaseIndicator", true)
+                espressoPage.showPhaseIndicator = (v === true || v === "true")
+            }
+        }
+    }
+
+    // Extraction view switcher (Loader swaps between ShotGraph and CupFill)
     Loader {
         id: extractionViewLoader
         anchors.top: parent.top
@@ -356,8 +369,8 @@ Page {
             targetWeight: MainController.targetWeight
             currentFlow: DE1Device.flow
             currentPressure: DE1Device.pressure
-            goalPressure: DE1Device.goalPressure
-            goalFlow: DE1Device.goalFlow
+            goalPressure: MainController.filteredGoalPressure
+            goalFlow: MainController.filteredGoalFlow
             shotTime: MachineState.shotTime
             phase: MachineState.phase
         }
@@ -682,8 +695,8 @@ Page {
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
-                property real goal: DE1Device.goalPressure
-                property bool trackReady: goal > 0 && MachineState.phase !== MachineStateType.Phase.EspressoPreheating
+                property real goal: MainController.filteredGoalPressure
+                property bool trackReady: goal > 0
                 property real delta: trackReady ? Math.abs(DE1Device.pressure - goal) : 0
                 property color trackColor: trackReady ? Theme.trackingColor(delta, goal, true) : Theme.textSecondaryColor
 
@@ -724,8 +737,8 @@ Page {
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
-                property real goal: DE1Device.goalFlow
-                property bool trackReady: goal > 0 && MachineState.phase !== MachineStateType.Phase.EspressoPreheating
+                property real goal: MainController.filteredGoalFlow
+                property bool trackReady: goal > 0
                 property real delta: trackReady ? Math.abs(DE1Device.flow - goal) : 0
                 property color trackColor: trackReady ? Theme.trackingColor(delta, goal, false) : Theme.textSecondaryColor
 

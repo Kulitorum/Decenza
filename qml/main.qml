@@ -2523,6 +2523,7 @@ ApplicationWindow {
         id: postShotNavigationTimer
         interval: 3000
         onTriggered: {
+            // Settings.value() may return string on Windows (REG_SZ), coerce to Number
             var timeout = Number(Settings.value("postShotReviewTimeout", 31))
             if (timeout === 0) {
                 console.log("Post-shot review timeout is Instant, skipping review page")

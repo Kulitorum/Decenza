@@ -178,6 +178,7 @@ Dialog {
                     id: phaseIndicatorCheck
                     checked: selectorDialog.showPhaseIndicator
                     Accessible.name: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
+                    Accessible.checked: checked
                     Accessible.focusable: true
                     onToggled: {
                         selectorDialog.phaseIndicatorToggled(checked)

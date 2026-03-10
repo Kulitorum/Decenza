@@ -2818,6 +2818,11 @@ void MainController::onEspressoCycleStarted() {
     m_frameWeightSkipSent = -1;
     m_frameStartTime = 0;
     m_lastPressure = 0;
+    if (m_filteredGoalPressure != 0 || m_filteredGoalFlow != 0) {
+        m_filteredGoalPressure = 0;
+        m_filteredGoalFlow = 0;
+        emit goalsChanged();
+    }
     m_lastFlow = 0;
     m_tareDone = true;
     if (m_shotDataModel) {
@@ -3384,6 +3389,13 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
 
     }
 
+    // Update filtered goals for QML (zeroed for non-active mode)
+    if (m_filteredGoalPressure != pressureGoal || m_filteredGoalFlow != flowGoal) {
+        m_filteredGoalPressure = pressureGoal;
+        m_filteredGoalFlow = flowGoal;
+        emit goalsChanged();
+    }
+
     // Detect frame changes and add markers with frame names from profile
     // Only track during actual extraction phases (not preheating - frame numbers are unreliable then)
     if (isExtracting && sample.frameNumber >= 0 && sample.frameNumber != m_lastFrameNumber) {
@@ -3472,6 +3484,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         if (goal > 0) {
             double actual = isFlowMode ? sample.groupFlow : sample.groupPressure;
             double delta = qAbs(actual - goal);
+            // Thresholds must match Theme.trackingColor() in Theme.qml
             double floorGood = isFlowMode ? 0.4 : 0.8;
             double floorWarn = isFlowMode ? 0.8 : 1.8;
             double threshGood = qMax(floorGood, goal * 0.25);
