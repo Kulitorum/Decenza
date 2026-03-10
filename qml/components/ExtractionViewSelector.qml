@@ -10,7 +10,9 @@ Dialog {
     id: selectorDialog
 
     property string currentMode: "chart"
+    property bool showPhaseIndicator: true
     signal modeSelected(string mode)
+    signal phaseIndicatorToggled(bool enabled)
 
     title: TranslationManager.translate("espresso.viewSelector.title", "Extraction View")
     modal: true
@@ -135,6 +137,51 @@ Dialog {
                     onAccessibleClicked: {
                         selectorDialog.modeSelected(model.mode)
                         selectorDialog.close()
+                    }
+                }
+            }
+        }
+
+        // Divider
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            Layout.topMargin: Theme.spacingSmall
+            color: Theme.borderColor
+        }
+
+        // Phase indicator toggle
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(48)
+            Layout.topMargin: Theme.spacingSmall
+            radius: Theme.cardRadius
+            color: Theme.backgroundColor
+
+            Accessible.ignored: true
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacingMedium
+                anchors.rightMargin: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
+                    color: Theme.textColor
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    Layout.fillWidth: true
+                    Accessible.ignored: true
+                }
+
+                CheckBox {
+                    id: phaseIndicatorCheck
+                    checked: selectorDialog.showPhaseIndicator
+                    Accessible.name: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
+                    Accessible.focusable: true
+                    onToggled: {
+                        selectorDialog.phaseIndicatorToggled(checked)
                     }
                 }
             }

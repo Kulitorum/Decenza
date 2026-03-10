@@ -313,6 +313,7 @@ Page {
 
     // Extraction view mode setting
     property string extractionViewMode: Settings.value("espresso/extractionView", "chart")
+    property bool showPhaseIndicator: Settings.value("espresso/showPhaseIndicator", true)
 
     // Extraction view switcher (Loader swaps between ShotGraph, CupFill, PhaseTimeline)
     Loader {
@@ -403,19 +404,25 @@ Page {
     ExtractionViewSelector {
         id: viewSelectorDialog
         currentMode: espressoPage.extractionViewMode
+        showPhaseIndicator: espressoPage.showPhaseIndicator
         onModeSelected: function(mode) {
             espressoPage.extractionViewMode = mode
             Settings.setValue("espresso/extractionView", mode)
         }
+        onPhaseIndicatorToggled: function(enabled) {
+            espressoPage.showPhaseIndicator = enabled
+            Settings.setValue("espresso/showPhaseIndicator", enabled)
+        }
     }
 
-    // Phase indicator (top-left, shows current espresso phase)
+    // Phase indicator (centered over chart, top-left over cup fill)
     Rectangle {
         id: statusBanner
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin + Theme.scaled(20)
-        anchors.left: parent.left
-        anchors.leftMargin: Theme.spacingMedium
+        x: espressoPage.extractionViewMode === "chart"
+           ? (parent.width - width) / 2
+           : Theme.spacingMedium
         z: 10
         width: phaseRow.width + Theme.spacingMedium * 2
         height: Theme.scaled(36)
@@ -430,10 +437,11 @@ Page {
             }
         }
         opacity: 0.85
-        visible: MachineState.phase === MachineStateType.Phase.EspressoPreheating ||
-                 MachineState.phase === MachineStateType.Phase.Preinfusion ||
-                 MachineState.phase === MachineStateType.Phase.Pouring ||
-                 MachineState.phase === MachineStateType.Phase.Ending
+        visible: espressoPage.showPhaseIndicator &&
+                 (MachineState.phase === MachineStateType.Phase.EspressoPreheating ||
+                  MachineState.phase === MachineStateType.Phase.Preinfusion ||
+                  MachineState.phase === MachineStateType.Phase.Pouring ||
+                  MachineState.phase === MachineStateType.Phase.Ending)
 
         Accessible.role: Accessible.Alert
         Accessible.name: phaseLabelText.text
@@ -507,7 +515,7 @@ Page {
         opacity: 0
         scale: 1.0
 
-        visible: opacity > 0
+        visible: espressoPage.showPhaseIndicator && opacity > 0
 
         SequentialAnimation {
             id: frameTransitionLifecycle
