@@ -44,10 +44,19 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
 
 #ifdef Q_OS_ANDROID
     // Clear install-intent flag when app returns to foreground (event-based guard).
+    // Require that the app actually left Active state first — on some Android versions
+    // the install dialog shows as an overlay without backgrounding, causing
+    // applicationStateChanged(Active) to fire immediately (~180ms). Without this
+    // check, the guard clears before the user interacts with the dialog, allowing
+    // a second install intent to be launched from the cached-APK fast-path.
     connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
-        if (state == Qt::ApplicationActive && m_installIntentPending) {
+        if (state != Qt::ApplicationActive && m_installIntentPending) {
+            m_installIntentLeftActive = true;
+        }
+        if (state == Qt::ApplicationActive && m_installIntentPending && m_installIntentLeftActive) {
             m_installIntentPending = false;
-            qDebug() << "UpdateChecker: app resumed, install intent guard cleared";
+            m_installIntentLeftActive = false;
+            qDebug() << "UpdateChecker: app resumed from background, install intent guard cleared";
         }
     });
 #endif

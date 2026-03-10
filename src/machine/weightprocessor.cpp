@@ -38,15 +38,17 @@ void WeightProcessor::processWeight(double weight)
 
     qint64 sampleTs;
     if (sinceLast < 0 || sinceLast > kBatchThresholdMs) {
-        // First call or non-batched: use wall-clock, and calibrate interval estimate
+        // First call or non-batched: use wall-clock as ground truth.
+        // A previous batch may have pushed synthetic timestamps ahead of wall-clock.
+        // Instead of clamping by a full interval (which causes runaway drift — each
+        // clamp pushes synthetic further ahead, so subsequent events also get clamped),
+        // use wall-clock directly and only enforce minimal monotonicity (+1ms).
+        // This lets synthetic reconverge with wall-clock within a few samples.
         sampleTs = wallClock;
-        // Ensure monotonicity: a batch may have pushed synthetic timestamps ahead of
-        // wall-clock. Clamping prevents LSLR from seeing non-monotonic time data.
         if (m_lastSampleTs > 0 && sampleTs < m_lastSampleTs) {
-            qDebug() << "[SAW-Worker] De-jitter: wall-clock" << wallClock
-                     << "behind last synthetic" << m_lastSampleTs
-                     << "— clamping to preserve monotonicity";
-            sampleTs = m_lastSampleTs + (m_estimatedIntervalMs > 0 ? m_estimatedIntervalMs : 1);
+            // Minimal advance: just +1ms to maintain monotonicity. This means synthetic
+            // barely advances while wall-clock catches up, closing the gap naturally.
+            sampleTs = m_lastSampleTs + 1;
         }
         if (sinceLast > kBatchThresholdMs && sinceLast < kReconnectGapMs) {
             // EMA calibration (ignores gaps > 2s as reconnects)
@@ -56,8 +58,15 @@ void WeightProcessor::processWeight(double weight)
                 m_estimatedIntervalMs = static_cast<int>((1.0 - kEmaAlpha) * m_estimatedIntervalMs + kEmaAlpha * sinceLast);
         }
     } else if (m_estimatedIntervalMs > 0) {
-        // Batched (< 20ms since last) and calibrated: spread using estimated interval
+        // Batched (< 20ms since last) and calibrated: spread using estimated interval.
+        // Cap synthetic so it can't drift more than 2 intervals ahead of wall-clock.
+        // Without this cap, a burst of N batched events pushes synthetic N*interval ms
+        // ahead, and subsequent non-batched events take many cycles to reconverge.
         sampleTs = m_lastSampleTs + m_estimatedIntervalMs;
+        qint64 maxAhead = wallClock + m_estimatedIntervalMs * 2;
+        if (sampleTs > maxAhead) {
+            sampleTs = maxAhead;
+        }
     } else {
         // Batched but uncalibrated: use wall-clock (LSLR may see dt≈0 until calibrated)
         sampleTs = wallClock;
@@ -149,14 +158,34 @@ void WeightProcessor::processWeight(double weight)
 
     // Stop-at-weight check (requires valid flow rate for drip prediction)
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort < 0.5) {
-        // Throttle this log to every 5s
+        // Throttle this log to every 5s, include LSLR diagnostic info
         if (wallClock - m_lastLowFlowLogMs >= 5000) {
+            // Compute dt for the short window to diagnose why LSLR returns 0
+            double shortDt = 0;
+            if (m_weightSamples.size() >= 2) {
+                qint64 cutoff = m_weightSamples.last().timestamp - shortWindowMs;
+                qsizetype si = m_weightSamples.size() - 1;
+                while (si > 0 && m_weightSamples[si - 1].timestamp >= cutoff) --si;
+                shortDt = (m_weightSamples.last().timestamp - m_weightSamples[si].timestamp) / 1000.0;
+            }
             qDebug() << "[SAW-Worker] Flow too low for SAW check: flowShort=" << flowRateShort
-                     << "weight=" << weight << "target=" << m_targetWeight;
+                     << "weight=" << weight << "target=" << m_targetWeight
+                     << "samples=" << m_weightSamples.size()
+                     << "shortWindow=" << shortWindowMs << "ms"
+                     << "shortDt=" << QString::number(shortDt, 'f', 3) << "s"
+                     << "gate=" << QString::number(shortWindowMs * 0.8 / 1000.0, 'f', 3) << "s";
             m_lastLowFlowLogMs = wallClock;
         }
     }
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
+        // Log once when flow becomes valid — confirms de-jitter is working
+        if (!m_flowBecameValidLogged) {
+            m_flowBecameValidLogged = true;
+            double extractionTime = (wallClock - m_extractionStartTime) / 1000.0;
+            qDebug() << "[SAW-Worker] Flow became valid: flowShort=" << QString::number(flowRateShort, 'f', 2)
+                     << "flowLong=" << QString::number(flowRate, 'f', 2)
+                     << "weight=" << weight << "at" << QString::number(extractionTime, 'f', 1) << "s";
+        }
         double cappedFlow = qMin(flowRateShort, 12.0);
         double expectedDrip = getExpectedDrip(cappedFlow);
         double stopThreshold = m_targetWeight - expectedDrip;
@@ -227,6 +256,7 @@ void WeightProcessor::startExtraction()
     m_settleCount = 0;
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
+    m_flowBecameValidLogged = false;
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
