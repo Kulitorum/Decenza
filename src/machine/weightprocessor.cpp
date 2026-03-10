@@ -292,6 +292,7 @@ void WeightProcessor::resetForRetare()
     m_frameWeightSkipSent.clear();
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
+    m_flowBecameValidLogged = false;
     qDebug() << "[SAW-Worker] Reset for auto-retare";
 }
 
