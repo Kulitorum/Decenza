@@ -193,6 +193,39 @@ int BatteryManager::readPlatformBatteryPercent() {
     float level = [[UIDevice currentDevice] batteryLevel];
     if (level < 0)
         return 100;  // level unknown
+
+    // Read the actual charging state from iOS so mismatch detection works cross-platform.
+    // UIDeviceBatteryState values:
+    //   0 = UIDeviceBatteryStateUnknown
+    //   1 = UIDeviceBatteryStateUnplugged
+    //   2 = UIDeviceBatteryStateCharging
+    //   3 = UIDeviceBatteryStateFull
+    //
+    // We map these to the same m_androidBatteryStatus constants used by applySmartCharging():
+    //   2=CHARGING  3=DISCHARGING  5=FULL
+    // and to m_androidPlugged:
+    //   0=UNPLUGGED  2=USB
+    // This enables the mismatch detection and log output that was previously Android-only.
+    UIDeviceBatteryState iosState = [[UIDevice currentDevice] batteryState];
+    switch (iosState) {
+    case UIDeviceBatteryStateCharging:
+        m_androidBatteryStatus = 2;  // CHARGING
+        m_androidPlugged = 2;        // USB (best guess — iOS doesn't distinguish source)
+        break;
+    case UIDeviceBatteryStateFull:
+        m_androidBatteryStatus = 5;  // FULL
+        m_androidPlugged = 2;        // USB
+        break;
+    case UIDeviceBatteryStateUnplugged:
+        m_androidBatteryStatus = 3;  // DISCHARGING
+        m_androidPlugged = 0;        // UNPLUGGED
+        break;
+    default:  // UIDeviceBatteryStateUnknown
+        m_androidBatteryStatus = 1;  // UNKNOWN
+        m_androidPlugged = -1;
+        break;
+    }
+
     return static_cast<int>(level * 100);
 
 #else
@@ -297,24 +330,26 @@ void BatteryManager::applySmartCharging() {
     const char* modeName = (m_chargingMode >= 0 && m_chargingMode <= 2)
         ? modeNames[m_chargingMode] : "Unknown";
 
-    // Human-readable Android status for the log.
-    const char* androidStatus = "n/a";
+    // Human-readable OS-reported battery status for the log.
+    // Populated on both Android (from sticky intent) and iOS (from UIDevice.batteryState).
+    const char* osStatus = "n/a";
     switch (m_androidBatteryStatus) {
-    case 1: androidStatus = "UNKNOWN";      break;
-    case 2: androidStatus = "CHARGING";     break;
-    case 3: androidStatus = "DISCHARGING";  break;
-    case 4: androidStatus = "NOT-CHARGING"; break;
-    case 5: androidStatus = "FULL";         break;
+    case 1: osStatus = "UNKNOWN";      break;
+    case 2: osStatus = "CHARGING";     break;
+    case 3: osStatus = "DISCHARGING";  break;
+    case 4: osStatus = "NOT-CHARGING"; break;
+    case 5: osStatus = "FULL";         break;
     }
 
     // Human-readable plugged source for the log.
     // "USB(DE1)" confirms the DE1 port is electrically active; "UNPLUGGED" means it isn't.
-    const char* androidPlugged = "n/a";
+    // On iOS, "USB" just means "some wired source" — iOS can't distinguish DE1 from wall.
+    const char* osPlugged = "n/a";
     switch (m_androidPlugged) {
-    case 0: androidPlugged = "UNPLUGGED"; break;
-    case 1: androidPlugged = "AC";        break;
-    case 2: androidPlugged = "USB(DE1)";  break;
-    case 4: androidPlugged = "WIRELESS";  break;
+    case 0: osPlugged = "UNPLUGGED"; break;
+    case 1: osPlugged = "AC";        break;
+    case 2: osPlugged = "USB(DE1)";  break;
+    case 4: osPlugged = "WIRELESS";  break;
     }
 
     // Log every 5th cycle (~5 min) to reduce noise. State-change logs above
@@ -325,8 +360,8 @@ void BatteryManager::applySmartCharging() {
                  << "% mode=" << modeName
                  << "charger=" << (shouldChargerBeOn ? "ON" : "OFF")
                  << "discharging=" << m_discharging
-                 << "android=" << androidStatus
-                 << "plugged=" << androidPlugged;
+                 << "status=" << osStatus
+                 << "plugged=" << osPlugged;
     }
 
     // ── Step 3: send the command to the DE1 ──────────────────────────────────
@@ -368,7 +403,7 @@ void BatteryManager::applySmartCharging() {
     // cut USB power for short periods (e.g. during preheating), so a single transient
     // DISCHARGING reading is not worth a popup. Five minutes of sustained no-power is.
     //
-    // This block is Android-only; m_androidBatteryStatus stays -1 on other platforms.
+    // This block runs on Android and iOS; m_androidBatteryStatus stays -1 on desktop.
     if (m_androidBatteryStatus != -1) {
         // Port is confirmed electrically off if Android reports DISCHARGING or UNPLUGGED.
         // Using m_androidPlugged as a second signal catches NOT_CHARGING(4) edge cases
