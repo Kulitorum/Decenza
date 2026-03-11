@@ -162,8 +162,17 @@ public slots:
     // MMR write (for advanced settings like steam flow)
     void writeMMR(uint32_t address, uint32_t value);
 
+    // MMR write bypassing the BLE command queue — used for time-critical writes
+    // that must complete before the app suspends (e.g. ensureChargerOn on iOS).
+    void writeMMRUrgent(uint32_t address, uint32_t value);
+
     // USB charger control (force=true to resend even if state unchanged, needed for DE1's 10-min timeout)
     void setUsbChargerOn(bool on, bool force = false);
+
+    // Like setUsbChargerOn but bypasses the BLE command queue for immediate send.
+    // Used by ensureChargerOn() on app suspend where the 50ms queue delay could
+    // race with iOS suspension.
+    void setUsbChargerOnUrgent(bool on);
 
     // Water refill level (write StartFillLevel to machine via WaterLevels characteristic)
     void setWaterRefillLevel(int refillPointMm);
@@ -197,6 +206,9 @@ protected:
     void customEvent(QEvent* event) override;
 
 private:
+    // Build the 20-byte MMR payload without sending it (shared by writeMMR/writeMMRUrgent)
+    static QByteArray buildMMRPayload(uint32_t address, uint32_t value);
+
     // Transport signal handlers
     void onTransportConnected();
     void onTransportDisconnected();
