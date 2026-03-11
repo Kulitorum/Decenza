@@ -55,10 +55,19 @@ void ios_checkAndRestoreBrightness()
     }
 }
 
+void ios_setIdleTimerDisabled(bool disabled)
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [UIApplication sharedApplication].idleTimerDisabled = disabled ? YES : NO;
+        qDebug() << "[Screensaver] iOS: idleTimerDisabled =" << disabled;
+    });
+}
+
 #else
 // macOS — no UIScreen API, brightness control not available
 void ios_setScreenBrightness(float) {}
 void ios_restoreScreenBrightness() {}
 void ios_checkAndRestoreBrightness() {}
+void ios_setIdleTimerDisabled(bool) {}
 #endif
 #endif

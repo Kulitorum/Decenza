@@ -145,6 +145,12 @@ void ScreensaverVideoManager::setKeepScreenOn(bool on)
             qWarning() << "[Screensaver] JNI exception in setKeepScreenOn(" << on << ")";
         }
     });
+#elif defined(Q_OS_IOS)
+    // iOS equivalent of FLAG_KEEP_SCREEN_ON — disables the system idle timer so iOS
+    // never auto-locks the screen. The app has its own screensaver that dims the display
+    // via brightness control, so the system idle timer is redundant. Without this, iOS
+    // will lock the screen and suspend the app, breaking smart charging and BLE comms.
+    ios_setIdleTimerDisabled(on);
 #else
     Q_UNUSED(on)
 #endif
