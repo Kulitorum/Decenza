@@ -116,10 +116,6 @@ if(IOS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
 endif()
 
-# zlib for zip extraction (shot import). Qt bundles zlib internally but we use
-# the API directly via #include <zlib.h>, so we need the explicit link target.
-find_package(ZLIB REQUIRED)
-
 # OpenSSL for HTTPS/TLS and self-signed certificate generation
 # Android uses KDAB android_openssl (fetched above), iOS doesn't need it (no web server)
 if(NOT ANDROID AND NOT IOS)
@@ -447,9 +443,6 @@ endif()
 if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif()
-
-# Link zlib for zip extraction in shot importer
-target_link_libraries(Decenza PRIVATE ZLIB::ZLIB)
 
 # Link psapi on Windows (for GetProcessMemoryInfo in MemoryMonitor)
 if(WIN32)

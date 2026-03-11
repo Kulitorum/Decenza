@@ -9,7 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QUrl>
-#include <zlib.h>
+#include <private/qzipreader_p.h>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -264,8 +264,7 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
     return extractedCount > 0;
 
 #else
-    // All non-Android platforms: extract zip using zlib (no QProcess dependency).
-    // Parses the zip central directory and inflates each entry.
+    // All non-Android platforms: use Qt's QZipReader (same as DatabaseBackupManager).
 
     QString path = zipPath;
     if (path.startsWith("file://")) {
@@ -274,112 +273,48 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
 
     qDebug() << "ShotImporter: Extracting" << path << "to" << destDir;
 
-    QFile zipFile(path);
-    if (!zipFile.open(QIODevice::ReadOnly)) {
-        qWarning() << "ShotImporter: Failed to open zip file:" << path;
+    QZipReader reader(path);
+    if (!reader.isReadable()) {
+        qWarning() << "ShotImporter: Cannot read ZIP file:" << path;
         return false;
     }
 
-    QByteArray zipData = zipFile.readAll();
-    zipFile.close();
-
-    const char* data = zipData.constData();
-    const qint64 size = zipData.size();
+    QDir baseDir(destDir);
+    const QString basePrefix = baseDir.absolutePath() + "/";
+    const auto entries = reader.fileInfoList();
     int extractedCount = 0;
 
-    // Walk zip local file headers (signature 0x04034b50 = "PK\3\4")
-    qint64 offset = 0;
-    while (offset + 30 <= size) {
-        // Check local file header signature
-        auto read16 = [&](qint64 pos) -> quint16 {
-            return static_cast<quint8>(data[pos]) |
-                   (static_cast<quint8>(data[pos + 1]) << 8);
-        };
-        auto read32 = [&](qint64 pos) -> quint32 {
-            return static_cast<quint8>(data[pos]) |
-                   (static_cast<quint8>(data[pos + 1]) << 8) |
-                   (static_cast<quint8>(data[pos + 2]) << 16) |
-                   (static_cast<quint8>(data[pos + 3]) << 24);
-        };
+    for (const QZipReader::FileInfo& entry : entries) {
+        QString filePath = QDir::cleanPath(baseDir.absoluteFilePath(entry.filePath));
 
-        quint32 sig = read32(offset);
-        if (sig != 0x04034b50)
-            break;  // No more local file headers (hit central directory or end)
-
-        quint16 method       = read16(offset + 8);
-        quint32 compSize     = read32(offset + 18);
-        quint32 uncompSize   = read32(offset + 22);
-        quint16 nameLen      = read16(offset + 26);
-        quint16 extraLen     = read16(offset + 28);
-
-        qint64 headerEnd = offset + 30 + nameLen + extraLen;
-        if (headerEnd + compSize > size) {
-            qWarning() << "ShotImporter: Truncated zip entry at offset" << offset;
-            break;
-        }
-
-        QString entryName = QString::fromUtf8(data + offset + 30, nameLen);
-        const char* entryData = data + headerEnd;
-
-        // Skip directory entries and entries with path traversal
-        if (entryName.endsWith('/') || entryName.contains("..")) {
-            if (!entryName.contains("..")) {
-                QDir().mkpath(destDir + "/" + entryName);
-            }
-            offset = headerEnd + compSize;
+        // Guard against ZIP Slip path traversal
+        if (!filePath.startsWith(basePrefix) && filePath != baseDir.absolutePath()) {
+            qWarning() << "ShotImporter: Skipping ZIP entry with path traversal:" << entry.filePath;
             continue;
         }
 
-        // Ensure parent directory exists
-        QString outPath = destDir + "/" + entryName;
-        QDir().mkpath(QFileInfo(outPath).absolutePath());
-
-        QByteArray fileContent;
-        if (method == 0) {
-            // Stored (no compression)
-            fileContent = QByteArray(entryData, compSize);
-        } else if (method == 8) {
-            // Deflated — use zlib raw inflate (wbits = -MAX_WBITS for raw deflate)
-            fileContent.resize(uncompSize);
-            z_stream strm = {};
-            strm.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(entryData));
-            strm.avail_in = compSize;
-            strm.next_out = reinterpret_cast<Bytef*>(fileContent.data());
-            strm.avail_out = uncompSize;
-
-            if (inflateInit2(&strm, -MAX_WBITS) != Z_OK) {
-                qWarning() << "ShotImporter: inflateInit2 failed for" << entryName;
-                offset = headerEnd + compSize;
-                continue;
-            }
-
-            int ret = inflate(&strm, Z_FINISH);
-            inflateEnd(&strm);
-
-            if (ret != Z_STREAM_END) {
-                qWarning() << "ShotImporter: inflate failed for" << entryName << "ret=" << ret;
-                offset = headerEnd + compSize;
-                continue;
-            }
+        if (entry.isDir) {
+            baseDir.mkpath(entry.filePath);
         } else {
-            qWarning() << "ShotImporter: Unsupported compression method" << method
-                       << "for" << entryName;
-            offset = headerEnd + compSize;
-            continue;
-        }
+            // Ensure parent directory exists
+            QFileInfo fi(filePath);
+            baseDir.mkpath(fi.path().mid(baseDir.absolutePath().length() + 1));
 
-        QFile outFile(outPath);
-        if (outFile.open(QIODevice::WriteOnly)) {
-            outFile.write(fileContent);
+            QFile outFile(filePath);
+            if (!outFile.open(QIODevice::WriteOnly)) {
+                qWarning() << "ShotImporter: Failed to create file:" << filePath;
+                continue;
+            }
+            {
+                QByteArray data = reader.fileData(entry.filePath);
+                outFile.write(data);
+            }
             outFile.close();
             extractedCount++;
-        } else {
-            qWarning() << "ShotImporter: Failed to write" << outPath;
         }
-
-        offset = headerEnd + compSize;
     }
 
+    reader.close();
     qDebug() << "ShotImporter: Extracted" << extractedCount << "files";
     return extractedCount > 0;
 #endif
