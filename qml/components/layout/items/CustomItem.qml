@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
@@ -21,6 +22,19 @@ Item {
     readonly property bool hideBackground: modelData.hideBackground === true
     readonly property bool hasEmoji: emoji !== ""
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
+
+    // Light mode: blend button color at 15% over page background for soft tint
+    function _blendColor(fg, bg, t) {
+        return Qt.rgba(fg.r * t + bg.r * (1 - t),
+                       fg.g * t + bg.g * (1 - t),
+                       fg.b * t + bg.b * (1 - t), 1.0)
+    }
+    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
+    readonly property color _effectiveBackground: !Theme.isDarkMode && hasAction
+        ? _blendColor(_parsedBgColor, Theme.backgroundColor, 0.15)
+        : _parsedBgColor
+    // In light mode, icon and text use the button's color; in dark mode, white
+    readonly property color _contentColor: !Theme.isDarkMode && hasAction ? _parsedBgColor : Theme.textColor
 
     readonly property int qtAlignment: {
         switch (textAlign) {
@@ -423,10 +437,7 @@ Item {
         Rectangle {
             visible: !root.hideBackground && (root.hasAction || root.hasEmoji)
             anchors.fill: parent
-            color: {
-                var base = root.bgColor || (root.hasAction ? "#555555" : Theme.surfaceColor)
-                return fullTap.isPressed ? Qt.darker(base, 1.2) : base
-            }
+            color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
         }
@@ -445,13 +456,20 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
                 Accessible.ignored: true
+                // Tint white SVG icons for light mode visibility
+                layer.enabled: !Theme.isDarkMode && root.emojiIsSvg
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: root._contentColor
+                }
             }
 
             Text {
                 id: emojiText
                 text: root.resolvedText
                 textFormat: Text.RichText
-                color: Theme.textColor
+                color: root._contentColor
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
                 anchors.horizontalCenter: parent.horizontalCenter
