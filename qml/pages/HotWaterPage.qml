@@ -610,6 +610,7 @@ Page {
 
     // Bottom bar
     BottomBar {
+        id: hotWaterBottomBar
         visible: !isDispensing
         title: getCurrentVesselName() || noVesselText.text
         onBackClicked: {
@@ -619,19 +620,19 @@ Page {
 
         Text {
             text: volumeInput.value.toFixed(0) + (isVolumeMode ? " ml" : " g")
-            color: "white"
+            color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: hotWaterBottomBar.contentColor; opacity: 0.3 }
         Text {
             text: temperatureInput.value.toFixed(0) + "°C"
-            color: "white"
+            color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: hotWaterBottomBar.contentColor; opacity: 0.3 }
         Text {
             text: (flowRateInput.value / 10).toFixed(1) + " mL/s"
-            color: "white"
+            color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }
     }

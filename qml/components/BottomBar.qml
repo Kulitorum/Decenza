@@ -14,11 +14,22 @@ Rectangle {
 
     signal backClicked()
 
+    // Light mode: blend bar color at 15% over background for soft tint
+    function _blendColor(fg, bg, t) {
+        return Qt.rgba(fg.r * t + bg.r * (1 - t),
+                       fg.g * t + bg.g * (1 - t),
+                       fg.b * t + bg.b * (1 - t), 1.0)
+    }
+    readonly property color _effectiveBarColor: !Theme.isDarkMode
+        ? _blendColor(barColor, Theme.backgroundColor, 0.15)
+        : barColor
+    readonly property color contentColor: !Theme.isDarkMode ? barColor : "white"
+
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     height: Theme.bottomBarHeight
-    color: barColor
+    color: _effectiveBarColor
 
     RowLayout {
         anchors.fill: parent
@@ -54,6 +65,7 @@ Rectangle {
                 anchors.centerIn: parent
                 source: "qrc:/icons/back.svg"
                 iconSize: Theme.scaled(28)
+                color: root.contentColor
                 // Decorative - accessibility handled by AccessibleTapHandler
                 Accessible.ignored: true
             }
@@ -74,7 +86,7 @@ Rectangle {
         Text {
             visible: root.title !== ""
             text: root.title
-            color: "white"
+            color: root.contentColor
             font.pixelSize: Theme.scaled(20)
             font.bold: true
         }
@@ -91,7 +103,7 @@ Rectangle {
         Text {
             visible: root.rightText !== ""
             text: root.rightText
-            color: "white"
+            color: root.contentColor
             font: Theme.bodyFont
         }
     }
