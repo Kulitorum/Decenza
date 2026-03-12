@@ -96,13 +96,18 @@ Button {
         }
     }
 
+    // In light mode, use a soft tinted background so dark icons/text have contrast
+    readonly property color _effectiveBackground: !Theme.isDarkMode
+        ? Qt.rgba(control.backgroundColor.r, control.backgroundColor.g, control.backgroundColor.b, 0.15)
+        : control.backgroundColor
+
     background: Rectangle {
         radius: Theme.buttonRadius
         color: {
             if (!control.enabled) return Theme.buttonDisabled
-            if (control._isPressed) return Qt.darker(control.backgroundColor, 1.2)
-            if (control.hovered || control.activeFocus) return Qt.lighter(control.backgroundColor, 1.1)
-            return control.backgroundColor
+            if (control._isPressed) return Qt.darker(control._effectiveBackground, 1.2)
+            if (control.hovered || control.activeFocus) return Qt.lighter(control._effectiveBackground, 1.1)
+            return control._effectiveBackground
         }
 
         // Focus indicator
