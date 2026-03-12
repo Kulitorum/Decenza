@@ -528,6 +528,12 @@ void ShotServer::onReadyRead()
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
 
+    // After sleep/wake or network changes, readyRead can fire for sockets that
+    // onDisconnected() already scheduled for deleteLater(). Processing such a
+    // socket would create a new keep-alive timer (via sendResponse →
+    // resetKeepAliveTimer) that becomes a dangling pointer once deleteLater runs.
+    if (socket->state() == QAbstractSocket::UnconnectedState) return;
+
     // SSE clients keep connections open — ignore further data from them
     if (m_sseLayoutClients.contains(socket)) return;
     if (m_sseThemeClients.contains(socket)) return;
@@ -1899,6 +1905,11 @@ void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString&
 
 void ShotServer::resetKeepAliveTimer(QTcpSocket* socket)
 {
+    // Don't create timers for sockets that are already disconnecting/closed —
+    // the timer (parented to the socket) would be destroyed by deleteLater()
+    // while the pointer remains in m_keepAliveTimers, causing a dangling access.
+    if (socket->state() != QAbstractSocket::ConnectedState) return;
+
     QTimer* timer = m_keepAliveTimers.value(socket);
     if (!timer) {
         timer = new QTimer(socket);
