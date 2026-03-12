@@ -529,10 +529,10 @@ void ShotServer::onReadyRead()
     if (!socket) return;
 
     // After sleep/wake or network changes, readyRead can fire for sockets that
-    // onDisconnected() already scheduled for deleteLater(). Processing such a
-    // socket would create a new keep-alive timer (via sendResponse →
-    // resetKeepAliveTimer) that becomes a dangling pointer once deleteLater runs.
-    if (socket->state() == QAbstractSocket::UnconnectedState) return;
+    // are closing or already disconnected. Processing such a socket would create
+    // a new keep-alive timer (via sendResponse → resetKeepAliveTimer) whose map
+    // entry becomes dangling once deleteLater destroys the socket and its child timer.
+    if (socket->state() != QAbstractSocket::ConnectedState) return;
 
     // SSE clients keep connections open — ignore further data from them
     if (m_sseLayoutClients.contains(socket)) return;
