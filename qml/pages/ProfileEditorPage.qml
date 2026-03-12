@@ -444,7 +444,7 @@ Page {
                 Text { text: TranslationManager.translate("profileEditor.name", "Name"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                 StyledTextField {
                     id: profileNameField
-                    Accessible.name: "Profile name"
+                    Accessible.name: TranslationManager.translate("profileEditor.profileName", "Profile name")
                     Layout.fillWidth: true
                     text: profile ? profile.title : ""
                     font: Theme.bodyFont
@@ -483,7 +483,7 @@ Page {
                 }
                 ValueInput {
                     Layout.fillWidth: true; valueColor: Theme.temperatureColor
-                    accessibleName: "Global temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"
+                    accessibleName: TranslationManager.translate("profileEditor.globalTemperature", "Global temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"
                     value: { stepVersion; return profile && profile.steps.length > 0 ? profile.steps[0].temperature : 93 }
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
@@ -512,7 +512,7 @@ Page {
                         id: recommendedDoseSwitch
                         checked: profile ? !!profile.has_recommended_dose : false
                         onToggled: { if (profile) { profile.has_recommended_dose = checked; uploadProfile() } }
-                        Accessible.name: "Toggle recommended dose"
+                        Accessible.name: TranslationManager.translate("profileEditor.toggleRecommendedDose", "Toggle recommended dose")
                     }
                 }
                 ColumnLayout {
@@ -521,7 +521,7 @@ Page {
                     spacing: Theme.scaled(2)
                     ValueInput {
                         Layout.fillWidth: true; valueColor: Theme.weightColor
-                        accessibleName: "Recommended dose"; from: 5; to: 100; stepSize: 0.1; suffix: " g"
+                        accessibleName: TranslationManager.translate("profileEditor.recommendedDose", "Recommended dose"); from: 5; to: 100; stepSize: 0.1; suffix: " g"
                         value: { stepVersion; return profile ? (profile.recommended_dose || 18) : 18 }
                         onValueModified: function(newValue) { if (profile) { profile.recommended_dose = Math.round(newValue * 10) / 10; uploadProfile() } }
                     }
@@ -827,7 +827,7 @@ Page {
 
             StyledTextField {
                 id: saveAsTitleField
-                Accessible.name: "Profile name"
+                Accessible.name: TranslationManager.translate("profileEditor.profileName", "Profile name")
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
@@ -1104,7 +1104,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Text { text: TranslationManager.translate("profileEditor.frameName", "Frame Name"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     StyledTextField {
-                        Accessible.name: "Frame name"
+                        Accessible.name: TranslationManager.translate("profileEditor.frameName", "Frame name")
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
                         text: { var v = stepVersion; return step ? step.name : "" }
@@ -1129,7 +1129,7 @@ Page {
                 }
 
                 // Temperature
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Step temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: stepVersion >= 0 && step ? step.temperature : 93; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(newValue * 10) / 10; uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: stepVersion >= 0 && step ? step.temperature : 93; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(newValue * 10) / 10; uploadProfile() } } }
 
                 // Sensor toggle
                 Text { text: TranslationManager.translate("profileEditor.sensor", "Sensor"); font: Theme.captionFont; color: Theme.textSecondaryColor }
@@ -1254,15 +1254,15 @@ Page {
 
                 // Max duration
                 Text { text: TranslationManager.translate("profileEditor.maxDuration", "Duration"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { Layout.fillWidth: true; accessibleName: "Max duration"; from: 0; to: 120; stepSize: 1; suffix: " s"; value: stepVersion >= 0 && step ? step.seconds : 30; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].seconds = Math.round(newValue); uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("profileEditor.maxDuration", "Max duration"); from: 0; to: 120; stepSize: 1; suffix: " s"; value: stepVersion >= 0 && step ? step.seconds : 30; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].seconds = Math.round(newValue); uploadProfile() } } }
 
                 // Max volume
                 Text { text: TranslationManager.translate("profileEditor.maxVolume", "Volume"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: "Max volume"; from: 0; to: 500; stepSize: 1; suffix: " mL"; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue); uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("profileEditor.maxVolume", "Max volume"); from: 0; to: 500; stepSize: 1; suffix: " mL"; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue); uploadProfile() } } }
 
                 // Max weight (independent, app-side exit)
                 Text { text: TranslationManager.translate("profileEditor.maxWeight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Max weight"; from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10; uploadProfile() } } }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("profileEditor.maxWeight", "Max weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10; uploadProfile() } } }
 
                 // Flow/Pressure limit (opposite of goal in section 2)
                 Text { text: step && step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit"); font: Theme.captionFont; color: step && step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor }
@@ -1289,7 +1289,7 @@ Page {
                         id: exitIfSwitch
                         checked: { var v = stepVersion; return step ? step.exit_if : false }
                         onToggled: { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_if = checked; uploadProfile() } }
-                        Accessible.name: "Move on if condition met"
+                        Accessible.name: TranslationManager.translate("profileEditor.moveOnIfConditionMet", "Move on if condition met")
                     }
                 }
 
@@ -1315,7 +1315,7 @@ Page {
                     ValueInput {
                         Layout.fillWidth: true
                         valueColor: step && (step.exit_type === "flow_over" || step.exit_type === "flow_under") ? Theme.flowColor : Theme.pressureColor
-                        accessibleName: "Exit value"
+                        accessibleName: TranslationManager.translate("profileEditor.exitValue", "Exit value")
                         from: 0; to: { if (!step) return 12; switch (step.exit_type) { case "flow_over": case "flow_under": return 8; default: return 12 } }
                         stepSize: 0.1
                         suffix: step && (step.exit_type === "flow_over" || step.exit_type === "flow_under") ? " mL/s" : " bar"
@@ -1342,7 +1342,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Text { text: TranslationManager.translate("profileEditor.popupMessage", "Popup Message"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     StyledTextField {
-                        Accessible.name: "Popup message"
+                        Accessible.name: TranslationManager.translate("profileEditor.popupMessage", "Popup message")
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
                         text: { var v = stepVersion; return step ? (step.popup || "") : "" }
@@ -1391,7 +1391,7 @@ Page {
 
             StyledTextField {
                 id: nameField
-                Accessible.name: "Profile name"
+                Accessible.name: TranslationManager.translate("profileEditor.profileName", "Profile name")
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
