@@ -921,10 +921,10 @@ Page {
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
             if (MainController.saveProfile(originalProfileName)) {
-                AccessibilityManager.announce("Profile saved")
+                AccessibilityManager.announce(TranslationManager.translate("simpleProfileEditor.profileSaved", "Profile saved"))
                 root.goBack()
             } else {
-                AccessibilityManager.announce("Save failed")
+                AccessibilityManager.announce(TranslationManager.translate("simpleProfileEditor.saveFailed", "Save failed"))
                 saveErrorDialog.open()
             }
         }

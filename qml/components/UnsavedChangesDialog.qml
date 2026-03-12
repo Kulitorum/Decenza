@@ -22,9 +22,13 @@ Dialog {
 
     onOpened: {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-            var msg = root.showTry
-                ? TranslationManager.translate("unsavedChanges.announcementWithTry", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Use Unsaved, Save As, or Save.").arg(root.itemType)
-                : TranslationManager.translate("unsavedChanges.announcement", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType)
+            var msg
+            if (root.showTry && root.showSaveAs)
+                msg = TranslationManager.translate("unsavedChanges.announcementWithTry", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Use Unsaved, Save As, or Save.").arg(root.itemType)
+            else if (root.showTry)
+                msg = TranslationManager.translate("unsavedChanges.announcementTryNoSaveAs", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Use Unsaved, or Save.").arg(root.itemType)
+            else
+                msg = TranslationManager.translate("unsavedChanges.announcement", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType)
             AccessibilityManager.announce(msg)
         }
     }

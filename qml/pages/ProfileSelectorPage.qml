@@ -727,6 +727,7 @@ Page {
                                            "white" : Theme.textColor
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
+                                    Accessible.ignored: true
                                 }
 
                                 // Edit button

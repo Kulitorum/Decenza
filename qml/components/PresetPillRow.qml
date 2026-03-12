@@ -50,8 +50,9 @@ FocusScope {
     function announceCurrentPill() {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && presets.length > 0) {
             var name = presets[focusedIndex].name || ""
+            var modified = (focusedIndex === selectedIndex && MainController.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
             var status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
-            AccessibilityManager.announce(name + status)
+            AccessibilityManager.announce(name + modified + status)
         }
     }
 
@@ -74,10 +75,14 @@ FocusScope {
         return textMetrics.width
     }
 
-    // Recalculate when presets or width changes (deferred via timer to avoid
-    // destroying Repeater delegates during signal handler chains)
+    // Recalculate when presets, width, or profile modified state changes (deferred
+    // via timer to avoid destroying Repeater delegates during signal handler chains)
     onPresetsChanged: recalcTimer.restart()
     onEffectiveMaxWidthChanged: recalcTimer.restart()
+    Connections {
+        target: MainController
+        function onProfileModifiedChanged() { recalcTimer.restart() }
+    }
 
     // All model recalculations go through this timer to coalesce rapid changes
     // and ensure delegates aren't destroyed while their signal handlers run
@@ -103,7 +108,8 @@ FocusScope {
         var pillWidths = []
         var totalWidth = 0
         for (var i = 0; i < presets.length; i++) {
-            var textWidth = measureTextWidth(presets[i].name || "")
+            var prefix = (i === selectedIndex && MainController.profileModified) ? "*" : ""
+            var textWidth = measureTextWidth(prefix + (presets[i].name || ""))
             var pillWidth = textWidth + pillPadding
             pillWidths.push(pillWidth)
             totalWidth += pillWidth
@@ -245,8 +251,9 @@ FocusScope {
                             accessibleName: {
                                 if (!modelData || !modelData.preset) return ""
                                 var name = modelData.preset.name || ""
+                                var modified = (modelData.index === root.selectedIndex && MainController.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
                                 var status = modelData.index === root.selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
-                                return name + status
+                                return name + modified + status
                             }
                             accessibleItem: pill
 
