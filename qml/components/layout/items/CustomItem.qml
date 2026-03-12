@@ -327,6 +327,14 @@ Item {
                 case "quit":
                     Qt.quit()
                     break
+                default:
+                    // Handle parameterized commands like loadProfile:<name>
+                    if (target.indexOf("loadProfile:") === 0) {
+                        var profileName = target.substring("loadProfile:".length)
+                        if (profileName)
+                            MainController.loadProfile(profileName)
+                    }
+                    break
             }
         }
     }
