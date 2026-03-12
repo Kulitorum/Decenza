@@ -222,7 +222,7 @@ Page {
                      MainController.aiManager.lastRecommendation.length > 0
 
             AccessibleButton {
-                text: "Copy"
+                text: TranslationManager.translate("dialingAssistant.button.copy", "Copy")
                 accessibleName: TranslationManager.translate("dialingassistant.accessible.copy", "Copy recommendation to clipboard")
                 Layout.fillWidth: true
                 onClicked: {
@@ -251,7 +251,7 @@ Page {
             }
 
             AccessibleButton {
-                text: "Done"
+                text: TranslationManager.translate("dialingAssistant.button.done", "Done")
                 accessibleName: TranslationManager.translate("dialingassistant.accessible.done", "Close recommendation")
                 Layout.fillWidth: true
                 onClicked: pageStack.pop()

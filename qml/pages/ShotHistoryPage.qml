@@ -723,7 +723,7 @@ Page {
                         Text {
                             id: loadButtonText
                             anchors.centerIn: parent
-                            text: "Load"
+                            text: TranslationManager.translate("shotHistory.button.load", "Load")
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
                             color: "white"
@@ -1302,7 +1302,7 @@ Page {
                     Text { id: tdsLabel; text: "tds:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                     MouseArea { id: tdsArea; anchors.fill: parent; onClicked: insertSearchKeyword("tds:") }
                 }
-                Text { text: "TDS"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
                 Rectangle {

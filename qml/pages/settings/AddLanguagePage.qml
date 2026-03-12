@@ -77,7 +77,7 @@ Page {
         // Header
         Text {
             Layout.fillWidth: true
-            text: "Tap a language to add it"
+            text: TranslationManager.translate("addLanguage.header.tapToAdd", "Tap a language to add it")
             font: Theme.labelFont
             color: Theme.textSecondaryColor
             horizontalAlignment: Text.AlignHCenter
@@ -163,7 +163,7 @@ Page {
     // Bottom bar
     BottomBar {
         id: bottomBar
-        title: "Add Language"
+        title: TranslationManager.translate("addLanguage.title", "Add Language")
         onBackClicked: addLanguagePage.StackView.view.pop()
     }
 }

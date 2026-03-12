@@ -60,12 +60,25 @@ Page {
 
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                 // Build tab names based on which tabs are visible
-                var tabNames = ["Connections", "Preferences", "Screensaver", "Visualizer", "AI", "Accessibility", "Themes", "Layout", "Language", "History", "Data", "MQTT"]
-                if (MainController.updateChecker.canCheckForUpdates) tabNames.push("Update")
-                tabNames.push("About")
-                if (Settings.isDebugBuild) tabNames.push("Debug")
+                var tabNames = [
+                    TranslationManager.translate("settings.tab.connections", "Connections"),
+                    TranslationManager.translate("settings.tab.preferences", "Preferences"),
+                    TranslationManager.translate("settings.tab.screensaver", "Screensaver"),
+                    TranslationManager.translate("settings.tab.visualizer", "Visualizer"),
+                    TranslationManager.translate("settings.tab.ai", "AI"),
+                    TranslationManager.translate("settings.tab.accessibility", "Accessibility"),
+                    TranslationManager.translate("settings.tab.themes", "Themes"),
+                    TranslationManager.translate("settings.tab.layout", "Layout"),
+                    TranslationManager.translate("settings.tab.language", "Language"),
+                    TranslationManager.translate("settings.tab.history", "History"),
+                    TranslationManager.translate("settings.tab.data", "Data"),
+                    TranslationManager.translate("settings.tab.mqtt", "MQTT")
+                ]
+                if (MainController.updateChecker.canCheckForUpdates) tabNames.push(TranslationManager.translate("settings.tab.update", "Update"))
+                tabNames.push(TranslationManager.translate("settings.tab.about", "About"))
+                if (Settings.isDebugBuild) tabNames.push(TranslationManager.translate("settings.tab.debug", "Debug"))
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
-                    AccessibilityManager.announce(tabNames[currentIndex] + " tab")
+                    AccessibilityManager.announce(TranslationManager.translate("settings.accessible.tabAnnounce", "%1 tab").arg(tabNames[currentIndex]))
                 }
             }
         }

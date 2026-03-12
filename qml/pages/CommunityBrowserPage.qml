@@ -120,7 +120,7 @@ Item {
         // Loading indicator
         Text {
             visible: LibrarySharing.browsing
-            text: "Loading..."
+            text: TranslationManager.translate("community.status.loading", "Loading...")
             color: Theme.primaryColor
             font: Theme.bodyFont
             Layout.fillWidth: true
@@ -234,7 +234,7 @@ Item {
 
     // Bottom navigation bar
     BottomBar {
-        title: "Community"
+        title: TranslationManager.translate("community.title", "Community")
         onBackClicked: pageStack.pop()
 
         // Download button

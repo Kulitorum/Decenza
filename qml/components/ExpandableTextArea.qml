@@ -196,7 +196,7 @@ Rectangle {
                 expandDialog.open()
                 dialogTextArea.forceActiveFocus()
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    AccessibilityManager.announce(root.accessibleName + " expanded editor")
+                    AccessibilityManager.announce(TranslationManager.translate("expandableText.accessible.expandedEditor", "%1 expanded editor").arg(root.accessibleName))
                 }
             }
         }

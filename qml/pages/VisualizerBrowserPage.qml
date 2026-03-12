@@ -142,7 +142,7 @@ Page {
                         horizontalAlignment: Text.AlignHCenter
                         maximumLength: 4
                         placeholder: "CODE"
-                        accessibleName: "Share code"
+                        accessibleName: TranslationManager.translate("visualizerBrowser.accessible.shareCode", "Share code")
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
 
                         // Auto-uppercase
