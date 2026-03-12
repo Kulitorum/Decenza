@@ -8,6 +8,7 @@ import "../components/layout"
 Page {
     id: idlePage
     objectName: "idlePage"
+    property alias idleBrewDialog: idleBrewDialog
     background: Rectangle { color: Theme.backgroundColor }
 
     StackView.onActivated: {

@@ -1433,6 +1433,15 @@ Dialog {
             { id: "navigate:ai",             label: "Go to AI Settings",    contexts: ["idle", "all"] },
             { id: "navigate:visualizer",     label: "Go to Visualizer",     contexts: ["idle", "all"] },
             { id: "navigate:autofavorites",  label: "Go to Favorites",      contexts: ["idle", "all"] },
+            { id: "navigate:steam",          label: "Go to Steam",          contexts: ["idle", "all"] },
+            { id: "navigate:hotwater",       label: "Go to Hot Water",      contexts: ["idle", "all"] },
+            { id: "navigate:flush",          label: "Go to Flush",          contexts: ["idle", "all"] },
+            { id: "navigate:beaninfo",       label: "Go to Bean Info",      contexts: ["idle", "all"] },
+            { id: "navigate:espresso",       label: "Go to Espresso",       contexts: ["idle", "all"] },
+            { id: "navigate:community",      label: "Go to Community",      contexts: ["idle", "all"] },
+            { id: "navigate:flowCalibration", label: "Go to Flow Calibration", contexts: ["idle", "all"] },
+            { id: "navigate:profileImport",  label: "Go to Profile Import", contexts: ["idle", "all"] },
+            { id: "navigate:shotReview",     label: "Go to Shot Review",    contexts: ["idle"] },
             { id: "command:sleep",           label: "Sleep",                contexts: ["idle"] },
             { id: "command:startEspresso",   label: "Start Espresso",       contexts: ["idle"] },
             { id: "command:startSteam",      label: "Start Steam",          contexts: ["idle"] },
@@ -1442,6 +1451,11 @@ Dialog {
             { id: "command:tare",            label: "Tare Scale",           contexts: ["idle", "espresso", "all"] },
             { id: "command:scanDE1",         label: "Scan for DE1",         contexts: ["idle", "all"] },
             { id: "command:scanScale",       label: "Scan for Scale",       contexts: ["idle", "all"] },
+            { id: "command:brewSettings",    label: "Open Brew Settings",   contexts: ["idle"] },
+            { id: "command:toggleCharging",  label: "Toggle Charging Mode", contexts: ["idle", "all"] },
+            { id: "command:uploadVisualizer", label: "Upload to Visualizer", contexts: ["idle"] },
+            { id: "command:connectDE1",      label: "Connect DE1",          contexts: ["idle", "all"] },
+            { id: "command:disconnectDE1",   label: "Disconnect DE1",       contexts: ["idle"] },
             { id: "command:quit",            label: "Quit App",             contexts: ["idle"] }
         ]
         var ctx = popup.pageContext

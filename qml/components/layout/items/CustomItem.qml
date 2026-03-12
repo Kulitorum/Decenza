@@ -232,7 +232,17 @@ Item {
                 "steam": "SteamPage.qml",
                 "hotwater": "HotWaterPage.qml",
                 "flush": "FlushPage.qml",
-                "beaninfo": "BeanInfoPage.qml"
+                "beaninfo": "BeanInfoPage.qml",
+                "espresso": "EspressoPage.qml",
+                "community": "CommunityBrowserPage.qml",
+                "flowCalibration": "FlowCalibrationPage.qml",
+                "profileImport": "ProfileImportPage.qml"
+            }
+            if (target === "shotReview") {
+                var shotId = MainController.lastSavedShotId
+                if (shotId > 0 && typeof pageStack !== "undefined")
+                    pageStack.push(Qt.resolvedUrl("../../../pages/PostShotReviewPage.qml"), { editShotId: shotId })
+                return
             }
             var page = pageMap[target]
             if (page && typeof pageStack !== "undefined") {
@@ -280,6 +290,37 @@ Item {
                 case "scanScale":
                     if (typeof BLEManager !== "undefined")
                         BLEManager.scanForScales()
+                    break
+                case "brewSettings":
+                    var bp = root.parent
+                    while (bp) {
+                        if (bp.objectName === "idlePage") break
+                        bp = bp.parent
+                    }
+                    if (bp && bp.idleBrewDialog) bp.idleBrewDialog.open()
+                    break
+                case "toggleCharging":
+                    if (typeof BatteryManager !== "undefined")
+                        BatteryManager.chargingMode = (BatteryManager.chargingMode + 1) % 3
+                    break
+                case "uploadVisualizer":
+                    var lastId = MainController.lastSavedShotId
+                    if (lastId > 0) {
+                        MainController.shotHistory.shotReady.connect(function(shotId, data) {
+                            if (shotId !== lastId) return
+                            MainController.shotHistory.shotReady.disconnect(arguments.callee)
+                            MainController.visualizer.uploadShotFromHistory(data)
+                        })
+                        MainController.shotHistory.requestShot(lastId)
+                    }
+                    break
+                case "connectDE1":
+                    if (typeof BLEManager !== "undefined")
+                        BLEManager.startScan()
+                    break
+                case "disconnectDE1":
+                    if (typeof DE1Device !== "undefined")
+                        DE1Device.disconnect()
                     break
                 case "quit":
                     Qt.quit()
