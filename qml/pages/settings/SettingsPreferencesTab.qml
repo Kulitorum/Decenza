@@ -299,7 +299,8 @@ KeyboardAwareContainer {
                                     anchors.centerIn: parent
                                     text: TranslationManager.translate("settings.preferences.simulationActive", "Active")
                                     color: Theme.primaryColor
-                                    font.pixelSize: Theme.scaled(11)
+                                    font.family: Theme.captionFont.family
+                                    font.pixelSize: Theme.captionFont.pixelSize
                                     font.bold: true
                                 }
 
@@ -390,8 +391,8 @@ KeyboardAwareContainer {
                             visible: Settings.launcherMode
                             text: TranslationManager.translate("settings.options.launcherModeHint", "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\".")
                             color: Theme.warningColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(11)
+                            font.family: Theme.captionFont.family
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -511,9 +512,10 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(5)
 
                             Text {
-                                text: "Manual city (fallback if GPS unavailable):"
+                                text: TranslationManager.translate("settings.preferences.manualCityLabel", "Manual city (fallback if GPS unavailable):")
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(11)
+                                font.family: Theme.captionFont.family
+                                font.pixelSize: Theme.captionFont.pixelSize
                             }
 
                             RowLayout {
@@ -620,8 +622,8 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.scaleHint", "Navigate to each screen and use the floating control to adjust its scale.")
                             color: Theme.primaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(11)
+                            font.family: Theme.captionFont.family
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.WordWrap
                         }
                     }
