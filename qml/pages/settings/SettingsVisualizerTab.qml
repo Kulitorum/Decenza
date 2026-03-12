@@ -105,7 +105,7 @@ KeyboardAwareContainer {
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
-                        accessibleName: "Test Visualizer connection"
+                        accessibleName: TranslationManager.translate("visualizer.testConnection", "Test Visualizer connection")
                         enabled: usernameField.text.length > 0 && passwordField.text.length > 0
                         onClicked: {
                             visualizerTab.testResultMessage = TranslationManager.translate("settings.visualizer.testing", "Testing...")

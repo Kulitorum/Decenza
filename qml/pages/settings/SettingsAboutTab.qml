@@ -44,7 +44,7 @@ Item {
                         }
 
                         Text {
-                            text: "Version " + Qt.application.version
+                            text: TranslationManager.translate("about.version", "Version %1").arg(Qt.application.version)
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             Layout.alignment: Qt.AlignHCenter
@@ -85,9 +85,10 @@ Item {
                         Layout.fillWidth: true
                         spacing: Theme.spacingMedium
 
-                        Text {
+                        Tr {
                             Layout.fillWidth: true
-                            text: "If you find this app useful, donations are welcome but never expected."
+                            key: "about.donationMessage"
+                            fallback: "If you find this app useful, donations are welcome but never expected."
                             font: Theme.bodyFont
                             color: Theme.textColor
                             wrapMode: Text.Wrap
@@ -103,7 +104,7 @@ Item {
                             color: "#0070BA"  // PayPal blue
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Donate via PayPal"
+                            Accessible.name: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
                             Accessible.focusable: true
                             Accessible.onPressAction: donateArea.clicked(null)
 
@@ -116,7 +117,7 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: "Donate via PayPal"
+                                text: TranslationManager.translate("about.donateViaPaypal", "Donate via PayPal")
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
                                 color: "white"

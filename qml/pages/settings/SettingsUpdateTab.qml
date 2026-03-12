@@ -62,7 +62,7 @@ Item {
 
                         Text {
                             Layout.alignment: Qt.AlignHCenter
-                            text: "Build " + AppVersionCode
+                            text: TranslationManager.translate("update.build", "Build %1").arg(AppVersionCode)
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }
@@ -79,7 +79,7 @@ Item {
                     // Easter egg: tap 7 times to enable translation upload
                     AccessibleMouseArea {
                         anchors.fill: parent
-                        accessibleName: "Version " + AppVersion + ", Build " + AppVersionCode
+                        accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(AppVersion).arg(AppVersionCode)
                         onAccessibleClicked: {
                             var now = Date.now()
                             // Reset counter if more than 2 seconds since last tap

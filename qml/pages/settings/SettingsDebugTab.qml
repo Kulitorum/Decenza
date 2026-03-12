@@ -142,8 +142,9 @@ Item {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(20)
 
-                        Text {
-                            text: "Headless machine"
+                        Tr {
+                            key: "debug.headlessMachine"
+                            fallback: "Headless machine"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                         }
@@ -152,7 +153,7 @@ Item {
 
                         StyledSwitch {
                             checked: DE1Device.isHeadless
-                            accessibleName: "Headless machine"
+                            accessibleName: TranslationManager.translate("debug.headlessMachine", "Headless machine")
                             onToggled: DE1Device.setIsHeadless(checked)
                         }
                     }
@@ -174,8 +175,9 @@ Item {
                     anchors.margins: Theme.scaled(15)
                     spacing: Theme.scaled(10)
 
-                    Text {
-                        text: "Profile Converter"
+                    Tr {
+                        key: "debug.profileConverter"
+                        fallback: "Profile Converter"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
@@ -233,8 +235,9 @@ Item {
 
                         Item { Layout.fillWidth: true }
 
-                        Text {
-                            text: "Overwrite"
+                        Tr {
+                            key: "debug.overwrite"
+                            fallback: "Overwrite"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(12)
                         }
@@ -242,12 +245,12 @@ Item {
                         StyledSwitch {
                             id: overwriteSwitch
                             checked: false
-                            accessibleName: "Overwrite existing profiles"
+                            accessibleName: TranslationManager.translate("debug.overwriteExistingProfiles", "Overwrite existing profiles")
                         }
 
                         AccessibleButton {
-                            text: "Convert Profiles"
-                            accessibleName: "Convert DE1 app profiles to native format"
+                            text: TranslationManager.translate("debug.convertProfiles", "Convert Profiles")
+                            accessibleName: TranslationManager.translate("debug.convertProfilesAccessible", "Convert DE1 app profiles to native format")
                             enabled: MainController.profileConverter &&
                                      !MainController.profileConverter.isConverting &&
                                      parent.de1AppPath !== ""
@@ -326,8 +329,8 @@ Item {
                     }
 
                     AccessibleButton {
-                        text: "OK"
-                        accessibleName: "Dismiss dialog"
+                        text: TranslationManager.translate("common.button.ok", "OK")
+                        accessibleName: TranslationManager.translate("debug.dismissDialog", "Dismiss dialog")
                         anchors.horizontalCenter: parent.horizontalCenter
                         onClicked: profileConvertResultDialog.close()
                     }
@@ -387,7 +390,7 @@ Item {
 
                         AccessibleButton {
                             text: TranslationManager.translate("settings.debug.merge", "Merge...")
-                            accessibleName: "Import and merge database"
+                            accessibleName: TranslationManager.translate("debug.importMergeDatabase", "Import and merge database")
                             onClicked: {
                                 importDialog.mergeMode = true
                                 importDialog.open()
@@ -396,7 +399,7 @@ Item {
 
                         AccessibleButton {
                             text: TranslationManager.translate("settings.debug.replace", "Replace...")
-                            accessibleName: "Import and replace database"
+                            accessibleName: TranslationManager.translate("debug.importReplaceDatabase", "Import and replace database")
                             onClicked: {
                                 importDialog.mergeMode = false
                                 importDialog.open()
@@ -472,8 +475,8 @@ Item {
                     }
 
                     AccessibleButton {
-                        text: "OK"
-                        accessibleName: "Dismiss dialog"
+                        text: TranslationManager.translate("common.button.ok", "OK")
+                        accessibleName: TranslationManager.translate("debug.dismissDialog", "Dismiss dialog")
                         anchors.horizontalCenter: parent.horizontalCenter
                         onClicked: importResultDialog.close()
                     }
@@ -560,7 +563,7 @@ Item {
                             text: TranslationManager.autoTranslating ?
                                   TranslationManager.translate("settings.debug.cancel", "Cancel") :
                                   TranslationManager.translate("settings.debug.translateUploadAll", "Translate & Upload All")
-                            accessibleName: "Translate and upload all languages"
+                            accessibleName: TranslationManager.translate("debug.translateUploadAll", "Translate and upload all languages")
                             enabled: !TranslationManager.uploading
                             onClicked: {
                                 if (TranslationManager.autoTranslating) {

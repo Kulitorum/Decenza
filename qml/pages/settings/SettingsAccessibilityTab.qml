@@ -85,10 +85,10 @@ Item {
                                 if (checked) {
                                     // Enable first, then announce
                                     AccessibilityManager.ttsEnabled = true
-                                    AccessibilityManager.announce("Voice announcements enabled", true)
+                                    AccessibilityManager.announce(TranslationManager.translate("accessibility.voiceAnnouncementsEnabled", "Voice announcements enabled"), true)
                                 } else {
                                     // Announce first, then disable
-                                    AccessibilityManager.announce("Voice announcements disabled", true)
+                                    AccessibilityManager.announce(TranslationManager.translate("accessibility.voiceAnnouncementsDisabled", "Voice announcements disabled"), true)
                                     AccessibilityManager.ttsEnabled = false
                                 }
                             } else {
@@ -129,7 +129,7 @@ Item {
                         onCheckedChanged: {
                             AccessibilityManager.tickEnabled = checked
                             if (AccessibilityManager.enabled) {
-                                AccessibilityManager.announce(checked ? "Frame tick sound enabled" : "Frame tick sound disabled", true)
+                                AccessibilityManager.announce(checked ? TranslationManager.translate("accessibility.frameTickEnabled", "Frame tick sound enabled") : TranslationManager.translate("accessibility.frameTickDisabled", "Frame tick sound disabled"), true)
                             }
                         }
                     }
@@ -156,8 +156,8 @@ Item {
                         to: 4
                         stepSize: 1
                         suffix: ""
-                        displayText: "Sound " + value
-                        accessibleName: "Select tick sound, 1 to 4. Current: " + value
+                        displayText: TranslationManager.translate("accessibility.soundValue", "Sound %1").arg(value)
+                        accessibleName: TranslationManager.translate("accessibility.selectTickSound", "Select tick sound, 1 to 4. Current: %1").arg(value)
                         enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
                         onValueModified: function(newValue) {
                             AccessibilityManager.tickSoundIndex = newValue
@@ -170,7 +170,7 @@ Item {
                         to: 100
                         stepSize: 10
                         suffix: "%"
-                        accessibleName: "Tick volume. Current: " + value + " percent"
+                        accessibleName: TranslationManager.translate("accessibility.tickVolume", "Tick volume. Current: %1 percent").arg(value)
                         enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
                         onValueModified: function(newValue) {
                             AccessibilityManager.tickVolume = newValue

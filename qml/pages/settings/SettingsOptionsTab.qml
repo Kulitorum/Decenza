@@ -349,8 +349,9 @@ KeyboardAwareContainer {
                     RowLayout {
                         Layout.fillWidth: true
 
-                        Text {
-                            text: "Your location on the Shot Map"
+                        Tr {
+                            key: "options.yourLocationOnShotMap"
+                            fallback: "Your location on the Shot Map"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true
@@ -359,7 +360,7 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         AccessibleButton {
-                            text: "Close"
+                            text: TranslationManager.translate("options.close", "Close")
                             accessibleName: TranslationManager.translate("settings.options.closeMapTest", "Close map test popup")
                             onClicked: mapTestPopup.close()
                         }
@@ -747,8 +748,9 @@ KeyboardAwareContainer {
                     RowLayout {
                         Layout.fillWidth: true
 
-                        Text {
-                            text: "Wake"
+                        Tr {
+                            key: "options.wake"
+                            fallback: "Wake"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                         }
@@ -757,7 +759,7 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             checked: autoWakeContent.selectedDayData.enabled || false
-                            accessibleName: "Wake enabled for selected day"
+                            accessibleName: TranslationManager.translate("options.wakeEnabledForDay", "Wake enabled for selected day")
                             onToggled: Settings.setAutoWakeDayEnabled(autoWakeContent.selectedDay, checked)
                         }
                     }
@@ -814,8 +816,9 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
 
-                        Text {
-                            text: "And stay awake for"
+                        Tr {
+                            key: "options.andStayAwakeFor"
+                            fallback: "And stay awake for"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                         }

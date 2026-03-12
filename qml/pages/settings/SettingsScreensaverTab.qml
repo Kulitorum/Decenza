@@ -84,7 +84,7 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.screensaver.keepCache", "Keep Videos")
-                        accessibleName: "Keep cached videos"
+                        accessibleName: TranslationManager.translate("screensaver.keepCachedVideos", "Keep cached videos")
                         onClicked: {
                             // Apply type change without clearing cache
                             ScreensaverManager.screensaverType = screensaverTab.pendingScreensaverType
@@ -94,7 +94,7 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.screensaver.clearCache", "Delete Videos")
-                        accessibleName: "Delete cached videos"
+                        accessibleName: TranslationManager.translate("screensaver.deleteCachedVideos", "Delete cached videos")
                         onClicked: {
                             // Clear cache with rate limiting, then apply type change
                             ScreensaverManager.clearCacheWithRateLimit()
@@ -247,13 +247,13 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("common.cancel", "Cancel")
-                        accessibleName: "Cancel"
+                        accessibleName: TranslationManager.translate("screensaver.cancel", "Cancel")
                         onClicked: clearPersonalMediaDialog.close()
                     }
 
                     AccessibleButton {
                         text: TranslationManager.translate("settings.screensaver.deleteAll", "Delete All")
-                        accessibleName: "Delete all personal media"
+                        accessibleName: TranslationManager.translate("screensaver.deleteAllPersonalMedia", "Delete all personal media")
                         onClicked: {
                             clearPersonalMediaDialog.isDeleting = true
                             // Use a timer to allow the UI to update before blocking deletion
@@ -398,7 +398,7 @@ Item {
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
-                    accessibleName: "Refresh screensaver categories"
+                    accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
                     Layout.fillWidth: true
                     enabled: !ScreensaverManager.isFetchingCategories
                     onClicked: ScreensaverManager.refreshCategories()
@@ -925,7 +925,7 @@ Item {
                     AccessibleButton {
                         visible: !ScreensaverManager.isPersonalCategory
                         text: TranslationManager.translate("settings.screensaver.refreshVideos", "Refresh Videos")
-                        accessibleName: "Refresh screensaver videos"
+                        accessibleName: TranslationManager.translate("screensaver.refreshVideos", "Refresh screensaver videos")
                         onClicked: ScreensaverManager.refreshCatalog()
                         enabled: !ScreensaverManager.isRefreshing
                     }
@@ -933,7 +933,7 @@ Item {
                     AccessibleButton {
                         visible: ScreensaverManager.isPersonalCategory
                         text: TranslationManager.translate("settings.screensaver.clearPersonal", "Clear Personal Media")
-                        accessibleName: "Clear personal media"
+                        accessibleName: TranslationManager.translate("screensaver.clearPersonalMedia", "Clear personal media")
                         onClicked: clearPersonalMediaDialog.open()
                     }
 

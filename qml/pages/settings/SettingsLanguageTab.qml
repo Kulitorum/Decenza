@@ -46,8 +46,9 @@ Item {
                 anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
-                Text {
-                    text: "Languages"
+                Tr {
+                    key: "language.languages"
+                    fallback: "Languages"
                     font: Theme.subtitleFont
                     color: Theme.textColor
                 }
@@ -169,7 +170,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(48)
                         visible: true
-                        text: "Delete"
+                        text: TranslationManager.translate("language.delete", "Delete")
                         accessibleName: TranslationManager.translate("language.accessible.delete", "Delete language")
                         accessibleDescription: TranslationManager.translate("language.accessible.delete.description", "Delete the selected language and its translations")
                         warning: true
@@ -203,8 +204,9 @@ Item {
                 anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
-                Text {
-                    text: "Translation"
+                Tr {
+                    key: "language.translation"
+                    fallback: "Translation"
                     font: Theme.subtitleFont
                     color: Theme.textColor
                 }
@@ -370,7 +372,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: "Delete " + TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage) + " and all its translations?\n\nThis cannot be undone."
+                text: TranslationManager.translate("language.deleteConfirmMessage", "Delete %1 and all its translations?\n\nThis cannot be undone.").arg(TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage))
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -383,14 +385,14 @@ Item {
 
                 AccessibleButton {
                     width: (parent.width - Theme.spacingSmall) / 2
-                    text: "Cancel"
+                    text: TranslationManager.translate("language.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("settings.language.cancelKeep", "Cancel and keep language")
                     onClicked: deleteConfirmPopup.close()
                 }
 
                 AccessibleButton {
                     width: (parent.width - Theme.spacingSmall) / 2
-                    text: "Delete"
+                    text: TranslationManager.translate("language.deleteConfirm", "Delete")
                     accessibleName: TranslationManager.translate("settings.language.permanentlyDelete", "Permanently delete this language and its translations")
                     warning: true
                     onClicked: {
