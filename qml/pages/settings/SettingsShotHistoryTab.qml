@@ -344,9 +344,9 @@ KeyboardAwareContainer {
                 importResultDialog.isError = failed > 0 && imported === 0
                 importResultDialog.open()
             }
-            function onImportError(message) {
-                importResultDialog.title = "Import Failed"
-                importResultDialog.resultMessage = message
+            function onImportError(translationKey, fallbackMessage) {
+                importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
+                importResultDialog.resultMessage = TranslationManager.translate(translationKey, fallbackMessage)
                 importResultDialog.isError = true
                 importResultDialog.open()
             }

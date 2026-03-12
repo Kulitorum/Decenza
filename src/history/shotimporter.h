@@ -63,7 +63,7 @@ signals:
     void currentFileChanged();
     void statusMessageChanged();
     void importComplete(int imported, int skipped, int failed);
-    void importError(const QString& message);
+    void importError(const QString& translationKey, const QString& fallbackMessage);
 
 private slots:
     void onProcessNextFile();

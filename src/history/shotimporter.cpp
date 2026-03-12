@@ -30,7 +30,7 @@ ShotImporter::~ShotImporter()
 void ShotImporter::importFromZip(const QString& zipPath, bool overwriteExisting)
 {
     if (m_importing) {
-        emit importError("Import already in progress");
+        emit importError("shotimporter.error.alreadyInProgress", "Import already in progress");
         return;
     }
 
@@ -39,7 +39,7 @@ void ShotImporter::importFromZip(const QString& zipPath, bool overwriteExisting)
     m_tempDir = new QTemporaryDir();
 
     if (!m_tempDir->isValid()) {
-        emit importError("Failed to create temporary directory");
+        emit importError("shotimporter.error.tempDir", "Failed to create temporary directory");
         return;
     }
 
@@ -69,7 +69,7 @@ void ShotImporter::performZipExtraction()
     if (!extractSuccess) {
         m_importing = false;
         emit isImportingChanged();
-        emit importError("Failed to extract ZIP archive. The file may be corrupted or not a valid ZIP.");
+        emit importError("shotimporter.error.zipExtract", "Failed to extract ZIP archive. The file may be corrupted or not a valid ZIP.");
         return;
     }
 
@@ -79,7 +79,7 @@ void ShotImporter::performZipExtraction()
     if (shotFiles.isEmpty()) {
         m_importing = false;
         emit isImportingChanged();
-        emit importError("No .shot files found in archive");
+        emit importError("shotimporter.error.noShotsInArchive", "No .shot files found in archive");
         return;
     }
 
@@ -89,14 +89,14 @@ void ShotImporter::performZipExtraction()
 void ShotImporter::importFromDirectory(const QString& dirPath, bool overwriteExisting)
 {
     if (m_importing) {
-        emit importError("Import already in progress");
+        emit importError("shotimporter.error.alreadyInProgress", "Import already in progress");
         return;
     }
 
     QStringList shotFiles = findShotFiles(dirPath);
 
     if (shotFiles.isEmpty()) {
-        emit importError("No .shot files found in directory");
+        emit importError("shotimporter.error.noShotsInDir", "No .shot files found in directory");
         return;
     }
 
@@ -110,12 +110,12 @@ void ShotImporter::importFromDirectory(const QString& dirPath, bool overwriteExi
 void ShotImporter::importSingleFile(const QString& filePath, bool overwriteExisting)
 {
     if (m_importing) {
-        emit importError("Import already in progress");
+        emit importError("shotimporter.error.alreadyInProgress", "Import already in progress");
         return;
     }
 
     if (!filePath.endsWith(".shot", Qt::CaseInsensitive)) {
-        emit importError("File must be a .shot file");
+        emit importError("shotimporter.error.notShotFile", "File must be a .shot file");
         return;
     }
 
@@ -159,7 +159,7 @@ void ShotImporter::importFromDE1App(bool overwriteExisting)
 {
     QString historyPath = detectDE1AppHistoryPath();
     if (historyPath.isEmpty()) {
-        emit importError("DE1 app history folder not found. Make sure the DE1 tablet app has been used on this device.");
+        emit importError("shotimporter.error.de1AppNotFound", "DE1 app history folder not found. Make sure the DE1 tablet app has been used on this device.");
         return;
     }
 

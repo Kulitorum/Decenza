@@ -781,7 +781,8 @@ KeyboardAwareContainer {
                                   TranslationManager.translate("settings.preferences.chargingOnDesc", "Cycles between 55-65% to extend battery lifespan.") :
                                   TranslationManager.translate("settings.preferences.chargingNightDesc", "Keeps battery at 90-95% when active. Allows deeper discharge when sleeping.")
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
+                            font.family: Theme.captionFont.family
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                             Accessible.role: Accessible.StaticText

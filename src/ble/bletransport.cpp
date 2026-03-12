@@ -157,7 +157,17 @@ void BleTransport::writeUrgent(const QBluetoothUuid& uuid, const QByteArray& dat
     // callers that need to clear (SAW, sleep) do so explicitly before calling this.
     // This allows ensureChargerOn (app suspend) to write urgently without dropping
     // any pending extraction frames.
-    writeCharacteristic(uuid, data);
+    //
+    // If a write is already in-flight, prepend to the queue instead of calling
+    // writeCharacteristic directly — writeCharacteristic is not re-entrant and would
+    // corrupt m_writePending/m_lastWriteUuid/m_writeTimeoutTimer state.
+    if (m_writePending) {
+        m_commandQueue.prepend([this, uuid, data]() {
+            writeCharacteristic(uuid, data);
+        });
+    } else {
+        writeCharacteristic(uuid, data);
+    }
 }
 
 void BleTransport::read(const QBluetoothUuid& uuid) {

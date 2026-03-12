@@ -342,13 +342,17 @@ void BatteryManager::applySmartCharging() {
     }
 
     // Human-readable plugged source for the log.
-    // "USB(DE1)" confirms the DE1 port is electrically active; "UNPLUGGED" means it isn't.
-    // On iOS, "USB" just means "some wired source" — iOS can't distinguish DE1 from wall.
+    // On Android, USB confirms the DE1 port is electrically active.
+    // On iOS, USB just means "some wired source" — iOS can't distinguish DE1 from wall.
     const char* osPlugged = "n/a";
     switch (m_androidPlugged) {
     case 0: osPlugged = "UNPLUGGED"; break;
     case 1: osPlugged = "AC";        break;
+#ifdef Q_OS_IOS
+    case 2: osPlugged = "USB";       break;
+#else
     case 2: osPlugged = "USB(DE1)";  break;
+#endif
     case 4: osPlugged = "WIRELESS";  break;
     }
 

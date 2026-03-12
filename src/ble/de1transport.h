@@ -70,8 +70,8 @@ public:
 
     /**
      * Clear any pending command queue.
-     * Called when extraction starts to prevent stale commands from interfering.
-     * No-op for transports without queuing (e.g., serial).
+     * Called before urgent operations (SAW stop, sleep) to prevent stale
+     * commands from interfering. No-op for transports without queuing.
      */
     virtual void clearQueue() {}
 
