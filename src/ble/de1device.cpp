@@ -808,7 +808,10 @@ void DE1Device::setUsbChargerOn(bool on, bool force) {
 }
 
 void DE1Device::setUsbChargerOnUrgent(bool on) {
-    if (!m_transport) return;
+    if (!m_transport) {
+        qWarning() << "DE1Device::setUsbChargerOnUrgent: no transport, cannot set charger" << (on ? "ON" : "OFF");
+        return;
+    }
     bool stateChanged = (m_usbChargerOn != on);
     if (stateChanged) {
         m_usbChargerOn = on;

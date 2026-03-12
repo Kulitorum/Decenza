@@ -391,7 +391,7 @@ void BatteryManager::applySmartCharging() {
 
     // ── Step 5: mismatch detection ───────────────────────────────────────────
     //
-    // If we commanded the port ON but Android reports DISCHARGING, the DE1 USB port
+    // If we commanded the port ON but the OS reports DISCHARGING, the DE1 USB port
     // is not delivering power despite our instruction. Possible causes:
     //   • The DE1 went to sleep and cut the USB port (most common overnight)
     //   • The DE1 temporarily cut USB power to prioritise its own hardware (heater, etc.)
@@ -408,8 +408,9 @@ void BatteryManager::applySmartCharging() {
         // Port is confirmed electrically off if the OS reports DISCHARGING or UNPLUGGED.
         // Using m_androidPlugged as a second signal catches NOT_CHARGING(4) edge cases
         // where the cable is physically connected but the DE1 cut its USB output.
-        // Note: on iOS, Charging/Full maps to USB(2) so portActuallyOff is never true
-        // while charging — mismatch detection effectively only fires on Android.
+        // Note: on iOS, mismatch detection works for the primary case (Unplugged maps
+        // to DISCHARGING + UNPLUGGED). However, iOS cannot report NOT_CHARGING(4), so
+        // the edge case where a cable is connected but delivering no current is not detected.
         const bool androidDischarging = (m_androidBatteryStatus == 3);
         const bool portActuallyOff = androidDischarging || (m_androidPlugged == 0);
 
