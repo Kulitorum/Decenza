@@ -13,14 +13,23 @@ Dialog {
     property string itemType: "profile"  // "profile", "recipe", or "shot"
     property bool canSave: true
     property bool showSaveAs: true  // Set to false for items that don't support "Save As"
+    property bool showTry: false    // Show "Try" button to test changes without saving
 
     signal discardClicked()
+    signal tryClicked()
     signal saveAsClicked()
     signal saveClicked()
 
     onOpened: {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-            AccessibilityManager.announce(TranslationManager.translate("unsavedChanges.announcement", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType))
+            var msg
+            if (root.showTry && root.showSaveAs)
+                msg = TranslationManager.translate("unsavedChanges.announcementWithTry", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Use Unsaved, Save As, or Save.").arg(root.itemType)
+            else if (root.showTry)
+                msg = TranslationManager.translate("unsavedChanges.announcementTryNoSaveAs", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Use Unsaved, or Save.").arg(root.itemType)
+            else
+                msg = TranslationManager.translate("unsavedChanges.announcement", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType)
+            AccessibilityManager.announce(msg)
         }
     }
 
@@ -69,15 +78,18 @@ Dialog {
         }
 
         // Buttons - use Grid for equal sizing
+        // With showTry, use 2 rows: [Discard, Try] top, [Save As, Save] bottom
+        // Without showTry, single row: [Discard, (Save As), Save]
         Grid {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
             Layout.bottomMargin: Theme.scaled(20)
-            columns: root.showSaveAs ? 3 : 2
+            columns: root.showTry ? 2 : (root.showSaveAs ? 3 : 2)
             spacing: Theme.scaled(10)
 
-            property real buttonWidth: root.showSaveAs ? (width - spacing * 2) / 3 : (width - spacing) / 2
+            property int visibleColumns: root.showTry ? 2 : (root.showSaveAs ? 3 : 2)
+            property real buttonWidth: (width - spacing * (visibleColumns - 1)) / visibleColumns
             property real buttonHeight: Theme.scaled(50)
 
             AccessibleButton {
@@ -104,9 +116,35 @@ Dialog {
             }
 
             AccessibleButton {
+                visible: root.showTry
+                width: visible ? parent.buttonWidth : 0
+                height: visible ? parent.buttonHeight : 0
+                text: TranslationManager.translate("unsavedChanges.useUnsaved", "Use Unsaved")
+                accessibleName: TranslationManager.translate("unsavedChanges.useUnsavedChanges", "Use unsaved changes without saving")
+                onClicked: {
+                    root.close()
+                    root.tryClicked()
+                }
+                background: Rectangle {
+                    implicitHeight: Theme.scaled(60)
+                    radius: Theme.buttonRadius
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Theme.successColor
+                }
+                contentItem: Text {
+                    text: parent.text
+                    font: Theme.bodyFont
+                    color: Theme.successColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            AccessibleButton {
                 visible: root.showSaveAs
                 width: visible ? parent.buttonWidth : 0
-                height: parent.buttonHeight
+                height: visible ? parent.buttonHeight : 0
                 text: TranslationManager.translate("unsavedChanges.saveAs", "Save As")
                 accessibleName: TranslationManager.translate("unsavedChanges.saveAsNew", "Save as new %1").arg(root.itemType)
                 onClicked: {

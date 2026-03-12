@@ -685,19 +685,23 @@ Page {
         id: exitDialog
         itemType: "recipe"
         canSave: originalProfileName !== ""
+        showTry: true
         onDiscardClicked: {
             if (originalProfileName) {
                 MainController.loadProfile(originalProfileName)
             }
             root.goBack()
         }
+        onTryClicked: {
+            root.goBack()
+        }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
             if (MainController.saveProfile(originalProfileName)) {
-                AccessibilityManager.announce("Profile saved")
+                AccessibilityManager.announce(TranslationManager.translate("recipeEditor.profileSaved", "Profile saved"))
                 root.goBack()
             } else {
-                AccessibilityManager.announce("Save failed")
+                AccessibilityManager.announce(TranslationManager.translate("recipeEditor.saveFailed", "Save failed"))
                 saveErrorDialog.open()
             }
         }

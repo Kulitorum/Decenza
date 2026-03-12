@@ -275,7 +275,7 @@ Page {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
-                                    text: modelData.title
+                                    text: (isCurrentProfile && MainController.profileModified ? "*" : "") + modelData.title
                                     color: Theme.textColor
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
@@ -528,8 +528,9 @@ Page {
                             var source = profileDelegate.isBuiltIn ? TranslationManager.translate("profileselector.accessible.source_decent", "Decent") :
                                          profileDelegate.isDownloaded ? TranslationManager.translate("profileselector.accessible.source_downloaded", "Downloaded") : TranslationManager.translate("profileselector.accessible.source_custom", "Custom")
                             var fav = profileDelegate.isFavorite ? ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite") : ""
+                            var modified = (profileDelegate.isCurrentProfile && MainController.profileModified) ? ", " + TranslationManager.translate("profileselector.accessible.unsaved_changes", "unsaved changes") : ""
                             var current = profileDelegate.isCurrentProfile ? ", " + TranslationManager.translate("profileselector.accessible.currently_selected", "currently selected") : ""
-                            return source + " " + TranslationManager.translate("profileselector.accessible.profile_label", "profile:") + " " + modelData.title + fav + current
+                            return source + " " + TranslationManager.translate("profileselector.accessible.profile_label", "profile:") + " " + modelData.title + fav + modified + current
                         }
                     }
                 }
@@ -722,11 +723,12 @@ Page {
                                 // Profile name
                                 Text {
                                     Layout.fillWidth: true
-                                    text: modelData.name
+                                    text: (index === Settings.selectedFavoriteProfile && MainController.profileModified ? "*" : "") + modelData.name
                                     color: index === Settings.selectedFavoriteProfile ?
                                            "white" : Theme.textColor
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
+                                    Accessible.ignored: true
                                 }
 
                                 // Edit button
@@ -772,7 +774,12 @@ Page {
                             AccessibleTapHandler {
                                 anchors.fill: parent
                                 z: -1
-                                accessibleName: modelData ? (root.cleanForSpeech(modelData.name) + (index === Settings.selectedFavoriteProfile ? ", " + TranslationManager.translate("profileselector.accessible.selected_favorite", "selected favorite") : ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite"))) : ""
+                                accessibleName: {
+                                    if (!modelData) return ""
+                                    var modified = (index === Settings.selectedFavoriteProfile && MainController.profileModified) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+                                    var status = index === Settings.selectedFavoriteProfile ? ", " + TranslationManager.translate("profileselector.accessible.selected_favorite", "selected favorite") : ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite")
+                                    return root.cleanForSpeech(modelData.name) + modified + status
+                                }
                                 accessibleItem: favoritePill
                                 onAccessibleClicked: {
                                     if (!modelData) return
