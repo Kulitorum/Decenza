@@ -309,7 +309,7 @@ Item {
                         BatteryManager.chargingMode = (BatteryManager.chargingMode + 1) % 3
                     break
                 case "tempToggleSteam":
-                    if (typeof Settings !== "undefined") {
+                    if (typeof Settings !== "undefined" && typeof MainController !== "undefined") {
                         if (Settings.steamDisabled)
                             MainController.startSteamHeating()
                         else
