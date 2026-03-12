@@ -28,7 +28,7 @@ KeyboardAwareContainer {
                 AccessibleButton {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.history.title", "Shot History") + " →"
-                    accessibleName: "Open Shot History"
+                    accessibleName: TranslationManager.translate("settings.history.openShotHistory", "Open Shot History")
                     primary: true
                     onClicked: pageStack.push(Qt.resolvedUrl("../ShotHistoryPage.qml"))
                 }
@@ -73,7 +73,7 @@ KeyboardAwareContainer {
 
                 // Import section
                 Text {
-                    text: "Import from DE1 App"
+                    text: TranslationManager.translate("settings.history.importFromDE1", "Import from DE1 App")
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(12)
                     font.bold: true
@@ -85,7 +85,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: "Overwrite existing"
+                        text: TranslationManager.translate("settings.history.overwriteExisting", "Overwrite existing")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(11)
                         Layout.fillWidth: true
@@ -94,7 +94,7 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         id: overwriteSwitch
                         checked: false
-                        accessibleName: "Overwrite existing"
+                        accessibleName: TranslationManager.translate("settings.history.overwriteExisting", "Overwrite existing")
                     }
                 }
 
@@ -157,7 +157,7 @@ KeyboardAwareContainer {
                         id: de1AppStatus
                         Layout.fillWidth: true
                         property string detectedPath: MainController.shotImporter ? MainController.shotImporter.detectDE1AppHistoryPath() : ""
-                        text: detectedPath ? ("Found: " + detectedPath) : "DE1 app not found on device"
+                        text: detectedPath ? (TranslationManager.translate("settings.history.found", "Found") + ": " + detectedPath) : TranslationManager.translate("settings.history.de1AppNotFound", "DE1 app not found on device")
                         color: detectedPath ? Theme.successColor : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(9)
                         wrapMode: Text.Wrap
@@ -165,8 +165,8 @@ KeyboardAwareContainer {
 
                     AccessibleButton {
                         Layout.fillWidth: true
-                        text: "Import from DE1 App"
-                        accessibleName: "Auto-detect and import from DE1 tablet app"
+                        text: TranslationManager.translate("settings.history.importFromDE1", "Import from DE1 App")
+                        accessibleName: TranslationManager.translate("settings.history.importFromDE1Desc", "Auto-detect and import from DE1 tablet app")
                         visible: de1AppStatus.detectedPath !== ""
                         onClicked: {
                             if (MainController.shotImporter) {
@@ -181,8 +181,8 @@ KeyboardAwareContainer {
 
                         AccessibleButton {
                             Layout.fillWidth: true
-                            text: "ZIP..."
-                            accessibleName: "Import shot history from ZIP archive"
+                            text: TranslationManager.translate("settings.history.zip", "ZIP...")
+                            accessibleName: TranslationManager.translate("settings.history.importFromZip", "Import shot history from ZIP archive")
                             onClicked: {
                                 shotZipDialog.overwrite = overwriteSwitch.checked
                                 shotZipDialog.open()
@@ -191,8 +191,8 @@ KeyboardAwareContainer {
 
                         AccessibleButton {
                             Layout.fillWidth: true
-                            text: "Folder..."
-                            accessibleName: "Import shot history from folder"
+                            text: TranslationManager.translate("settings.history.folder", "Folder...")
+                            accessibleName: TranslationManager.translate("settings.history.importFromFolder", "Import shot history from folder")
                             onClicked: {
                                 shotFolderDialog.overwrite = overwriteSwitch.checked
                                 shotFolderDialog.open()
@@ -206,7 +206,7 @@ KeyboardAwareContainer {
         // File dialogs for shot import
         FileDialog {
             id: shotZipDialog
-            title: "Select shot history ZIP archive"
+            title: TranslationManager.translate("settings.history.selectZipTitle", "Select shot history ZIP archive")
             nameFilters: ["ZIP archives (*.zip)", "All files (*)"]
             property bool overwrite: false
 
@@ -219,7 +219,7 @@ KeyboardAwareContainer {
 
         FolderDialog {
             id: shotFolderDialog
-            title: "Select folder containing .shot files"
+            title: TranslationManager.translate("settings.history.selectFolderTitle", "Select folder containing .shot files")
             property bool overwrite: false
 
             onAccepted: {
@@ -250,7 +250,7 @@ KeyboardAwareContainer {
                 width: Theme.scaled(250)
 
                 Text {
-                    text: "Extracting..."
+                    text: TranslationManager.translate("settings.history.extracting", "Extracting...")
                     font: Theme.subtitleFont
                     color: Theme.textColor
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -264,7 +264,7 @@ KeyboardAwareContainer {
                 }
 
                 Text {
-                    text: "Please wait while the archive is extracted"
+                    text: TranslationManager.translate("settings.history.extractingDesc", "Please wait while the archive is extracted")
                     wrapMode: Text.Wrap
                     width: parent.width
                     font: Theme.bodyFont
@@ -324,8 +324,8 @@ KeyboardAwareContainer {
                 }
 
                 AccessibleButton {
-                    text: "OK"
-                    accessibleName: "Dismiss dialog"
+                    text: TranslationManager.translate("common.button.ok", "OK")
+                    accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
                     anchors.horizontalCenter: parent.horizontalCenter
                     onClicked: importResultDialog.close()
                 }
@@ -441,7 +441,7 @@ KeyboardAwareContainer {
                         horizontalAlignment: Text.AlignHCenter
                         Layout.preferredWidth: Theme.scaled(80)
                         placeholder: "8888"
-                        accessibleName: "Server port"
+                        accessibleName: TranslationManager.translate("settings.history.serverPort", "Server port")
 
                         onEditingFinished: {
                             var port = parseInt(text)

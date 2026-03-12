@@ -466,7 +466,7 @@ KeyboardAwareContainer {
                                 if (!MainController.shotReporter) return ""
                                 var city = MainController.shotReporter.currentCity()
                                 var country = MainController.shotReporter.currentCountryCode()
-                                var prefix = MainController.shotReporter.usingManualCity ? "Manual: " : "GPS: "
+                                var prefix = MainController.shotReporter.usingManualCity ? TranslationManager.translate("settings.preferences.manualPrefix", "Manual") + ": " : TranslationManager.translate("settings.preferences.gpsPrefix", "GPS") + ": "
                                 var lat = MainController.shotReporter.latitude.toFixed(1)
                                 var lon = MainController.shotReporter.longitude.toFixed(1)
                                 return prefix + city + (country ? ", " + country : "") + " (" + lat + ", " + lon + ")"
@@ -483,8 +483,8 @@ KeyboardAwareContainer {
                             visible: MainController.shotReporter && MainController.shotReporter.enabled
                                  && !MainController.shotReporter.hasLocation
                             text: Qt.platform.os === "android"
-                                  ? "GPS disabled - tap to open Settings"
-                                  : "No location - tap to enable"
+                                  ? TranslationManager.translate("settings.preferences.gpsDisabled", "GPS disabled - tap to open Settings")
+                                  : TranslationManager.translate("settings.preferences.noLocation", "No location - tap to enable")
                             color: Theme.primaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -525,7 +525,7 @@ KeyboardAwareContainer {
                                 StyledTextField {
                                     id: manualCityField
                                     Layout.fillWidth: true
-                                    placeholder: "e.g. Copenhagen, Denmark"
+                                    placeholder: TranslationManager.translate("settings.preferences.cityPlaceholder", "e.g. Copenhagen, Denmark")
                                     text: MainController.shotReporter ? MainController.shotReporter.manualCity : ""
                                     onEditingFinished: {
                                         if (MainController.shotReporter) {
@@ -535,10 +535,10 @@ KeyboardAwareContainer {
                                 }
 
                                 AccessibleButton {
-                                    text: MainController.shotReporter && MainController.shotReporter.hasLocation ? "Test" : "Retry"
+                                    text: MainController.shotReporter && MainController.shotReporter.hasLocation ? TranslationManager.translate("settings.preferences.test", "Test") : TranslationManager.translate("settings.preferences.retry", "Retry")
                                     accessibleName: MainController.shotReporter && MainController.shotReporter.hasLocation
                                         ? TranslationManager.translate("settings.options.testLocation", "Test location on shot map")
-                                        : "Retry location request"
+                                        : TranslationManager.translate("settings.preferences.retryLocation", "Retry location request")
                                     onClicked: {
                                         if (MainController.shotReporter && MainController.shotReporter.hasLocation) {
                                             mapTestPopup.open()
@@ -1351,7 +1351,7 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(4)
 
                             Text {
-                                text: "Auto flush wand after"
+                                text: TranslationManager.translate("settings.preferences.autoFlushAfter", "Auto flush wand after")
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(14)
                             }
@@ -1364,7 +1364,7 @@ KeyboardAwareContainer {
                                 decimals: 0
                                 value: Settings.steamAutoFlushSeconds
                                 valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
-                                displayText: value === 0 ? "Off" : value + "s"
+                                displayText: value === 0 ? TranslationManager.translate("common.off", "Off") : value + TranslationManager.translate("common.unit.seconds", "s")
                                 accessibleName: TranslationManager.translate("settings.preferences.autoFlushDuration", "Auto flush duration")
                                 onValueModified: function(newValue) {
                                     Settings.steamAutoFlushSeconds = newValue
@@ -1513,7 +1513,7 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
 
                             Text {
-                                text: "Wake"
+                                text: TranslationManager.translate("settings.preferences.wake", "Wake")
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(14)
                             }
@@ -1522,7 +1522,7 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 checked: autoWakeContent.selectedDayData.enabled || false
-                                accessibleName: "Wake enabled for selected day"
+                                accessibleName: TranslationManager.translate("settings.preferences.wakeEnabledForDay", "Wake enabled for selected day")
                                 onToggled: Settings.setAutoWakeDayEnabled(autoWakeContent.selectedDay, checked)
                             }
                         }
@@ -1580,7 +1580,7 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(8)
 
                             Text {
-                                text: "And stay awake for"
+                                text: TranslationManager.translate("settings.preferences.stayAwakeFor", "And stay awake for")
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(14)
                             }
@@ -1590,7 +1590,7 @@ KeyboardAwareContainer {
                             StyledSwitch {
                                 id: stayAwakeSwitch
                                 checked: Settings.autoWakeStayAwakeEnabled
-                                accessibleName: "Stay awake after auto-wake"
+                                accessibleName: TranslationManager.translate("settings.preferences.stayAwakeAfterWake", "Stay awake after auto-wake")
                                 onToggled: Settings.autoWakeStayAwakeEnabled = checked
                             }
                         }
@@ -1616,11 +1616,11 @@ KeyboardAwareContainer {
                                         var hours = Math.floor(mins / 60)
                                         var remainMins = mins % 60
                                         if (remainMins === 0) {
-                                            return hours + "h"
+                                            return hours + TranslationManager.translate("common.unit.h", "h")
                                         }
-                                        return hours + "h " + remainMins + "m"
+                                        return hours + TranslationManager.translate("common.unit.h", "h") + " " + remainMins + TranslationManager.translate("common.unit.m", "m")
                                     }
-                                    return mins + " min"
+                                    return mins + " " + TranslationManager.translate("common.unit.min", "min")
                                 }
                                 accessibleName: TranslationManager.translate("settings.options.stayAwakeDuration", "Stay awake duration")
                                 onValueModified: function(newValue) {
@@ -1659,7 +1659,7 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             Text {
-                                text: Settings.sawLearnedLag.toFixed(2) + "s"
+                                text: Settings.sawLearnedLag.toFixed(2) + TranslationManager.translate("common.unit.seconds", "s")
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(14)
                                 font.bold: true
@@ -1812,7 +1812,7 @@ KeyboardAwareContainer {
                 Layout.fillWidth: true
 
                 Text {
-                    text: "Your location on the Shot Map"
+                    text: TranslationManager.translate("settings.preferences.locationOnMap", "Your location on the Shot Map")
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(16)
                     font.bold: true
@@ -1821,7 +1821,7 @@ KeyboardAwareContainer {
                 Item { Layout.fillWidth: true }
 
                 AccessibleButton {
-                    text: "Close"
+                    text: TranslationManager.translate("common.button.close", "Close")
                     accessibleName: TranslationManager.translate("settings.options.closeMapTest", "Close map test popup")
                     onClicked: mapTestPopup.close()
                 }
