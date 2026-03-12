@@ -324,6 +324,11 @@ Item {
                     if (typeof DE1Device !== "undefined")
                         DE1Device.disconnect()
                     break
+                case "previousProfile":
+                    var prevName = MainController.previousProfileName()
+                    if (prevName)
+                        MainController.loadProfile(prevName)
+                    break
                 case "quit":
                     Qt.quit()
                     break

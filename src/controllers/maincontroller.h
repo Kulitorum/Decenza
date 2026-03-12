@@ -108,6 +108,7 @@ public:
     double filteredGoalFlow() const { return m_filteredGoalFlow; }
 
     QString baseProfileName() const { return m_baseProfileName; }
+    Q_INVOKABLE QString previousProfileName() const { return m_previousProfileName; }
     bool isProfileModified() const { return m_profileModified; }
     double targetWeight() const;
     void setTargetWeight(double weight);
@@ -341,6 +342,7 @@ private:
     bool m_tareDone = false;  // Track if we've tared for this shot
 
     QString m_baseProfileName;
+    QString m_previousProfileName;
     bool m_profileModified = false;
     QString m_currentFrameName;  // For accessibility announcements
 

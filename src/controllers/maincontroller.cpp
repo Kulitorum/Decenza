@@ -971,6 +971,10 @@ void MainController::loadProfile(const QString& profileName) {
 
     updateProfileKnowledgeBaseId();
 
+    // Save current profile as previous before switching
+    if (!m_baseProfileName.isEmpty() && m_baseProfileName != resolvedName)
+        m_previousProfileName = m_baseProfileName;
+
     // Track the base profile name (filename without extension)
     m_baseProfileName = resolvedName;
     bool wasModified = m_profileModified;

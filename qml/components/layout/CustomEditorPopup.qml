@@ -1659,6 +1659,7 @@ Dialog {
             { id: "command:uploadVisualizer", label: TranslationManager.translate("customaction.command.uploadVisualizer", "Upload to Visualizer"), contexts: ["idle"] },
             { id: "command:disconnectDE1",   label: TranslationManager.translate("customaction.command.disconnectDE1", "Disconnect DE1"),         contexts: ["idle"] },
             { id: "command:loadProfile",     label: TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + "...",     contexts: ["idle", "all"] },
+            { id: "command:previousProfile", label: TranslationManager.translate("customaction.command.previousProfile", "Previous Profile"),   contexts: ["idle", "all"] },
             { id: "command:quit",            label: TranslationManager.translate("customaction.command.quit", "Quit App"),                        contexts: ["idle"] }
         ]
         var ctx = popup.pageContext
