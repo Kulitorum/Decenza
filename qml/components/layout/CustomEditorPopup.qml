@@ -167,7 +167,7 @@ Dialog {
 
     // Helper to get action label
     function getActionLabel(actionId) {
-        if (!actionId) return "None"
+        if (!actionId) return TranslationManager.translate("customeditor.action.none", "None")
         // Handle parameterized actions like command:loadProfile:<name>
         if (actionId.indexOf("command:loadProfile:") === 0) {
             var profileName = actionId.substring("command:loadProfile:".length)
@@ -228,7 +228,7 @@ Dialog {
                 spacing: Theme.scaled(8)
 
                 Text {
-                    text: "Icon"
+                    text: TranslationManager.translate("customeditor.label.icon", "Icon")
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont
                     Layout.alignment: Qt.AlignVCenter
@@ -271,14 +271,14 @@ Dialog {
                     border.color: Theme.primaryColor
                     border.width: 1
                     Accessible.role: Accessible.Button
-                    Accessible.name: popup.showEmojiPicker ? "Hide Picker" : "Pick Icon"
+                    Accessible.name: popup.showEmojiPicker ? TranslationManager.translate("customeditor.button.hidePicker", "Hide Picker") : TranslationManager.translate("customeditor.button.pickIcon", "Pick Icon")
                     Accessible.focusable: true
                     Accessible.onPressAction: pickMa.clicked(null)
 
                     Text {
                         id: pickText
                         anchors.centerIn: parent
-                        text: popup.showEmojiPicker ? "Hide Picker" : "Pick Icon"
+                        text: popup.showEmojiPicker ? TranslationManager.translate("customeditor.button.hidePicker", "Hide Picker") : TranslationManager.translate("customeditor.button.pickIcon", "Pick Icon")
                         color: pickMa.pressed ? "white" : Theme.primaryColor
                         font: Theme.captionFont
                         Accessible.ignored: true
@@ -299,14 +299,14 @@ Dialog {
                     border.color: Theme.errorColor
                     border.width: 1
                     Accessible.role: Accessible.Button
-                    Accessible.name: "Clear icon"
+                    Accessible.name: TranslationManager.translate("customeditor.button.clearIcon", "Clear icon")
                     Accessible.focusable: true
                     Accessible.onPressAction: clearEmojiMa.clicked(null)
 
                     Text {
                         id: clearEmojiText
                         anchors.centerIn: parent
-                        text: "Clear"
+                        text: TranslationManager.translate("common.button.clear", "Clear")
                         color: clearEmojiMa.pressed ? "white" : Theme.errorColor
                         font: Theme.captionFont
                         Accessible.ignored: true
@@ -411,7 +411,7 @@ Dialog {
 
                     // --- Full mode preview (exact match with CustomItem full mode) ---
                     Text {
-                        text: "Full"
+                        text: TranslationManager.translate("customeditor.preview.full", "Full")
                         color: Theme.textSecondaryColor
                         font.family: Theme.captionFont.family
                         font.pixelSize: Theme.scaled(9)
@@ -474,7 +474,7 @@ Dialog {
 
                     // --- Bar mode preview (exact match with CustomItem compact mode) ---
                     Text {
-                        text: "Bar"
+                        text: TranslationManager.translate("customeditor.preview.bar", "Bar")
                         color: Theme.textSecondaryColor
                         font.family: Theme.captionFont.family
                         font.pixelSize: Theme.scaled(9)
@@ -532,7 +532,7 @@ Dialog {
 
                     // Format toolbar
                     Text {
-                        text: "Format"
+                        text: TranslationManager.translate("customeditor.label.format", "Format")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
@@ -547,7 +547,7 @@ Dialog {
                             color: formatter.bold ? Theme.primaryColor : (boldMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : Theme.backgroundColor)
                             border.color: Theme.borderColor; border.width: 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Bold" + (formatter.bold ? ", on" : ", off")
+                            Accessible.name: TranslationManager.translate("customeditor.format.bold", "Bold") + (formatter.bold ? ", " + TranslationManager.translate("common.state.on", "on") : ", " + TranslationManager.translate("common.state.off", "off"))
                             Accessible.focusable: true
                             Accessible.onPressAction: boldMa.clicked(null)
                             Text {
@@ -566,7 +566,7 @@ Dialog {
                             color: formatter.italic ? Theme.primaryColor : (italicMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : Theme.backgroundColor)
                             border.color: Theme.borderColor; border.width: 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Italic" + (formatter.italic ? ", on" : ", off")
+                            Accessible.name: TranslationManager.translate("customeditor.format.italic", "Italic") + (formatter.italic ? ", " + TranslationManager.translate("common.state.on", "on") : ", " + TranslationManager.translate("common.state.off", "off"))
                             Accessible.focusable: true
                             Accessible.onPressAction: italicMa.clicked(null)
                             Text {
@@ -595,7 +595,7 @@ Dialog {
                                 color: isActive ? Theme.primaryColor : (sizeMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : Theme.backgroundColor)
                                 border.color: Theme.borderColor; border.width: 1
                                 Accessible.role: Accessible.Button
-                                Accessible.name: "Font size " + modelData.label + (isActive ? ", selected" : "")
+                                Accessible.name: TranslationManager.translate("customeditor.format.fontSize", "Font size") + " " + modelData.label + (isActive ? ", " + TranslationManager.translate("combobox.selected", "selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: sizeMa.clicked(null)
                                 Text {
@@ -624,7 +624,7 @@ Dialog {
                                 color: popup.textAlign === modelData.align ? Theme.primaryColor : Theme.backgroundColor
                                 border.color: Theme.borderColor; border.width: 1
                                 Accessible.role: Accessible.Button
-                                Accessible.name: "Align " + modelData.align + (popup.textAlign === modelData.align ? ", selected" : "")
+                                Accessible.name: TranslationManager.translate("customeditor.format.align", "Align") + " " + modelData.align + (popup.textAlign === modelData.align ? ", " + TranslationManager.translate("combobox.selected", "selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: alignMa.clicked(null)
                                 Text {
@@ -643,7 +643,7 @@ Dialog {
                         spacing: Theme.scaled(6)
 
                         Text {
-                            text: "Color"
+                            text: TranslationManager.translate("customeditor.label.color", "Color")
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                         }
@@ -654,7 +654,7 @@ Dialog {
                             color: formatter.currentColor || "#ffffff"
                             border.color: Theme.borderColor; border.width: 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Text color"
+                            Accessible.name: TranslationManager.translate("customeditor.label.textColor", "Text color")
                             Accessible.focusable: true
                             Accessible.onPressAction: textColorMa.clicked(null)
                             MouseArea {
@@ -676,7 +676,7 @@ Dialog {
                             color: clearFgMa.pressed ? Theme.errorColor : "transparent"
                             border.color: Theme.errorColor; border.width: 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Clear text color"
+                            Accessible.name: TranslationManager.translate("customeditor.button.clearTextColor", "Clear text color")
                             Accessible.focusable: true
                             Accessible.onPressAction: clearFgMa.clicked(null)
                             Text {
@@ -694,7 +694,7 @@ Dialog {
                         }
 
                         Text {
-                            text: "Bg"
+                            text: TranslationManager.translate("customeditor.label.bg", "Bg")
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                         }
@@ -706,7 +706,7 @@ Dialog {
                             border.color: popup.textBackgroundColor ? "white" : Theme.borderColor
                             border.width: popup.textBackgroundColor ? 2 : 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Background color"
+                            Accessible.name: TranslationManager.translate("customeditor.label.backgroundColor", "Background color")
                             Accessible.focusable: true
                             Accessible.onPressAction: bgColorMa.clicked(null)
 
@@ -739,7 +739,7 @@ Dialog {
                             color: clearBgMa.pressed ? Theme.errorColor : "transparent"
                             border.color: Theme.errorColor; border.width: 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Clear background color"
+                            Accessible.name: TranslationManager.translate("customeditor.button.clearBgColor", "Clear background color")
                             Accessible.focusable: true
                             Accessible.onPressAction: clearBgMa.clicked(null)
                             Text {
@@ -765,13 +765,13 @@ Dialog {
                             border.color: popup.textHideBackground ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Hide background" + (popup.textHideBackground ? ", on" : ", off")
+                            Accessible.name: TranslationManager.translate("customeditor.button.hideBackground", "Hide background") + (popup.textHideBackground ? ", " + TranslationManager.translate("common.state.on", "on") : ", " + TranslationManager.translate("common.state.off", "off"))
                             Accessible.focusable: true
                             Accessible.onPressAction: noBgMa.clicked(null)
                             Text {
                                 id: noBgText
                                 anchors.centerIn: parent
-                                text: "No Bg"
+                                text: TranslationManager.translate("customeditor.button.noBg", "No Bg")
                                 color: popup.textHideBackground ? "white" : Theme.textSecondaryColor
                                 font: Theme.captionFont
                                 Accessible.ignored: true
@@ -800,7 +800,7 @@ Dialog {
                     spacing: Theme.scaled(2)
 
                     Text {
-                        text: "Variables"
+                        text: TranslationManager.translate("customeditor.label.variables", "Variables")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
@@ -812,33 +812,33 @@ Dialog {
                         boundsBehavior: Flickable.StopAtBounds
 
                         model: [
-                            { token: "%TEMP%", label: "Temp (°C)" },
-                            { token: "%STEAM_TEMP%", label: "Steam (°C)" },
-                            { token: "%PRESSURE%", label: "Pressure (bar)" },
-                            { token: "%FLOW%", label: "Flow (ml/s)" },
-                            { token: "%WATER%", label: "Water (%)" },
-                            { token: "%WATER_ML%", label: "Water (ml)" },
-                            { token: "%WEIGHT%", label: "Weight (g)" },
-                            { token: "%SHOT_TIME%", label: "Shot Time (s)" },
-                            { token: "%TARGET_WEIGHT%", label: "Target Wt (g)" },
-                            { token: "%VOLUME%", label: "Volume (ml)" },
-                            { token: "%PROFILE%", label: "Profile Name" },
-                            { token: "%STATE%", label: "Machine State" },
-                            { token: "%TARGET_TEMP%", label: "Target Temp" },
-                            { token: "%SCALE%", label: "Scale Name" },
-                            { token: "%TIME%", label: "Time (HH:MM)" },
-                            { token: "%DATE%", label: "Date" },
-                            { token: "%RATIO%", label: "Brew Ratio" },
-                            { token: "%DOSE%", label: "Dose (g)" },
-                            { token: "%GRIND%", label: "Grind Setting" },
-                            { token: "%GRINDER%", label: "Grinder Model" },
-                            { token: "%MACHINE_READY%", label: "Ready/Not ready" },
-                            { token: "%MACHINE_READY_COLOR%", label: "Ready Color" },
-                            { token: "%CONNECTED%", label: "Online/Offline" },
-                            { token: "%CONNECTED_COLOR%", label: "Status Color" },
-                            { token: "%DEVICES%", label: "Devices" },
-                            { token: "%MACHINE_CONNECTED%", label: "Machine ✓/✗" },
-                            { token: "%SCALE_CONNECTED%", label: "Scale ✓/✗" }
+                            { token: "%TEMP%", label: TranslationManager.translate("customeditor.var.temp", "Temp (°C)") },
+                            { token: "%STEAM_TEMP%", label: TranslationManager.translate("customeditor.var.steamTemp", "Steam (°C)") },
+                            { token: "%PRESSURE%", label: TranslationManager.translate("customeditor.var.pressure", "Pressure (bar)") },
+                            { token: "%FLOW%", label: TranslationManager.translate("customeditor.var.flow", "Flow (ml/s)") },
+                            { token: "%WATER%", label: TranslationManager.translate("customeditor.var.water", "Water (%)") },
+                            { token: "%WATER_ML%", label: TranslationManager.translate("customeditor.var.waterMl", "Water (ml)") },
+                            { token: "%WEIGHT%", label: TranslationManager.translate("customeditor.var.weight", "Weight (g)") },
+                            { token: "%SHOT_TIME%", label: TranslationManager.translate("customeditor.var.shotTime", "Shot Time (s)") },
+                            { token: "%TARGET_WEIGHT%", label: TranslationManager.translate("customeditor.var.targetWeight", "Target Wt (g)") },
+                            { token: "%VOLUME%", label: TranslationManager.translate("customeditor.var.volume", "Volume (ml)") },
+                            { token: "%PROFILE%", label: TranslationManager.translate("customeditor.var.profile", "Profile Name") },
+                            { token: "%STATE%", label: TranslationManager.translate("customeditor.var.state", "Machine State") },
+                            { token: "%TARGET_TEMP%", label: TranslationManager.translate("customeditor.var.targetTemp", "Target Temp") },
+                            { token: "%SCALE%", label: TranslationManager.translate("customeditor.var.scale", "Scale Name") },
+                            { token: "%TIME%", label: TranslationManager.translate("customeditor.var.time", "Time (HH:MM)") },
+                            { token: "%DATE%", label: TranslationManager.translate("customeditor.var.date", "Date") },
+                            { token: "%RATIO%", label: TranslationManager.translate("customeditor.var.ratio", "Brew Ratio") },
+                            { token: "%DOSE%", label: TranslationManager.translate("customeditor.var.dose", "Dose (g)") },
+                            { token: "%GRIND%", label: TranslationManager.translate("customeditor.var.grind", "Grind Setting") },
+                            { token: "%GRINDER%", label: TranslationManager.translate("customeditor.var.grinder", "Grinder Model") },
+                            { token: "%MACHINE_READY%", label: TranslationManager.translate("customeditor.var.machineReady", "Ready/Not ready") },
+                            { token: "%MACHINE_READY_COLOR%", label: TranslationManager.translate("customeditor.var.readyColor", "Ready Color") },
+                            { token: "%CONNECTED%", label: TranslationManager.translate("customeditor.var.connected", "Online/Offline") },
+                            { token: "%CONNECTED_COLOR%", label: TranslationManager.translate("customeditor.var.statusColor", "Status Color") },
+                            { token: "%DEVICES%", label: TranslationManager.translate("customeditor.var.devices", "Devices") },
+                            { token: "%MACHINE_CONNECTED%", label: TranslationManager.translate("customeditor.var.machineConnected", "Machine ✓/✗") },
+                            { token: "%SCALE_CONNECTED%", label: TranslationManager.translate("customeditor.var.scaleConnected", "Scale ✓/✗") }
                         ]
 
                         delegate: Rectangle {
@@ -880,7 +880,7 @@ Dialog {
                     spacing: Theme.scaled(4)
 
                     Text {
-                        text: "Actions"
+                        text: TranslationManager.translate("customeditor.label.actions", "Actions")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
@@ -894,7 +894,7 @@ Dialog {
                         border.color: popup.textAction ? Theme.primaryColor : Theme.borderColor
                         border.width: 1
                         Accessible.role: Accessible.Button
-                        Accessible.name: "Click action, " + popup.getActionLabel(popup.textAction)
+                        Accessible.name: TranslationManager.translate("customeditor.accessible.clickAction", "Click action") + ", " + popup.getActionLabel(popup.textAction)
                         Accessible.focusable: true
                         Accessible.onPressAction: clickActionMa.clicked(null)
 
@@ -904,7 +904,7 @@ Dialog {
                             anchors.rightMargin: Theme.scaled(4)
 
                             Text {
-                                text: "Click:"
+                                text: TranslationManager.translate("customeditor.gesture.click", "Click:")
                                 color: Theme.textSecondaryColor
                                 font: Theme.captionFont
                                 Accessible.ignored: true
@@ -937,7 +937,7 @@ Dialog {
                         border.color: popup.textLongPressAction ? Theme.primaryColor : Theme.borderColor
                         border.width: 1
                         Accessible.role: Accessible.Button
-                        Accessible.name: "Long press action, " + popup.getActionLabel(popup.textLongPressAction)
+                        Accessible.name: TranslationManager.translate("customeditor.accessible.longPressAction", "Long press action") + ", " + popup.getActionLabel(popup.textLongPressAction)
                         Accessible.focusable: true
                         Accessible.onPressAction: longPressActionMa.clicked(null)
 
@@ -947,7 +947,7 @@ Dialog {
                             anchors.rightMargin: Theme.scaled(4)
 
                             Text {
-                                text: "Long:"
+                                text: TranslationManager.translate("customeditor.gesture.long", "Long:")
                                 color: Theme.textSecondaryColor
                                 font: Theme.captionFont
                                 Accessible.ignored: true
@@ -980,7 +980,7 @@ Dialog {
                         border.color: popup.textDoubleclickAction ? Theme.primaryColor : Theme.borderColor
                         border.width: 1
                         Accessible.role: Accessible.Button
-                        Accessible.name: "Double click action, " + popup.getActionLabel(popup.textDoubleclickAction)
+                        Accessible.name: TranslationManager.translate("customeditor.accessible.doubleClickAction", "Double click action") + ", " + popup.getActionLabel(popup.textDoubleclickAction)
                         Accessible.focusable: true
                         Accessible.onPressAction: dblClickActionMa.clicked(null)
 
@@ -990,7 +990,7 @@ Dialog {
                             anchors.rightMargin: Theme.scaled(4)
 
                             Text {
-                                text: "DblClk:"
+                                text: TranslationManager.translate("customeditor.gesture.doubleClick", "DblClk:")
                                 color: Theme.textSecondaryColor
                                 font: Theme.captionFont
                                 Accessible.ignored: true
@@ -1137,7 +1137,7 @@ Dialog {
                         }
 
                         Text {
-                            text: colorPickerPopup.mode === "text" ? "Text Color" : "Background"
+                            text: colorPickerPopup.mode === "text" ? TranslationManager.translate("customeditor.colorpicker.textColor", "Text Color") : TranslationManager.translate("customeditor.colorpicker.background", "Background")
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                             Layout.alignment: Qt.AlignHCenter
@@ -1149,10 +1149,10 @@ Dialog {
                             radius: Theme.scaled(6)
                             color: cpApplyMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Apply"
+                            Accessible.name: TranslationManager.translate("common.button.apply", "Apply")
                             Accessible.focusable: true
                             Accessible.onPressAction: cpApplyMa.clicked(null)
-                            Text { anchors.centerIn: parent; text: "Apply"; color: "white"; font: Theme.captionFont; Accessible.ignored: true }
+                            Text { anchors.centerIn: parent; text: TranslationManager.translate("common.button.apply", "Apply"); color: "white"; font: Theme.captionFont; Accessible.ignored: true }
                             MouseArea {
                                 id: cpApplyMa
                                 anchors.fill: parent
@@ -1175,10 +1175,10 @@ Dialog {
                             color: cpCloseMa.pressed ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
                             border.color: Theme.borderColor; border.width: 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Close"
+                            Accessible.name: TranslationManager.translate("common.button.close", "Close")
                             Accessible.focusable: true
                             Accessible.onPressAction: cpCloseMa.clicked(null)
-                            Text { anchors.centerIn: parent; text: "Close"; color: Theme.textColor; font: Theme.captionFont; Accessible.ignored: true }
+                            Text { anchors.centerIn: parent; text: TranslationManager.translate("common.button.close", "Close"); color: Theme.textColor; font: Theme.captionFont; Accessible.ignored: true }
                             MouseArea { id: cpCloseMa; anchors.fill: parent; onClicked: colorPickerPopup.close() }
                         }
                     }
@@ -1211,7 +1211,7 @@ Dialog {
                             border.color: swatchMa.containsMouse ? "white" : Theme.borderColor
                             border.width: swatchMa.containsMouse ? 2 : 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: modelData.label + " color swatch"
+                            Accessible.name: modelData.label + " " + TranslationManager.translate("customeditor.accessible.colorSwatch", "color swatch")
                             Accessible.focusable: true
                             Accessible.onPressAction: swatchMa.clicked(null)
 
@@ -1245,7 +1245,7 @@ Dialog {
         property var actionItems: []
 
         onAboutToShow: {
-            var items = [{ id: "", label: "None" }]
+            var items = [{ id: "", label: TranslationManager.translate("customeditor.action.none", "None") }]
             var filtered = popup.getFilteredActions()
             for (var i = 0; i < filtered.length; i++)
                 items.push(filtered[i])
@@ -1282,10 +1282,10 @@ Dialog {
                     anchors.centerIn: parent
                     text: {
                         switch (actionPickerPopup.gesture) {
-                            case "click": return "Click Action"
-                            case "longpress": return "Long Press Action"
-                            case "doubleclick": return "Double Click Action"
-                            default: return "Action"
+                            case "click": return TranslationManager.translate("customeditor.dialog.clickAction", "Click Action")
+                            case "longpress": return TranslationManager.translate("customeditor.dialog.longPressAction", "Long Press Action")
+                            case "doubleclick": return TranslationManager.translate("customeditor.dialog.doubleClickAction", "Double Click Action")
+                            default: return TranslationManager.translate("customeditor.dialog.action", "Action")
                         }
                     }
                     font.pixelSize: Theme.scaled(18)

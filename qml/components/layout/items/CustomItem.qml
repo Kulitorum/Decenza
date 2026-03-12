@@ -165,22 +165,22 @@ Item {
         result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings.dyeGrinderModel ? Settings.dyeGrinderModel : "—")
         // Machine ready status
         var machineReady = typeof MachineState !== "undefined" && MachineState.isReady
-        result = result.replace(/%MACHINE_READY%/g, machineReady ? "Ready" : "Not ready")
+        result = result.replace(/%MACHINE_READY%/g, machineReady ? TranslationManager.translate("customitem.status.ready", "Ready") : TranslationManager.translate("customitem.status.notReady", "Not ready"))
         if (result.indexOf("%MACHINE_READY_COLOR%") >= 0)
             result = result.replace(/%MACHINE_READY_COLOR%/g, machineReady ? Theme.successColor : Theme.errorColor)
         // Connection status
         var machineOn = typeof DE1Device !== "undefined" && DE1Device.connected
         var scaleOn = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected
         var flowScale = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.isFlowScale
-        result = result.replace(/%CONNECTED%/g, machineOn ? "Online" : "Offline")
+        result = result.replace(/%CONNECTED%/g, machineOn ? TranslationManager.translate("customitem.status.online", "Online") : TranslationManager.translate("customitem.status.offline", "Offline"))
         if (result.indexOf("%CONNECTED_COLOR%") >= 0)
             result = result.replace(/%CONNECTED_COLOR%/g, machineOn ? Theme.successColor : Theme.errorColor)
         if (machineOn && scaleOn && !flowScale)
-            result = result.replace(/%DEVICES%/g, "Machine + Scale")
+            result = result.replace(/%DEVICES%/g, TranslationManager.translate("customitem.devices.machineScale", "Machine + Scale"))
         else if (machineOn && flowScale)
-            result = result.replace(/%DEVICES%/g, "Machine + Simulated Scale")
+            result = result.replace(/%DEVICES%/g, TranslationManager.translate("customitem.devices.machineSimScale", "Machine + Simulated Scale"))
         else
-            result = result.replace(/%DEVICES%/g, "Machine")
+            result = result.replace(/%DEVICES%/g, TranslationManager.translate("customitem.devices.machine", "Machine"))
         // Individual connection indicators (✅ = emoji/2705, ❌ = icons/cross-filled)
         var statusIconSize = Theme.bodyFont.pixelSize
         var statusConnected = "qrc:/emoji/2705.svg"

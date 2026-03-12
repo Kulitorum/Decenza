@@ -12,7 +12,7 @@ Page {
     background: Rectangle { color: Theme.backgroundColor }
 
     StackView.onActivated: {
-        root.currentPageTitle = "Idle"
+        root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         if (root.pendingBrewDialog) {
             root.pendingBrewDialog = false
             idleBrewDialog.open()
@@ -89,7 +89,7 @@ Page {
     property real centerMiddleScale: layoutConfig.scales ? (layoutConfig.scales.centerMiddle || 1.0) : 1.0
 
     Component.onCompleted: {
-        root.currentPageTitle = "Idle"
+        root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
     }
 
     // Track which function's presets are showing (used by center-zone action items)
@@ -138,9 +138,9 @@ Page {
                 for (var i = 0; i < presets.length; i++) {
                     names.push(presets[i].name)
                 }
-                var announcement = presets.length + " presets: " + names.join(", ")
+                var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
                 if (selectedName !== "") {
-                    announcement += ". " + selectedName + " is selected"
+                    announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")
                 }
                 AccessibilityManager.announce(announcement)
             }
