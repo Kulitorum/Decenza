@@ -377,8 +377,8 @@ void BatteryManager::applySmartCharging() {
     // That caused the UI to show "Charging" even when the DE1 USB port wasn't
     // actually delivering power — misleading the user while the battery drained.
     //
-    // On Android we now use the OS-reported status instead. CHARGING(2) or FULL(5)
-    // means current is actually flowing into the battery. On non-Android platforms
+    // On Android and iOS we now use the OS-reported status instead. CHARGING(2) or FULL(5)
+    // means current is actually flowing into the battery. On desktop platforms
     // m_androidBatteryStatus stays -1, so we fall back to the commanded state.
     bool actuallyCharging = (m_androidBatteryStatus != -1)
         ? (m_androidBatteryStatus == 2 || m_androidBatteryStatus == 5)
@@ -405,9 +405,11 @@ void BatteryManager::applySmartCharging() {
     //
     // This block runs on Android and iOS; m_androidBatteryStatus stays -1 on desktop.
     if (m_androidBatteryStatus != -1) {
-        // Port is confirmed electrically off if Android reports DISCHARGING or UNPLUGGED.
+        // Port is confirmed electrically off if the OS reports DISCHARGING or UNPLUGGED.
         // Using m_androidPlugged as a second signal catches NOT_CHARGING(4) edge cases
         // where the cable is physically connected but the DE1 cut its USB output.
+        // Note: on iOS, Charging/Full maps to USB(2) so portActuallyOff is never true
+        // while charging — mismatch detection effectively only fires on Android.
         const bool androidDischarging = (m_androidBatteryStatus == 3);
         const bool portActuallyOff = androidDischarging || (m_androidPlugged == 0);
 

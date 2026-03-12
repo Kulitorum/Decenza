@@ -69,7 +69,7 @@ void ShotImporter::performZipExtraction()
     if (!extractSuccess) {
         m_importing = false;
         emit isImportingChanged();
-        emit importError("Failed to extract ZIP archive. Make sure 'unzip' is available or extract manually.");
+        emit importError("Failed to extract ZIP archive. The file may be corrupted or not a valid ZIP.");
         return;
     }
 
@@ -307,6 +307,12 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
             }
             {
                 QByteArray data = reader.fileData(entry.filePath);
+                if (data.isEmpty() && entry.size > 0) {
+                    qWarning() << "ShotImporter: Failed to read ZIP entry:" << entry.filePath
+                               << "(expected" << entry.size << "bytes)";
+                    outFile.close();
+                    continue;
+                }
                 outFile.write(data);
             }
             outFile.close();

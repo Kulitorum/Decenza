@@ -808,9 +808,15 @@ void DE1Device::setUsbChargerOn(bool on, bool force) {
 }
 
 void DE1Device::setUsbChargerOnUrgent(bool on) {
-    m_usbChargerOn = on;
+    if (!m_transport) return;
+    bool stateChanged = (m_usbChargerOn != on);
+    if (stateChanged) {
+        m_usbChargerOn = on;
+    }
     writeMMRUrgent(DE1::MMR::USB_CHARGER, on ? 1 : 0);
-    emit usbChargerOnChanged();
+    if (stateChanged) {
+        emit usbChargerOnChanged();
+    }
 }
 
 void DE1Device::setWaterRefillLevel(int refillPointMm) {

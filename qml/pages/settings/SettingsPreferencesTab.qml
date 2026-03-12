@@ -791,7 +791,8 @@ KeyboardAwareContainer {
                             visible: BatteryManager.chargingMode !== 0
                             text: TranslationManager.translate("settings.preferences.chargingUsbNote", "Requires the DE1 front USB port to control charging.")
                             color: Theme.warningColor
-                            font.pixelSize: Theme.scaled(10)
+                            font.family: Theme.captionFont.family
+                            font.pixelSize: Theme.captionFont.pixelSize
                             font.italic: true
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
