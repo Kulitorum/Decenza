@@ -338,6 +338,10 @@ void ShotServer::setSettings(Settings* settings)
                 this, &ShotServer::onThemeChanged);
         connect(m_settings, &Settings::currentPageColorsChanged,
                 this, &ShotServer::onThemeChanged);
+        connect(m_settings, &Settings::themeModeChanged,
+                this, &ShotServer::onThemeChanged);
+        connect(m_settings, &Settings::editingPaletteChanged,
+                this, &ShotServer::onThemeChanged);
     }
 }
 

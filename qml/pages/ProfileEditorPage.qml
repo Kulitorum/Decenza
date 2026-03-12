@@ -730,13 +730,13 @@ Page {
             font: Theme.bodyFont
             visible: profileModified
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3; visible: profile }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3; visible: profile }
         Text {
             text: profile ? profile.steps.length + " " + TranslationManager.translate("profileEditor.frames", "frames") : ""
-            color: "white"
+            color: bottomBar.contentColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3; visible: profile }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3; visible: profile }
         Text {
             text: {
                 if (!profile) return ""

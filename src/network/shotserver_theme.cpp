@@ -22,55 +22,24 @@ QJsonObject ShotServer::buildThemeJson() const
     // Screen effect (structured: active + per-effect params)
     result["screenEffect"] = m_settings->screenEffectJson();
 
-    // All colors
-    QJsonObject colors;
-    QVariantMap themeColors = m_settings->customThemeColors();
+    // Theme mode
+    result["themeMode"] = m_settings->themeMode();
+    result["isDarkMode"] = m_settings->isDarkMode();
+    result["editingPalette"] = m_settings->editingPalette();
 
-    // Color definitions with defaults (matching Theme.qml)
-    static const QMap<QString, QString> colorDefaults = {
-        {"backgroundColor", "#1a1a2e"},
-        {"surfaceColor", "#303048"},
-        {"primaryColor", "#4e85f4"},
-        {"secondaryColor", "#c0c5e3"},
-        {"textColor", "#ffffff"},
-        {"textSecondaryColor", "#a0a8b8"},
-        {"accentColor", "#e94560"},
-        {"successColor", "#00cc6d"},
-        {"warningColor", "#ffaa00"},
-        {"highlightColor", "#ffaa00"},
-        {"errorColor", "#ff4444"},
-        {"borderColor", "#3a3a4e"},
-        {"pressureColor", "#18c37e"},
-        {"pressureGoalColor", "#69fdb3"},
-        {"flowColor", "#4e85f4"},
-        {"flowGoalColor", "#7aaaff"},
-        {"temperatureColor", "#e73249"},
-        {"temperatureGoalColor", "#ffa5a6"},
-        {"weightColor", "#a2693d"},
-        {"weightFlowColor", "#d4a574"},
-        {"dyeDoseColor", "#6F4E37"},
-        {"dyeOutputColor", "#9C27B0"},
-        {"dyeTdsColor", "#FF9800"},
-        {"dyeEyColor", "#a2693d"},
-        {"buttonDisabled", "#555555"},
-        {"stopMarkerColor", "#FF6B6B"},
-        {"frameMarkerColor", "#66ffffff"},
-        {"modifiedIndicatorColor", "#FFCC00"},
-        {"simulationIndicatorColor", "#E65100"},
-        {"warningButtonColor", "#FFA500"},
-        {"successButtonColor", "#2E7D32"},
-        {"rowAlternateColor", "#1a1a1a"},
-        {"rowAlternateLightColor", "#222222"},
-        {"sourceBadgeBlueColor", "#4a90d9"},
-        {"sourceBadgeGreenColor", "#4ad94a"},
-        {"sourceBadgeOrangeColor", "#d9a04a"}
-    };
-
-    for (auto it = colorDefaults.constBegin(); it != colorDefaults.constEnd(); ++it) {
-        QString val = themeColors.value(it.key()).toString();
-        colors[it.key()] = val.isEmpty() ? it.value() : val;
-    }
+    // Active colors (resolved for current mode)
+    QJsonObject colors = QJsonObject::fromVariantMap(m_settings->customThemeColors());
     result["colors"] = colors;
+
+    // Editing palette colors (for the color grid)
+    QJsonObject editingColors = QJsonObject::fromVariantMap(m_settings->editingPaletteColors());
+    result["editingColors"] = editingColors;
+
+    // Both palettes for reference
+    QJsonObject colorsDark = QJsonObject::fromVariantMap(m_settings->darkDefaults());
+    QJsonObject colorsLight = QJsonObject::fromVariantMap(m_settings->lightDefaults());
+    result["colorsDark"] = colorsDark;
+    result["colorsLight"] = colorsLight;
 
     // Font sizes
     QJsonObject fonts;
@@ -182,7 +151,31 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    // POST /api/theme/color - set a single color
+    // POST /api/theme/mode - set theme mode (dark/light/system)
+    if (path == "/api/theme/mode" && method == "POST") {
+        QJsonObject obj = QJsonDocument::fromJson(body).object();
+        QString mode = obj["mode"].toString();
+        if (mode != "dark" && mode != "light" && mode != "system") {
+            sendResponse(socket, 400, "text/plain", "Invalid mode (dark/light/system)");
+            return;
+        }
+        m_settings->setThemeMode(mode);
+        QJsonDocument doc(buildThemeJson());
+        sendJson(socket, doc.toJson(QJsonDocument::Compact));
+        return;
+    }
+
+    // POST /api/theme/editing-palette - switch which palette the editor targets
+    if (path == "/api/theme/editing-palette" && method == "POST") {
+        QJsonObject obj = QJsonDocument::fromJson(body).object();
+        QString palette = obj["palette"].toString();
+        m_settings->setEditingPalette(palette);
+        QJsonDocument doc(buildThemeJson());
+        sendJson(socket, doc.toJson(QJsonDocument::Compact));
+        return;
+    }
+
+    // POST /api/theme/color - set a single color (on editing palette)
     if (path == "/api/theme/color" && method == "POST") {
         QJsonObject obj = QJsonDocument::fromJson(body).object();
         QString name = obj["name"].toString();
@@ -191,7 +184,11 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             sendResponse(socket, 400, "text/plain", "Missing name or value");
             return;
         }
-        m_settings->setThemeColor(name, value);
+        // Optional palette param to target a specific palette
+        if (obj.contains("palette")) {
+            m_settings->setEditingPalette(obj["palette"].toString());
+        }
+        m_settings->setEditingPaletteColor(name, value);
         sendResponse(socket, 200, "application/json", "{\"ok\":true}");
         return;
     }
@@ -224,14 +221,17 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    // POST /api/theme/palette - generate and apply random palette
+    // POST /api/theme/palette - generate and apply random palette to editing palette
     if (path == "/api/theme/palette" && method == "POST") {
         QJsonObject obj = QJsonDocument::fromJson(body).object();
         double hue = obj["hue"].toDouble();
         double saturation = obj["saturation"].toDouble();
         double lightness = obj["lightness"].toDouble();
         QVariantMap palette = m_settings->generatePalette(hue, saturation, lightness);
-        m_settings->setCustomThemeColors(palette);
+        // Write each color to the editing palette (not the active palette)
+        for (auto it = palette.constBegin(); it != palette.constEnd(); ++it) {
+            m_settings->setEditingPaletteColor(it.key(), it.value().toString());
+        }
         m_settings->setActiveThemeName("Custom");
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));

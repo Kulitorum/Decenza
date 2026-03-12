@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../.."
 
@@ -196,6 +197,13 @@ Item {
                 source: "qrc:/icons/history.svg"
                 sourceSize.height: Theme.scaled(24)
                 opacity: 0.5
+
+                layer.enabled: !Theme.isDarkMode
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textSecondaryColor
+                }
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter

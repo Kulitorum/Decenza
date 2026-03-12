@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../.."
 
@@ -31,6 +32,13 @@ Item {
             sourceSize.width: Theme.scaled(32)
             sourceSize.height: Theme.scaled(32)
             Accessible.ignored: true
+
+            layer.enabled: !Theme.isDarkMode
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                colorization: 1.0
+                colorizationColor: Theme.textColor
+            }
         }
 
         AccessibleTapHandler {

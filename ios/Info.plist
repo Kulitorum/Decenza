@@ -68,5 +68,7 @@
     <array>
         <string>bluetooth-central</string>
     </array>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <false/>
 </dict>
 </plist>

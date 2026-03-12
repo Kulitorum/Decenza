@@ -353,6 +353,7 @@ int main(int argc, char *argv[])
 
     // Create core objects
     Settings settings;
+    settings.initSystemThemeDetection();
     checkpoint("Settings");
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection

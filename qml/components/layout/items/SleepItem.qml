@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
@@ -39,7 +40,7 @@ Item {
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
-            color: sleepCompactTap.isPressed ? Qt.darker("#555555", 1.2) : "#555555"
+            color: sleepCompactTap.isPressed ? Qt.darker(Theme.buttonDisabled, 1.2) : Theme.buttonDisabled
             radius: Theme.cardRadius
             opacity: 1.0
         }
@@ -54,12 +55,18 @@ Item {
                 sourceSize.height: Theme.scaled(28)
                 Layout.alignment: Qt.AlignVCenter
                 Accessible.ignored: true
+                layer.enabled: !Theme.isDarkMode
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
             Tr {
                 key: "idle.button.sleep"
                 fallback: "Sleep"
                 font: Theme.bodyFont
-                color: "white"
+                color: Theme.textColor
                 verticalAlignment: Text.AlignVCenter
                 Accessible.ignored: true
             }
@@ -89,7 +96,7 @@ Item {
             translationKey: "idle.button.sleep"
             translationFallback: "Sleep"
             iconSource: "qrc:/icons/sleep.svg"
-            backgroundColor: "#555555"
+            backgroundColor: Theme.buttonDisabled
             onClicked: root.doSleep()
             onPressAndHold: Qt.quit()
         }

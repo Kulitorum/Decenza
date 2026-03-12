@@ -234,6 +234,7 @@ Item {
 
     // Bottom navigation bar
     BottomBar {
+        id: communityBottomBar
         title: TranslationManager.translate("community.title", "Community")
         onBackClicked: pageStack.pop()
 
@@ -243,7 +244,7 @@ Item {
             width: downloadLabel.implicitWidth + Theme.scaled(32)
             height: Theme.scaled(40)
             radius: Theme.scaled(20)
-            color: downloadEnabled ? "white" : Qt.rgba(1, 1, 1, 0.15)
+            color: downloadEnabled ? communityBottomBar.contentColor : Qt.rgba(communityBottomBar.contentColor.r, communityBottomBar.contentColor.g, communityBottomBar.contentColor.b, 0.15)
 
             Accessible.role: Accessible.Button
             Accessible.name: LibrarySharing.downloading ? "Downloading" : "Add to Library"
@@ -254,7 +255,7 @@ Item {
                 id: downloadLabel
                 anchors.centerIn: parent
                 text: LibrarySharing.downloading ? "Downloading..." : "Add to Library"
-                color: parent.downloadEnabled ? Theme.primaryColor : Qt.rgba(1, 1, 1, 0.5)
+                color: parent.downloadEnabled ? communityBottomBar.color : Qt.rgba(communityBottomBar.contentColor.r, communityBottomBar.contentColor.g, communityBottomBar.contentColor.b, 0.5)
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.bodyFont.pixelSize
                 font.bold: true
@@ -272,7 +273,7 @@ Item {
         Text {
             visible: LibrarySharing.totalCommunityResults > 0
             text: LibrarySharing.totalCommunityResults + " entries"
-            color: "white"
+            color: communityBottomBar.contentColor
             font: Theme.captionFont
         }
     }

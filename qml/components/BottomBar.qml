@@ -14,11 +14,25 @@ Rectangle {
 
     signal backClicked()
 
+    // Light mode: surface-colored bar with theme text color
+    // Dark mode: solid colored bar with theme text color
+    readonly property color contentColor: Theme.textColor
+
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     height: Theme.bottomBarHeight
-    color: barColor
+    color: !Theme.isDarkMode ? Theme.surfaceColor : barColor
+
+    // Subtle top border in light mode for separation
+    Rectangle {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 1
+        color: Theme.borderColor
+        visible: !Theme.isDarkMode
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -50,11 +64,11 @@ Rectangle {
                 radius: Theme.scaled(4)
             }
 
-            Image {
+            ThemedIcon {
                 anchors.centerIn: parent
                 source: "qrc:/icons/back.svg"
-                sourceSize.width: Theme.scaled(28)
-                sourceSize.height: Theme.scaled(28)
+                iconSize: Theme.scaled(28)
+                color: root.contentColor
                 // Decorative - accessibility handled by AccessibleTapHandler
                 Accessible.ignored: true
             }
@@ -75,7 +89,7 @@ Rectangle {
         Text {
             visible: root.title !== ""
             text: root.title
-            color: "white"
+            color: root.contentColor
             font.pixelSize: Theme.scaled(20)
             font.bold: true
         }
@@ -92,7 +106,7 @@ Rectangle {
         Text {
             visible: root.rightText !== ""
             text: root.rightText
-            color: "white"
+            color: root.contentColor
             font: Theme.bodyFont
         }
     }

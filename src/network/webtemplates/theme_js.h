@@ -149,9 +149,61 @@ function renderPresets(presets, activeName) {
     }
 }
 
+function renderModeSelector(themeMode) {
+    var modes = ['dark', 'light', 'system'];
+    var labels = {'dark': 'Dark', 'light': 'Light', 'system': 'System'};
+    var container = document.getElementById('modeSelector');
+    if (!container) return;
+    while (container.firstChild) container.removeChild(container.firstChild);
+    for (var i = 0; i < modes.length; i++) {
+        var btn = document.createElement('button');
+        btn.className = 'mode-btn' + (modes[i] === themeMode ? ' active' : '');
+        btn.textContent = labels[modes[i]];
+        btn.dataset.mode = modes[i];
+        btn.onclick = function() { setThemeMode(this.dataset.mode); };
+        container.appendChild(btn);
+    }
+}
+
+function renderPaletteToggle(editingPalette) {
+    var palettes = ['dark', 'light'];
+    var labels = {'dark': 'Dark Palette', 'light': 'Light Palette'};
+    var container = document.getElementById('paletteToggle');
+    if (!container) return;
+    while (container.firstChild) container.removeChild(container.firstChild);
+    for (var i = 0; i < palettes.length; i++) {
+        var btn = document.createElement('button');
+        btn.className = 'mode-btn' + (palettes[i] === editingPalette ? ' active' : '');
+        btn.textContent = labels[palettes[i]];
+        btn.dataset.palette = palettes[i];
+        btn.onclick = function() { setEditingPalette(this.dataset.palette); };
+        container.appendChild(btn);
+    }
+}
+
+async function setThemeMode(mode) {
+    try {
+        var res = await postJson('/api/theme/mode', { mode: mode });
+        if (!res.ok) { showStatus('Server error (' + res.status + ')', true); return; }
+        var data = await res.json();
+        renderAll(data);
+    } catch(e) { showStatus('Network error: ' + e.message, true); }
+}
+
+async function setEditingPalette(palette) {
+    try {
+        var res = await postJson('/api/theme/editing-palette', { palette: palette });
+        if (!res.ok) { showStatus('Server error (' + res.status + ')', true); return; }
+        var data = await res.json();
+        renderAll(data);
+    } catch(e) { showStatus('Network error: ' + e.message, true); }
+}
+
 function renderAll(data) {
     currentTheme = data;
-    renderColors(data.colors, data.pageColors);
+    renderModeSelector(data.themeMode || 'dark');
+    renderPaletteToggle(data.editingPalette || 'dark');
+    renderColors(data.editingColors || data.colors, data.pageColors);
     renderFonts(data.fonts);
     renderPresets(data.presets, data.activeThemeName);
     if (typeof initShaderState === 'function') initShaderState(data);

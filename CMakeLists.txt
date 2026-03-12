@@ -543,6 +543,7 @@ set(QML_FILES
     qml/components/ProfileInfoButton.qml
     qml/components/ProfileDisplayButton.qml
     qml/components/BottomBar.qml
+    qml/components/ThemedIcon.qml
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml
     qml/components/AccessibleButton.qml

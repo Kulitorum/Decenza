@@ -56,6 +56,9 @@ QtObject {
         return value
     }
 
+    // Whether the active theme is dark mode (for conditional styling in QML)
+    readonly property bool isDarkMode: Settings.isDarkMode
+
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
     property color backgroundColor: _c("backgroundColor", Settings.customThemeColors.backgroundColor || "#1a1a2e")
@@ -70,6 +73,7 @@ QtObject {
     property color highlightColor: _c("highlightColor", Settings.customThemeColors.highlightColor || "#ffaa00")
     property color errorColor: _c("errorColor", Settings.customThemeColors.errorColor || "#ff4444")
     property color borderColor: _c("borderColor", Settings.customThemeColors.borderColor || "#3a3a4e")
+    property color primaryContrastColor: _c("primaryContrastColor", Settings.customThemeColors.primaryContrastColor || "#ffffff")
 
     // Chart line colors
     property color pressureColor: _c("pressureColor", Settings.customThemeColors.pressureColor || "#18c37e")

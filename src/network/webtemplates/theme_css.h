@@ -9,6 +9,53 @@ inline constexpr const char* WEB_CSS_THEME_EDITOR = R"CSS(
     color: var(--text-secondary);
 }
 
+/* Mode selector bar */
+.mode-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.mode-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.mode-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+.mode-btns {
+    display: flex;
+    gap: 0;
+}
+.mode-btn {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.mode-btn:first-child { border-radius: 6px 0 0 6px; }
+.mode-btn:last-child { border-radius: 0 6px 6px 0; }
+.mode-btn:not(:first-child) { border-left: none; }
+.mode-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+.mode-btn:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.08);
+}
+
 .main {
     display: flex;
     gap: 0;

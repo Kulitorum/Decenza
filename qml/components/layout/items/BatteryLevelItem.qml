@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 import "../.."
@@ -54,6 +55,12 @@ Item {
                 sourceSize.width: Theme.bodyFont.pixelSize
                 sourceSize.height: Theme.bodyFont.pixelSize
                 Accessible.ignored: true
+                layer.enabled: !Theme.isDarkMode
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
 
             Text {

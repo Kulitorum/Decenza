@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "."
 
@@ -81,6 +82,13 @@ Dialog {
                         sourceSize.width: Theme.scaled(28)
                         sourceSize.height: Theme.scaled(28)
                         Layout.alignment: Qt.AlignVCenter
+
+                        layer.enabled: !Theme.isDarkMode
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.textColor
+                        }
                     }
 
                     ColumnLayout {

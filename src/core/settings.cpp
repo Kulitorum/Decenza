@@ -10,6 +10,12 @@
 #include <QColor>
 #include <QUuid>
 #include <QLocale>
+#include <QGuiApplication>
+#include <QStyleHints>
+
+#ifdef Q_OS_IOS
+#include "screensaver/iosbrightness.h"
+#endif
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -161,6 +167,37 @@ Settings::Settings(QObject* parent)
             }
         }
     }
+
+    // Migrate theme/customColors → theme/customColorsDark (one-time, for light/dark mode support)
+    if (m_settings.contains("theme/customColors") && !m_settings.contains("theme/customColorsDark")) {
+        m_settings.setValue("theme/customColorsDark", m_settings.value("theme/customColors"));
+        m_settings.remove("theme/customColors");
+        if (!m_settings.contains("theme/mode"))
+            m_settings.setValue("theme/mode", "dark");
+        qDebug() << "Settings: Migrated theme/customColors → theme/customColorsDark";
+    }
+
+    // Migrate user themes: "colors" → "colorsDark"
+    QJsonArray migrateUserThemes = QJsonDocument::fromJson(
+        m_settings.value("theme/userThemes", "[]").toByteArray()
+    ).array();
+    bool userThemesMigrated = false;
+    for (qsizetype i = 0; i < migrateUserThemes.size(); ++i) {
+        QJsonObject obj = migrateUserThemes[i].toObject();
+        if (obj.contains("colors") && !obj.contains("colorsDark")) {
+            obj["colorsDark"] = obj["colors"];
+            obj.remove("colors");
+            migrateUserThemes[i] = obj;
+            userThemesMigrated = true;
+        }
+    }
+    if (userThemesMigrated) {
+        m_settings.setValue("theme/userThemes", QJsonDocument(migrateUserThemes).toJson(QJsonDocument::Compact));
+        qDebug() << "Settings: Migrated user themes colors → colorsDark";
+    }
+
+    // Initialize resolved dark mode from persisted themeMode
+    m_isDarkMode = (themeMode() != "light");  // "dark" or "system" default to dark until system detection runs
 
     // Load brew parameter overrides (persistent)
     m_hasTemperatureOverride = m_settings.value("brew/hasTemperatureOverride", false).toBool();
@@ -1382,19 +1419,235 @@ void Settings::setCurrentProfile(const QString& profile) {
     }
 }
 
+// -- Light/Dark default palettes --
+
+const QVariantMap& Settings::darkDefaults() {
+    static const QVariantMap defaults = {
+        {"backgroundColor", "#1a1a2e"},
+        {"surfaceColor", "#252538"},
+        {"primaryColor", "#4e85f4"},
+        {"secondaryColor", "#c0c5e3"},
+        {"textColor", "#ffffff"},
+        {"textSecondaryColor", "#a0a8b8"},
+        {"accentColor", "#e94560"},
+        {"successColor", "#00cc6d"},
+        {"warningColor", "#ffaa00"},
+        {"highlightColor", "#ffaa00"},
+        {"errorColor", "#ff4444"},
+        {"borderColor", "#3a3a4e"},
+        {"pressureColor", "#18c37e"},
+        {"pressureGoalColor", "#69fdb3"},
+        {"flowColor", "#4e85f4"},
+        {"flowGoalColor", "#7aaaff"},
+        {"temperatureColor", "#e73249"},
+        {"temperatureGoalColor", "#ffa5a6"},
+        {"weightColor", "#a2693d"},
+        {"weightFlowColor", "#d4a574"},
+        {"resistanceColor", "#eae83d"},
+        {"dyeDoseColor", "#6F4E37"},
+        {"dyeOutputColor", "#9C27B0"},
+        {"dyeTdsColor", "#FF9800"},
+        {"dyeEyColor", "#a2693d"},
+        {"buttonDisabled", "#555555"},
+        {"stopMarkerColor", "#FF6B6B"},
+        {"frameMarkerColor", "#66ffffff"},
+        {"modifiedIndicatorColor", "#FFCC00"},
+        {"simulationIndicatorColor", "#E65100"},
+        {"warningButtonColor", "#FFA500"},
+        {"successButtonColor", "#2E7D32"},
+        {"rowAlternateColor", "#1a1a1a"},
+        {"rowAlternateLightColor", "#222222"},
+        {"sourceBadgeBlueColor", "#4a90d9"},
+        {"sourceBadgeGreenColor", "#4ad94a"},
+        {"sourceBadgeOrangeColor", "#d9a04a"},
+        {"trackOnTargetColor", "#00cc6d"},
+        {"trackDriftingColor", "#f0ad4e"},
+        {"trackOffTargetColor", "#e94560"},
+        {"primaryContrastColor", "#ffffff"}
+    };
+    return defaults;
+}
+
+const QVariantMap& Settings::lightDefaults() {
+    // Light palette carries the dark theme's blue-purple DNA as subtle tints
+    // rather than going neutral gray — same family, different brightness.
+    static const QVariantMap defaults = {
+        // Core UI — blue-gray tinted backgrounds echo the navy dark theme
+        {"backgroundColor", "#eef0f6"},
+        {"surfaceColor", "#ffffff"},
+        {"primaryColor", "#2c5fc0"},
+        {"secondaryColor", "#8890a8"},
+        {"textColor", "#1a1a2e"},
+        {"textSecondaryColor", "#5d6478"},
+        {"accentColor", "#d93050"},
+        {"successColor", "#00a856"},
+        {"warningColor", "#e69500"},
+        {"highlightColor", "#e69500"},
+        {"errorColor", "#d93030"},
+        {"borderColor", "#c4c9d6"},
+        // Chart — slightly deeper than dark-mode goal colors for white-background contrast
+        {"pressureColor", "#12a86b"},
+        {"pressureGoalColor", "#40d898"},
+        {"flowColor", "#3a6fd0"},
+        {"flowGoalColor", "#6898e8"},
+        {"temperatureColor", "#d42840"},
+        {"temperatureGoalColor", "#f07080"},
+        {"weightColor", "#8a5830"},
+        {"weightFlowColor", "#c08858"},
+        {"resistanceColor", "#a89800"},
+        // DYE metadata — same across modes (strong hues work on both)
+        {"dyeDoseColor", "#6F4E37"},
+        {"dyeOutputColor", "#9C27B0"},
+        {"dyeTdsColor", "#FF9800"},
+        {"dyeEyColor", "#a2693d"},
+        // UI indicators — blue-gray tinted where neutral before
+        {"buttonDisabled", "#b0b5c2"},
+        {"stopMarkerColor", "#e85050"},
+        {"frameMarkerColor", "#40303048"},
+        {"modifiedIndicatorColor", "#CC9900"},
+        {"simulationIndicatorColor", "#E65100"},
+        {"warningButtonColor", "#e69500"},
+        {"successButtonColor", "#2E7D32"},
+        // Lists — subtle blue-gray alternation
+        {"rowAlternateColor", "#e8eaf2"},
+        {"rowAlternateLightColor", "#e0e3ed"},
+        {"sourceBadgeBlueColor", "#3a78c0"},
+        {"sourceBadgeGreenColor", "#38b038"},
+        {"sourceBadgeOrangeColor", "#c89030"},
+        // Tracking indicators
+        {"trackOnTargetColor", "#00a856"},
+        {"trackDriftingColor", "#d99a00"},
+        {"trackOffTargetColor", "#d93050"},
+        {"primaryContrastColor", "#ffffff"}
+    };
+    return defaults;
+}
+
+// -- Theme mode --
+
+QString Settings::themeMode() const {
+    return m_settings.value("theme/mode", "dark").toString();
+}
+
+void Settings::setThemeMode(const QString& mode) {
+    if (themeMode() != mode) {
+        m_settings.setValue("theme/mode", mode);
+        emit themeModeChanged();
+        updateResolvedMode();
+    }
+}
+
+void Settings::initSystemThemeDetection() {
+    auto* hints = QGuiApplication::styleHints();
+    if (hints) {
+        connect(hints, &QStyleHints::colorSchemeChanged, this, [this]() {
+            if (themeMode() == "system") {
+                updateResolvedMode();
+            }
+        });
+    }
+    // Resolve initial mode (for "system" mode)
+    updateResolvedMode();
+}
+
+void Settings::updateResolvedMode() {
+    bool wasDark = m_isDarkMode;
+    QString mode = themeMode();
+
+    if (mode == "light") {
+        m_isDarkMode = false;
+    } else if (mode == "dark") {
+        m_isDarkMode = true;
+    } else {
+        // "system" — follow OS
+        auto* hints = QGuiApplication::styleHints();
+        if (hints) {
+            m_isDarkMode = (hints->colorScheme() != Qt::ColorScheme::Light);
+        } else {
+            m_isDarkMode = true;  // fallback to dark
+        }
+    }
+
+    if (wasDark != m_isDarkMode) {
+        emit isDarkModeChanged();
+        emit customThemeColorsChanged();  // Active palette changed
+    }
+#ifdef Q_OS_IOS
+    ios_setStatusBarStyle(m_isDarkMode);
+#endif
+}
+
+void Settings::setEditingPalette(const QString& palette) {
+    QString p = (palette == "light") ? "light" : "dark";
+    if (m_editingPalette != p) {
+        m_editingPalette = p;
+        emit editingPaletteChanged();
+    }
+}
+
+QVariantMap Settings::editingPaletteColors() const {
+    const QString key = (m_editingPalette == "light") ? "theme/customColorsLight" : "theme/customColorsDark";
+    const QVariantMap& defaults = (m_editingPalette == "light") ? lightDefaults() : darkDefaults();
+
+    QVariantMap result = defaults;  // Start with full defaults
+    QByteArray data = m_settings.value(key).toByteArray();
+    if (!data.isEmpty()) {
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QVariantMap stored = doc.object().toVariantMap();
+        // Merge stored on top of defaults
+        for (auto it = stored.constBegin(); it != stored.constEnd(); ++it) {
+            result[it.key()] = it.value();
+        }
+    }
+    return result;
+}
+
+void Settings::setEditingPaletteColor(const QString& colorName, const QString& colorValue) {
+    const QString key = (m_editingPalette == "light") ? "theme/customColorsLight" : "theme/customColorsDark";
+
+    QByteArray data = m_settings.value(key).toByteArray();
+    QJsonObject obj;
+    if (!data.isEmpty()) {
+        obj = QJsonDocument::fromJson(data).object();
+    }
+    obj[colorName] = colorValue;
+    m_settings.setValue(key, QJsonDocument(obj).toJson());
+
+    // If editing the active palette, notify QML
+    bool editingActive = (m_editingPalette == "dark") == m_isDarkMode;
+    if (editingActive) {
+        emit customThemeColorsChanged();
+    }
+
+    // Mark as custom theme
+    if (activeThemeName() != "Custom") {
+        setActiveThemeName("Custom");
+    }
+}
+
 // Theme settings
 QVariantMap Settings::customThemeColors() const {
-    QByteArray data = m_settings.value("theme/customColors").toByteArray();
-    if (data.isEmpty()) {
-        return QVariantMap();
+    // Resolve active palette based on isDarkMode
+    const QString key = m_isDarkMode ? "theme/customColorsDark" : "theme/customColorsLight";
+    const QVariantMap& defaults = m_isDarkMode ? darkDefaults() : lightDefaults();
+
+    QVariantMap result = defaults;  // Start with full defaults
+    QByteArray data = m_settings.value(key).toByteArray();
+    if (!data.isEmpty()) {
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QVariantMap stored = doc.object().toVariantMap();
+        for (auto it = stored.constBegin(); it != stored.constEnd(); ++it) {
+            result[it.key()] = it.value();
+        }
     }
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    return doc.object().toVariantMap();
+    return result;
 }
 
 void Settings::setCustomThemeColors(const QVariantMap& colors) {
+    // Write to the active palette
+    const QString key = m_isDarkMode ? "theme/customColorsDark" : "theme/customColorsLight";
     QJsonObject obj = QJsonObject::fromVariantMap(colors);
-    m_settings.setValue("theme/customColors", QJsonDocument(obj).toJson());
+    m_settings.setValue(key, QJsonDocument(obj).toJson());
     emit customThemeColorsChanged();
 }
 
@@ -1559,14 +1812,7 @@ void Settings::setScreenBrightness(double brightness) {
 }
 
 void Settings::setThemeColor(const QString& colorName, const QString& colorValue) {
-    QVariantMap colors = customThemeColors();
-    colors[colorName] = colorValue;
-    setCustomThemeColors(colors);
-
-    // Mark as custom theme when user edits any color
-    if (activeThemeName() != "Custom") {
-        setActiveThemeName("Custom");
-    }
+    setEditingPaletteColor(colorName, colorValue);
 }
 
 QString Settings::getThemeColor(const QString& colorName) const {
@@ -1575,7 +1821,8 @@ QString Settings::getThemeColor(const QString& colorName) const {
 }
 
 void Settings::resetThemeToDefault() {
-    m_settings.remove("theme/customColors");
+    m_settings.remove("theme/customColorsDark");
+    m_settings.remove("theme/customColorsLight");
     m_settings.remove("theme/colorGroups");
     setActiveThemeName("Default");
     emit customThemeColorsChanged();
@@ -1670,7 +1917,9 @@ QVariantList Settings::getPresetThemes() const {
         QJsonObject obj = val.toObject();
         QVariantMap theme;
         theme["name"] = obj["name"].toString();
-        theme["primaryColor"] = obj["colors"].toObject()["primaryColor"].toString();
+        // Read from colorsDark (new format) or colors (old format)
+        QJsonObject colors = obj.contains("colorsDark") ? obj["colorsDark"].toObject() : obj["colors"].toObject();
+        theme["primaryColor"] = colors["primaryColor"].toString();
         theme["isBuiltIn"] = false;
         themes.append(theme);
     }
@@ -1679,32 +1928,13 @@ QVariantList Settings::getPresetThemes() const {
 }
 
 void Settings::applyPresetTheme(const QString& name) {
-    QVariantMap palette;
-
     if (name == "Default") {
-        // Exact Theme.qml defaults
-        palette["backgroundColor"] = "#1a1a2e";
-        palette["surfaceColor"] = "#252538";
-        palette["primaryColor"] = "#4e85f4";
-        palette["secondaryColor"] = "#c0c5e3";
-        palette["textColor"] = "#ffffff";
-        palette["textSecondaryColor"] = "#a0a8b8";
-        palette["accentColor"] = "#e94560";
-        palette["successColor"] = "#00ff88";
-        palette["warningColor"] = "#ffaa00";
-        palette["errorColor"] = "#ff4444";
-        palette["borderColor"] = "#3a3a4e";
-        palette["pressureColor"] = "#18c37e";
-        palette["pressureGoalColor"] = "#69fdb3";
-        palette["flowColor"] = "#4e85f4";
-        palette["flowGoalColor"] = "#7aaaff";
-        palette["temperatureColor"] = "#e73249";
-        palette["temperatureGoalColor"] = "#ffa5a6";
-        palette["weightColor"] = "#a2693d";
-
-        setCustomThemeColors(palette);
+        // Clear both palettes — darkDefaults()/lightDefaults() will provide values
+        m_settings.remove("theme/customColorsDark");
+        m_settings.remove("theme/customColorsLight");
         setActiveShader("");  // Default theme has no screen effect
         setActiveThemeName(name);
+        emit customThemeColorsChanged();
         return;
     }
 
@@ -1716,17 +1946,27 @@ void Settings::applyPresetTheme(const QString& name) {
     for (const QJsonValue& val : userThemes) {
         QJsonObject obj = val.toObject();
         if (obj["name"].toString() == name) {
-            QJsonObject colors = obj["colors"].toObject();
-            for (const QString& key : colors.keys()) {
-                palette[key] = colors[key].toString();
+            // Apply dark palette
+            if (obj.contains("colorsDark")) {
+                m_settings.setValue("theme/customColorsDark",
+                    QJsonDocument(obj["colorsDark"].toObject()).toJson());
+            } else {
+                m_settings.remove("theme/customColorsDark");
             }
-            setCustomThemeColors(palette);
+            // Apply light palette
+            if (obj.contains("colorsLight")) {
+                m_settings.setValue("theme/customColorsLight",
+                    QJsonDocument(obj["colorsLight"].toObject()).toJson());
+            } else {
+                m_settings.remove("theme/customColorsLight");
+            }
             // Restore screen effect (or disable for old presets without it)
             if (obj.contains("screenEffect"))
                 applyScreenEffect(obj["screenEffect"].toObject());
             else
                 setActiveShader("");
             setActiveThemeName(name);
+            emit customThemeColorsChanged();
             return;
         }
     }
@@ -1749,10 +1989,24 @@ void Settings::saveCurrentTheme(const QString& name) {
         }
     }
 
-    // Create new theme entry
+    // Create new theme entry with both palettes
     QJsonObject newTheme;
     newTheme["name"] = name;
-    newTheme["colors"] = QJsonObject::fromVariantMap(customThemeColors());
+
+    // Save dark palette
+    QByteArray darkData = m_settings.value("theme/customColorsDark").toByteArray();
+    if (!darkData.isEmpty())
+        newTheme["colorsDark"] = QJsonDocument::fromJson(darkData).object();
+    else
+        newTheme["colorsDark"] = QJsonObject::fromVariantMap(darkDefaults());
+
+    // Save light palette
+    QByteArray lightData = m_settings.value("theme/customColorsLight").toByteArray();
+    if (!lightData.isEmpty())
+        newTheme["colorsLight"] = QJsonDocument::fromJson(lightData).object();
+    else
+        newTheme["colorsLight"] = QJsonObject::fromVariantMap(lightDefaults());
+
     newTheme["screenEffect"] = screenEffectJson();
     userThemes.append(newTheme);
 
@@ -1792,7 +2046,19 @@ bool Settings::saveThemeToFile(const QString& filePath) {
 
     QJsonObject root;
     root["name"] = activeThemeName();
-    root["colors"] = QJsonObject::fromVariantMap(customThemeColors());
+
+    // Save both palettes
+    QByteArray darkData = m_settings.value("theme/customColorsDark").toByteArray();
+    if (!darkData.isEmpty())
+        root["colorsDark"] = QJsonDocument::fromJson(darkData).object();
+    else
+        root["colorsDark"] = QJsonObject::fromVariantMap(darkDefaults());
+
+    QByteArray lightData = m_settings.value("theme/customColorsLight").toByteArray();
+    if (!lightData.isEmpty())
+        root["colorsLight"] = QJsonDocument::fromJson(lightData).object();
+    else
+        root["colorsLight"] = QJsonObject::fromVariantMap(lightDefaults());
 
     QJsonArray groupsArr;
     for (const QVariant& g : colorGroups()) {
@@ -1831,9 +2097,22 @@ bool Settings::loadThemeFromFile(const QString& filePath) {
     if (root.contains("name")) {
         setActiveThemeName(root["name"].toString());
     }
-    if (root.contains("colors")) {
-        setCustomThemeColors(root["colors"].toObject().toVariantMap());
+    // New dual-palette format
+    if (root.contains("colorsDark")) {
+        m_settings.setValue("theme/customColorsDark",
+            QJsonDocument(root["colorsDark"].toObject()).toJson());
     }
+    if (root.contains("colorsLight")) {
+        m_settings.setValue("theme/customColorsLight",
+            QJsonDocument(root["colorsLight"].toObject()).toJson());
+    }
+    // Backward compat: old single-palette format
+    if (root.contains("colors") && !root.contains("colorsDark")) {
+        m_settings.setValue("theme/customColorsDark",
+            QJsonDocument(root["colors"].toObject()).toJson());
+    }
+    emit customThemeColorsChanged();
+
     if (root.contains("groups")) {
         QVariantList groups;
         for (const QJsonValue& v : root["groups"].toArray()) {

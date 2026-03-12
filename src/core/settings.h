@@ -100,6 +100,11 @@ class Settings : public QObject {
     Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
     Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
 
+    // Theme mode (light/dark/system)
+    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
+    Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged)
+    Q_PROPERTY(QString editingPalette READ editingPalette WRITE setEditingPalette NOTIFY editingPaletteChanged)
+
     // Screen shaders
     Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
     Q_PROPERTY(QVariantMap shaderParams READ shaderParams NOTIFY shaderParamsChanged)
@@ -430,6 +435,22 @@ public:
 
     QString activeThemeName() const;
     void setActiveThemeName(const QString& name);
+
+    // Theme mode (light/dark/system)
+    QString themeMode() const;
+    void setThemeMode(const QString& mode);
+    bool isDarkMode() const { return m_isDarkMode; }
+    void initSystemThemeDetection();
+
+    // Editing palette (which palette the color editor targets)
+    QString editingPalette() const { return m_editingPalette; }
+    void setEditingPalette(const QString& palette);
+    Q_INVOKABLE QVariantMap editingPaletteColors() const;
+    Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
+
+    // Light/dark default palettes
+    static const QVariantMap& darkDefaults();
+    static const QVariantMap& lightDefaults();
 
     // Screen effects (empty string = none, "crt" = CRT/Pip-Boy, extensible for future effects)
     QString activeShader() const;
@@ -788,6 +809,9 @@ signals:
     void customThemeColorsChanged();
     void colorGroupsChanged();
     void activeThemeNameChanged();
+    void themeModeChanged();
+    void isDarkModeChanged();
+    void editingPaletteChanged();
     void activeShaderChanged();
     void shaderParamsChanged();
     void customFontSizesChanged();
@@ -896,6 +920,11 @@ private:
     int m_flashPhase = 0;
     QTimer* m_flashTimer = nullptr;
     QStringList m_currentPageColors;
+
+    // Theme mode
+    bool m_isDarkMode = true;
+    QString m_editingPalette = "dark";
+    void updateResolvedMode();
     mutable QJsonObject m_layoutCache;
     mutable QString m_layoutJsonCache;
     mutable bool m_layoutCacheValid = false;

@@ -4,6 +4,17 @@
 // Used by theme_page.h (header is built by the page assembler)
 
 inline constexpr const char* WEB_HTML_THEME_BODY = R"HTML(
+<div class="mode-bar">
+    <div class="mode-group">
+        <span class="mode-label">Theme Mode:</span>
+        <div class="mode-btns" id="modeSelector"></div>
+    </div>
+    <div class="mode-group">
+        <span class="mode-label">Editing:</span>
+        <div class="mode-btns" id="paletteToggle"></div>
+    </div>
+</div>
+
 <div class="main">
     <!-- Left: Colors -->
     <div class="color-panel" id="colorPanel"></div>

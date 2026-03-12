@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 
 Button {
@@ -74,26 +75,48 @@ Button {
                 opacity: control.enabled ? 1.0 : 0.5
                 // Decorative - accessibility handled by Button itself
                 Accessible.ignored: true
+
+                // Tint white SVG icons for light mode visibility
+                layer.enabled: !Theme.isDarkMode
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: control._contentColor
+                }
             }
         }
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: control.text
-            color: control.enabled ? Theme.textColor : Theme.textSecondaryColor
+            color: control.enabled ? control._contentColor : Theme.textSecondaryColor
             font: Theme.bodyFont
             // Decorative - accessibility handled by Button itself
             Accessible.ignored: true
         }
     }
 
+    // In light mode, blend button color at 15% over the page background for a soft tint.
+    // Use opaque color (not alpha) so Qt button background composites correctly.
+    function _blendColor(fg, bg, t) {
+        return Qt.rgba(fg.r * t + bg.r * (1 - t),
+                       fg.g * t + bg.g * (1 - t),
+                       fg.b * t + bg.b * (1 - t), 1.0)
+    }
+    readonly property color _effectiveBackground: !Theme.isDarkMode
+        ? _blendColor(control.backgroundColor, Theme.backgroundColor, 0.15)
+        : control.backgroundColor
+
+    // In light mode, icon and text use the button's color; in dark mode, white
+    readonly property color _contentColor: !Theme.isDarkMode ? control.backgroundColor : Theme.textColor
+
     background: Rectangle {
         radius: Theme.buttonRadius
         color: {
             if (!control.enabled) return Theme.buttonDisabled
-            if (control._isPressed) return Qt.darker(control.backgroundColor, 1.2)
-            if (control.hovered || control.activeFocus) return Qt.lighter(control.backgroundColor, 1.1)
-            return control.backgroundColor
+            if (control._isPressed) return Qt.darker(control._effectiveBackground, 1.2)
+            if (control.hovered || control.activeFocus) return Qt.lighter(control._effectiveBackground, 1.1)
+            return control._effectiveBackground
         }
 
         // Focus indicator

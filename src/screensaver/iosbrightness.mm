@@ -63,11 +63,30 @@ void ios_setIdleTimerDisabled(bool disabled)
     });
 }
 
+void ios_setStatusBarStyle(bool isDarkTheme)
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *window = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if ([scene isKindOfClass:[UIWindowScene class]]) {
+                UIWindowScene *ws = (UIWindowScene *)scene;
+                window = ws.windows.firstObject;
+                break;
+            }
+        }
+        if (window) {
+            window.overrideUserInterfaceStyle = isDarkTheme ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+            qDebug() << "[Theme] iOS: set status bar style, isDark =" << isDarkTheme;
+        }
+    });
+}
+
 #else
 // macOS — no UIScreen API, brightness control not available
 void ios_setScreenBrightness(float) {}
 void ios_restoreScreenBrightness() {}
 void ios_checkAndRestoreBrightness() {}
 void ios_setIdleTimerDisabled(bool) {}
+void ios_setStatusBarStyle(bool) {}
 #endif
 #endif

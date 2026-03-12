@@ -576,19 +576,19 @@ Page {
             visible: recipeModified
         }
 
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
             text: MainController.frameCount() + " " + TranslationManager.translate("recipeEditor.frames", "frames")
-            color: "white"
+            color: bottomBar.contentColor
             font: Theme.bodyFont
         }
 
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
             text: (val(recipe.targetWeight, 36)).toFixed(0) + "g"
-            color: "white"
+            color: bottomBar.contentColor
             font: Theme.bodyFont
         }
 

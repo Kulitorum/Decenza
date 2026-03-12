@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../.."
 
@@ -35,6 +36,13 @@ Item {
                 sourceSize.height: Theme.scaled(20)
                 fillMode: Image.PreserveAspectFit
                 Accessible.ignored: true
+
+                layer.enabled: !Theme.isDarkMode
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
             Tr {
                 key: "idle.button.history"

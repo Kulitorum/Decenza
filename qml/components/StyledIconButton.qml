@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import Decenza
 
 // Round icon button with consistent styling
@@ -63,6 +64,13 @@ RoundButton {
             fillMode: Image.PreserveAspectFit
             opacity: root.enabled ? 1.0 : 0.5
             Accessible.ignored: true
+
+            layer.enabled: !Theme.isDarkMode
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                colorization: 1.0
+                colorizationColor: root.active ? root.activeColor : root.inactiveColor
+            }
         }
     }
 
