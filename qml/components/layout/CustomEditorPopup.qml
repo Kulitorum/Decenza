@@ -45,6 +45,7 @@ Dialog {
     onClosed: {
         showEmojiPicker = false
         actionPickerPopup.close()
+        profilePickerPopup.close()
     }
 
     // Detect malformed HTML (tags inside attribute values) and strip to plain text
@@ -167,6 +168,16 @@ Dialog {
     // Helper to get action label
     function getActionLabel(actionId) {
         if (!actionId) return "None"
+        // Handle parameterized actions like command:loadProfile:<name>
+        if (actionId.indexOf("command:loadProfile:") === 0) {
+            var profileName = actionId.substring("command:loadProfile:".length)
+            var profiles = MainController.availableProfiles
+            for (var j = 0; j < profiles.length; j++) {
+                if (profiles[j].name === profileName)
+                    return TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + ": " + profiles[j].title
+            }
+            return TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + ": " + profileName
+        }
         var actions = getFilteredActions()
         for (var i = 0; i < actions.length; i++) {
             if (actions[i].id === actionId) return actions[i].label
@@ -1312,11 +1323,18 @@ Dialog {
                         width: apDialogList.width
                         height: Theme.scaled(48)
 
+                        function actionMatches(current, target) {
+                            if (current === target) return true
+                            // "command:loadProfile" matches any "command:loadProfile:<name>"
+                            if (target === "command:loadProfile") return current.indexOf("command:loadProfile:") === 0
+                            return false
+                        }
+
                         property bool isSelected: {
                             switch (actionPickerPopup.gesture) {
-                                case "click": return popup.textAction === modelData.id
-                                case "longpress": return popup.textLongPressAction === modelData.id
-                                case "doubleclick": return popup.textDoubleclickAction === modelData.id
+                                case "click": return actionMatches(popup.textAction, modelData.id)
+                                case "longpress": return actionMatches(popup.textLongPressAction, modelData.id)
+                                case "doubleclick": return actionMatches(popup.textDoubleclickAction, modelData.id)
                                 default: return false
                             }
                         }
@@ -1373,6 +1391,13 @@ Dialog {
                             id: apDelegateMa
                             anchors.fill: parent
                             onClicked: {
+                                if (modelData.id === "command:loadProfile") {
+                                    // Open profile picker sub-dialog
+                                    profilePickerPopup.gesture = actionPickerPopup.gesture
+                                    actionPickerPopup.close()
+                                    profilePickerPopup.open()
+                                    return
+                                }
                                 switch (actionPickerPopup.gesture) {
                                     case "click": popup.textAction = modelData.id; break
                                     case "longpress": popup.textLongPressAction = modelData.id; break
@@ -1421,6 +1446,185 @@ Dialog {
         }
     }
 
+    // Profile picker sub-dialog (opened when "Load Profile..." is selected)
+    Dialog {
+        id: profilePickerPopup
+        property string gesture: "click"
+
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(parent ? parent.width - Theme.scaled(40) : Theme.scaled(200), Theme.scaled(300))
+        height: Math.min(ppDialogContent.implicitHeight + Theme.scaled(16), parent ? parent.height - Theme.scaled(80) : Theme.scaled(400))
+        padding: 0
+        topPadding: 0
+        bottomPadding: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: Column {
+            id: ppDialogContent
+            spacing: 0
+            width: parent ? parent.width : profilePickerPopup.width
+
+            // Header
+            Item {
+                width: parent.width
+                height: Theme.scaled(48)
+
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("customaction.command.loadProfile", "Load Profile")
+                    font.pixelSize: Theme.scaled(18)
+                    font.family: Theme.bodyFont.family
+                    font.bold: true
+                    color: Theme.textColor
+                    Accessible.ignored: true
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Scrollable list of profiles
+            Item {
+                width: parent.width
+                implicitHeight: ppDialogList.implicitHeight
+                height: implicitHeight
+
+                ListView {
+                    id: ppDialogList
+                    anchors.fill: parent
+                    implicitHeight: Math.min(count * Theme.scaled(48), Theme.scaled(300))
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    model: MainController.availableProfiles
+
+                    delegate: Rectangle {
+                        id: ppOptionDelegate
+                        width: ppDialogList.width
+                        height: Theme.scaled(48)
+
+                        property string profileAction: "command:loadProfile:" + modelData.name
+                        property bool isSelected: {
+                            switch (profilePickerPopup.gesture) {
+                                case "click": return popup.textAction === profileAction
+                                case "longpress": return popup.textLongPressAction === profileAction
+                                case "doubleclick": return popup.textDoubleclickAction === profileAction
+                                default: return false
+                            }
+                        }
+
+                        color: isSelected
+                            ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+                            : (ppDelegateMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.title + (isSelected ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: ppDelegateMa.clicked(null)
+
+                        Row {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(16)
+                            anchors.rightMargin: Theme.scaled(16)
+                            spacing: Theme.scaled(8)
+                            Accessible.ignored: true
+
+                            ColoredIcon {
+                                source: "qrc:/icons/tick.svg"
+                                iconWidth: Theme.scaled(16)
+                                iconHeight: Theme.scaled(16)
+                                iconColor: Theme.primaryColor
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Theme.scaled(24)
+                                visible: ppOptionDelegate.isSelected
+                            }
+
+                            Text {
+                                text: modelData.title
+                                font.pixelSize: Theme.scaled(16)
+                                font.family: Theme.bodyFont.family
+                                color: Theme.textColor
+                                verticalAlignment: Text.AlignVCenter
+                                anchors.verticalCenter: parent.verticalCenter
+                                elide: Text.ElideRight
+                                width: ppDialogList.width - Theme.scaled(56)
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            width: parent.width
+                            height: 1
+                            color: Theme.borderColor
+                            opacity: 0.3
+                        }
+
+                        MouseArea {
+                            id: ppDelegateMa
+                            anchors.fill: parent
+                            onClicked: {
+                                var actionId = ppOptionDelegate.profileAction
+                                switch (profilePickerPopup.gesture) {
+                                    case "click": popup.textAction = actionId; break
+                                    case "longpress": popup.textLongPressAction = actionId; break
+                                    case "doubleclick": popup.textDoubleclickAction = actionId; break
+                                }
+                                profilePickerPopup.close()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Separator
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: Theme.borderColor
+            }
+
+            // Cancel button
+            Rectangle {
+                width: parent.width
+                height: Theme.scaled(48)
+                color: ppCancelArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent"
+
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("combobox.cancel", "Cancel")
+                Accessible.focusable: true
+                Accessible.onPressAction: ppCancelArea.clicked(null)
+
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("combobox.cancel", "Cancel")
+                    font.pixelSize: Theme.scaled(16)
+                    font.family: Theme.bodyFont.family
+                    color: Theme.textSecondaryColor
+                    Accessible.ignored: true
+                }
+
+                MouseArea {
+                    id: ppCancelArea
+                    anchors.fill: parent
+                    onClicked: profilePickerPopup.close()
+                }
+            }
+        }
+    }
+
     // Action registry with page context filtering
     function getFilteredActions() {
         var allActions = [
@@ -1455,6 +1659,8 @@ Dialog {
             { id: "command:toggleCharging",  label: TranslationManager.translate("customaction.command.toggleCharging", "Toggle Charging Mode"),  contexts: ["idle", "all"] },
             { id: "command:uploadVisualizer", label: TranslationManager.translate("customaction.command.uploadVisualizer", "Upload to Visualizer"), contexts: ["idle"] },
             { id: "command:disconnectDE1",   label: TranslationManager.translate("customaction.command.disconnectDE1", "Disconnect DE1"),         contexts: ["idle"] },
+            { id: "command:loadProfile",     label: TranslationManager.translate("customaction.command.loadProfile", "Load Profile") + "...",     contexts: ["idle"] },
+            { id: "command:previousProfile", label: TranslationManager.translate("customaction.command.previousProfile", "Previous Profile"),   contexts: ["idle"] },
             { id: "command:quit",            label: TranslationManager.translate("customaction.command.quit", "Quit App"),                        contexts: ["idle"] }
         ]
         var ctx = popup.pageContext
