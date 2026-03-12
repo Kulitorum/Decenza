@@ -45,7 +45,11 @@ KeyboardAwareContainer {
         ]}
     ]
 
+    // Bumped when editing palette changes, to force swatch re-evaluation
+    property int _paletteVersion: 0
+
     function getColorValue(colorName) {
+        var _v = _paletteVersion  // reactive dependency
         var editColors = Settings.editingPaletteColors()
         return editColors[colorName] || Theme[colorName] || "#ffffff"
     }
@@ -65,11 +69,15 @@ KeyboardAwareContainer {
         selectedColorValue = newColor
     }
 
-    // Refresh selected color when editing palette changes
+    // Refresh all swatches and selected color when editing palette changes
     Connections {
         target: Settings
         function onEditingPaletteChanged() {
+            themesTab._paletteVersion++
             themesTab.selectColor(themesTab.selectedColorName)
+        }
+        function onCustomThemeColorsChanged() {
+            themesTab._paletteVersion++
         }
     }
 
@@ -84,62 +92,61 @@ KeyboardAwareContainer {
             spacing: Theme.spacingMedium
 
             // Mode selector: Dark / Light / Follow System
-            Row {
-                spacing: 0
+            Rectangle {
+                implicitWidth: modeRow.implicitWidth
+                implicitHeight: Theme.scaled(36)
+                radius: Theme.buttonRadius
+                color: "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+                clip: true
 
-                Repeater {
-                    model: [
-                        { value: "dark", label: TranslationManager.translate("settings.themes.dark", "Dark") },
-                        { value: "light", label: TranslationManager.translate("settings.themes.light", "Light") },
-                        { value: "system", label: TranslationManager.translate("settings.themes.system", "System") }
-                    ]
+                Row {
+                    id: modeRow
+                    anchors.fill: parent
 
-                    Rectangle {
-                        width: modeLabel.implicitWidth + Theme.scaled(24)
-                        height: Theme.scaled(36)
-                        radius: index === 0 ? Theme.buttonRadius : (index === 2 ? Theme.buttonRadius : 0)
-                        color: Settings.themeMode === modelData.value ? Theme.primaryColor : Theme.surfaceColor
-                        border.color: Theme.borderColor
-                        border.width: 1
+                    Repeater {
+                        model: [
+                            { value: "dark", label: TranslationManager.translate("settings.themes.dark", "Dark") },
+                            { value: "light", label: TranslationManager.translate("settings.themes.light", "Light") },
+                            { value: "system", label: TranslationManager.translate("settings.themes.system", "System") }
+                        ]
 
-                        // Round only left or right corners
                         Rectangle {
-                            visible: index === 0
-                            anchors.right: parent.right
-                            width: parent.width / 2
+                            width: modeLabel.implicitWidth + Theme.scaled(24)
                             height: parent.height
-                            color: parent.color
-                            border.color: parent.border.color
-                            border.width: parent.border.width
-                        }
-                        Rectangle {
-                            visible: index === 2
-                            anchors.left: parent.left
-                            width: parent.width / 2
-                            height: parent.height
-                            color: parent.color
-                            border.color: parent.border.color
-                            border.width: parent.border.width
-                        }
+                            color: Settings.themeMode === modelData.value ? Theme.primaryColor : Theme.surfaceColor
+                            border.color: index > 0 ? Theme.borderColor : "transparent"
+                            border.width: index > 0 ? 1 : 0
 
-                        Text {
-                            id: modeLabel
-                            text: modelData.label
-                            color: Settings.themeMode === modelData.value ? "white" : Theme.textColor
-                            font: Theme.labelFont
-                            anchors.centerIn: parent
-                            Accessible.ignored: true
-                        }
+                            // Only left border as separator between segments
+                            Rectangle {
+                                visible: index > 0
+                                anchors.left: parent.left
+                                width: 1
+                                height: parent.height
+                                color: Theme.borderColor
+                            }
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: modelData.label
-                        Accessible.focusable: true
-                        Accessible.onPressAction: modeArea.clicked(null)
+                            Text {
+                                id: modeLabel
+                                text: modelData.label
+                                color: Settings.themeMode === modelData.value ? "white" : Theme.textColor
+                                font: Theme.labelFont
+                                anchors.centerIn: parent
+                                Accessible.ignored: true
+                            }
 
-                        MouseArea {
-                            id: modeArea
-                            anchors.fill: parent
-                            onClicked: Settings.themeMode = modelData.value
+                            Accessible.role: Accessible.Button
+                            Accessible.name: modelData.label
+                            Accessible.focusable: true
+                            Accessible.onPressAction: modeArea.clicked(null)
+
+                            MouseArea {
+                                id: modeArea
+                                anchors.fill: parent
+                                onClicked: Settings.themeMode = modelData.value
+                            }
                         }
                     }
                 }
@@ -148,60 +155,57 @@ KeyboardAwareContainer {
             Item { Layout.fillWidth: true }
 
             // Palette toggle: which palette to edit
-            Row {
-                spacing: 0
+            Rectangle {
+                implicitWidth: palRow.implicitWidth
+                implicitHeight: Theme.scaled(36)
+                radius: Theme.buttonRadius
+                color: "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+                clip: true
 
-                Repeater {
-                    model: [
-                        { value: "dark", label: TranslationManager.translate("settings.themes.editDark", "Dark Palette") },
-                        { value: "light", label: TranslationManager.translate("settings.themes.editLight", "Light Palette") }
-                    ]
+                Row {
+                    id: palRow
+                    anchors.fill: parent
 
-                    Rectangle {
-                        width: palLabel.implicitWidth + Theme.scaled(24)
-                        height: Theme.scaled(36)
-                        radius: index === 0 ? Theme.buttonRadius : Theme.buttonRadius
-                        color: Settings.editingPalette === modelData.value ? Theme.primaryColor : Theme.surfaceColor
-                        border.color: Theme.borderColor
-                        border.width: 1
+                    Repeater {
+                        model: [
+                            { value: "dark", label: TranslationManager.translate("settings.themes.editDark", "Dark Palette") },
+                            { value: "light", label: TranslationManager.translate("settings.themes.editLight", "Light Palette") }
+                        ]
 
                         Rectangle {
-                            visible: index === 0
-                            anchors.right: parent.right
-                            width: parent.width / 2
+                            width: palLabel.implicitWidth + Theme.scaled(24)
                             height: parent.height
-                            color: parent.color
-                            border.color: parent.border.color
-                            border.width: parent.border.width
-                        }
-                        Rectangle {
-                            visible: index === 1
-                            anchors.left: parent.left
-                            width: parent.width / 2
-                            height: parent.height
-                            color: parent.color
-                            border.color: parent.border.color
-                            border.width: parent.border.width
-                        }
+                            color: Settings.editingPalette === modelData.value ? Theme.primaryColor : Theme.surfaceColor
 
-                        Text {
-                            id: palLabel
-                            text: modelData.label
-                            color: Settings.editingPalette === modelData.value ? "white" : Theme.textColor
-                            font: Theme.labelFont
-                            anchors.centerIn: parent
-                            Accessible.ignored: true
-                        }
+                            Rectangle {
+                                visible: index > 0
+                                anchors.left: parent.left
+                                width: 1
+                                height: parent.height
+                                color: Theme.borderColor
+                            }
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: modelData.label
-                        Accessible.focusable: true
-                        Accessible.onPressAction: palArea.clicked(null)
+                            Text {
+                                id: palLabel
+                                text: modelData.label
+                                color: Settings.editingPalette === modelData.value ? "white" : Theme.textColor
+                                font: Theme.labelFont
+                                anchors.centerIn: parent
+                                Accessible.ignored: true
+                            }
 
-                        MouseArea {
-                            id: palArea
-                            anchors.fill: parent
-                            onClicked: Settings.editingPalette = modelData.value
+                            Accessible.role: Accessible.Button
+                            Accessible.name: modelData.label
+                            Accessible.focusable: true
+                            Accessible.onPressAction: palArea.clicked(null)
+
+                            MouseArea {
+                                id: palArea
+                                anchors.fill: parent
+                                onClicked: Settings.editingPalette = modelData.value
+                            }
                         }
                     }
                 }
