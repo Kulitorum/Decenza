@@ -70,7 +70,7 @@ Rectangle {
             spacing: Theme.scaled(6)
 
             Text {
-                text: "Library"
+                text: TranslationManager.translate("library.title", "Library")
                 color: Theme.textColor
                 font: Theme.subtitleFont
                 Layout.fillWidth: true
@@ -86,7 +86,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Grid view" + (displayMode === 0 ? ", selected" : "")
+                Accessible.name: TranslationManager.translate("library.accessibility.gridView", "Grid view") + (displayMode === 0 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
                 Accessible.focusable: true
                 Accessible.onPressAction: gridMa.clicked(null)
 
@@ -115,7 +115,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "List view" + (displayMode === 1 ? ", selected" : "")
+                Accessible.name: TranslationManager.translate("library.accessibility.listView", "List view") + (displayMode === 1 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
                 Accessible.focusable: true
                 Accessible.onPressAction: listMa.clicked(null)
 
@@ -155,8 +155,8 @@ Rectangle {
 
                 Repeater {
                     model: [
-                        { key: "local", label: "My Library" },
-                        { key: "community", label: "Community" }
+                        { key: "local", label: TranslationManager.translate("library.tab.myLibrary", "My Library") },
+                        { key: "community", label: TranslationManager.translate("library.tab.community", "Community") }
                     ]
 
                     Item {
@@ -186,7 +186,7 @@ Rectangle {
                         }
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: modelData.label + " tab" + (activeTab === modelData.key ? ", selected" : "")
+                        Accessible.name: modelData.label + " " + TranslationManager.translate("library.accessibility.tab", "tab") + (activeTab === modelData.key ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: tabMa.clicked(null)
 
@@ -226,7 +226,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Add to library"
+                Accessible.name: TranslationManager.translate("library.accessibility.addToLibrary", "Add to library")
                 Accessible.focusable: true
                 Accessible.onPressAction: addMa.clicked(null)
 
@@ -263,9 +263,9 @@ Rectangle {
 
                         Repeater {
                             model: [
-                                { label: "Save Item", type: "item", enabled: selectedItemId !== "" },
-                                { label: "Save Zone", type: "zone", enabled: selectedZoneName !== "" },
-                                { label: "Save Layout", type: "layout", enabled: true }
+                                { label: TranslationManager.translate("library.menu.saveItem", "Save Item"), type: "item", enabled: selectedItemId !== "" },
+                                { label: TranslationManager.translate("library.menu.saveZone", "Save Zone"), type: "zone", enabled: selectedZoneName !== "" },
+                                { label: TranslationManager.translate("library.menu.saveLayout", "Save Layout"), type: "layout", enabled: true }
                             ]
 
                             Rectangle {
@@ -333,7 +333,7 @@ Rectangle {
                 property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && (selectedEntryType === "layout" || selectedEntryType === "theme" || selectedZoneName !== "")
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Apply selected entry"
+                Accessible.name: TranslationManager.translate("library.accessibility.applySelected", "Apply selected entry")
                 Accessible.focusable: true
                 Accessible.onPressAction: applyMa.clicked(null)
 
@@ -363,7 +363,7 @@ Rectangle {
                 opacity: canDeleteSelected ? 1.0 : 0.4
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Delete selected entry"
+                Accessible.name: TranslationManager.translate("library.accessibility.deleteSelected", "Delete selected entry")
                 Accessible.focusable: true
                 Accessible.onPressAction: delMa.clicked(null)
 
@@ -394,7 +394,7 @@ Rectangle {
                 opacity: WidgetLibrary.selectedEntryId !== "" ? 1.0 : 0.4
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Share to community"
+                Accessible.name: TranslationManager.translate("library.accessibility.shareToCommunity", "Share to community")
                 Accessible.focusable: true
                 Accessible.onPressAction: shareMa.clicked(null)
 
@@ -423,7 +423,7 @@ Rectangle {
                 border.color: showItems ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: "Filter items" + (showItems ? ", on" : ", off")
+                Accessible.name: TranslationManager.translate("library.accessibility.filterItems", "Filter items") + (showItems ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterItemsMa.clicked(null)
                 Text {
@@ -444,7 +444,7 @@ Rectangle {
                 border.color: showZones ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: "Filter zones" + (showZones ? ", on" : ", off")
+                Accessible.name: TranslationManager.translate("library.accessibility.filterZones", "Filter zones") + (showZones ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterZonesMa.clicked(null)
                 Text {
@@ -465,7 +465,7 @@ Rectangle {
                 border.color: showLayouts ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: "Filter layouts" + (showLayouts ? ", on" : ", off")
+                Accessible.name: TranslationManager.translate("library.accessibility.filterLayouts", "Filter layouts") + (showLayouts ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterLayoutsMa.clicked(null)
                 Text {
@@ -486,7 +486,7 @@ Rectangle {
                 border.color: showThemes ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: "Filter themes" + (showThemes ? ", on" : ", off")
+                Accessible.name: TranslationManager.translate("library.accessibility.filterThemes", "Filter themes") + (showThemes ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterThemesMa.clicked(null)
                 Text {
@@ -545,8 +545,8 @@ Rectangle {
                 visible: libraryList.count === 0 && !LibrarySharing.browsing
                 anchors.centerIn: parent
                 text: activeTab === "local"
-                    ? "No items in library.\nSelect a widget and click Add."
-                    : "No entries found."
+                    ? TranslationManager.translate("library.emptyState.local", "No items in library.\nSelect a widget and click Add.")
+                    : TranslationManager.translate("library.emptyState.community", "No entries found.")
                 color: Theme.textSecondaryColor
                 font: Theme.captionFont
                 horizontalAlignment: Text.AlignHCenter
@@ -556,7 +556,7 @@ Rectangle {
         // Status indicators
         Text {
             visible: LibrarySharing.uploading
-            text: "Uploading..."
+            text: TranslationManager.translate("library.status.uploading", "Uploading...")
             color: Theme.primaryColor
             font: Theme.captionFont
             Layout.fillWidth: true
@@ -565,7 +565,7 @@ Rectangle {
 
         Text {
             visible: LibrarySharing.browsing
-            text: "Loading..."
+            text: TranslationManager.translate("library.status.loading", "Loading...")
             color: Theme.textSecondaryColor
             font: Theme.captionFont
             Layout.fillWidth: true
@@ -576,8 +576,8 @@ Rectangle {
         AccessibleButton {
             visible: activeTab === "community"
             Layout.fillWidth: true
-            text: "Browse All"
-            accessibleName: "Browse all community items"
+            text: TranslationManager.translate("library.button.browseAll", "Browse All")
+            accessibleName: TranslationManager.translate("library.accessibility.browseAllCommunity", "Browse all community items")
             onClicked: {
                 pageStack.push(Qt.resolvedUrl("../../pages/CommunityBrowserPage.qml"))
             }
@@ -646,7 +646,7 @@ Rectangle {
         var entry = WidgetLibrary.getEntry(entryId)
         if (entry && entry.type) {
             if (entry.type !== "layout" && entry.type !== "theme" && !selectedZoneName) {
-                showToast("Select a zone to apply to", Theme.warningColor)
+                showToast(TranslationManager.translate("library.toast.selectZone", "Select a zone to apply to"), Theme.warningColor)
                 return
             }
             applyEntry(entryId, entry.type, selectedZoneName)
@@ -664,12 +664,12 @@ Rectangle {
         }
         if (!type) return
         if (type !== "layout" && type !== "theme" && !selectedZoneName) {
-            showToast("Select a zone to apply to", Theme.warningColor)
+            showToast(TranslationManager.translate("library.toast.selectZone", "Select a zone to apply to"), Theme.warningColor)
             return
         }
 
         pendingApplyZone = selectedZoneName
-        showToast("Downloading...", Theme.primaryColor)
+        showToast(TranslationManager.translate("library.toast.downloading", "Downloading..."), Theme.primaryColor)
         LibrarySharing.downloadEntry(entryId)
     }
 
@@ -716,35 +716,35 @@ Rectangle {
     Connections {
         target: LibrarySharing
         function onUploadSuccess(serverId) {
-            showToast("Shared successfully!", Theme.successColor)
+            showToast(TranslationManager.translate("library.toast.sharedSuccess", "Shared successfully!"), Theme.successColor)
         }
         function onUploadFailed(error) {
             if (error === "Already shared")
-                showToast("Already shared", Theme.warningColor)
+                showToast(TranslationManager.translate("library.toast.alreadyShared", "Already shared"), Theme.warningColor)
             else
-                showToast("Upload failed: " + error, Theme.errorColor)
+                showToast(TranslationManager.translate("library.toast.uploadFailed", "Upload failed: ") + error, Theme.errorColor)
         }
         function onDeleteSuccess() {
-            showToast("Deleted from server", Theme.successColor)
+            showToast(TranslationManager.translate("library.toast.deletedFromServer", "Deleted from server"), Theme.successColor)
             // Refresh community list
             LibrarySharing.browseCommunity("", "", "", "", "newest", 1)
         }
         function onDeleteFailed(error) {
-            showToast("Delete failed: " + error, Theme.errorColor)
+            showToast(TranslationManager.translate("library.toast.deleteFailed", "Delete failed: ") + error, Theme.errorColor)
         }
         function onDownloadComplete(localEntryId) {
             if (pendingApplyZone) {
                 var entry = WidgetLibrary.getEntry(localEntryId)
                 if (entry && entry.type) {
                     applyEntry(localEntryId, entry.type, pendingApplyZone)
-                    showToast("Applied!", Theme.successColor)
+                    showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)
                 }
                 pendingApplyZone = ""
             }
         }
         function onDownloadFailed(error) {
             if (pendingApplyZone) {
-                showToast("Download failed: " + error, Theme.errorColor)
+                showToast(TranslationManager.translate("library.toast.downloadFailed", "Download failed: ") + error, Theme.errorColor)
                 pendingApplyZone = ""
             }
         }
