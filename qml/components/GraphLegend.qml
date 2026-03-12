@@ -24,7 +24,7 @@ Item {
                 { label: TranslationManager.translate("graph.temp", "Temp"), sColor: Theme.temperatureColor, key: "showTemperature" },
                 { label: TranslationManager.translate("graph.weight", "Weight"), sColor: Theme.weightColor, key: "showWeight" },
                 { label: TranslationManager.translate("graph.wtFlow", "Wt flow"), sColor: Theme.weightFlowColor, key: "showWeightFlow" },
-                { label: "Resist(P/F)", sColor: Theme.resistanceColor, key: "showResistance" }
+                { label: TranslationManager.translate("graph.resistance", "Resist(P/F)"), sColor: Theme.resistanceColor, key: "showResistance" }
             ]
 
             delegate: Rectangle {

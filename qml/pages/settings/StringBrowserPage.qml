@@ -155,7 +155,7 @@ Page {
                             var untranslated = TranslationManager.uniqueUntranslatedCount()
                             var translated = total - untranslated
                             var percent = Math.round((translated / Math.max(1, total)) * 100)
-                            return TranslationManager.translate("stringBrowser.accessible.translationProgress", "Translation progress: ") + percent + TranslationManager.translate("stringBrowser.accessible.percent", " percent. ") + translated + TranslationManager.translate("stringBrowser.accessible.ofTotal", " of ") + total + TranslationManager.translate("stringBrowser.accessible.stringsTranslated", " strings translated.")
+                            return TranslationManager.translate("stringBrowser.accessible.translationProgress", "Translation progress: %1 percent. %2 of %3 strings translated.").replace("%1", percent).replace("%2", translated).replace("%3", total)
                         }
                     }
 
@@ -330,7 +330,7 @@ Page {
                             border.color: Theme.borderColor
 
                             Accessible.role: Accessible.RadioButton
-                            Accessible.name: modelData.text + " " + TranslationManager.translate("stringBrowser.accessible.filter", "filter")
+                            Accessible.name: TranslationManager.translate("stringBrowser.accessible.filter", "%1 filter").replace("%1", modelData.text)
                             Accessible.description: modelData.description
                             Accessible.checked: stringModel.filterMode === modelData.mode
                             Accessible.focusable: true
@@ -356,12 +356,12 @@ Page {
 
             // String count
             Text {
-                text: stringModel.count + " " + TranslationManager.translate("stringBrowser.uniqueStrings", "unique strings")
+                text: TranslationManager.translate("stringBrowser.uniqueStrings", "%1 unique strings").replace("%1", stringModel.count)
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: stringModel.count + " " + TranslationManager.translate("stringBrowser.accessible.uniqueStringsShown", "unique strings shown")
+                Accessible.name: TranslationManager.translate("stringBrowser.accessible.uniqueStringsShown", "%1 unique strings shown").replace("%1", stringModel.count)
             }
         }
 
@@ -441,7 +441,7 @@ Page {
 
             Accessible.role: Accessible.List
             Accessible.name: isEnglish ? TranslationManager.translate("stringBrowser.accessible.customizationList", "String customization list") : TranslationManager.translate("stringBrowser.accessible.translationList", "Translation list")
-            Accessible.description: stringModel.count + " " + TranslationManager.translate("stringBrowser.accessible.stringsSwipeToNavigate", "strings. Swipe to navigate, double tap to edit.")
+            Accessible.description: TranslationManager.translate("stringBrowser.accessible.stringsSwipeToNavigate", "%1 strings. Swipe to navigate, double tap to edit.").replace("%1", stringModel.count)
 
 
             // Center editing item in visible area (accounting for keyboard)
@@ -531,7 +531,7 @@ Page {
                                 name += ". " + TranslationManager.translate("stringBrowser.accessible.aiGenerated", "AI generated.")
                             }
                         } else if (model.aiTranslation) {
-                            name += TranslationManager.translate("stringBrowser.accessible.aiSuggestion", "AI suggestion: ") + model.aiTranslation + ". " + TranslationManager.translate("stringBrowser.accessible.doubleTapEditAccept", "Double tap to edit or accept.")
+                            name += TranslationManager.translate("stringBrowser.accessible.aiSuggestion", "AI suggestion: %1. Double tap to edit or accept.").replace("%1", model.aiTranslation)
                         } else {
                             name += TranslationManager.translate("stringBrowser.accessible.notTranslated", "Not translated. Double tap to translate.")
                         }
@@ -612,7 +612,7 @@ Page {
                         radius: Theme.scaled(4)
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: model.aiTranslation ? TranslationManager.translate("stringBrowser.accessible.aiSuggestionTap", "AI suggestion: ") + model.aiTranslation + ". " + TranslationManager.translate("stringBrowser.accessible.tapToUse", "Tap to use this translation.") : TranslationManager.translate("stringBrowser.accessible.noAiTranslation", "No AI translation available")
+                        Accessible.name: model.aiTranslation ? TranslationManager.translate("stringBrowser.accessible.aiSuggestionTap", "AI suggestion: %1. Tap to use this translation.").replace("%1", model.aiTranslation) : TranslationManager.translate("stringBrowser.accessible.noAiTranslation", "No AI translation available")
                         Accessible.focusable: model.aiTranslation ? true : false
                         Accessible.onPressAction: aiCopyArea.clicked(null)
 
@@ -727,16 +727,16 @@ Page {
                             Accessible.role: Accessible.EditableText
                             Accessible.focusable: true
                             Accessible.name: isEnglish
-                                ? TranslationManager.translate("stringBrowser.accessible.customTextFor", "Custom text for: ") + model.fallback
-                                : TranslationManager.translate("stringBrowser.accessible.translationFor", "Translation for: ") + model.fallback
+                                ? TranslationManager.translate("stringBrowser.accessible.customTextFor", "Custom text for: %1").replace("%1", model.fallback)
+                                : TranslationManager.translate("stringBrowser.accessible.translationFor", "Translation for: %1").replace("%1", model.fallback)
                             Accessible.description: {
                                 if (isEnglish) {
                                     return model.translation
-                                        ? TranslationManager.translate("stringBrowser.accessible.currentCustomText", "Current custom text: ") + model.translation + ". " + TranslationManager.translate("stringBrowser.accessible.editToChange", "Edit to change.")
+                                        ? TranslationManager.translate("stringBrowser.accessible.currentCustomText", "Current custom text: %1. Edit to change.").replace("%1", model.translation)
                                         : TranslationManager.translate("stringBrowser.accessible.noCustomTextSet", "No custom text set. Type to customize this string.")
                                 } else {
                                     return model.translation
-                                        ? TranslationManager.translate("stringBrowser.accessible.currentTranslation", "Current translation: ") + model.translation + ". " + TranslationManager.translate("stringBrowser.accessible.editToChange", "Edit to change.")
+                                        ? TranslationManager.translate("stringBrowser.accessible.currentTranslation", "Current translation: %1. Edit to change.").replace("%1", model.translation)
                                         : TranslationManager.translate("stringBrowser.accessible.notTranslatedType", "Not translated. Type your translation here.")
                                 }
                             }
@@ -1110,7 +1110,7 @@ Page {
 
             Text {
                 width: parent.width
-                text: TranslationManager.translate("stringBrowser.clearAllAiDescriptionPrefix", "This will delete all AI-generated translations for ") + TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage) + TranslationManager.translate("stringBrowser.clearAllAiDescriptionSuffix", ".\n\nHuman-edited translations will be preserved.\n\nYou can then re-translate with AI Translate.")
+                text: TranslationManager.translate("stringBrowser.clearAllAiDescription", "This will delete all AI-generated translations for %1.\n\nHuman-edited translations will be preserved.\n\nYou can then re-translate with AI Translate.").replace("%1", TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage))
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap

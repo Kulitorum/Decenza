@@ -16,8 +16,9 @@ Text {
         return TranslationManager.translate(key, fallback)
     }
 
-    // Default styling
-    font: Theme.bodyFont
+    // Default styling — use individual properties so instances can override font.bold, font.pixelSize, etc.
+    font.family: Theme.bodyFont.family
+    font.pixelSize: Theme.bodyFont.pixelSize
     color: Theme.textColor
 
     // Register this string with TranslationManager on creation

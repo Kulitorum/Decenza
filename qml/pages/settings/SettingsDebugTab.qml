@@ -330,7 +330,7 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("common.button.ok", "OK")
-                        accessibleName: TranslationManager.translate("debug.dismissDialog", "Dismiss dialog")
+                        accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
                         anchors.horizontalCenter: parent.horizontalCenter
                         onClicked: profileConvertResultDialog.close()
                     }
@@ -476,7 +476,7 @@ Item {
 
                     AccessibleButton {
                         text: TranslationManager.translate("common.button.ok", "OK")
-                        accessibleName: TranslationManager.translate("debug.dismissDialog", "Dismiss dialog")
+                        accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
                         anchors.horizontalCenter: parent.horizontalCenter
                         onClicked: importResultDialog.close()
                     }
