@@ -52,7 +52,7 @@ Rectangle {
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
                 Accessible.role: Accessible.Heading
-                Accessible.name: root.zoneLabel + " zone"
+                Accessible.name: TranslationManager.translate("layoutEditor.zoneHeading", "%1 zone").arg(root.zoneLabel)
             }
 
             Item { Layout.fillWidth: true }
@@ -76,7 +76,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Move " + root.zoneLabel + " up"
+                Accessible.name: TranslationManager.translate("layoutEditor.moveZoneUp", "Move %1 up").arg(root.zoneLabel)
                 Accessible.focusable: true
                 Accessible.onPressAction: root.moveUp()
 
@@ -105,7 +105,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Move " + root.zoneLabel + " down"
+                Accessible.name: TranslationManager.translate("layoutEditor.moveZoneDown", "Move %1 down").arg(root.zoneLabel)
                 Accessible.focusable: true
                 Accessible.onPressAction: root.moveDown()
 
@@ -150,7 +150,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Make " + root.zoneLabel + " smaller"
+                Accessible.name: TranslationManager.translate("layoutEditor.makeZoneSmaller", "Make %1 smaller").arg(root.zoneLabel)
                 Accessible.focusable: true
                 Accessible.onPressAction: root.scaleDown()
 
@@ -180,7 +180,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Make " + root.zoneLabel + " bigger"
+                Accessible.name: TranslationManager.translate("layoutEditor.makeZoneBigger", "Make %1 bigger").arg(root.zoneLabel)
                 Accessible.focusable: true
                 Accessible.onPressAction: root.scaleUp()
 
@@ -223,7 +223,8 @@ Rectangle {
                         var name = modelData.type === "custom"
                             ? root.getTextChipLabel(modelData)
                             : getItemDisplayName(modelData.type)
-                        return name + " widget" + (isSelected ? ", selected" : "")
+                        var suffix = isSelected ? ", " + TranslationManager.translate("layoutEditor.selected", "selected") : ""
+                        return TranslationManager.translate("layoutEditor.widgetItem", "%1 widget").arg(name) + suffix
                     }
                     Accessible.focusable: true
                     Accessible.onPressAction: root.itemTapped(modelData.id)
@@ -241,7 +242,7 @@ Rectangle {
                             font.pixelSize: Theme.scaled(24)
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Move left"
+                            Accessible.name: TranslationManager.translate("layoutEditor.moveLeft", "Move left")
                             Accessible.focusable: true
                             Accessible.onPressAction: root.moveLeft(modelData.id)
 
@@ -293,7 +294,7 @@ Rectangle {
                             font.pixelSize: Theme.scaled(24)
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Move right"
+                            Accessible.name: TranslationManager.translate("layoutEditor.moveRight", "Move right")
                             Accessible.focusable: true
                             Accessible.onPressAction: root.moveRight(modelData.id)
 
@@ -313,7 +314,7 @@ Rectangle {
                             font.bold: true
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Remove widget"
+                            Accessible.name: TranslationManager.translate("layoutEditor.removeWidget", "Remove widget")
                             Accessible.focusable: true
                             Accessible.onPressAction: root.itemRemoved(modelData.id)
 
@@ -348,7 +349,7 @@ Rectangle {
                 border.width: 1
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Add widget to " + root.zoneLabel
+                Accessible.name: TranslationManager.translate("layoutEditor.addWidgetTo", "Add widget to %1").arg(root.zoneLabel)
                 Accessible.focusable: true
                 Accessible.onPressAction: addPopup.open()
 
@@ -391,36 +392,36 @@ Rectangle {
                         // Grouped by color (white, orange, blue), sorted by name within each group
                         model: [
                             // Actions & readouts (white)
-                            { type: "beans", label: "Beans" },
-                            { type: "connectionStatus", label: "Connection" },
-                            { type: "espresso", label: "Espresso" },
-                            { type: "autofavorites", label: "Favorites" },
-                            { type: "flush", label: "Flush" },
-                            { type: "history", label: "History" },
-                            { type: "hotwater", label: "Hot Water" },
-                            { type: "machineStatus", label: "Machine Status" },
-                            { type: "scaleWeight", label: "Scale Weight" },
-                            { type: "settings", label: "Settings" },
-                            { type: "shotPlan", label: "Shot Plan" },
-                            { type: "sleep", label: "Sleep" },
-                            { type: "steam", label: "Steam" },
-                            { type: "steamTemperature", label: "Steam Temp" },
-                            { type: "temperature", label: "Temperature" },
-                            { type: "batteryLevel", label: "Battery Level" },
-                            { type: "waterLevel", label: "Water Level" },
+                            { type: "beans", label: TranslationManager.translate("layoutEditor.widgetBeans", "Beans") },
+                            { type: "connectionStatus", label: TranslationManager.translate("layoutEditor.widgetConnection", "Connection") },
+                            { type: "espresso", label: TranslationManager.translate("layoutEditor.widgetEspresso", "Espresso") },
+                            { type: "autofavorites", label: TranslationManager.translate("layoutEditor.widgetFavorites", "Favorites") },
+                            { type: "flush", label: TranslationManager.translate("layoutEditor.widgetFlush", "Flush") },
+                            { type: "history", label: TranslationManager.translate("layoutEditor.widgetHistory", "History") },
+                            { type: "hotwater", label: TranslationManager.translate("layoutEditor.widgetHotWater", "Hot Water") },
+                            { type: "machineStatus", label: TranslationManager.translate("layoutEditor.widgetMachineStatus", "Machine Status") },
+                            { type: "scaleWeight", label: TranslationManager.translate("layoutEditor.widgetScaleWeight", "Scale Weight") },
+                            { type: "settings", label: TranslationManager.translate("layoutEditor.widgetSettings", "Settings") },
+                            { type: "shotPlan", label: TranslationManager.translate("layoutEditor.widgetShotPlan", "Shot Plan") },
+                            { type: "sleep", label: TranslationManager.translate("layoutEditor.widgetSleep", "Sleep") },
+                            { type: "steam", label: TranslationManager.translate("layoutEditor.widgetSteam", "Steam") },
+                            { type: "steamTemperature", label: TranslationManager.translate("layoutEditor.widgetSteamTemp", "Steam Temp") },
+                            { type: "temperature", label: TranslationManager.translate("layoutEditor.widgetTemperature", "Temperature") },
+                            { type: "batteryLevel", label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
+                            { type: "waterLevel", label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
                             // Utility (orange)
-                            { type: "custom", label: "Custom" },
-                            { type: "pageTitle", label: "Page Title" },
-                            { type: "quit", label: "Quit" },
-                            { type: "separator", label: "Separator" },
-                            { type: "spacer", label: "Spacer" },
-                            { type: "weather", label: "Weather" },
+                            { type: "custom", label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
+                            { type: "pageTitle", label: TranslationManager.translate("layoutEditor.widgetPageTitle", "Page Title") },
+                            { type: "quit", label: TranslationManager.translate("layoutEditor.widgetQuit", "Quit") },
+                            { type: "separator", label: TranslationManager.translate("layoutEditor.widgetSeparator", "Separator") },
+                            { type: "spacer", label: TranslationManager.translate("layoutEditor.widgetSpacer", "Spacer") },
+                            { type: "weather", label: TranslationManager.translate("layoutEditor.widgetWeather", "Weather") },
                             // Screensavers & widgets (blue)
-                            { type: "screensaverPipes", label: "3D Pipes" },
-                            { type: "screensaverAttractor", label: "Attractors" },
-                            { type: "screensaverFlipClock", label: "Flip Clock" },
-                            { type: "lastShot", label: "Last Shot" },
-                            { type: "screensaverShotMap", label: "Shot Map" }
+                            { type: "screensaverPipes", label: TranslationManager.translate("layoutEditor.widget3DPipes", "3D Pipes") },
+                            { type: "screensaverAttractor", label: TranslationManager.translate("layoutEditor.widgetAttractors", "Attractors") },
+                            { type: "screensaverFlipClock", label: TranslationManager.translate("layoutEditor.widgetFlipClock", "Flip Clock") },
+                            { type: "lastShot", label: TranslationManager.translate("layoutEditor.widgetLastShot", "Last Shot") },
+                            { type: "screensaverShotMap", label: TranslationManager.translate("layoutEditor.widgetShotMap", "Shot Map") }
                         ]
 
                         delegate: Rectangle {
@@ -430,7 +431,7 @@ Rectangle {
                             radius: Theme.scaled(4)
 
                             Accessible.role: Accessible.MenuItem
-                            Accessible.name: "Add " + modelData.label
+                            Accessible.name: TranslationManager.translate("layoutEditor.addWidget", "Add %1").arg(modelData.label)
                             Accessible.focusable: true
                             Accessible.onPressAction: {
                                 root.addItemRequested(modelData.type)
@@ -520,21 +521,34 @@ Rectangle {
 
     function getItemDisplayName(type) {
         var names = {
-            "espresso": "Espresso", "steam": "Steam", "hotwater": "Hot Water",
-            "flush": "Flush", "beans": "Beans", "history": "History",
-            "autofavorites": "Favorites", "sleep": "Sleep", "settings": "Settings",
-            "temperature": "Temp", "steamTemperature": "Steam Temp",
-            "batteryLevel": "Battery", "waterLevel": "Water",
-            "connectionStatus": "Connection", "machineStatus": "Status", "scaleWeight": "Scale",
-            "shotPlan": "Shot Plan", "pageTitle": "Page Title",
-            "spacer": "Spacer", "separator": "Sep", "custom": "Custom",
-            "weather": "Weather",
-            "lastShot": "Last Shot",
-            "screensaverFlipClock": "Clock",
-            "screensaverPipes": "Pipes",
-            "screensaverAttractor": "Attractor",
-            "screensaverShotMap": "Map",
-            "quit": "Quit"
+            "espresso": TranslationManager.translate("layoutEditor.chipEspresso", "Espresso"),
+            "steam": TranslationManager.translate("layoutEditor.chipSteam", "Steam"),
+            "hotwater": TranslationManager.translate("layoutEditor.chipHotWater", "Hot Water"),
+            "flush": TranslationManager.translate("layoutEditor.chipFlush", "Flush"),
+            "beans": TranslationManager.translate("layoutEditor.chipBeans", "Beans"),
+            "history": TranslationManager.translate("layoutEditor.chipHistory", "History"),
+            "autofavorites": TranslationManager.translate("layoutEditor.chipFavorites", "Favorites"),
+            "sleep": TranslationManager.translate("layoutEditor.chipSleep", "Sleep"),
+            "settings": TranslationManager.translate("layoutEditor.chipSettings", "Settings"),
+            "temperature": TranslationManager.translate("layoutEditor.chipTemp", "Temp"),
+            "steamTemperature": TranslationManager.translate("layoutEditor.chipSteamTemp", "Steam Temp"),
+            "batteryLevel": TranslationManager.translate("layoutEditor.chipBattery", "Battery"),
+            "waterLevel": TranslationManager.translate("layoutEditor.chipWater", "Water"),
+            "connectionStatus": TranslationManager.translate("layoutEditor.chipConnection", "Connection"),
+            "machineStatus": TranslationManager.translate("layoutEditor.chipStatus", "Status"),
+            "scaleWeight": TranslationManager.translate("layoutEditor.chipScale", "Scale"),
+            "shotPlan": TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan"),
+            "pageTitle": TranslationManager.translate("layoutEditor.chipPageTitle", "Page Title"),
+            "spacer": TranslationManager.translate("layoutEditor.chipSpacer", "Spacer"),
+            "separator": TranslationManager.translate("layoutEditor.chipSep", "Sep"),
+            "custom": TranslationManager.translate("layoutEditor.chipCustom", "Custom"),
+            "weather": TranslationManager.translate("layoutEditor.chipWeather", "Weather"),
+            "lastShot": TranslationManager.translate("layoutEditor.chipLastShot", "Last Shot"),
+            "screensaverFlipClock": TranslationManager.translate("layoutEditor.chipClock", "Clock"),
+            "screensaverPipes": TranslationManager.translate("layoutEditor.chipPipes", "Pipes"),
+            "screensaverAttractor": TranslationManager.translate("layoutEditor.chipAttractor", "Attractor"),
+            "screensaverShotMap": TranslationManager.translate("layoutEditor.chipMap", "Map"),
+            "quit": TranslationManager.translate("layoutEditor.chipQuit", "Quit")
         }
         return names[type] || type
     }
