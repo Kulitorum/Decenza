@@ -81,7 +81,7 @@ Button {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: control._contentColor
                 }
             }
         }
@@ -89,7 +89,7 @@ Button {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: control.text
-            color: control.enabled ? Theme.textColor : Theme.textSecondaryColor
+            color: control.enabled ? control._contentColor : Theme.textSecondaryColor
             font: Theme.bodyFont
             // Decorative - accessibility handled by Button itself
             Accessible.ignored: true
@@ -100,6 +100,9 @@ Button {
     readonly property color _effectiveBackground: !Theme.isDarkMode
         ? Qt.rgba(control.backgroundColor.r, control.backgroundColor.g, control.backgroundColor.b, 0.15)
         : control.backgroundColor
+
+    // In light mode, icon and text use the button's color; in dark mode, white
+    readonly property color _contentColor: !Theme.isDarkMode ? control.backgroundColor : Theme.textColor
 
     background: Rectangle {
         radius: Theme.buttonRadius
