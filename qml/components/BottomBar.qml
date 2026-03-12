@@ -14,22 +14,25 @@ Rectangle {
 
     signal backClicked()
 
-    // Light mode: blend bar color at 15% over background for soft tint
-    function _blendColor(fg, bg, t) {
-        return Qt.rgba(fg.r * t + bg.r * (1 - t),
-                       fg.g * t + bg.g * (1 - t),
-                       fg.b * t + bg.b * (1 - t), 1.0)
-    }
-    readonly property color _effectiveBarColor: !Theme.isDarkMode
-        ? _blendColor(barColor, Theme.backgroundColor, 0.15)
-        : barColor
-    readonly property color contentColor: !Theme.isDarkMode ? barColor : "white"
+    // Light mode: transparent bar with colored text (matches idle page layout)
+    // Dark mode: solid colored bar with white text
+    readonly property color contentColor: !Theme.isDarkMode ? Theme.textColor : "white"
 
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     height: Theme.bottomBarHeight
-    color: _effectiveBarColor
+    color: !Theme.isDarkMode ? "transparent" : barColor
+
+    // Subtle top border in light mode for separation
+    Rectangle {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 1
+        color: Theme.borderColor
+        visible: !Theme.isDarkMode
+    }
 
     RowLayout {
         anchors.fill: parent
