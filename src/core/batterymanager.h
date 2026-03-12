@@ -149,7 +149,7 @@ private:
     int m_androidPlugged       = -1;
 
     // Mismatch detection state — how many consecutive 60-second checks have seen
-    // shouldChargerBeOn=true but android=DISCHARGING.
+    // shouldChargerBeOn=true but OS reports DISCHARGING.
     int  m_chargingMismatchCount = 0;
     bool m_chargingMismatch      = false;  // true while mismatch signal is active
 

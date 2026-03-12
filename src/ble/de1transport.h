@@ -33,9 +33,11 @@ public:
 
     /**
      * Write data bypassing any command queue.
-     * Used for time-critical operations like stop-at-weight (SAW).
-     * Default implementation delegates to write(). BLE overrides this
-     * to bypass its 50ms command queue for lower latency.
+     * Used for time-critical operations like stop-at-weight (SAW) and
+     * ensureChargerOn (app suspend). Default implementation delegates to
+     * write(). BLE overrides this to bypass its 50ms command queue for
+     * lower latency. Does not clear the queue — callers that need to
+     * clear pending commands do so explicitly before calling this.
      */
     virtual void writeUrgent(const QBluetoothUuid& uuid, const QByteArray& data) {
         write(uuid, data);

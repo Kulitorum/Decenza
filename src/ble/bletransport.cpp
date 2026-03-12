@@ -153,9 +153,10 @@ void BleTransport::write(const QBluetoothUuid& uuid, const QByteArray& data) {
 }
 
 void BleTransport::writeUrgent(const QBluetoothUuid& uuid, const QByteArray& data) {
-    // Bypass the 50ms command queue for immediate write. Clears any pending queued
-    // commands first. Used by SAW stop-at-weight and ensureChargerOn (app suspend).
-    clearQueue();
+    // Bypass the 50ms command queue for immediate write. Does NOT clear the queue —
+    // callers that need to clear (SAW, sleep) do so explicitly before calling this.
+    // This allows ensureChargerOn (app suspend) to write urgently without dropping
+    // any pending extraction frames.
     writeCharacteristic(uuid, data);
 }
 

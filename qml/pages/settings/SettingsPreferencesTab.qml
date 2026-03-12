@@ -784,18 +784,22 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
                         }
 
                         // USB port requirement note
                         Text {
                             visible: BatteryManager.chargingMode !== 0
-                            text: TranslationManager.translate("settings.preferences.chargingUsbNote", "Requires the DE1 front USB port to control charging.")
+                            text: TranslationManager.translate("settings.preferences.chargingUsbNote", "Controls the USB port on the front of the DE1 to manage charging.")
                             color: Theme.warningColor
                             font.family: Theme.captionFont.family
                             font.pixelSize: Theme.captionFont.pixelSize
                             font.italic: true
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
                         }
 
                         // Manual charger toggle

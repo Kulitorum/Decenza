@@ -411,8 +411,8 @@ void BatteryManager::applySmartCharging() {
         // Note: on iOS, mismatch detection works for the primary case (Unplugged maps
         // to DISCHARGING + UNPLUGGED). However, iOS cannot report NOT_CHARGING(4), so
         // the edge case where a cable is connected but delivering no current is not detected.
-        const bool androidDischarging = (m_androidBatteryStatus == 3);
-        const bool portActuallyOff = androidDischarging || (m_androidPlugged == 0);
+        const bool osDischarging = (m_androidBatteryStatus == 3);
+        const bool portActuallyOff = osDischarging || (m_androidPlugged == 0);
 
         constexpr int kMismatchAlertThreshold = 5;  // ~5 min at 60s intervals
 
