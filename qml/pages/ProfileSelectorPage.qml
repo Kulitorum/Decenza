@@ -275,7 +275,7 @@ Page {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
-                                    text: modelData.title
+                                    text: (isCurrentProfile && MainController.profileModified ? "*" : "") + modelData.title
                                     color: Theme.textColor
                                     font: Theme.bodyFont
                                     elide: Text.ElideRight
@@ -722,7 +722,7 @@ Page {
                                 // Profile name
                                 Text {
                                     Layout.fillWidth: true
-                                    text: modelData.name
+                                    text: (index === Settings.selectedFavoriteProfile && MainController.profileModified ? "*" : "") + modelData.name
                                     color: index === Settings.selectedFavoriteProfile ?
                                            "white" : Theme.textColor
                                     font: Theme.bodyFont

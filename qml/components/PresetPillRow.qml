@@ -229,7 +229,7 @@ FocusScope {
                         Text {
                             id: pillText
                             anchors.centerIn: parent
-                            text: modelData.preset.name || ""
+                            text: (pill.isSelected && MainController.profileModified ? "*" : "") + (modelData.preset.name || "")
                             color: pill.isSelected ? "white" : Theme.textColor
                             font.pixelSize: Theme.scaled(16)
                             font.bold: true

@@ -685,10 +685,14 @@ Page {
         id: exitDialog
         itemType: "recipe"
         canSave: originalProfileName !== ""
+        showTry: true
         onDiscardClicked: {
             if (originalProfileName) {
                 MainController.loadProfile(originalProfileName)
             }
+            root.goBack()
+        }
+        onTryClicked: {
             root.goBack()
         }
         onSaveAsClicked: saveAsDialog.open()
