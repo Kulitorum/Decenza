@@ -30,8 +30,9 @@ KeyboardAwareContainer {
                     width: parent.width
                     spacing: Theme.scaled(10)
 
-                    Text {
-                        text: "MQTT"
+                    Tr {
+                        key: "mqtt.title"
+                        fallback: "MQTT"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                         font.bold: true
@@ -42,8 +43,9 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         Layout.rightMargin: Theme.scaled(5)
 
-                        Text {
-                            text: "Enable MQTT"
+                        Tr {
+                            key: "mqtt.enableMqtt"
+                            fallback: "Enable MQTT"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(12)
                             Layout.fillWidth: true
@@ -55,8 +57,9 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    Text {
-                        text: "Connect to an MQTT broker to publish telemetry and receive commands"
+                    Tr {
+                        key: "mqtt.description"
+                        fallback: "Connect to an MQTT broker to publish telemetry and receive commands"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(10)
                         wrapMode: Text.WordWrap
@@ -71,8 +74,9 @@ KeyboardAwareContainer {
                     }
 
                     // Broker Host
-                    Text {
-                        text: "Broker Host"
+                    Tr {
+                        key: "mqtt.brokerHost"
+                        fallback: "Broker Host"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -85,8 +89,9 @@ KeyboardAwareContainer {
                     }
 
                     // Port
-                    Text {
-                        text: "Port"
+                    Tr {
+                        key: "mqtt.port"
+                        fallback: "Port"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -105,8 +110,9 @@ KeyboardAwareContainer {
                     }
 
                     // Username
-                    Text {
-                        text: "Username (optional)"
+                    Tr {
+                        key: "mqtt.username"
+                        fallback: "Username (optional)"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -119,8 +125,9 @@ KeyboardAwareContainer {
                     }
 
                     // Password
-                    Text {
-                        text: "Password (optional)"
+                    Tr {
+                        key: "mqtt.password"
+                        fallback: "Password (optional)"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -134,8 +141,9 @@ KeyboardAwareContainer {
                     }
 
                     // Base Topic
-                    Text {
-                        text: "Base Topic"
+                    Tr {
+                        key: "mqtt.baseTopic"
+                        fallback: "Base Topic"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -180,7 +188,7 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(8)
 
                         AccessibleButton {
-                            text: "Connect"
+                            text: TranslationManager.translate("mqtt.connect", "Connect")
                             accessibleName: TranslationManager.translate("settings.homeAutomation.connectMqtt", "Connect to MQTT broker for home automation")
                             primary: true
                             enabled: !MainController.mqttClient.connected && Settings.mqttBrokerHost.length > 0
@@ -188,7 +196,7 @@ KeyboardAwareContainer {
                         }
 
                         AccessibleButton {
-                            text: "Disconnect"
+                            text: TranslationManager.translate("mqtt.disconnect", "Disconnect")
                             accessibleName: TranslationManager.translate("settings.homeAutomation.disconnectMqtt", "Disconnect from MQTT broker")
                             enabled: MainController.mqttClient.connected
                             onClicked: MainController.mqttClient.disconnectFromBroker()
@@ -218,16 +226,18 @@ KeyboardAwareContainer {
                     width: parent.width
                     spacing: Theme.scaled(10)
 
-                    Text {
-                        text: "Publishing Options"
+                    Tr {
+                        key: "mqtt.publishingOptions"
+                        fallback: "Publishing Options"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                         font.bold: true
                     }
 
                     // Publish Interval
-                    Text {
-                        text: "Publish Interval"
+                    Tr {
+                        key: "mqtt.publishInterval"
+                        fallback: "Publish Interval"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -270,8 +280,9 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         Layout.rightMargin: Theme.scaled(5)
 
-                        Text {
-                            text: "Retain Messages"
+                        Tr {
+                            key: "mqtt.retainMessages"
+                            fallback: "Retain Messages"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(12)
                             Layout.fillWidth: true
@@ -283,8 +294,9 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    Text {
-                        text: "Broker retains last value for new subscribers"
+                    Tr {
+                        key: "mqtt.retainDescription"
+                        fallback: "Broker retains last value for new subscribers"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(10)
                         wrapMode: Text.WordWrap
@@ -300,8 +312,9 @@ KeyboardAwareContainer {
                         Layout.bottomMargin: Theme.scaled(5)
                     }
 
-                    Text {
-                        text: "Home Assistant"
+                    Tr {
+                        key: "mqtt.homeAssistant"
+                        fallback: "Home Assistant"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                         font.bold: true
@@ -312,8 +325,9 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         Layout.rightMargin: Theme.scaled(5)
 
-                        Text {
-                            text: "Auto-Discovery"
+                        Tr {
+                            key: "mqtt.autoDiscovery"
+                            fallback: "Auto-Discovery"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(12)
                             Layout.fillWidth: true
@@ -325,8 +339,9 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    Text {
-                        text: "Automatically creates sensors and switches in Home Assistant"
+                    Tr {
+                        key: "mqtt.autoDiscoveryDescription"
+                        fallback: "Automatically creates sensors and switches in Home Assistant"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(10)
                         wrapMode: Text.WordWrap
@@ -334,7 +349,7 @@ KeyboardAwareContainer {
                     }
 
                     AccessibleButton {
-                        text: "Publish Discovery Now"
+                        text: TranslationManager.translate("mqtt.publishDiscoveryNow", "Publish Discovery Now")
                         accessibleName: TranslationManager.translate("settings.homeAutomation.publishDiscovery", "Publish Home Assistant discovery message")
                         primary: true
                         enabled: MainController.mqttClient.connected
@@ -350,15 +365,17 @@ KeyboardAwareContainer {
                         Layout.bottomMargin: Theme.scaled(5)
                     }
 
-                    Text {
-                        text: "REST API"
+                    Tr {
+                        key: "mqtt.restApi"
+                        fallback: "REST API"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                         font.bold: true
                     }
 
-                    Text {
-                        text: "Enable 'Remote Access' in the Shot History tab to use the REST API."
+                    Tr {
+                        key: "mqtt.restApiDescription"
+                        fallback: "Enable 'Remote Access' in the Shot History tab to use the REST API."
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.WordWrap
@@ -380,8 +397,9 @@ KeyboardAwareContainer {
                             anchors.margins: Theme.scaled(8)
                             spacing: Theme.scaled(4)
 
-                            Text {
-                                text: "Available Endpoints:"
+                            Tr {
+                                key: "mqtt.availableEndpoints"
+                                fallback: "Available Endpoints:"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(11)
                                 font.bold: true
