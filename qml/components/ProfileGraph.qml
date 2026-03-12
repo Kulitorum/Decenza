@@ -9,7 +9,7 @@ ChartView {
     plotAreaColor: Qt.darker(Theme.surfaceColor, 1.3)
     legend.visible: false
     Accessible.role: Accessible.Graphic
-    Accessible.name: "Profile graph"
+    Accessible.name: TranslationManager.translate("profileGraph.accessibleName", "Profile graph")
 
     margins.top: 0
     margins.bottom: Theme.scaled(32)
@@ -437,17 +437,17 @@ ChartView {
         Row {
             spacing: Theme.scaled(4)
             Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.pressureGoalColor; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: "Pressure"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+            Text { text: TranslationManager.translate("profileGraph.pressure", "Pressure"); color: Theme.textSecondaryColor; font: Theme.captionFont }
         }
         Row {
             spacing: Theme.scaled(4)
             Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.flowGoalColor; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: "Flow"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+            Text { text: TranslationManager.translate("profileGraph.flow", "Flow"); color: Theme.textSecondaryColor; font: Theme.captionFont }
         }
         Row {
             spacing: Theme.scaled(4)
             Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.temperatureGoalColor; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: "Temp"; color: Theme.textSecondaryColor; font: Theme.captionFont }
+            Text { text: TranslationManager.translate("profileGraph.temp", "Temp"); color: Theme.textSecondaryColor; font: Theme.captionFont }
         }
     }
 }

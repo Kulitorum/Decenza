@@ -77,17 +77,17 @@ ColumnLayout {
     }
 
     readonly property var metricDefs: [
-        { key: "duration", label: "Duration"  },
-        { key: "dose",     label: "Dose"      },
-        { key: "output",   label: "Output"    },
-        { key: "ratio",    label: "Ratio"     },
-        { key: "rating",   label: "Rating"    },
-        { key: "bean",     label: "Bean"      },
-        { key: "grind",   label: "Grinder"   },
-        { key: "roast",    label: "Roast"     },
+        { key: "duration", label: TranslationManager.translate("comparison.duration", "Duration")  },
+        { key: "dose",     label: TranslationManager.translate("comparison.dose", "Dose")      },
+        { key: "output",   label: TranslationManager.translate("comparison.output", "Output")    },
+        { key: "ratio",    label: TranslationManager.translate("comparison.ratio", "Ratio")     },
+        { key: "rating",   label: TranslationManager.translate("comparison.rating", "Rating")    },
+        { key: "bean",     label: TranslationManager.translate("comparison.bean", "Bean")      },
+        { key: "grind",   label: TranslationManager.translate("comparison.grinder", "Grinder")   },
+        { key: "roast",    label: TranslationManager.translate("comparison.roast", "Roast")     },
         { key: "tdsEy",    label: "TDS/EY"   },
-        { key: "barista",  label: "Barista"   },
-        { key: "notes",    label: "Notes"     },
+        { key: "barista",  label: TranslationManager.translate("comparison.barista", "Barista")   },
+        { key: "notes",    label: TranslationManager.translate("comparison.notes", "Notes")     },
     ]
 
     // ── Shot header row ──────────────────────────────────────────────────────

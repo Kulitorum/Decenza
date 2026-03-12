@@ -22,31 +22,31 @@ Item {
         name: "Decenza",
         isSvg: true,
         items: [
-            { value: "qrc:/icons/espresso.svg", label: "Espresso" },
-            { value: "qrc:/icons/steam.svg", label: "Steam" },
-            { value: "qrc:/icons/water.svg", label: "Water" },
-            { value: "qrc:/icons/flush.svg", label: "Flush" },
-            { value: "qrc:/icons/coffeebeans.svg", label: "Beans" },
-            { value: "qrc:/icons/sleep.svg", label: "Sleep" },
-            { value: "qrc:/icons/settings.svg", label: "Settings" },
-            { value: "qrc:/icons/history.svg", label: "History" },
-            { value: "qrc:/icons/star.svg", label: "Star" },
-            { value: "qrc:/icons/star-outline.svg", label: "Star" },
-            { value: "qrc:/icons/temperature.svg", label: "Temp" },
-            { value: "qrc:/icons/tea.svg", label: "Tea" },
-            { value: "qrc:/icons/grind.svg", label: "Grind" },
-            { value: "qrc:/icons/filter.svg", label: "Filter" },
+            { value: "qrc:/icons/espresso.svg", label: TranslationManager.translate("emojiPicker.espresso", "Espresso") },
+            { value: "qrc:/icons/steam.svg", label: TranslationManager.translate("emojiPicker.steam", "Steam") },
+            { value: "qrc:/icons/water.svg", label: TranslationManager.translate("emojiPicker.water", "Water") },
+            { value: "qrc:/icons/flush.svg", label: TranslationManager.translate("emojiPicker.flush", "Flush") },
+            { value: "qrc:/icons/coffeebeans.svg", label: TranslationManager.translate("emojiPicker.beans", "Beans") },
+            { value: "qrc:/icons/sleep.svg", label: TranslationManager.translate("emojiPicker.sleep", "Sleep") },
+            { value: "qrc:/icons/settings.svg", label: TranslationManager.translate("emojiPicker.settings", "Settings") },
+            { value: "qrc:/icons/history.svg", label: TranslationManager.translate("emojiPicker.history", "History") },
+            { value: "qrc:/icons/star.svg", label: TranslationManager.translate("emojiPicker.star", "Star") },
+            { value: "qrc:/icons/star-outline.svg", label: TranslationManager.translate("emojiPicker.star", "Star") },
+            { value: "qrc:/icons/temperature.svg", label: TranslationManager.translate("emojiPicker.temp", "Temp") },
+            { value: "qrc:/icons/tea.svg", label: TranslationManager.translate("emojiPicker.tea", "Tea") },
+            { value: "qrc:/icons/grind.svg", label: TranslationManager.translate("emojiPicker.grind", "Grind") },
+            { value: "qrc:/icons/filter.svg", label: TranslationManager.translate("emojiPicker.filter", "Filter") },
             { value: "qrc:/icons/bluetooth.svg", label: "BT" },
-            { value: "qrc:/icons/wifi.svg", label: "WiFi" },
-            { value: "qrc:/icons/edit.svg", label: "Edit" },
+            { value: "qrc:/icons/wifi.svg", label: TranslationManager.translate("emojiPicker.wifi", "WiFi") },
+            { value: "qrc:/icons/edit.svg", label: TranslationManager.translate("emojiPicker.edit", "Edit") },
             { value: "qrc:/icons/sparkle.svg", label: "AI" },
-            { value: "qrc:/icons/hand.svg", label: "Hand" },
-            { value: "qrc:/icons/tick.svg", label: "Tick" },
-            { value: "qrc:/icons/cross.svg", label: "Cross" },
+            { value: "qrc:/icons/hand.svg", label: TranslationManager.translate("emojiPicker.hand", "Hand") },
+            { value: "qrc:/icons/tick.svg", label: TranslationManager.translate("emojiPicker.tick", "Tick") },
+            { value: "qrc:/icons/cross.svg", label: TranslationManager.translate("emojiPicker.cross", "Cross") },
             { value: "qrc:/icons/decent-de1.svg", label: "DE1" },
-            { value: "qrc:/icons/scale.svg", label: "Scale" },
-            { value: "qrc:/icons/quit.svg", label: "Quit" },
-            { value: "qrc:/icons/Graph.svg", label: "Graph" }
+            { value: "qrc:/icons/scale.svg", label: TranslationManager.translate("emojiPicker.scale", "Scale") },
+            { value: "qrc:/icons/quit.svg", label: TranslationManager.translate("emojiPicker.quit", "Quit") },
+            { value: "qrc:/icons/Graph.svg", label: TranslationManager.translate("emojiPicker.graph", "Graph") }
         ]
     })
 
@@ -123,7 +123,7 @@ Item {
                     border.width: 1
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: "Clear emoji"
+                    Accessible.name: TranslationManager.translate("emojiPicker.clearEmoji", "Clear emoji")
                     Accessible.focusable: true
                     Accessible.onPressAction: clearMa.clicked(null)
 

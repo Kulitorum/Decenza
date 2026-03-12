@@ -127,7 +127,7 @@ Item {
             // Clear button
             AccessibleButton {
                 id: clearButton
-                text: "Clear"
+                text: TranslationManager.translate("ai.clear", "Clear")
                 accessibleName: TranslationManager.translate("aiConversation.clearHistory", "Clear AI conversation history")
                 visible: conversation && conversation.hasHistory
                 enabled: conversation && !conversation.busy

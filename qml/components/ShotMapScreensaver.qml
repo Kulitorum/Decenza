@@ -285,7 +285,7 @@ Item {
                 Text {
                     id: flatYouLabel
                     anchors.centerIn: parent
-                    text: "YOU"
+                    text: TranslationManager.translate("shotMap.you", "YOU")
                     color: "#ffffff"
                     font.pixelSize: Theme.scaled(10)
                     font.bold: true
@@ -350,7 +350,7 @@ Item {
         visible: showProfiles && topProfiles.length > 0 && !testMode
 
         Text {
-            text: "Top Profiles"
+            text: TranslationManager.translate("shotMap.topProfiles", "Top Profiles")
             color: mapTexture === "bright" ? "#ffffff" : "#8899aa"
             font.pixelSize: Theme.scaled(14)
             font.bold: true
@@ -411,7 +411,7 @@ Item {
         anchors.bottom: parent.bottom
         anchors.right: parent.right
         anchors.margins: 30
-        text: "Touch to exit"
+        text: TranslationManager.translate("shotMap.touchToExit", "Touch to exit")
         color: "#444455"
         font.pixelSize: Theme.scaled(11)
         font.family: Theme.bodyFont.family

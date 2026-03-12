@@ -1191,17 +1191,17 @@ Dialog {
 
                     Repeater {
                         model: [
-                            { color: "#ffffff", label: "White" },
-                            { color: Theme.temperatureColor, label: "Temperature" },
-                            { color: Theme.errorColor, label: "Error" },
-                            { color: Theme.warningColor, label: "Warning" },
-                            { color: Theme.accentColor, label: "Accent" },
-                            { color: Theme.successColor, label: "Success" },
-                            { color: Theme.pressureColor, label: "Pressure" },
-                            { color: Theme.primaryColor, label: "Primary" },
-                            { color: Theme.flowColor, label: "Flow" },
-                            { color: Theme.weightColor, label: "Weight" },
-                            { color: Theme.textSecondaryColor, label: "Secondary" }
+                            { color: "#ffffff", label: TranslationManager.translate("customEditor.colorWhite", "White") },
+                            { color: Theme.temperatureColor, label: TranslationManager.translate("customEditor.colorTemperature", "Temperature") },
+                            { color: Theme.errorColor, label: TranslationManager.translate("customEditor.colorError", "Error") },
+                            { color: Theme.warningColor, label: TranslationManager.translate("customEditor.colorWarning", "Warning") },
+                            { color: Theme.accentColor, label: TranslationManager.translate("customEditor.colorAccent", "Accent") },
+                            { color: Theme.successColor, label: TranslationManager.translate("customEditor.colorSuccess", "Success") },
+                            { color: Theme.pressureColor, label: TranslationManager.translate("customEditor.colorPressure", "Pressure") },
+                            { color: Theme.primaryColor, label: TranslationManager.translate("customEditor.colorPrimary", "Primary") },
+                            { color: Theme.flowColor, label: TranslationManager.translate("customEditor.colorFlow", "Flow") },
+                            { color: Theme.weightColor, label: TranslationManager.translate("customEditor.colorWeight", "Weight") },
+                            { color: Theme.textSecondaryColor, label: TranslationManager.translate("customEditor.colorSecondary", "Secondary") }
                         ]
                         Rectangle {
                             required property var modelData

@@ -204,10 +204,10 @@ Dialog {
 
                 Repeater {
                     model: [
-                        { value: "",          label: "Global" },
-                        { value: "dark",      label: "Dark" },
-                        { value: "bright",    label: "Bright" },
-                        { value: "satellite", label: "Satellite" }
+                        { value: "",          label: TranslationManager.translate("screensaverEditor.textureGlobal", "Global") },
+                        { value: "dark",      label: TranslationManager.translate("screensaverEditor.textureDark", "Dark") },
+                        { value: "bright",    label: TranslationManager.translate("screensaverEditor.textureBright", "Bright") },
+                        { value: "satellite", label: TranslationManager.translate("screensaverEditor.textureSatellite", "Satellite") }
                     ]
 
                     Rectangle {

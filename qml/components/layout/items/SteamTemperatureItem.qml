@@ -80,7 +80,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Steam Temp"
+                text: TranslationManager.translate("steamTemp.steamTemp", "Steam Temp")
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
             }

@@ -92,7 +92,7 @@ Item {
             id: compactPlaceholder
             anchors.centerIn: parent
             visible: !root.hasData
-            text: "No shots"
+            text: TranslationManager.translate("lastShot.noShots", "No shots")
             color: Theme.textSecondaryColor
             font: Theme.captionFont
         }
@@ -199,7 +199,7 @@ Item {
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "No shots yet"
+                text: TranslationManager.translate("lastShot.noShotsYet", "No shots yet")
                 color: Theme.textSecondaryColor
                 font: Theme.captionFont
             }
@@ -213,9 +213,9 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.name: root.hasData
-        ? "Last shot: " + (root.shotData.profileName || "")
-          + ", " + (root.shotData.finalWeight || 0).toFixed(1) + " grams"
-        : "No shots yet"
+        ? TranslationManager.translate("lastShot.accessibleLastShot", "Last shot") + ": " + (root.shotData.profileName || "")
+          + ", " + (root.shotData.finalWeight || 0).toFixed(1) + " " + TranslationManager.translate("lastShot.accessibleGrams", "grams")
+        : TranslationManager.translate("lastShot.noShotsYet", "No shots yet")
     Accessible.focusable: true
     Accessible.onPressAction: root.goToShotDetail()
 }

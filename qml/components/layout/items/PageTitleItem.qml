@@ -74,7 +74,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Page Title"
+                text: TranslationManager.translate("pageTitle.pageTitle", "Page Title")
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
             }
