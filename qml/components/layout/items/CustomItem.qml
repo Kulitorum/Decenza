@@ -308,6 +308,14 @@ Item {
                     if (typeof BatteryManager !== "undefined")
                         BatteryManager.chargingMode = (BatteryManager.chargingMode + 1) % 3
                     break
+                case "tempToggleSteam":
+                    if (typeof Settings !== "undefined") {
+                        if (Settings.steamDisabled)
+                            MainController.startSteamHeating()
+                        else
+                            MainController.turnOffSteamHeater()
+                    }
+                    break
                 case "uploadVisualizer":
                     var lastId = MainController.lastSavedShotId
                     if (lastId > 0) {

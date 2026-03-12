@@ -1656,6 +1656,7 @@ Dialog {
             { id: "command:scanDE1",         label: TranslationManager.translate("customaction.command.scanDE1", "Scan for DE1"),                 contexts: ["idle", "all"] },
             { id: "command:scanScale",       label: TranslationManager.translate("customaction.command.scanScale", "Scan for Scale"),             contexts: ["idle", "all"] },
             { id: "command:brewSettings",    label: TranslationManager.translate("customaction.command.brewSettings", "Open Brew Settings"),      contexts: ["idle"] },
+            { id: "command:tempToggleSteam", label: TranslationManager.translate("customaction.command.tempToggleSteam", "Toggle Steam (temporary)"), contexts: ["idle", "all"] },
             { id: "command:toggleCharging",  label: TranslationManager.translate("customaction.command.toggleCharging", "Toggle Charging Mode"),  contexts: ["idle", "all"] },
             { id: "command:uploadVisualizer", label: TranslationManager.translate("customaction.command.uploadVisualizer", "Upload to Visualizer"), contexts: ["idle"] },
             { id: "command:disconnectDE1",   label: TranslationManager.translate("customaction.command.disconnectDE1", "Disconnect DE1"),         contexts: ["idle"] },
