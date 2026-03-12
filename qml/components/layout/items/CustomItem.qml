@@ -244,9 +244,14 @@ Item {
                     pageStack.push(Qt.resolvedUrl("../../../pages/PostShotReviewPage.qml"), { editShotId: shotId })
                 return
             }
+            // Operation pages use replace (consistent with main.qml phase handler)
+            var operationPages = ["espresso", "steam", "hotwater", "flush"]
             var page = pageMap[target]
             if (page && typeof pageStack !== "undefined") {
-                pageStack.push(Qt.resolvedUrl("../../../pages/" + page))
+                if (operationPages.indexOf(target) >= 0)
+                    pageStack.replace(null, Qt.resolvedUrl("../../../pages/" + page))
+                else
+                    pageStack.push(Qt.resolvedUrl("../../../pages/" + page))
             }
         } else if (category === "command") {
             switch (target) {
@@ -306,17 +311,14 @@ Item {
                 case "uploadVisualizer":
                     var lastId = MainController.lastSavedShotId
                     if (lastId > 0) {
-                        MainController.shotHistory.shotReady.connect(function(shotId, data) {
+                        var handler = function(shotId, data) {
                             if (shotId !== lastId) return
-                            MainController.shotHistory.shotReady.disconnect(arguments.callee)
+                            MainController.shotHistory.shotReady.disconnect(handler)
                             MainController.visualizer.uploadShotFromHistory(data)
-                        })
+                        }
+                        MainController.shotHistory.shotReady.connect(handler)
                         MainController.shotHistory.requestShot(lastId)
                     }
-                    break
-                case "connectDE1":
-                    if (typeof BLEManager !== "undefined")
-                        BLEManager.startScan()
                     break
                 case "disconnectDE1":
                     if (typeof DE1Device !== "undefined")
