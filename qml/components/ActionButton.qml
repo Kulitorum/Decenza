@@ -96,9 +96,15 @@ Button {
         }
     }
 
-    // In light mode, use a soft tinted background so dark icons/text have contrast
+    // In light mode, blend button color at 15% over the page background for a soft tint.
+    // Use opaque color (not alpha) so Qt button background composites correctly.
+    function _blendColor(fg, bg, t) {
+        return Qt.rgba(fg.r * t + bg.r * (1 - t),
+                       fg.g * t + bg.g * (1 - t),
+                       fg.b * t + bg.b * (1 - t), 1.0)
+    }
     readonly property color _effectiveBackground: !Theme.isDarkMode
-        ? Qt.rgba(control.backgroundColor.r, control.backgroundColor.g, control.backgroundColor.b, 0.15)
+        ? _blendColor(control.backgroundColor, Theme.backgroundColor, 0.15)
         : control.backgroundColor
 
     // In light mode, icon and text use the button's color; in dark mode, white

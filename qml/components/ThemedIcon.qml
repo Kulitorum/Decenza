@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import Decenza
 
 // Icon that adapts to the current theme by tinting the source image.
 // SVG icons in this project use hardcoded white strokes, which become
