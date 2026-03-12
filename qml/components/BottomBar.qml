@@ -22,7 +22,7 @@ Rectangle {
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     height: Theme.bottomBarHeight
-    color: !Theme.isDarkMode ? "transparent" : barColor
+    color: !Theme.isDarkMode ? Theme.backgroundColor : barColor
 
     // Subtle top border in light mode for separation
     Rectangle {
