@@ -324,18 +324,18 @@ Page {
                                     if (profileDelegate.isBuiltIn) {
                                         if (profileDelegate.isSelected) {
                                             Settings.removeSelectedBuiltInProfile(modelData.name)
-                                            AccessibilityManager.announce("Removed from selected")
+                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.addSelectedBuiltInProfile(modelData.name)
-                                            AccessibilityManager.announce("Added to selected")
+                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
                                         }
                                     } else {
                                         if (profileDelegate.isSelected) {
                                             Settings.addHiddenProfile(modelData.name)
-                                            AccessibilityManager.announce("Removed from selected")
+                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.removed_from_selected", "Removed from selected"))
                                         } else {
                                             Settings.removeHiddenProfile(modelData.name)
-                                            AccessibilityManager.announce("Added to selected")
+                                            AccessibilityManager.announce(TranslationManager.translate("profileSelector.announce.added_to_selected", "Added to selected"))
                                         }
                                     }
                                 }
