@@ -35,11 +35,12 @@ KeyboardAwareContainer {
                 // Auto-sleep settings
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(160)
+                    implicitHeight: autoSleepContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
+                        id: autoSleepContent
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
@@ -87,11 +88,12 @@ KeyboardAwareContainer {
                 // Post-shot review auto-close
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(160)
+                    implicitHeight: postShotContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
+                        id: postShotContent
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)

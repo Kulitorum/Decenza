@@ -92,9 +92,11 @@ Rectangle {
             color: root.contentColor
             font.pixelSize: Theme.scaled(20)
             font.bold: true
-            Layout.fillWidth: true
+            Layout.maximumWidth: root.width * 0.5
             elide: Text.ElideRight
         }
+
+        Item { Layout.fillWidth: true }
 
         // Custom content area
         RowLayout {

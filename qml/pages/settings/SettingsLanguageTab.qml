@@ -304,7 +304,7 @@ Item {
                     visible: TranslationManager.currentLanguage === "en"
 
                     Text {
-                        anchors.centerIn: parent
+                        anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.margins: Theme.scaled(8)
