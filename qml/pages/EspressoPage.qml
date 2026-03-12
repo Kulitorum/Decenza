@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../components"
 
@@ -399,6 +400,13 @@ Page {
             source: "qrc:/icons/Graph.svg"
             sourceSize.width: Theme.scaled(22)
             sourceSize.height: Theme.scaled(22)
+
+            layer.enabled: !Theme.isDarkMode
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                colorization: 1.0
+                colorizationColor: Theme.textColor
+            }
         }
 
         AccessibleMouseArea {
@@ -649,6 +657,13 @@ Page {
                     source: "qrc:/icons/back.svg"
                     sourceSize.width: Theme.scaled(28)
                     sourceSize.height: Theme.scaled(28)
+
+                    layer.enabled: !Theme.isDarkMode
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textColor
+                    }
                 }
 
                 // Using TapHandler for better touch responsiveness

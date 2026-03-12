@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 
 Rectangle {
@@ -184,6 +185,13 @@ Rectangle {
             sourceSize: Qt.size(width, height)
             opacity: 0.8
             Accessible.ignored: true
+
+            layer.enabled: !Theme.isDarkMode
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                colorization: 1.0
+                colorizationColor: Theme.textSecondaryColor
+            }
         }
 
         MouseArea {

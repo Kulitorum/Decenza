@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../components"
 
@@ -1003,6 +1004,13 @@ Page {
                     visible: status === Image.Ready
                     opacity: 0.6
                     Accessible.ignored: true
+
+                    layer.enabled: !Theme.isDarkMode
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
 
                 Tr {

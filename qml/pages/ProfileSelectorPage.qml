@@ -422,6 +422,13 @@ Page {
                                         sourceSize.width: Theme.scaled(16)
                                         sourceSize.height: Theme.scaled(16)
                                         anchors.verticalCenter: parent.verticalCenter
+
+                                        layer.enabled: !Theme.isDarkMode
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: Theme.textColor
+                                        }
                                     }
                                     Text {
                                         text: TranslationManager.translate("profileselector.menu.edit", "Edit Profile")
@@ -465,6 +472,13 @@ Page {
                                         sourceSize.width: Theme.scaled(16)
                                         sourceSize.height: Theme.scaled(16)
                                         anchors.verticalCenter: parent.verticalCenter
+
+                                        layer.enabled: !Theme.isDarkMode
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: Theme.errorColor
+                                        }
                                     }
                                     Text {
                                         text: TranslationManager.translate("profileselector.menu.remove_from_selected", "Remove from Selected")
@@ -499,6 +513,13 @@ Page {
                                         sourceSize.width: Theme.scaled(16)
                                         sourceSize.height: Theme.scaled(16)
                                         anchors.verticalCenter: parent.verticalCenter
+
+                                        layer.enabled: !Theme.isDarkMode
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: Theme.errorColor
+                                        }
                                     }
                                     Text {
                                         text: TranslationManager.translate("profileselector.menu.delete", "Delete Profile")
