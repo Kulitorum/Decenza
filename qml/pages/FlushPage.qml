@@ -165,7 +165,7 @@ Page {
 
                 Text {
                     anchors.centerIn: parent
-                    text: "STOP"
+                    text: TranslationManager.translate("flush.button.stop", "STOP")
                     color: "white"
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold

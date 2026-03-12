@@ -164,7 +164,7 @@ Page {
 
                         Text {
                             anchors.centerIn: parent
-                            text: "STOP"
+                            text: TranslationManager.translate("descaling.button.stop", "STOP")
                             color: "white"
                             font.pixelSize: Theme.scaled(18)
                             font.weight: Font.Bold
@@ -173,7 +173,7 @@ Page {
                         AccessibleTapHandler {
                             id: stopTapHandler
                             anchors.fill: parent
-                            accessibleName: "Emergency stop descaling"
+                            accessibleName: TranslationManager.translate("descaling.accessible.emergencyStop", "Emergency stop descaling")
                             accessibleItem: descaleStopButton
                             onAccessibleClicked: DE1Device.stopOperation()
                         }

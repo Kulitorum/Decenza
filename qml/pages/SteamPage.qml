@@ -647,7 +647,7 @@ Page {
                             // Using TapHandler for better touch responsiveness
                             AccessibleTapHandler {
                                 anchors.fill: parent
-                                accessibleName: "Add new steam preset"
+                                accessibleName: TranslationManager.translate("steam.accessible.addPreset", "Add new steam preset")
                                 accessibleItem: addPitcherButton
                                 onAccessibleClicked: addPitcherDialog.open()
                             }

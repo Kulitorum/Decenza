@@ -195,7 +195,7 @@ Page {
 
                 Text {
                     anchors.centerIn: parent
-                    text: "STOP"
+                    text: TranslationManager.translate("hotwater.button.stop", "STOP")
                     color: "white"
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
@@ -205,7 +205,7 @@ Page {
                 AccessibleTapHandler {
                     id: stopTapHandler
                     anchors.fill: parent
-                    accessibleName: "Stop hot water"
+                    accessibleName: TranslationManager.translate("hotwater.accessible.stopHotWater", "Stop hot water")
                     accessibleItem: hotWaterStopButton
                     onAccessibleClicked: {
                         DE1Device.stopOperation()
@@ -390,7 +390,7 @@ Page {
                             // Using TapHandler for better touch responsiveness
                             AccessibleTapHandler {
                                 anchors.fill: parent
-                                accessibleName: "Add new hot water preset"
+                                accessibleName: TranslationManager.translate("hotwater.accessible.addPreset", "Add new hot water preset")
                                 accessibleItem: addVesselButton
                                 onAccessibleClicked: addVesselDialog.open()
                             }

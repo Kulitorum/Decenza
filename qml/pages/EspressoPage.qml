@@ -590,7 +590,7 @@ Page {
 
         Text {
             anchors.centerIn: parent
-            text: "STOP"
+            text: TranslationManager.translate("espresso.button.stop", "STOP")
             color: "white"
             font.pixelSize: Theme.scaled(24)
             font.weight: Font.Bold
@@ -600,7 +600,7 @@ Page {
         AccessibleTapHandler {
             id: stopTapHandler
             anchors.fill: parent
-            accessibleName: "Stop espresso shot"
+            accessibleName: TranslationManager.translate("espresso.accessible.stopShot", "Stop espresso shot")
             accessibleItem: espressoStopButton
             onAccessibleClicked: {
                 root.stopReason = "manual"
@@ -654,7 +654,7 @@ Page {
                 // Using TapHandler for better touch responsiveness
                 AccessibleTapHandler {
                     anchors.fill: parent
-                    accessibleName: "Stop shot and go back"
+                    accessibleName: TranslationManager.translate("espresso.accessible.stopAndGoBack", "Stop shot and go back")
                     accessibleItem: espressoBackButton
                     onAccessibleClicked: {
                         root.stopReason = "manual"
@@ -923,7 +923,7 @@ Page {
 
                         Text {
                             anchors.centerIn: parent
-                            text: "Skip"
+                            text: TranslationManager.translate("espresso.button.skip", "Skip")
                             color: "white"
                             font.pixelSize: Theme.scaled(11)
                             font.weight: Font.Medium
