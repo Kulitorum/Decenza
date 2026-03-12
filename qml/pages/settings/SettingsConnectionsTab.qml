@@ -240,7 +240,7 @@ Item {
                             Text {
                                 id: usbStatusText
                                 anchors.centerIn: parent
-                                text: DE1Device.connected ? "Connected" : "Connecting..."
+                                text: DE1Device.connected ? TranslationManager.translate("connections.connected", "Connected") : TranslationManager.translate("connections.connecting", "Connecting...")
                                 color: DE1Device.connected ? Theme.successColor : Theme.warningColor
                                 font.pixelSize: Theme.scaled(12)
                                 font.bold: true
@@ -532,7 +532,7 @@ Item {
                             Text {
                                 id: usbScaleStatusText
                                 anchors.centerIn: parent
-                                text: "Connected"
+                                text: TranslationManager.translate("connections.connected", "Connected")
                                 color: Theme.successColor
                                 font.pixelSize: Theme.scaled(12)
                                 font.bold: true
@@ -560,7 +560,7 @@ Item {
 
                         AccessibleButton {
                             text: TranslationManager.translate("settings.bluetooth.tare", "Tare")
-                            accessibleName: "Tare scale to zero"
+                            accessibleName: TranslationManager.translate("connections.tareScaleToZero", "Tare scale to zero")
                             onClicked: {
                                 if (ScaleDevice) ScaleDevice.tare()
                             }
@@ -605,7 +605,7 @@ Item {
 
                                 AccessibleButton {
                                     text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
-                                    accessibleName: "Clear scale log"
+                                    accessibleName: TranslationManager.translate("connections.clearScaleLog", "Clear scale log")
                                     onClicked: usbScaleLogText.text = ""
                                 }
                             }
@@ -776,7 +776,7 @@ Item {
 
                         AccessibleButton {
                             text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
-                            accessibleName: "Forget saved scale"
+                            accessibleName: TranslationManager.translate("connections.forgetSavedScale", "Forget saved scale")
                             onClicked: {
                                 Settings.scaleAddress = ""
                                 Settings.scaleType = ""
@@ -814,7 +814,7 @@ Item {
 
                         StyledSwitch {
                             checked: Settings.showScaleDialogs
-                            accessibleName: "Scale connection alerts"
+                            accessibleName: TranslationManager.translate("connections.scaleConnectionAlerts", "Scale connection alerts")
                             onToggled: Settings.showScaleDialogs = checked
                         }
                     }
@@ -840,7 +840,7 @@ Item {
 
                         AccessibleButton {
                             text: TranslationManager.translate("settings.bluetooth.tare", "Tare")
-                            accessibleName: "Tare scale to zero"
+                            accessibleName: TranslationManager.translate("connections.tareScaleToZero", "Tare scale to zero")
                             onClicked: {
                                 if (ScaleDevice) ScaleDevice.tare()
                             }
@@ -924,7 +924,7 @@ Item {
 
                                 AccessibleButton {
                                     text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
-                                    accessibleName: "Clear scale log"
+                                    accessibleName: TranslationManager.translate("connections.clearScaleLog", "Clear scale log")
                                     onClicked: {
                                         scaleLogText.text = ""
                                         BLEManager.clearScaleLog()
@@ -933,7 +933,7 @@ Item {
 
                                 AccessibleButton {
                                     text: TranslationManager.translate("settings.bluetooth.shareLog", "Share Log")
-                                    accessibleName: "Share scale debug log"
+                                    accessibleName: TranslationManager.translate("connections.shareScaleDebugLog", "Share scale debug log")
                                     onClicked: shareLogDialog.open()
                                 }
                             }
