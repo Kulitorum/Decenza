@@ -332,7 +332,7 @@ Page {
 
                             // Dose
                             Text { text: TranslationManager.translate("recipeEditor.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Dose"; from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: val(recipe.dose, 18); onValueModified: function(newValue) { updateRecipe("dose", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: val(recipe.dose, 18); onValueModified: function(newValue) { updateRecipe("dose", Math.round(newValue * 10) / 10) } }
 
                             // Display ratio (weight is set in Pour section)
                             Text {
@@ -364,7 +364,7 @@ Page {
                                 }
                                 StyledSwitch {
                                     checked: val(recipe.rampDownEnabled, false)
-                                    accessibleName: "Ramp Down"
+                                    accessibleName: TranslationManager.translate("recipeEditor.rampDown", "Ramp Down")
                                     onClicked: {
                                         var newRecipe = Object.assign({}, recipe)
                                         if (!recipe.rampDownEnabled) {
@@ -398,7 +398,7 @@ Page {
                                 }
                                 StyledSwitch {
                                     checked: val(recipe.flowExtractionUp, true)
-                                    accessibleName: "Flow Up"
+                                    accessibleName: TranslationManager.translate("recipeEditor.flowUp", "Flow Up")
                                     onClicked: updateRecipe("flowExtractionUp", !recipe.flowExtractionUp)
                                 }
                             }
@@ -430,11 +430,11 @@ Page {
 
                             // Temp
                             Text { text: TranslationManager.translate("recipeEditor.infuseTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Infuse temperature"; from: 80; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.fillTemperature, 88); onValueModified: function(newValue) { updateRecipe("fillTemperature", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature"); from: 80; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.fillTemperature, 88); onValueModified: function(newValue) { updateRecipe("fillTemperature", Math.round(newValue * 10) / 10) } }
 
                             // Pressure
                             Text { text: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: "Infuse pressure"; from: 0; to: 6; stepSize: 0.1; suffix: " bar"; value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0; onValueModified: function(newValue) { updateRecipe("infusePressure", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure"); from: 0; to: 6; stepSize: 0.1; suffix: " bar"; value: recipe.infusePressure !== undefined ? recipe.infusePressure : 3.0; onValueModified: function(newValue) { updateRecipe("infusePressure", Math.round(newValue * 10) / 10) } }
 
                             // Grouped: move to next step on first reached
                             Item {
@@ -469,15 +469,15 @@ Page {
 
                                     // Time
                                     Text { text: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: "Infuse time"; from: 0; to: 60; stepSize: 1; suffix: " s"; value: val(recipe.infuseTime, 20); onValueModified: function(newValue) { updateRecipe("infuseTime", Math.round(newValue)) } }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time"); from: 0; to: 60; stepSize: 1; suffix: " s"; value: val(recipe.infuseTime, 20); onValueModified: function(newValue) { updateRecipe("infuseTime", Math.round(newValue)) } }
 
                                     // Volume
                                     Text { text: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: "Infuse volume"; from: 10; to: 200; stepSize: 1; suffix: " mL"; value: val(recipe.infuseVolume, 100); onValueModified: function(newValue) { updateRecipe("infuseVolume", Math.round(newValue)) } }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume"); from: 10; to: 200; stepSize: 1; suffix: " mL"; value: val(recipe.infuseVolume, 100); onValueModified: function(newValue) { updateRecipe("infuseVolume", Math.round(newValue)) } }
 
                                     // Weight
                                     Text { text: TranslationManager.translate("recipeEditor.infuseWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Infuse weight"; from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: val(recipe.infuseWeight, 4.0); onValueModified: function(newValue) { updateRecipe("infuseWeight", Math.round(newValue * 10) / 10) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight"); from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: val(recipe.infuseWeight, 4.0); onValueModified: function(newValue) { updateRecipe("infuseWeight", Math.round(newValue * 10) / 10) } }
                                 }
                             }
                         }
@@ -498,7 +498,7 @@ Page {
 
                             // Temp
                             Text { text: TranslationManager.translate("recipeEditor.pourTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: "Pour temperature"; from: 80; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.pourTemperature, 93); onValueModified: function(newValue) { updateRecipe("pourTemperature", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature"); from: 80; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.pourTemperature, 93); onValueModified: function(newValue) { updateRecipe("pourTemperature", Math.round(newValue * 10) / 10) } }
 
                             // Grouped: flow, pressure, and time (ramp time for A-Flow)
                             Item {
@@ -532,25 +532,25 @@ Page {
 
                                     // Flow
                                     Text { text: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.flowColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: "Pour flow"; from: 0.1; to: 8; stepSize: 0.1; suffix: " mL/s"; value: val(recipe.pourFlow, 2.0); onValueModified: function(newValue) { updateRecipe("pourFlow", Math.round(newValue * 10) / 10) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: 8; stepSize: 0.1; suffix: " mL/s"; value: val(recipe.pourFlow, 2.0); onValueModified: function(newValue) { updateRecipe("pourFlow", Math.round(newValue * 10) / 10) } }
 
                                     // Pressure limit
                                     Text { text: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: "Pour pressure limit"; from: 1; to: 12; stepSize: 0.1; suffix: " bar"; value: val(recipe.pourPressure, 9.0); onValueModified: function(newValue) { updateRecipe("pourPressure", Math.round(newValue * 10) / 10) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.pourPressureLimit", "Pour pressure limit"); from: 1; to: 12; stepSize: 0.1; suffix: " bar"; value: val(recipe.pourPressure, 9.0); onValueModified: function(newValue) { updateRecipe("pourPressure", Math.round(newValue * 10) / 10) } }
 
                                     // Ramp time (A-Flow only — pressure ramp up duration)
                                     Text { text: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: recipe.editorType === "aflow" }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: "Ramp time"; visible: recipe.editorType === "aflow"; from: 0; to: 30; stepSize: 1; suffix: " s"; value: val(recipe.rampTime, 5); onValueModified: function(newValue) { updateRecipe("rampTime", Math.round(newValue)) } }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time"); visible: recipe.editorType === "aflow"; from: 0; to: 30; stepSize: 1; suffix: " s"; value: val(recipe.rampTime, 5); onValueModified: function(newValue) { updateRecipe("rampTime", Math.round(newValue)) } }
                                 }
                             }
 
                             // Weight stop condition
                             Text { text: TranslationManager.translate("recipeEditor.pourWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: "Target weight"; from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
 
                             // Volume stop condition (D-Flow only)
                             Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: recipe.editorType !== "aflow" }
-                            ValueInput { Layout.fillWidth: true; accessibleName: "Target volume"; visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 1; suffix: " mL"; value: val(recipe.targetVolume, 0); onValueModified: function(newValue) { updateRecipe("targetVolume", Math.round(newValue)) } }
+                            ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 1; suffix: " mL"; value: val(recipe.targetVolume, 0); onValueModified: function(newValue) { updateRecipe("targetVolume", Math.round(newValue)) } }
                         }
 
                         // Spacer
@@ -784,9 +784,9 @@ Page {
 
                 StyledTextField {
                     id: saveAsTitleField
-                    Accessible.name: "Profile name"
+                    Accessible.name: TranslationManager.translate("recipeEditor.profileName", "Profile name")
                     Layout.fillWidth: true
-                    text: "New Recipe"
+                    text: TranslationManager.translate("recipeEditor.newRecipe", "New Recipe")
                     font: Theme.bodyFont
                     color: Theme.textColor
                     placeholder: TranslationManager.translate("recipeEditor.namePlaceholder", "Enter recipe name")
