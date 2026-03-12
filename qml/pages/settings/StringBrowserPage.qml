@@ -14,11 +14,11 @@ Page {
     property bool isEnglish: TranslationManager.currentLanguage === "en"
 
     Component.onCompleted: {
-        root.currentPageTitle = isEnglish ? "String Customizer" : "Translation Browser"
+        root.currentPageTitle = isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
         stringModel.refresh()
     }
     StackView.onActivated: {
-        root.currentPageTitle = isEnglish ? "String Customizer" : "Translation Browser"
+        root.currentPageTitle = isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
     }
 
     function handleBack() {
@@ -155,7 +155,7 @@ Page {
                             var untranslated = TranslationManager.uniqueUntranslatedCount()
                             var translated = total - untranslated
                             var percent = Math.round((translated / Math.max(1, total)) * 100)
-                            return "Translation progress: " + percent + " percent. " + translated + " of " + total + " strings translated."
+                            return TranslationManager.translate("stringBrowser.accessible.translationProgress", "Translation progress: ") + percent + TranslationManager.translate("stringBrowser.accessible.percent", " percent. ") + translated + TranslationManager.translate("stringBrowser.accessible.ofTotal", " of ") + total + TranslationManager.translate("stringBrowser.accessible.stringsTranslated", " strings translated.")
                         }
                     }
 
@@ -169,13 +169,13 @@ Page {
                         radius: Theme.buttonRadius
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: "Clear all AI translations"
+                        Accessible.name: TranslationManager.translate("stringBrowser.accessible.clearAllAi", "Clear all AI translations")
                         Accessible.focusable: true
                         Accessible.onPressAction: clearAiArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
-                            text: "Clear AI"
+                            text: TranslationManager.translate("stringBrowser.clearAiButton", "Clear AI")
                             font: Theme.bodyFont
                             color: "white"
                             Accessible.ignored: true
@@ -199,14 +199,14 @@ Page {
                         opacity: !TranslationManager.autoTranslating ? 1.0 : 0.5
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.autoTranslating ? "AI translation in progress" : "AI Translate all missing strings"
-                        Accessible.description: "Use artificial intelligence to automatically translate all untranslated strings"
+                        Accessible.name: TranslationManager.autoTranslating ? TranslationManager.translate("stringBrowser.accessible.aiInProgress", "AI translation in progress") : TranslationManager.translate("stringBrowser.accessible.aiTranslateAll", "AI Translate all missing strings")
+                        Accessible.description: TranslationManager.translate("stringBrowser.accessible.aiTranslateDescription", "Use artificial intelligence to automatically translate all untranslated strings")
                         Accessible.focusable: true
                         Accessible.onPressAction: aiButtonArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
-                            text: TranslationManager.autoTranslating ? "Translating..." : "AI Translate"
+                            text: TranslationManager.autoTranslating ? TranslationManager.translate("stringBrowser.translating", "Translating...") : TranslationManager.translate("stringBrowser.aiTranslateButton", "AI Translate")
                             font: Theme.bodyFont
                             color: "white"
                             Accessible.ignored: true
@@ -268,13 +268,13 @@ Page {
                             clip: true
 
                             Accessible.role: Accessible.EditableText
-                            Accessible.name: "Search strings"
-                            Accessible.description: "Type to filter the list of translatable strings"
+                            Accessible.name: TranslationManager.translate("stringBrowser.accessible.searchStrings", "Search strings")
+                            Accessible.description: TranslationManager.translate("stringBrowser.accessible.searchDescription", "Type to filter the list of translatable strings")
                             Accessible.focusable: true
 
                             Text {
                                 anchors.fill: parent
-                                text: "Search strings..."
+                                text: TranslationManager.translate("stringBrowser.searchPlaceholder", "Search strings...")
                                 font: parent.font
                                 color: Theme.textSecondaryColor
                                 visible: !parent.text && !parent.activeFocus
@@ -293,7 +293,7 @@ Page {
                             visible: searchField.text !== ""
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Clear search"
+                            Accessible.name: TranslationManager.translate("stringBrowser.accessible.clearSearch", "Clear search")
                             Accessible.focusable: true
 
                             MouseArea {
@@ -313,12 +313,12 @@ Page {
 
                     Repeater {
                         model: isEnglish ? [
-                            { text: "All", mode: 0, description: "Show all strings" },
-                            { text: "Custom", mode: 3, description: "Show only customized strings" }
+                            { text: TranslationManager.translate("stringBrowser.filterAll", "All"), mode: 0, description: TranslationManager.translate("stringBrowser.filterAllDescription", "Show all strings") },
+                            { text: TranslationManager.translate("stringBrowser.filterCustom", "Custom"), mode: 3, description: TranslationManager.translate("stringBrowser.filterCustomDescription", "Show only customized strings") }
                         ] : [
-                            { text: "All", mode: 0, description: "Show all strings" },
-                            { text: "Missing", mode: 1, description: "Show only untranslated strings" },
-                            { text: "AI", mode: 2, description: "Show only AI-generated translations" }
+                            { text: TranslationManager.translate("stringBrowser.filterAll", "All"), mode: 0, description: TranslationManager.translate("stringBrowser.filterAllDescription", "Show all strings") },
+                            { text: TranslationManager.translate("stringBrowser.filterMissing", "Missing"), mode: 1, description: TranslationManager.translate("stringBrowser.filterMissingDescription", "Show only untranslated strings") },
+                            { text: TranslationManager.translate("stringBrowser.filterAi", "AI"), mode: 2, description: TranslationManager.translate("stringBrowser.filterAiDescription", "Show only AI-generated translations") }
                         ]
 
                         Rectangle {
@@ -330,7 +330,7 @@ Page {
                             border.color: Theme.borderColor
 
                             Accessible.role: Accessible.RadioButton
-                            Accessible.name: modelData.text + " filter"
+                            Accessible.name: modelData.text + " " + TranslationManager.translate("stringBrowser.accessible.filter", "filter")
                             Accessible.description: modelData.description
                             Accessible.checked: stringModel.filterMode === modelData.mode
                             Accessible.focusable: true
@@ -356,12 +356,12 @@ Page {
 
             // String count
             Text {
-                text: stringModel.count + " unique strings"
+                text: stringModel.count + " " + TranslationManager.translate("stringBrowser.uniqueStrings", "unique strings")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: stringModel.count + " unique strings shown"
+                Accessible.name: stringModel.count + " " + TranslationManager.translate("stringBrowser.accessible.uniqueStringsShown", "unique strings shown")
             }
         }
 
@@ -392,7 +392,7 @@ Page {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     width: columnHeaders.col1Width
-                    text: "English"
+                    text: TranslationManager.translate("stringBrowser.columnEnglish", "English")
                     font.family: Theme.labelFont.family
                     font.pixelSize: Theme.labelFont.pixelSize
                     font.bold: true
@@ -406,7 +406,7 @@ Page {
                     anchors.leftMargin: Theme.scaled(8)
                     anchors.verticalCenter: parent.verticalCenter
                     width: columnHeaders.col2Width
-                    text: "AI Translation"
+                    text: TranslationManager.translate("stringBrowser.columnAiTranslation", "AI Translation")
                     font.family: Theme.labelFont.family
                     font.pixelSize: Theme.labelFont.pixelSize
                     font.bold: true
@@ -418,7 +418,7 @@ Page {
                     anchors.leftMargin: Theme.scaled(8)
                     anchors.verticalCenter: parent.verticalCenter
                     width: columnHeaders.col3Width
-                    text: isEnglish ? "Custom Text" : "Final Translation"
+                    text: isEnglish ? TranslationManager.translate("stringBrowser.columnCustomText", "Custom Text") : TranslationManager.translate("stringBrowser.columnFinalTranslation", "Final Translation")
                     font.family: Theme.labelFont.family
                     font.pixelSize: Theme.labelFont.pixelSize
                     font.bold: true
@@ -440,8 +440,8 @@ Page {
             spacing: Theme.scaled(2)
 
             Accessible.role: Accessible.List
-            Accessible.name: isEnglish ? "String customization list" : "Translation list"
-            Accessible.description: stringModel.count + " strings. Swipe to navigate, double tap to edit."
+            Accessible.name: isEnglish ? TranslationManager.translate("stringBrowser.accessible.customizationList", "String customization list") : TranslationManager.translate("stringBrowser.accessible.translationList", "Translation list")
+            Accessible.description: stringModel.count + " " + TranslationManager.translate("stringBrowser.accessible.stringsSwipeToNavigate", "strings. Swipe to navigate, double tap to edit.")
 
 
             // Center editing item in visible area (accounting for keyboard)
@@ -517,23 +517,23 @@ Page {
                 // Accessibility: announce the English text and translation status
                 Accessible.role: Accessible.ListItem
                 Accessible.name: {
-                    var name = "English: " + model.fallback + ". "
+                    var name = TranslationManager.translate("stringBrowser.accessible.english", "English: ") + model.fallback + ". "
                     if (isEnglish) {
                         if (model.translation) {
-                            name += "Custom text: " + model.translation
+                            name += TranslationManager.translate("stringBrowser.accessible.customText", "Custom text: ") + model.translation
                         } else {
-                            name += "No customization. Double tap to customize."
+                            name += TranslationManager.translate("stringBrowser.accessible.noCustomization", "No customization. Double tap to customize.")
                         }
                     } else {
                         if (model.translation) {
-                            name += "Translation: " + model.translation
+                            name += TranslationManager.translate("stringBrowser.accessible.translation", "Translation: ") + model.translation
                             if (model.isAiGenerated) {
-                                name += ". AI generated."
+                                name += ". " + TranslationManager.translate("stringBrowser.accessible.aiGenerated", "AI generated.")
                             }
                         } else if (model.aiTranslation) {
-                            name += "AI suggestion: " + model.aiTranslation + ". Double tap to edit or accept."
+                            name += TranslationManager.translate("stringBrowser.accessible.aiSuggestion", "AI suggestion: ") + model.aiTranslation + ". " + TranslationManager.translate("stringBrowser.accessible.doubleTapEditAccept", "Double tap to edit or accept.")
                         } else {
-                            name += "Not translated. Double tap to translate."
+                            name += TranslationManager.translate("stringBrowser.accessible.notTranslated", "Not translated. Double tap to translate.")
                         }
                     }
                     return name
@@ -612,7 +612,7 @@ Page {
                         radius: Theme.scaled(4)
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: model.aiTranslation ? "AI suggestion: " + model.aiTranslation + ". Tap to use this translation." : "No AI translation available"
+                        Accessible.name: model.aiTranslation ? TranslationManager.translate("stringBrowser.accessible.aiSuggestionTap", "AI suggestion: ") + model.aiTranslation + ". " + TranslationManager.translate("stringBrowser.accessible.tapToUse", "Tap to use this translation.") : TranslationManager.translate("stringBrowser.accessible.noAiTranslation", "No AI translation available")
                         Accessible.focusable: model.aiTranslation ? true : false
                         Accessible.onPressAction: aiCopyArea.clicked(null)
 
@@ -649,7 +649,7 @@ Page {
                             }
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: "Clear AI translation"
+                            Accessible.name: TranslationManager.translate("stringBrowser.accessible.clearAiTranslation", "Clear AI translation")
                             Accessible.focusable: true
                             Accessible.onPressAction: aiClearArea.clicked(null)
 
@@ -727,24 +727,24 @@ Page {
                             Accessible.role: Accessible.EditableText
                             Accessible.focusable: true
                             Accessible.name: isEnglish
-                                ? "Custom text for: " + model.fallback
-                                : "Translation for: " + model.fallback
+                                ? TranslationManager.translate("stringBrowser.accessible.customTextFor", "Custom text for: ") + model.fallback
+                                : TranslationManager.translate("stringBrowser.accessible.translationFor", "Translation for: ") + model.fallback
                             Accessible.description: {
                                 if (isEnglish) {
                                     return model.translation
-                                        ? "Current custom text: " + model.translation + ". Edit to change."
-                                        : "No custom text set. Type to customize this string."
+                                        ? TranslationManager.translate("stringBrowser.accessible.currentCustomText", "Current custom text: ") + model.translation + ". " + TranslationManager.translate("stringBrowser.accessible.editToChange", "Edit to change.")
+                                        : TranslationManager.translate("stringBrowser.accessible.noCustomTextSet", "No custom text set. Type to customize this string.")
                                 } else {
                                     return model.translation
-                                        ? "Current translation: " + model.translation + ". Edit to change."
-                                        : "Not translated. Type your translation here."
+                                        ? TranslationManager.translate("stringBrowser.accessible.currentTranslation", "Current translation: ") + model.translation + ". " + TranslationManager.translate("stringBrowser.accessible.editToChange", "Edit to change.")
+                                        : TranslationManager.translate("stringBrowser.accessible.notTranslatedType", "Not translated. Type your translation here.")
                                 }
                             }
 
                             Text {
                                 anchors.fill: parent
                                 visible: !parent.text && !parent.activeFocus
-                                text: isEnglish ? "Tap to customize..." : "Tap to translate..."
+                                text: isEnglish ? TranslationManager.translate("stringBrowser.tapToCustomize", "Tap to customize...") : TranslationManager.translate("stringBrowser.tapToTranslate", "Tap to translate...")
                                 font: parent.font
                                 color: Theme.textSecondaryColor
                                 verticalAlignment: Text.AlignVCenter
@@ -838,21 +838,21 @@ Page {
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: "AI Translation"
+                    text: TranslationManager.translate("stringBrowser.columnAiTranslation", "AI Translation")
                     font: Theme.titleFont
                     color: Theme.textColor
                 }
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Translating strings..."
+                    text: TranslationManager.translate("stringBrowser.translatingStrings", "Translating strings...")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                 }
 
                 Text {
                     width: parent.width
-                    text: TranslationManager.lastTranslatedText || "Starting..."
+                    text: TranslationManager.lastTranslatedText || TranslationManager.translate("stringBrowser.starting", "Starting...")
                     font: Theme.labelFont
                     color: Theme.primaryColor
                     horizontalAlignment: Text.AlignHCenter
@@ -888,13 +888,13 @@ Page {
                     radius: Theme.buttonRadius
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: "Cancel AI translation"
+                    Accessible.name: TranslationManager.translate("stringBrowser.accessible.cancelAiTranslation", "Cancel AI translation")
                     Accessible.focusable: true
                     Accessible.onPressAction: cancelArea.clicked(null)
 
                     Text {
                         anchors.centerIn: parent
-                        text: "Cancel"
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
                         font: Theme.bodyFont
                         color: "white"
                         Accessible.ignored: true
@@ -933,7 +933,7 @@ Page {
 
             Text {
                 width: parent.width
-                text: "AI Provider Not Configured"
+                text: TranslationManager.translate("stringBrowser.aiProviderNotConfigured", "AI Provider Not Configured")
                 font: Theme.subtitleFont
                 color: Theme.warningColor
                 horizontalAlignment: Text.AlignHCenter
@@ -941,7 +941,7 @@ Page {
 
             Text {
                 width: parent.width
-                text: "To use AI translation, configure an AI provider with a valid API key.\n\nGo to Settings → AI to set up:\n• OpenAI (GPT-4o-mini)\n• Anthropic (Claude)\n• Google (Gemini)\n• Ollama (local)"
+                text: TranslationManager.translate("stringBrowser.aiProviderDescription", "To use AI translation, configure an AI provider with a valid API key.\n\nGo to Settings → AI to set up:\n• OpenAI (GPT-4o-mini)\n• Anthropic (Claude)\n• Google (Gemini)\n• Ollama (local)")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -960,13 +960,13 @@ Page {
                     border.color: Theme.borderColor
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: "Cancel"
+                    Accessible.name: TranslationManager.translate("common.button.cancel", "Cancel")
                     Accessible.focusable: true
                     Accessible.onPressAction: cancelApiArea.clicked(null)
 
                     Text {
                         anchors.centerIn: parent
-                        text: "Cancel"
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
                         font: Theme.bodyFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -986,13 +986,13 @@ Page {
                     radius: Theme.buttonRadius
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: "Go to AI Settings"
+                    Accessible.name: TranslationManager.translate("stringBrowser.goToAiSettings", "Go to AI Settings")
                     Accessible.focusable: true
                     Accessible.onPressAction: goAiArea.clicked(null)
 
                     Text {
                         anchors.centerIn: parent
-                        text: "Go to AI Settings"
+                        text: TranslationManager.translate("stringBrowser.goToAiSettings", "Go to AI Settings")
                         font: Theme.bodyFont
                         color: "white"
                         Accessible.ignored: true
@@ -1036,7 +1036,7 @@ Page {
 
             Text {
                 width: parent.width
-                text: "All Done!"
+                text: TranslationManager.translate("stringBrowser.allDone", "All Done!")
                 font: Theme.subtitleFont
                 color: Theme.successColor
                 horizontalAlignment: Text.AlignHCenter
@@ -1044,7 +1044,7 @@ Page {
 
             Text {
                 width: parent.width
-                text: "All strings have already been translated."
+                text: TranslationManager.translate("stringBrowser.allStringsTranslated", "All strings have already been translated.")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -1058,13 +1058,13 @@ Page {
                 radius: Theme.buttonRadius
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "OK"
+                Accessible.name: TranslationManager.translate("common.button.ok", "OK")
                 Accessible.focusable: true
                 Accessible.onPressAction: okArea.clicked(null)
 
                 Text {
                     anchors.centerIn: parent
-                    text: "OK"
+                    text: TranslationManager.translate("common.button.ok", "OK")
                     font: Theme.bodyFont
                     color: "white"
                     Accessible.ignored: true
@@ -1102,7 +1102,7 @@ Page {
 
             Text {
                 width: parent.width
-                text: "Clear All AI Translations?"
+                text: TranslationManager.translate("stringBrowser.clearAllAiTitle", "Clear All AI Translations?")
                 font: Theme.subtitleFont
                 color: Theme.warningColor
                 horizontalAlignment: Text.AlignHCenter
@@ -1110,7 +1110,7 @@ Page {
 
             Text {
                 width: parent.width
-                text: "This will delete all AI-generated translations for " + TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage) + ".\n\nHuman-edited translations will be preserved.\n\nYou can then re-translate with AI Translate."
+                text: TranslationManager.translate("stringBrowser.clearAllAiDescriptionPrefix", "This will delete all AI-generated translations for ") + TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage) + TranslationManager.translate("stringBrowser.clearAllAiDescriptionSuffix", ".\n\nHuman-edited translations will be preserved.\n\nYou can then re-translate with AI Translate.")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -1129,13 +1129,13 @@ Page {
                     border.color: Theme.borderColor
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: "Cancel"
+                    Accessible.name: TranslationManager.translate("common.button.cancel", "Cancel")
                     Accessible.focusable: true
                     Accessible.onPressAction: cancelClearArea.clicked(null)
 
                     Text {
                         anchors.centerIn: parent
-                        text: "Cancel"
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
                         font: Theme.bodyFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -1155,13 +1155,13 @@ Page {
                     radius: Theme.buttonRadius
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: "Clear all AI translations"
+                    Accessible.name: TranslationManager.translate("stringBrowser.accessible.clearAllAi", "Clear all AI translations")
                     Accessible.focusable: true
                     Accessible.onPressAction: confirmClearArea.clicked(null)
 
                     Text {
                         anchors.centerIn: parent
-                        text: "Clear All"
+                        text: TranslationManager.translate("stringBrowser.clearAllButton", "Clear All")
                         font: Theme.bodyFont
                         color: "white"
                         Accessible.ignored: true
@@ -1183,7 +1183,7 @@ Page {
     // Bottom bar - anchored to page bottom
     BottomBar {
         id: bottomBar
-        title: isEnglish ? "String Customizer" : "Translation Browser"
+        title: isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
         onBackClicked: handleBack()
     }
 }
