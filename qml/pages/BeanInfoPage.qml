@@ -825,10 +825,10 @@ Page {
         }
     }
 
-    // Hide keyboard button - appears below status bar when a field has focus
+    // Hide keyboard button - only on mobile when virtual keyboard is showing
     Rectangle {
         id: hideKeyboardButton
-        visible: focusedField !== null
+        visible: focusedField !== null && keyboardVisible
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.standardMargin
