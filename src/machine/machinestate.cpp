@@ -41,6 +41,10 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
         connect(m_device, &DE1Device::stateChanged, this, &MachineState::onDE1StateChanged);
         connect(m_device, &DE1Device::subStateChanged, this, &MachineState::onDE1SubStateChanged);
         connect(m_device, &DE1Device::connectedChanged, this, &MachineState::updatePhase);
+
+        // Sync initial phase from device (handles case where device was already
+        // connected before MachineState was constructed, e.g. simulator mode)
+        updatePhase();
     }
 }
 

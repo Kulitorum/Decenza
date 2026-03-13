@@ -514,6 +514,12 @@ void DE1Device::requestState(DE1::State state) {
         case DE1::State::Sleep:
             m_simulator->goToSleep();
             break;
+        case DE1::State::Descale:
+            m_simulator->startDescale();
+            break;
+        case DE1::State::Clean:
+            m_simulator->startClean();
+            break;
         default:
             break;
         }
