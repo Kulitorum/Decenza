@@ -518,14 +518,19 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_isRecipeMode = obj["is_recipe_mode"].toBool(false);
     if (profile.m_isRecipeMode && obj.contains("recipe")) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
-        // Infer editorType from profileType when not explicitly saved in recipe
+        // Infer editorType from profileType/title when not explicitly saved in recipe
         // (handles profiles created before editorType was introduced)
         if (!obj["recipe"].toObject().contains("editorType")) {
             if (profile.m_profileType == "settings_2a") {
                 profile.m_recipeParams.editorType = EditorType::Pressure;
             } else if (profile.m_profileType == "settings_2b") {
                 profile.m_recipeParams.editorType = EditorType::Flow;
+            } else if (profile.m_title.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive) ||
+                       (profile.m_title.startsWith(QLatin1Char('*')) &&
+                        profile.m_title.mid(1).startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))) {
+                profile.m_recipeParams.editorType = EditorType::AFlow;
             }
+            // else: stays DFlow (correct for D-Flow titled profiles, and reasonable default for others)
         }
     }
 

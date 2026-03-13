@@ -22,6 +22,21 @@
     ],
     "steps": [
         {
+            "name": "Fill start",
+            "temperature": 89.0,
+            "sensor": "coffee",
+            "pump": "pressure",
+            "transition": "fast",
+            "pressure": 2.0,
+            "flow": 8.0,
+            "seconds": 2.0,
+            "volume": 100.0,
+            "limiter": {
+                "value": 0.0,
+                "range": 0.6
+            }
+        },
+        {
             "name": "Fill",
             "temperature": 89.0,
             "sensor": "coffee",
@@ -84,7 +99,7 @@
             "exit": {
                 "type": "flow",
                 "condition": "over",
-                "value": 2.5
+                "value": 2.8
             },
             "limiter": {
                 "value": 0.0,
@@ -104,7 +119,7 @@
             "exit": {
                 "type": "flow",
                 "condition": "over",
-                "value": 2.5
+                "value": 2.8
             },
             "limiter": {
                 "value": 0.0,
@@ -118,7 +133,7 @@
             "pump": "flow",
             "transition": "fast",
             "pressure": 3.0,
-            "flow": 2.0,
+            "flow": 2.5,
             "seconds": 127.0,
             "volume": 100.0,
             "limiter": {

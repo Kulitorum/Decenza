@@ -29,10 +29,8 @@ QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) 
         frames.append(createBloomFrame(recipe));
     }
 
-    // Infusing - hold at soak pressure (if enabled)
-    if (recipe.infuseEnabled) {
-        frames.append(createInfuseFrame(recipe));
-    }
+    // Infusing - hold at soak pressure (always emitted; seconds=0 skips it when disabled)
+    frames.append(createInfuseFrame(recipe));
 
     // Pouring - main extraction phase
     frames.append(createPourFrame(recipe));
@@ -131,6 +129,9 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
     frame.exitFlowOver = 6.0;
     frame.exitFlowUnder = 0.0;
 
+    // App-side weight exit during fill (matches de1app default: weight 5.00)
+    frame.exitWeight = 5.0;
+
     // No extension limiter (de1app: max_flow_or_pressure=0)
     frame.maxFlowOrPressure = 0.0;
     frame.maxFlowOrPressureRange = 0.2;
@@ -175,11 +176,12 @@ ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
     frame.temperature = recipe.pourTemperature;  // de1app uses pouring temp for infuse
     frame.transition = "fast";
     frame.sensor = "coffee";
-    frame.volume = recipe.infuseVolume;
+    frame.volume = recipe.infuseEnabled ? recipe.infuseVolume : 100.0;
 
-    // "First reached" exits: time is the max timeout, weight exits early if reached first
-    frame.seconds = recipe.infuseTime;
-    if (recipe.infuseWeight > 0)
+    // "First reached" exits: time is the max timeout, weight exits early if reached first.
+    // When disabled, seconds=0 causes the machine to skip this frame immediately.
+    frame.seconds = recipe.infuseEnabled ? recipe.infuseTime : 0.0;
+    if (recipe.infuseEnabled && recipe.infuseWeight > 0)
         frame.exitWeight = recipe.infuseWeight;  // app-side SkipToNext when scale hits target
 
     // No machine-side exit condition; time-based exits via frame timeout, weight-based exits via app-side SkipToNext
@@ -316,7 +318,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
     }
 
     // Frame 2: Infuse — pressure hold with zero flow, uses fill temperature
-    if (recipe.infuseEnabled) {
+    // Always emitted (de1app always has 9 A-Flow frames). When disabled, seconds=0 skips it.
+    {
         ProfileFrame infuse;
         infuse.name = "Infuse";
         infuse.pump = "pressure";
@@ -325,10 +328,10 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         infuse.temperature = recipe.fillTemperature;  // A-Flow uses fill temp, not pour temp
         infuse.transition = "fast";
         infuse.sensor = "coffee";
-        infuse.volume = recipe.infuseVolume;
+        infuse.volume = recipe.infuseEnabled ? recipe.infuseVolume : 100.0;
 
-        infuse.seconds = recipe.infuseTime;
-        if (recipe.infuseWeight > 0)
+        infuse.seconds = recipe.infuseEnabled ? recipe.infuseTime : 0.0;
+        if (recipe.infuseEnabled && recipe.infuseWeight > 0)
             infuse.exitWeight = recipe.infuseWeight;
 
         // Dead exit fields (exit_if=false, but stored for de1app compatibility)
@@ -389,9 +392,10 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         frames.append(pause);
     }
 
-    // Compute pressureUp seconds once — used for both Pressure Up and Flow Start activation
+    // Compute pressureUp seconds once — used for both Pressure Up and Flow Start activation.
+    // Integer rounding matches de1app: round_to_integer(rampTime / 2), remainder to Decline.
     double pressureUpSeconds = recipe.rampDownEnabled
-        ? recipe.rampTime / 2.0
+        ? std::floor(recipe.rampTime / 2.0)
         : recipe.rampTime;
 
     // Frame 5: Pressure Up — smooth ramp to pour pressure
@@ -411,10 +415,11 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
 
         pressureUp.exitIf = true;
         pressureUp.exitType = "flow_over";
-        // When rampDownEnabled, exit at higher flow (pourFlow*2) since decline handles the rest
-        pressureUp.exitFlowOver = recipe.rampDownEnabled
+        // When rampDownEnabled, exit at higher flow (pourFlow*2) since decline handles the rest.
+        // round_to_one_digits matches de1app.
+        pressureUp.exitFlowOver = std::round((recipe.rampDownEnabled
             ? recipe.pourFlow * 2.0
-            : recipe.pourFlow;
+            : recipe.pourFlow) * 10.0) / 10.0;
         pressureUp.exitPressureOver = 8.5;
         pressureUp.exitPressureUnder = 0.0;
         pressureUp.exitFlowUnder = 0.0;
@@ -436,13 +441,14 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pressureDecline.sensor = "coffee";
         pressureDecline.volume = 100.0;
 
+        // Integer rounding matches de1app: remainder second goes to Decline
         pressureDecline.seconds = recipe.rampDownEnabled
-            ? recipe.rampTime - recipe.rampTime / 2.0
+            ? recipe.rampTime - std::floor(recipe.rampTime / 2.0)
             : 0.0;
 
         pressureDecline.exitIf = true;
         pressureDecline.exitType = "flow_under";
-        pressureDecline.exitFlowUnder = recipe.pourFlow + 0.1;
+        pressureDecline.exitFlowUnder = std::round((recipe.pourFlow + 0.1) * 10.0) / 10.0;
         pressureDecline.exitFlowOver = 3.0;
         pressureDecline.exitPressureOver = 11.0;
         pressureDecline.exitPressureUnder = 1.0;
@@ -470,7 +476,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
             flowStart.seconds = 10.0;
             flowStart.exitIf = true;
             flowStart.exitType = "flow_over";
-            flowStart.exitFlowOver = recipe.pourFlow - 0.1;
+            flowStart.exitFlowOver = std::round((recipe.pourFlow - 0.1) * 10.0) / 10.0;
             flowStart.exitPressureOver = 11.0;
             flowStart.exitPressureUnder = 0.0;
             flowStart.exitFlowUnder = 0.0;
@@ -493,7 +499,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         ProfileFrame extraction;
         extraction.name = "Flow Extraction";
         extraction.pump = "flow";
-        extraction.flow = recipe.flowExtractionUp ? recipe.pourFlow * 2.0 : 0.0;
+        extraction.flow = recipe.flowExtractionUp
+            ? std::round(recipe.pourFlow * 2.0 * 10.0) / 10.0 : 0.0;
         extraction.pressure = 3.0;  // Vestigial template constant
         extraction.temperature = recipe.pourTemperature;
         extraction.seconds = 60.0;  // Long duration - weight system stops the shot

@@ -1,6 +1,6 @@
 # Recipe Editor & Profile Types
 
-This document describes the Recipe Editor and supported profile editor types in Decenza.
+This document describes the Recipe Editor, supported profile editor types, and how Decenza's implementation syncs with de1app's D-Flow and A-Flow editors.
 
 ## What is the Recipe Editor?
 
@@ -20,6 +20,18 @@ The Recipe Editor supports four editor types, each generating a different frame 
 | A-Flow | `aflow` | `settings_2c` | Janek | Hybrid pressure-then-flow extraction |
 | Pressure | `pressure` | `settings_2a` | de1app | Simple pressure profile |
 | Flow | `flow` | `settings_2b` | de1app | Simple flow profile |
+
+## Editor Selection
+
+`MainController::currentEditorType()` determines which editor page opens. Selection is **title-first**:
+
+1. Title starts with `D-Flow/` → D-Flow editor
+2. Title starts with `A-Flow/` → A-Flow editor
+3. `profile_type` is `settings_2a` → Pressure editor
+4. `profile_type` is `settings_2b` → Flow editor
+5. Everything else → Advanced frame editor
+
+This matches de1app's convention where D-Flow and A-Flow profiles are identified by their title prefix.
 
 ## Profile Types in de1app
 
@@ -131,57 +143,236 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 
 ## Frame Generation
 
+### Architecture: Regeneration vs Patching
+
+**de1app uses a patch model**: `update_D-Flow` and `update_A-Flow` read existing frames, modify only the fields exposed in the UI, and write them back. Fields not exposed in the UI (like Fill `volume`, Pouring `seconds`, dead exit values on `exit_if=0` frames) are preserved from the saved profile.
+
+**Decenza uses a regenerative model**: `RecipeGenerator` builds all frames from scratch using recipe parameters. A passthrough mechanism in `Profile::regenerateFromRecipe()` preserves `volume` and `exitWeight` from old frames by matching on frame name, preventing lossy round-trips for fields that RecipeParams doesn't control.
+
+**Metadata-only optimization**: When only non-frame-affecting params change (`targetWeight`, `targetVolume`, `dose`), frame regeneration is skipped entirely. This matches de1app where changing `final_desired_shot_weight` doesn't call `update_D-Flow` / `update_A-Flow`. Implemented in `MainController::uploadRecipeProfile()` via `RecipeParams::frameAffectingFieldsEqual()`.
+
 ### D-Flow Frames
 
 ```
-Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
+Filling → [Bloom] → Infusing → Pouring → [Decline]
 ```
 
-4–6 frames depending on optional phases:
+**Always 3 core frames** matching de1app (Filling, Infusing, Pouring). When `infuseEnabled=false`, Infusing is emitted with `seconds=0` (machine skips it), NOT omitted — this preserves the 3-frame structure de1app expects. Bloom and Decline are optional Decenza extras not present in de1app.
 
-| Frame | Pump | Key Values | Exit | Optional |
-|-------|------|-----------|------|----------|
-| Fill | flow | flow=fillFlow, pressure=fillPressure | pressure_over (infusePressure/2 + 0.6, min 1.2) | No |
-| Bloom | flow | flow=0 (rest) | pressure_under 0.5 | bloomEnabled |
-| Infuse | pressure | pressure=infusePressure | time or weight | infuseEnabled |
-| Ramp | flow | flow=pourFlow, pressure=pourPressure, smooth | none (fixed duration) | rampEnabled |
-| Pour | flow | flow=pourFlow, pressure=pourPressure | none (weight stops shot) | No |
-| Decline | flow | flow=declineTo, smooth | none (time/weight) | declineEnabled |
+#### D-Flow Frame Details (matches `update_D-Flow` in de1app `D_Flow/code.tcl`)
+
+**Frame 0: Filling** — pressure pump to saturate puck
+
+| Field | Value | Source |
+|-------|-------|--------|
+| name | "Filling" | — |
+| pump | "pressure" | — |
+| pressure | recipe.infusePressure | de1app: `Dflow_soaking_pressure` |
+| flow | recipe.fillFlow | de1app: preserved from profile (default 8.0) |
+| temperature | recipe.fillTemperature | de1app: `Dflow_filling_temperature` |
+| seconds | recipe.fillTimeout | de1app: preserved from profile (default 25.0) |
+| transition | "fast" | — |
+| sensor | "coffee" | — |
+| volume | 100.0 | de1app: preserved (passthrough handles) |
+| weight | 5.0 | de1app: preserved (default 5.0 = app-side fill exit) |
+| exit_if | true | — |
+| exit_type | "pressure_over" | — |
+| exit_pressure_over | formula (see below) | de1app: same formula |
+| exit_flow_over | 6.0 | — |
+| max_flow_or_pressure | 0.0 | — |
+| max_flow_or_pressure_range | 0.2 | — |
+
+**Fill exit_pressure_over formula** (matches `update_D-Flow` line 341-346):
+```
+if pressure >= 2.8:
+    exit = round_to_one_digit(pressure / 2 + 0.6)
+else:
+    exit = pressure
+if exit < 1.2:
+    exit = 1.2
+```
+
+**Frame 1: Infusing** — hold at soak pressure
+
+| Field | Value | Source |
+|-------|-------|--------|
+| name | "Infusing" | — |
+| pump | "pressure" | — |
+| pressure | recipe.infusePressure | de1app: `Dflow_soaking_pressure` |
+| flow | 8.0 | — |
+| temperature | recipe.pourTemperature | de1app: `Dflow_pouring_temperature` |
+| seconds | recipe.infuseTime (0 when disabled) | de1app: `Dflow_soaking_seconds` |
+| volume | recipe.infuseVolume (100 when disabled) | de1app: `Dflow_soaking_volume` |
+| weight | recipe.infuseWeight | de1app: `Dflow_soaking_weight` (app-side SkipToNext) |
+| exit_if | false | — |
+| exit_type | "pressure_over" | — |
+| exit_pressure_over | recipe.infusePressure | de1app: preserved (default 3.0) |
+| max_flow_or_pressure | 0.0 | — |
+| max_flow_or_pressure_range | 0.2 | — |
+
+**Frame 2: Pouring** — flow-driven extraction with pressure limiter
+
+| Field | Value | Source |
+|-------|-------|--------|
+| name | "Pouring" | — |
+| pump | "flow" | — |
+| flow | recipe.pourFlow | de1app: `Dflow_pouring_flow` |
+| pressure | 4.8 | de1app: preserved (vestigial) |
+| temperature | recipe.pourTemperature | de1app: `Dflow_pouring_temperature` |
+| seconds | 127.0 | de1app: preserved (max duration) |
+| transition | "fast" | — |
+| volume | 0.0 | de1app: preserved (passthrough handles) |
+| exit_if | false | — |
+| exit_type | "flow_over" | — |
+| exit_flow_over | 2.80 | — |
+| exit_pressure_over | 11.0 | — |
+| max_flow_or_pressure | recipe.pourPressure | de1app: `Dflow_pouring_pressure` |
+| max_flow_or_pressure_range | 0.2 | — |
+
+### D-Flow Stock Profiles (from de1app `D_Flow/code.tcl`)
+
+| Profile | Fill pressure | Fill exit | Infuse seconds | Pour flow | Pour pressure | Weight |
+|---------|--------------|-----------|----------------|-----------|---------------|--------|
+| D-Flow / default | 3.0 bar | 1.5 bar | 60s | 1.7 mL/s | 8.5 bar | 50g |
+| D-Flow / Q | 6.0 bar | 3.0 bar | 1s | 1.8 mL/s | 10.0 bar | 36g |
+| D-Flow / La Pavoni | 1.2 bar | 1.2 bar | 60s | 2.4 mL/s | 9.0 bar | 46g |
+
+Note: Stock profiles have hand-tuned `exit_pressure_over` values that differ from the formula. The formula produces 2.1 for pressure=3.0 (not the stock 1.5). Both de1app's editor and Decenza apply the formula when the user edits any parameter, so hand-tuned values are overwritten on first edit. This is de1app's intended behavior.
 
 ### A-Flow Frames
 
 ```
-Pre Fill → Fill → [Infuse] → 2nd Fill → Pause → Pressure Up → Pressure Decline → Flow Start → Flow Extraction
+Pre Fill → Fill → Infuse → 2nd Fill → Pause → Pressure Up → Pressure Decline → Flow Start → Flow Extraction
 ```
 
-Up to 9 frames (matching de1app A-Flow structure):
+**Always 9 frames** (matching de1app). When `infuseEnabled=false`, the Infuse frame is emitted with `seconds=0`, NOT omitted. When `secondFillEnabled=false`, 2nd Fill and Pause have `seconds=0`. De1app's `set_profile_index` uses `> 8` frames to detect new-format profiles; omitting frames would cause it to fall back to 6-frame (old format) indexing.
 
-| # | Frame | Pump | Key Values | Exit | Notes |
-|---|-------|------|-----------|------|-------|
-| 0 | Pre Fill | flow | flow=8, 1s | none | DE1 "skip first step" workaround |
-| 1 | Fill | flow | flow=fillFlow | pressure_over | Same as D-Flow Fill |
-| 2 | Infuse | pressure | pressure=infusePressure | time/weight | Optional (infuseEnabled) |
-| 3 | 2nd Fill | flow | flow=8, pressure cap=3 | pressure_over 2.5 | 15s when secondFillEnabled, else 0s |
-| 4 | Pause | pressure | pressure=1 | flow_under 1.0 | 15s when secondFillEnabled, else 0s |
-| 5 | Pressure Up | pressure | pressure=pourPressure, smooth | flow_over pourFlow | rampTime (or rampTime/2 when rampDownEnabled) |
-| 6 | Pressure Decline | pressure | pressure→1 bar, smooth | flow_under pourFlow+0.1 | rampTime/2 when rampDownEnabled, else 0s |
-| 7 | Flow Start | flow | flow=pourFlow | none (instant) | Transition to flow control |
-| 8 | Flow Extraction | flow | flow=pourFlow, limiter=pourPressure | none (weight stops) | smooth when flowExtractionUp, else fast |
+#### A-Flow Frame Details (matches `update_A-Flow` in de1app `A_Flow/code.tcl`)
+
+**Frame 0: Pre Fill** — 1s workaround for DE1 "skip first step" bug
+
+| Field | Value |
+|-------|-------|
+| pump | "flow" |
+| flow | 8.0, pressure=3.0 |
+| temperature | recipe.fillTemperature |
+| seconds | 1.0 |
+| exit_if | false |
+| max_flow_or_pressure | 8.0 (range 0.6) |
+
+**Frame 1: Fill** — flow pump with pressure limiter
+
+| Field | Value | Source |
+|-------|-------|--------|
+| pump | "flow" | — |
+| flow | recipe.fillFlow | de1app: preserved (not modified by `update_A-Flow`) |
+| pressure | recipe.fillPressure | de1app: preserved |
+| temperature | recipe.fillTemperature | de1app: `Aflow_filling_temperature` |
+| seconds | recipe.fillTimeout | de1app: preserved |
+| exit_if | true, exit_type "pressure_over" | — |
+| exit_pressure_over | recipe.fillPressure | — |
+| max_flow_or_pressure | 8.0 (range 0.6) | — |
+
+**Frame 2: Infuse** — pressure hold with zero flow
+
+| Field | Value | Source |
+|-------|-------|--------|
+| pump | "pressure" | — |
+| flow | 0.0 | — |
+| pressure | recipe.infusePressure | de1app: `Aflow_soaking_pressure` |
+| temperature | recipe.fillTemperature | de1app: `Aflow_filling_temperature` (NOT pour temp) |
+| seconds | recipe.infuseTime (0 when disabled) | de1app: `Aflow_soaking_seconds` |
+| volume | recipe.infuseVolume (100 when disabled) | de1app: `Aflow_soaking_volume` |
+| weight | recipe.infuseWeight | de1app: `Aflow_soaking_weight` (app-side SkipToNext) |
+| exit_if | false | — |
+| max_flow_or_pressure | 1.0 (range 0.6) | — |
+
+**Frames 3-4: 2nd Fill + Pause** — optional second saturation cycle
+
+| | 2nd Fill | Pause |
+|-|----------|-------|
+| pump | flow | pressure |
+| flow/pressure | flow=8.0 | pressure=1.0, flow=6.0 |
+| temperature | pourTemperature (95 when disabled) | pourTemperature (95 when disabled) |
+| seconds | 15 (0 when disabled) | 15 (0 when disabled) |
+| exit | pressure_over 2.5 | flow_under 1.0 |
+| limiter | 3.0 (range 0.6) | 1.0 (range 0.6) |
+
+**Frame 5: Pressure Up** — smooth ramp to pour pressure
+
+| Field | Value | Source |
+|-------|-------|--------|
+| pump | "pressure" | — |
+| pressure | recipe.pourPressure | de1app: `Aflow_pouring_pressure` |
+| flow | 8.0 | — |
+| temperature | recipe.pourTemperature | de1app: `Aflow_pouring_temperature` |
+| transition | "smooth" | — |
+| seconds | floor(rampTime/2) when rampDown, else rampTime | de1app: `round_to_integer(rampTime/2)` |
+| exit_if | true, exit_type "flow_over" | — |
+| exit_flow_over | round(pourFlow*2, 1) when rampDown, else round(pourFlow, 1) | de1app: `round_to_one_digits` |
+| exit_pressure_over | 8.5 | — |
+
+**Frame 6: Pressure Decline** — decline to 1 bar
+
+| Field | Value | Source |
+|-------|-------|--------|
+| pump | "pressure" | — |
+| pressure | 1.0, flow=8.0 | — |
+| temperature | recipe.pourTemperature | de1app: `Aflow_pouring_temperature` |
+| transition | "smooth" | — |
+| seconds | rampTime - floor(rampTime/2) when rampDown, else 0 | de1app: `round_to_integer(rampTime/2 + rampTime%2)` |
+| exit_if | true, exit_type "flow_under" | — |
+| exit_flow_under | round(pourFlow + 0.1, 1) | de1app: `round_to_one_digits` |
+| exit_flow_over | 3.0 | — |
+| exit_pressure_over | 11.0, exit_pressure_under=1.0 | — |
+
+Note: Integer rounding gives the remainder second to Decline (e.g., rampTime=11 → Up=5, Decline=6).
+
+**Frame 7: Flow Start** — conditionally activated
+
+| State | Condition | seconds | exit |
+|-------|-----------|---------|------|
+| Passthrough | pressureUpSeconds >= 1 | 0 | exit_if=false |
+| Activated | pressureUpSeconds < 1 | 10 | exit_if=true, flow_over round(pourFlow-0.1, 1) |
+
+When activated (ramp disabled or very short), this frame waits for flow to stabilize before extraction. When passthrough, the machine skips it immediately (seconds=0).
+
+**Frame 8: Flow Extraction** — main extraction with pressure limiter
+
+| Field | Value | Source |
+|-------|-------|--------|
+| pump | "flow" | — |
+| flow | round(pourFlow*2, 1) when flowExtractionUp, else 0 | de1app: `round_to_one_digits` |
+| pressure | 3.0 (vestigial) | — |
+| temperature | recipe.pourTemperature | de1app: `Aflow_pouring_temperature` |
+| seconds | 60.0 | — |
+| transition | "smooth" | — |
+| max_flow_or_pressure | recipe.pourPressure | de1app: `Aflow_pouring_pressure` |
+| max_flow_or_pressure_range | 0.6 | — |
+| exit_if | false | — |
 
 #### A-Flow Toggle Effects
 
 **Ramp Down** (`rampDownEnabled`):
 - OFF: Pressure Up gets full `rampTime`, Pressure Decline gets 0s (exit condition only)
 - ON: `rampTime` is doubled by the UI; Pressure Up and Decline each get `rampTime/2`
-- Graph shows split ramp curve when enabled
+- Integer rounding: `floor(rampTime/2)` for Up, remainder for Decline
 
 **Flow Up** (`flowExtractionUp`):
-- ON (default): Flow Extraction uses `smooth` transition (flow ramps up gradually)
-- OFF: Flow Extraction uses `fast` transition (flat flow)
+- ON (default): Flow Extraction flow = `pourFlow * 2` with smooth transition (ramps up)
+- OFF: Flow Extraction flow = 0 (flat, pressure-limited only)
 
 **2nd Fill** (`secondFillEnabled`):
-- OFF: 2nd Fill and Pause frames have 0s duration (skipped immediately)
-- ON: 2nd Fill gets 15s, Pause gets 15s — adds a second puck saturation + rest before pressure ramp
+- OFF: 2nd Fill and Pause frames have 0s duration and temperature=95 (skipped immediately)
+- ON: 2nd Fill gets 15s, Pause gets 15s, both use pourTemperature
+
+#### Value Rounding
+
+All computed flow exit values use `round_to_one_digits` matching de1app:
+- Pressure Up `exit_flow_over`: `round(value * 10) / 10`
+- Pressure Decline `exit_flow_under`: `round((pourFlow + 0.1) * 10) / 10`
+- Flow Start `exit_flow_over`: `round((pourFlow - 0.1) * 10) / 10`
+- Flow Extraction `flow`: `round(pourFlow * 2 * 10) / 10`
 
 ### Pressure Profile Frames (settings_2a)
 
@@ -193,7 +384,7 @@ Matches de1app's `pressure_to_advanced_list()`:
 
 | Frame | Pump | Key Values | Notes |
 |-------|------|-----------|-------|
-| Preinfusion Boost | flow | tempStart, 2s | Only when tempStart ≠ tempPreinfuse |
+| Preinfusion Boost | flow | tempStart, 2s | Only when tempStart != tempPreinfuse |
 | Preinfusion | flow | tempPreinfuse, exit pressure_over | |
 | Forced Rise | pressure | espressoPressure, 3s, no limiter | When holdTime > 3 |
 | Hold | pressure | espressoPressure, with limiter | |
@@ -210,10 +401,46 @@ Matches de1app's `flow_to_advanced_list()`:
 
 | Frame | Pump | Key Values | Notes |
 |-------|------|-----------|-------|
-| Preinfusion Boost | flow | tempStart, 2s | Only when tempStart ≠ tempPreinfuse |
+| Preinfusion Boost | flow | tempStart, 2s | Only when tempStart != tempPreinfuse |
 | Preinfusion | flow | tempPreinfuse, exit pressure_over | |
 | Hold | flow | holdFlow, with limiter | When holdTime > 0 |
 | Decline | flow | flowEnd, smooth, with limiter | When holdTime > 0 |
+
+---
+
+## Exit Conditions
+
+There are two independent exit condition systems:
+
+### Machine-side exits (pressure/flow)
+
+Controlled by `exit_if` flag and `exit_type` in the BLE frame. The machine autonomously checks and advances frames. Types: `pressure_over`, `pressure_under`, `flow_over`, `flow_under`.
+
+### App-side exits (weight)
+
+Controlled by `weight` field on the frame, INDEPENDENTLY of `exit_if`. The app monitors scale weight and sends `SkipToNext` (0x0E) command. A frame can have no machine exit (`exit_if=false`) with a weight exit (`weight > 0`), or both, or neither.
+
+D-Flow uses weight exits on:
+- Filling frame: `weight=5.0` (exit fill early if scale reads 5g)
+- Infusing frame: `weight=infuseWeight` (exit infuse at target weight)
+- Profile-level `targetWeight`: stops the shot via the app
+
+---
+
+## Decenza vs de1app Default Values
+
+These defaults only apply when creating brand-new profiles, not when editing existing ones:
+
+| Parameter | de1app D-Flow/default | de1app A-Flow stock | Decenza default |
+|-----------|----------------------|---------------------|-----------------|
+| fillTemperature | 88 | 93 | 88 |
+| pourTemperature | 88 | 93 | 93 |
+| infuseTime | 60s | 60s | 20s |
+| pourFlow | 1.7 mL/s | 2.0 mL/s | 2.0 mL/s |
+| pourPressure | 8.5 bar | 10.0 bar | 9.0 bar |
+| targetWeight | 50g | 36g | 36g |
+| fillTimeout | 25s | 15s | 25s |
+| infuseWeight | 4.0g | 3.6g | 4.0g |
 
 ---
 
@@ -287,11 +514,15 @@ This dual storage ensures:
 ```
 src/profile/
 ├── recipeparams.h          # RecipeParams struct + EditorType enum
-├── recipeparams.cpp        # JSON/QVariantMap serialization + validation
+├── recipeparams.cpp        # JSON/QVariantMap serialization + validation + frameAffectingFieldsEqual()
 ├── recipegenerator.h       # Frame generation interface
 ├── recipegenerator.cpp     # Frame generation for all 4 editor types
 ├── profile.h               # Extended with recipe support
-└── profile.cpp
+└── profile.cpp             # regenerateFromRecipe() with passthrough preservation
+
+src/controllers/
+└── maincontroller.cpp      # uploadRecipeProfile() with metadata-only optimization
+                            # currentEditorType() with title-first detection
 
 qml/pages/
 ├── RecipeEditorPage.qml    # Main recipe editor UI (D-Flow + A-Flow)
@@ -308,3 +539,5 @@ qml/components/
 
 - [D-Flow GitHub Repository](https://github.com/Damian-AU/D_Flow_Espresso_Profile)
 - [de1app Profile System](https://github.com/decentespresso/de1app/blob/main/de1plus/profile.tcl)
+- de1app D-Flow source: `de1plus/profile_editors/D_Flow/code.tcl`
+- de1app A-Flow source: `de1plus/profile_editors/A_Flow/code.tcl`

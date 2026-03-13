@@ -106,6 +106,17 @@ struct RecipeParams {
     // === Editor Type ===
     EditorType editorType = EditorType::DFlow;  // Determines frame generation strategy
 
+    // Apply de1app-matching defaults for the current editorType.
+    // Call after setting editorType but before clamp().
+    void applyEditorDefaults();
+
+    // === Comparison ===
+    // Returns true if all frame-affecting fields are equal (excludes metadata-only
+    // fields: targetWeight, targetVolume, dose). Used to skip frame regeneration
+    // when only metadata changed — matches de1app behavior where changing weight
+    // doesn't recompute frames.
+    bool frameAffectingFieldsEqual(const RecipeParams& other) const;
+
     // === Validation ===
     // Returns list of issues found (empty = valid)
     QStringList validate() const;

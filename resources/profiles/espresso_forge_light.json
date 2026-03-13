@@ -11,56 +11,56 @@
     "steps": [
         {
             "name": "preinfusion",
-            "temperature": 96,
+            "temperature": 96.0,
             "sensor": "coffee",
             "pump": "flow",
             "transition": "fast",
-            "pressure": 1,
-            "flow": 6,
-            "seconds": 10,
-            "volume": 100,
+            "pressure": 1.0,
+            "flow": 6.0,
+            "seconds": 10.0,
+            "volume": 100.0,
             "exit": {
                 "type": "pressure",
                 "condition": "over",
                 "value": 0.5
             },
             "limiter": {
-                "value": 0,
+                "value": 0.0,
                 "range": 0.6
             }
         },
         {
             "name": "long pre brew",
-            "temperature": 93,
+            "temperature": 93.0,
             "sensor": "coffee",
             "pump": "pressure",
             "transition": "smooth",
-            "pressure": 1,
-            "flow": 2,
-            "seconds": 25,
-            "volume": 100,
+            "pressure": 1.0,
+            "flow": 0.0,
+            "seconds": 25.0,
+            "volume": 100.0,
             "limiter": {
-                "value": 0,
+                "value": 0.0,
                 "range": 0.6
             }
         },
         {
             "name": "high pressure ramp",
-            "temperature": 93,
+            "temperature": 93.0,
             "sensor": "coffee",
             "pump": "pressure",
             "transition": "smooth",
-            "pressure": 10,
-            "flow": 2,
-            "seconds": 20,
-            "volume": 100,
+            "pressure": 10.0,
+            "flow": 0.0,
+            "seconds": 20.0,
+            "volume": 100.0,
             "exit": {
                 "type": "pressure",
                 "condition": "over",
-                "value": 10
+                "value": 10.0
             },
             "limiter": {
-                "value": 0,
+                "value": 0.0,
                 "range": 0.6
             }
         },
@@ -70,27 +70,27 @@
             "sensor": "coffee",
             "pump": "pressure",
             "transition": "smooth",
-            "pressure": 6,
-            "flow": 2,
-            "seconds": 50,
-            "volume": 100,
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 50.0,
+            "volume": 100.0,
             "limiter": {
-                "value": 0,
+                "value": 0.0,
                 "range": 0.6
             }
         },
         {
             "name": "reset temperature",
-            "temperature": 96,
+            "temperature": 96.0,
             "sensor": "coffee",
             "pump": "flow",
             "transition": "smooth",
-            "pressure": 6,
-            "flow": 0,
-            "seconds": 1,
-            "volume": 100,
+            "pressure": 6.0,
+            "flow": 0.0,
+            "seconds": 1.0,
+            "volume": 100.0,
             "limiter": {
-                "value": 0,
+                "value": 0.0,
                 "range": 0.6
             }
         }

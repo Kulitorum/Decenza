@@ -1,4 +1,56 @@
 #include "recipeparams.h"
+#include <QtMath>
+
+bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
+    auto eq = [](double a, double b) { return qFuzzyCompare(1.0 + a, 1.0 + b); };
+    // Compare all fields that affect frame generation.
+    // Excluded: targetWeight, targetVolume, dose (metadata only — don't affect frames).
+    return editorType == other.editorType
+        // Fill
+        && eq(fillTemperature, other.fillTemperature)
+        && eq(fillPressure, other.fillPressure)
+        && eq(fillFlow, other.fillFlow)
+        && eq(fillTimeout, other.fillTimeout)
+        // Infuse
+        && infuseEnabled == other.infuseEnabled
+        && eq(infusePressure, other.infusePressure)
+        && eq(infuseTime, other.infuseTime)
+        && eq(infuseWeight, other.infuseWeight)
+        && eq(infuseVolume, other.infuseVolume)
+        && bloomEnabled == other.bloomEnabled
+        && eq(bloomTime, other.bloomTime)
+        // Pour
+        && eq(pourTemperature, other.pourTemperature)
+        && eq(pourPressure, other.pourPressure)
+        && eq(pourFlow, other.pourFlow)
+        && rampEnabled == other.rampEnabled
+        && eq(rampTime, other.rampTime)
+        // A-Flow specific
+        && rampDownEnabled == other.rampDownEnabled
+        && flowExtractionUp == other.flowExtractionUp
+        && secondFillEnabled == other.secondFillEnabled
+        // Decline
+        && declineEnabled == other.declineEnabled
+        && eq(declineTo, other.declineTo)
+        && eq(declineTime, other.declineTime)
+        // Simple profile params
+        && eq(preinfusionTime, other.preinfusionTime)
+        && eq(preinfusionFlowRate, other.preinfusionFlowRate)
+        && eq(preinfusionStopPressure, other.preinfusionStopPressure)
+        && eq(holdTime, other.holdTime)
+        && eq(espressoPressure, other.espressoPressure)
+        && eq(holdFlow, other.holdFlow)
+        && eq(simpleDeclineTime, other.simpleDeclineTime)
+        && eq(pressureEnd, other.pressureEnd)
+        && eq(flowEnd, other.flowEnd)
+        && eq(limiterValue, other.limiterValue)
+        && eq(limiterRange, other.limiterRange)
+        // Per-step temperatures
+        && eq(tempStart, other.tempStart)
+        && eq(tempPreinfuse, other.tempPreinfuse)
+        && eq(tempHold, other.tempHold)
+        && eq(tempDecline, other.tempDecline);
+}
 
 // Shared legacy migration for old pourStyle/flowLimit/pressureLimit fields
 static void migratePourStyle(RecipeParams& params, const QString& oldStyle,
@@ -17,6 +69,42 @@ static void migratePourStyle(RecipeParams& params, const QString& oldStyle,
     } else {
         params.pourPressure = pourPressure;
         params.pourFlow = pourFlow;
+    }
+}
+
+void RecipeParams::applyEditorDefaults() {
+    switch (editorType) {
+    case EditorType::DFlow:
+        // From D-Flow____default.tcl stock profile (de1app)
+        fillTemperature = 88.0;
+        fillPressure = 3.0;
+        fillTimeout = 25.0;
+        infuseTime = 60.0;
+        infusePressure = 3.0;
+        infuseWeight = 4.0;
+        pourTemperature = 88.0;
+        pourPressure = 8.5;
+        pourFlow = 1.7;
+        targetWeight = 50.0;
+        break;
+    case EditorType::AFlow:
+        // From A-Flow____default-medium.tcl stock profile (de1app)
+        fillTemperature = 93.0;
+        fillPressure = 3.0;
+        fillTimeout = 15.0;
+        infuseTime = 60.0;
+        infusePressure = 3.0;
+        infuseWeight = 3.6;
+        pourTemperature = 93.0;
+        pourPressure = 10.0;
+        pourFlow = 2.0;
+        rampTime = 10.0;
+        targetWeight = 42.0;
+        break;
+    case EditorType::Pressure:
+    case EditorType::Flow:
+        // Simple profiles use struct defaults
+        break;
     }
 }
 

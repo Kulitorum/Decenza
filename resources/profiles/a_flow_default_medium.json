@@ -34,7 +34,7 @@
         "pourTemperature": 95,
         "rampTime": 10,
         "editorType": "aflow",
-        "targetWeight": 42,
+        "targetWeight": 36,
         "rampDownEnabled": false,
         "flowExtractionUp": true
     },

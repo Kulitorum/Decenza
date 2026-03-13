@@ -79,7 +79,6 @@
         <file>profiles/advanced_spring_lever.json</file>
         <file>profiles/best_overall_pressure_profile.json</file>
         <file>profiles/best_practice_light_roast.json</file>
-        <file>profiles/blooming_allong.json</file>
         <file>profiles/blooming_allonge.json</file>
         <file>profiles/blooming_espresso.json</file>
         <file>profiles/classic_italian_espresso.json</file>
@@ -110,8 +109,6 @@
         <file>profiles/filter_2_1.json</file>
         <file>profiles/flow_profile_for_milky_drinks.json</file>
         <file>profiles/flow_profile_for_straight_espresso.json</file>
-        <file>profiles/gagn_adaptive_allong_94c_v1_0.json</file>
-        <file>profiles/gagn_adaptive_shot_92c_v1_0.json</file>
         <file>profiles/gagne_adaptive_allonge_94c_v1_0.json</file>
         <file>profiles/gagne_adaptive_shot_92c_v1_0.json</file>
         <file>profiles/gentle_and_sweet.json</file>
@@ -133,7 +130,6 @@
         <file>profiles/pour_over_basket_v60_20g_in_340g_out.json</file>
         <file>profiles/pour_over_basket_v60_22g_in_375g_out.json</file>
         <file>profiles/preinfuse_then_45ml_of_water.json</file>
-        <file>profiles/rao_allong.json</file>
         <file>profiles/rao_allonge.json</file>
         <file>profiles/steam_only.json</file>
         <file>profiles/tea_in_a_basket.json</file>
