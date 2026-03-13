@@ -651,25 +651,11 @@ Page {
                 }
 
                 AccessibleButton {
-                    id: deleteButton
                     text: TranslationManager.translate("shotdetail.deleteshot", "Delete Shot")
                     accessibleName: TranslationManager.translate("shotDetail.deleteShotPermanently", "Permanently delete this shot from history")
+                    destructive: true
                     Layout.fillWidth: true
                     onClicked: deleteConfirmDialog.open()
-
-                    background: Rectangle {
-                        color: "transparent"
-                        radius: Theme.buttonRadius
-                        border.color: Theme.errorColor
-                        border.width: 1
-                    }
-                    contentItem: Text {
-                        text: deleteButton.text
-                        font: Theme.labelFont
-                        color: Theme.errorColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
                 }
             }
 

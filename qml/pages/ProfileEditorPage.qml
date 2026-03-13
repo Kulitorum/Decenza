@@ -866,6 +866,7 @@ Page {
                 AccessibleButton {
                     text: TranslationManager.translate("profileEditor.save", "Save")
                     accessibleName: TranslationManager.translate("profileEditor.saveProfile", "Save profile")
+                    primary: true
                     Layout.fillWidth: true
                     onClicked: saveAsDialog.doSave()
                 }

@@ -1190,28 +1190,12 @@ Page {
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
-                    id: deleteBeanBtn
                     text: TranslationManager.translate("common.delete", "Delete")
                     accessibleName: TranslationManager.translate("beanInfo.deletePreset", "Delete this bean preset")
+                    destructive: true
                     onClicked: {
                         Settings.removeBeanPreset(editPresetIndex)
                         editPresetDialog.close()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(100)
-                        implicitHeight: Theme.scaled(36)
-                        radius: Theme.scaled(6)
-                        color: deleteBeanBtn.down ? Qt.darker(Theme.errorColor, 1.1) : Theme.errorColor
-                    }
-                    contentItem: Text {
-                        text: deleteBeanBtn.text
-                        font.pixelSize: Theme.scaled(14)
-                        font.family: Theme.bodyFont.family
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: Theme.scaled(16)
-                        rightPadding: Theme.scaled(16)
                     }
                 }
 

@@ -106,25 +106,11 @@ KeyboardAwareContainer {
                     AccessibleButton {
                         text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
                         accessibleName: TranslationManager.translate("visualizer.testConnection", "Test Visualizer connection")
+                        primary: true
                         enabled: usernameField.text.length > 0 && passwordField.text.length > 0
                         onClicked: {
                             visualizerTab.testResultMessage = TranslationManager.translate("settings.visualizer.testing", "Testing...")
                             MainController.visualizer.testConnection()
-                        }
-                        background: Rectangle {
-                            implicitWidth: Theme.scaled(140)
-                            implicitHeight: Theme.scaled(40)
-                            radius: Theme.scaled(6)
-                            color: parent.enabled ? Theme.primaryColor : Theme.backgroundColor
-                            border.color: parent.enabled ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: parent.enabled ? "white" : Theme.textSecondaryColor
-                            font: Theme.bodyFont
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
                         }
                     }
 
