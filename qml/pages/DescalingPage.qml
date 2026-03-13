@@ -113,13 +113,14 @@ Page {
                                 color: Theme.textSecondaryColor
                             }
 
-                            // Progress bar
+                            // Progress bar (decorative — percentage text below provides the info)
                             Rectangle {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.preferredWidth: Theme.scaled(300)
                                 Layout.preferredHeight: Theme.scaled(12)
                                 radius: Theme.scaled(6)
                                 color: Theme.backgroundColor
+                                Accessible.ignored: true
 
                                 Rectangle {
                                     width: parent.width * getDescaleProgress(DE1Device.subState)
@@ -221,6 +222,7 @@ Page {
                                 source: "qrc:/emoji/2705.svg"  // Checkmark
                                 sourceSize.width: Theme.scaled(24)
                                 sourceSize.height: Theme.scaled(24)
+                                Accessible.ignored: true
                             }
 
                             Tr {
@@ -350,35 +352,18 @@ Page {
                 }
 
                 // Done button
-                Rectangle {
+                AccessibleButton {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: Theme.scaled(200)
                     Layout.preferredHeight: Theme.scaled(50)
-                    radius: Theme.cardRadius
-                    color: doneArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("descaling.button.done", "Done")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: doneArea.clicked(null)
-
-                    Tr {
-                        anchors.centerIn: parent
-                        key: "descaling.button.done"
-                        fallback: "Done"
-                        color: "white"
-                        font.pixelSize: Theme.scaled(18)
-                        font.weight: Font.Bold
-                        Accessible.ignored: true
-                    }
-
-                    MouseArea {
-                        id: doneArea
-                        anchors.fill: parent
-                        onClicked: {
-                            showRinseInstructions = false
-                            root.goToIdle()
-                        }
+                    primary: true
+                    text: TranslationManager.translate("descaling.button.done", "Done")
+                    accessibleName: TranslationManager.translate("descaling.button.done", "Done")
+                    font.pixelSize: Theme.scaled(18)
+                    font.weight: Font.Bold
+                    onClicked: {
+                        showRinseInstructions = false
+                        root.goToIdle()
                     }
                 }
             }
@@ -597,43 +582,26 @@ Page {
                             Item { Layout.fillHeight: true }
 
                             // Toggle button
-                            Rectangle {
+                            AccessibleButton {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.scaled(36)
-                                radius: Theme.cardRadius
-                                color: steamToggleArea.pressed
-                                    ? Qt.darker(Settings.steamDisabled ? Theme.primaryColor : Theme.errorColor, 1.2)
-                                    : (Settings.steamDisabled ? Theme.primaryColor : Theme.errorColor)
-
-                                Accessible.role: Accessible.Button
-                                Accessible.name: Settings.steamDisabled
+                                primary: Settings.steamDisabled
+                                destructive: !Settings.steamDisabled
+                                text: Settings.steamDisabled
+                                    ? TranslationManager.translate("descaling.steam.enable", "Enable")
+                                    : TranslationManager.translate("descaling.steam.disable", "Disable")
+                                accessibleName: Settings.steamDisabled
                                     ? TranslationManager.translate("descaling.steam.enable", "Enable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
                                     : TranslationManager.translate("descaling.steam.disable", "Disable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: steamToggleArea.clicked(null)
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: Settings.steamDisabled
-                                        ? TranslationManager.translate("descaling.steam.enable", "Enable")
-                                        : TranslationManager.translate("descaling.steam.disable", "Disable")
-                                    color: "white"
-                                    font.pixelSize: Theme.scaled(14)
-                                    font.weight: Font.Bold
-                                    Accessible.ignored: true
-                                }
-
-                                MouseArea {
-                                    id: steamToggleArea
-                                    anchors.fill: parent
-                                    onClicked: {
-                                        if (Settings.steamDisabled) {
-                                            // Enable: restore saved temperature (sendSteamTemperature clears flag)
-                                            MainController.sendSteamTemperature(Settings.steamTemperature)
-                                        } else {
-                                            // Disable: send 0 temp (sendSteamTemperature sets flag)
-                                            MainController.sendSteamTemperature(0)
-                                        }
+                                font.pixelSize: Theme.scaled(14)
+                                font.weight: Font.Bold
+                                onClicked: {
+                                    if (Settings.steamDisabled) {
+                                        // Enable: restore saved temperature (sendSteamTemperature clears flag)
+                                        MainController.sendSteamTemperature(Settings.steamTemperature)
+                                    } else {
+                                        // Disable: send 0 temp (sendSteamTemperature sets flag)
+                                        MainController.sendSteamTemperature(0)
                                     }
                                 }
                             }
@@ -725,40 +693,17 @@ Page {
                 }
 
                 // Start button
-                Rectangle {
+                AccessibleButton {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: Theme.scaled(8)
                     Layout.preferredWidth: Theme.scaled(250)
                     Layout.preferredHeight: Theme.scaled(56)
-                    radius: Theme.cardRadius
-                    color: startArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("descaling.button.start", "Start Descaling")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: startArea.clicked(null)
-
-                    RowLayout {
-                        anchors.centerIn: parent
-                        spacing: Theme.scaled(8)
-
-                        Tr {
-                            key: "descaling.button.start"
-                            fallback: "Start Descaling"
-                            color: "white"
-                            font.pixelSize: Theme.scaled(20)
-                            font.weight: Font.Bold
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    MouseArea {
-                        id: startArea
-                        anchors.fill: parent
-                        onClicked: {
-                            DE1Device.startDescale()
-                        }
-                    }
+                    primary: true
+                    text: TranslationManager.translate("descaling.button.start", "Start Descaling")
+                    accessibleName: TranslationManager.translate("descaling.button.start", "Start Descaling")
+                    font.pixelSize: Theme.scaled(20)
+                    font.weight: Font.Bold
+                    onClicked: DE1Device.startDescale()
                 }
 
                 Item { Layout.preferredHeight: Theme.scaled(20) }
