@@ -231,6 +231,26 @@ void DE1Simulator::startFlush()
     setState(DE1::State::HotWaterRinse, DE1::SubState::Pouring);
 }
 
+void DE1Simulator::startDescale()
+{
+    if (m_state == DE1::State::Sleep) wakeUp();
+    qDebug() << "DE1Simulator: Starting descale";
+    m_descaleStep = 8;  // DescaleInit
+    m_descaleStepStart = 0.0;
+    startOperation(DE1::State::Descale);
+    setState(DE1::State::Descale, static_cast<DE1::SubState>(m_descaleStep));
+}
+
+void DE1Simulator::startClean()
+{
+    if (m_state == DE1::State::Sleep) wakeUp();
+    qDebug() << "DE1Simulator: Starting clean";
+    m_descaleStep = 13;  // CleanInit (clean substates are 13-16)
+    m_descaleStepStart = 0.0;
+    startOperation(DE1::State::Clean);
+    setState(DE1::State::Clean, static_cast<DE1::SubState>(m_descaleStep));
+}
+
 void DE1Simulator::stop()
 {
     qDebug() << "DE1Simulator: Stop requested";
@@ -305,6 +325,31 @@ void DE1Simulator::onSimulationTimerTick()
         m_scaleWeight = m_outputVolume;  // 1:1 for water
         double scaleNoise = fractalNoise(elapsed * 2.0 + 200, 2) * SCALE_NOISE_AMP;
         emit scaleWeightChanged(qMax(0.0, m_scaleWeight + scaleNoise));
+    } else if (m_state == DE1::State::Descale || m_state == DE1::State::Clean) {
+        // Descale: substates 8→12 (5 steps), Clean: substates 13→16 (4 steps)
+        // Each step lasts ~70 seconds on real hardware (~6 min total)
+        // Simulator uses shorter steps for faster testing
+        static constexpr double DESCALE_STEP_DURATION = 15.0;  // seconds per step
+
+        int maxStep = (m_state == DE1::State::Descale) ? 12 : 16;
+        double stepElapsed = elapsed - m_descaleStepStart;
+        if (stepElapsed >= DESCALE_STEP_DURATION) {
+            if (m_descaleStep < maxStep) {
+                m_descaleStep++;
+                m_descaleStepStart = elapsed;
+                setState(m_state, static_cast<DE1::SubState>(m_descaleStep));
+                qDebug() << "DE1Simulator: Descale/clean step" << m_descaleStep;
+            } else {
+                // All steps complete
+                qDebug() << "DE1Simulator: Descale/clean complete";
+                stopOperation();
+                return;
+            }
+        }
+
+        // Simulate water flow through system
+        m_flow = 3.0 + fractalNoise(elapsed * 0.8, 2) * 1.0;
+        m_pressure = 1.5 + fractalNoise(elapsed * 1.2, 2) * 0.5;
     }
 
     // Send shot samples at 5Hz (every other tick at 10Hz)
