@@ -21,6 +21,10 @@ Button {
     // For external reference
     property Item accessibleItem: root
 
+    // Optional font overrides (0/-1 = use defaults)
+    property int _customFontSize: 0
+    property int _customFontWeight: -1
+
     implicitHeight: Theme.scaled(44)
     leftPadding: Theme.scaled(20)
     rightPadding: Theme.scaled(20)
@@ -62,9 +66,9 @@ Button {
 
             Text {
                 text: root.text
-                font.pixelSize: root.font.pixelSize > 0 ? root.font.pixelSize : Theme.scaled(16)
-                font.family: root.font.family || Theme.bodyFont.family
-                font.weight: root.font.weight
+                font.pixelSize: root._customFontSize > 0 ? root._customFontSize : Theme.scaled(16)
+                font.family: Theme.bodyFont.family
+                font.weight: root._customFontWeight >= 0 ? root._customFontWeight : Font.Normal
                 color: root.icon.color
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter

@@ -359,8 +359,8 @@ Page {
                     primary: true
                     text: TranslationManager.translate("descaling.button.done", "Done")
                     accessibleName: TranslationManager.translate("descaling.button.done", "Done")
-                    font.pixelSize: Theme.scaled(18)
-                    font.weight: Font.Bold
+                    _customFontSize: Theme.scaled(18)
+                    _customFontWeight: Font.Bold
                     onClicked: {
                         showRinseInstructions = false
                         root.goToIdle()
@@ -593,8 +593,8 @@ Page {
                                 accessibleName: Settings.steamDisabled
                                     ? TranslationManager.translate("descaling.steam.enable", "Enable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
                                     : TranslationManager.translate("descaling.steam.disable", "Disable") + " " + TranslationManager.translate("descaling.steam.accessible", "steam heater")
-                                font.pixelSize: Theme.scaled(14)
-                                font.weight: Font.Bold
+                                _customFontSize: Theme.scaled(14)
+                                _customFontWeight: Font.Bold
                                 onClicked: {
                                     if (Settings.steamDisabled) {
                                         // Enable: restore saved temperature (sendSteamTemperature clears flag)
@@ -701,8 +701,8 @@ Page {
                     primary: true
                     text: TranslationManager.translate("descaling.button.start", "Start Descaling")
                     accessibleName: TranslationManager.translate("descaling.button.start", "Start Descaling")
-                    font.pixelSize: Theme.scaled(20)
-                    font.weight: Font.Bold
+                    _customFontSize: Theme.scaled(20)
+                    _customFontWeight: Font.Bold
                     onClicked: DE1Device.startDescale()
                 }
 
