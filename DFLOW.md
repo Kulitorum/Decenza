@@ -151,6 +151,8 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 
 **Metadata-only optimization**: When only non-frame-affecting params change (`targetWeight`, `targetVolume`, `dose`), frame regeneration is skipped entirely. This matches de1app where changing `final_desired_shot_weight` doesn't call `update_D-Flow` / `update_A-Flow`. Implemented in `MainController::uploadRecipeProfile()` via `RecipeParams::frameAffectingFieldsEqual()`.
 
+**Preinfuse frame count**: The BLE header's `NumberOfPreinfuseFrames` byte tells the DE1 firmware where preinfusion ends and extraction begins, affecting PID tuning. De1app stores this as `final_desired_shot_volume_advanced_count_start` in the profile TCL and never recomputes it — D-Flow and A-Flow templates both set it to 2. Decenza preserves the value loaded from the profile (`number_of_preinfuse_frames` in JSON, `final_desired_shot_volume_advanced_count_start` in TCL) and does not recalculate it during `regenerateFromRecipe()`. For brand-new profiles, `RecipeParams::applyEditorDefaults()` provides the de1app template default. The generic `countPreinfuseFrames()` algorithm (count consecutive leading `exitIf=true` frames) is only used as a fallback for Pressure/Flow profiles.
+
 ### D-Flow Frames
 
 ```

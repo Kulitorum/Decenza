@@ -1140,6 +1140,11 @@ void Profile::regenerateFromRecipe() {
         m_espressoTemperature = m_steps.first().temperature;
     }
 
-    // Count preinfuse frames from actual generated frames (authoritative)
-    m_preinfuseFrameCount = countPreinfuseFrames(m_steps);
+    // De1app recomputes preinfuseFrameCount for simple profiles (pressure_to_advanced_list,
+    // flow_to_advanced_list rebuild frames and count each time) but preserves it for advanced
+    // profiles (settings_to_advanced_list copies as-is). D-Flow/A-Flow are advanced profiles.
+    if (m_recipeParams.editorType == EditorType::Pressure
+        || m_recipeParams.editorType == EditorType::Flow) {
+        m_preinfuseFrameCount = countPreinfuseFrames(m_steps);
+    }
 }
