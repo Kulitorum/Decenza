@@ -40,9 +40,12 @@ Button {
     }
 
     contentItem: Item {
+        implicitWidth: contentRow.implicitWidth
+        implicitHeight: contentRow.implicitHeight
         Accessible.ignored: true
 
         Row {
+            id: contentRow
             anchors.centerIn: parent
             spacing: root.icon.source.toString() !== "" && root.text !== "" ? Theme.scaled(6) : 0
             Accessible.ignored: true
