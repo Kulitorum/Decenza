@@ -177,6 +177,10 @@ QStringList RecipeParams::validate() const {
     if (limiterRange < 0 || limiterRange > 10)
         issues << "limiterRange out of range [0, 10]";
 
+    // BLE header bounds (-1 sentinel is valid, means "use countPreinfuseFrames()")
+    if (preinfuseFrameCount < -1 || preinfuseFrameCount > 20)
+        issues << "preinfuseFrameCount out of range [-1, 20]";
+
     return issues;
 }
 
