@@ -228,6 +228,8 @@ Page {
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.textColor
                                 visible: favoriteDelegate._hasBean
+                                width: Math.min(implicitWidth, parent.width)
+                                elide: Text.ElideRight
                                 Accessible.ignored: true
                             }
 
@@ -246,6 +248,8 @@ Page {
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.primaryColor
                                 visible: favoriteDelegate._hasProfile
+                                width: Math.min(implicitWidth, parent.width)
+                                elide: Text.ElideRight
                                 Accessible.ignored: true
                             }
 
@@ -264,6 +268,8 @@ Page {
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.textSecondaryColor
                                 visible: favoriteDelegate._hasGrinder
+                                width: Math.min(implicitWidth, parent.width)
+                                elide: Text.ElideRight
                                 Accessible.ignored: true
                             }
                         }

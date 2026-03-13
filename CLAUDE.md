@@ -482,6 +482,10 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 3. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
 4. Test with TalkBack: double-tap to activate, swipe to navigate
 
+### Rules for Modifying Existing Components
+
+When touching existing code, **fix pre-existing accessibility violations on the lines you modify** — do not dismiss them as "pre-existing". If you add properties to a Text element inside an `Accessible.name`-bearing parent and that Text is missing `Accessible.ignored: true`, add it. Accessibility issues compound over time and each modification is an opportunity to fix them.
+
 ### TODO: Focus Order Improvements
 
 **Problem:** Screen reader users report unpredictable navigation order when swiping through elements. Focus jumps unexpectedly and some elements are skipped.
