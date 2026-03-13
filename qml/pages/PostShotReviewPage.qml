@@ -640,14 +640,42 @@ Page {
                     onSuggestionSelected: function(t) { editRoastDate = "" }
                 }
 
-                LabeledField {
-                    id: roastDateField
+                Item {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.roastdate", "Roast date (yyyy-mm-dd)")
-                    text: editRoastDate
-                    inputHints: Qt.ImhDate
-                    inputMask: "9999-99-99"
-                    onTextEdited: function(t) { editRoastDate = t }
+                    implicitHeight: roastDateField.implicitHeight
+
+                    LabeledField {
+                        id: roastDateField
+                        anchors.left: parent.left
+                        anchors.right: reviewCalendarBtn.left
+                        anchors.rightMargin: Theme.scaled(4)
+                        label: TranslationManager.translate("postshotreview.label.roastdate", "Roast date (yyyy-mm-dd)")
+                        text: editRoastDate
+                        inputHints: Qt.ImhDate
+                        inputMask: "9999-99-99"
+                        onTextEdited: function(t) { editRoastDate = t }
+                    }
+
+                    AccessibleButton {
+                        id: reviewCalendarBtn
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: Theme.scaled(44)
+                        height: Theme.scaled(44)
+                        accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                        leftPadding: Theme.scaled(8)
+                        rightPadding: Theme.scaled(8)
+                        icon.source: "qrc:/emoji/1f4c5.svg"
+                        icon.width: Theme.scaled(20)
+                        icon.height: Theme.scaled(20)
+                        text: ""
+                        onClicked: reviewDatePicker.openWithDate(editRoastDate)
+                    }
+
+                    DatePickerDialog {
+                        id: reviewDatePicker
+                        onDateSelected: function(dateString) { editRoastDate = dateString }
+                    }
                 }
 
                 // === ROW 2: Roast level, Grinder ===

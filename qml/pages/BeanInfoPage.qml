@@ -663,13 +663,44 @@ Page {
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
 
-                LabeledField {
+                Item {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("shotmetadata.label.roastdate.format", "Roast date (yyyy-mm-dd)")
-                    text: isEditMode ? editRoastDate : Settings.dyeRoastDate
-                    inputHints: Qt.ImhDate
-                    inputMask: "9999-99-99"
-                    onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else Settings.dyeRoastDate = t; }
+                    implicitHeight: beanRoastDateField.implicitHeight
+
+                    LabeledField {
+                        id: beanRoastDateField
+                        anchors.left: parent.left
+                        anchors.right: beanCalendarBtn.left
+                        anchors.rightMargin: Theme.scaled(4)
+                        label: TranslationManager.translate("shotmetadata.label.roastdate.format", "Roast date (yyyy-mm-dd)")
+                        text: isEditMode ? editRoastDate : Settings.dyeRoastDate
+                        inputHints: Qt.ImhDate
+                        inputMask: "9999-99-99"
+                        onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else Settings.dyeRoastDate = t; }
+                    }
+
+                    AccessibleButton {
+                        id: beanCalendarBtn
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: Theme.scaled(44)
+                        height: Theme.scaled(44)
+                        accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                        leftPadding: Theme.scaled(8)
+                        rightPadding: Theme.scaled(8)
+                        icon.source: "qrc:/emoji/1f4c5.svg"
+                        icon.width: Theme.scaled(20)
+                        icon.height: Theme.scaled(20)
+                        text: ""
+                        onClicked: beanDatePicker.openWithDate(isEditMode ? editRoastDate : Settings.dyeRoastDate)
+                    }
+
+                    DatePickerDialog {
+                        id: beanDatePicker
+                        onDateSelected: function(dateString) {
+                            if (isEditMode) editRoastDate = dateString; else Settings.dyeRoastDate = dateString;
+                        }
+                    }
                 }
 
                 // === ROW 2: Grinder brand, Model, Burrs ===

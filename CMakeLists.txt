@@ -580,6 +580,7 @@ set(QML_FILES
     qml/components/StrangeAttractorScreensaver.qml
     qml/components/ShotMapScreensaver.qml
     qml/components/UnsavedChangesDialog.qml
+    qml/components/DatePickerDialog.qml
     qml/components/SwipeableArea.qml
     qml/components/CrashReportDialog.qml
     qml/components/ColoredIcon.qml
