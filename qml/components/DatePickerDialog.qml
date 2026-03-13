@@ -5,6 +5,7 @@ import Decenza
 
 Dialog {
     id: root
+    parent: Overlay.overlay
     anchors.centerIn: parent
     width: Theme.scaled(320)
     modal: true

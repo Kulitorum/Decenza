@@ -62,8 +62,9 @@ Button {
 
             Text {
                 text: root.text
-                font.pixelSize: Theme.scaled(16)
-                font.family: Theme.bodyFont.family
+                font.pixelSize: root.font.pixelSize > 0 ? root.font.pixelSize : Theme.scaled(16)
+                font.family: root.font.family || Theme.bodyFont.family
+                font.weight: root.font.weight
                 color: root.icon.color
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter

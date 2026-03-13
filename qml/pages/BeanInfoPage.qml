@@ -825,10 +825,10 @@ Page {
         }
     }
 
-    // Hide keyboard button - only on mobile when virtual keyboard is showing
+    // Hide keyboard button - only on mobile (Qt.inputMethod.visible is unreliable on Android)
     Rectangle {
         id: hideKeyboardButton
-        visible: focusedField !== null && keyboardVisible
+        visible: focusedField !== null && (Qt.platform.os === "android" || Qt.platform.os === "ios")
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.standardMargin

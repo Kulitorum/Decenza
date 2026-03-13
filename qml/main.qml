@@ -2803,7 +2803,7 @@ ApplicationWindow {
     }
     Rectangle {
         id: globalHideKeyboardButton
-        visible: _textInputFocused && Qt.inputMethod.visible
+        visible: _textInputFocused && (Qt.platform.os === "android" || Qt.platform.os === "ios")
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.standardMargin
