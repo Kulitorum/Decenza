@@ -21,10 +21,12 @@ Page {
     property bool isDescaling: MachineState.phase === MachineStateType.Phase.Descaling
     property bool wasDescaling: false
     property bool showRinseInstructions: false
+    property int descaleCycleCount: 0
 
     onIsDescalingChanged: {
         if (isDescaling) {
             wasDescaling = true
+            descaleCycleCount++
         }
     }
 
@@ -351,19 +353,45 @@ Page {
                     }
                 }
 
-                // Done button
-                AccessibleButton {
+                // Cycle counter
+                Text {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: Theme.scaled(200)
-                    Layout.preferredHeight: Theme.scaled(50)
-                    primary: true
-                    text: TranslationManager.translate("descaling.button.done", "Done")
-                    accessibleName: TranslationManager.translate("descaling.button.done", "Done")
-                    _customFontSize: Theme.scaled(18)
-                    _customFontWeight: Font.Bold
-                    onClicked: {
-                        showRinseInstructions = false
-                        root.goToIdle()
+                    text: TranslationManager.translate("descaling.cycleCount", "Cycle %1 complete").arg(descaleCycleCount)
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                }
+
+                // Action buttons
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: Theme.scaled(12)
+
+                    AccessibleButton {
+                        Layout.preferredWidth: Theme.scaled(200)
+                        Layout.preferredHeight: Theme.scaled(50)
+                        text: TranslationManager.translate("descaling.button.runAgain", "Run Again")
+                        accessibleName: TranslationManager.translate("descaling.button.runAgain.accessible", "Run descale cycle again")
+                        _customFontSize: Theme.scaled(18)
+                        _customFontWeight: Font.Bold
+                        onClicked: {
+                            showRinseInstructions = false
+                            wasDescaling = false
+                            DE1Device.startDescale()
+                        }
+                    }
+
+                    AccessibleButton {
+                        Layout.preferredWidth: Theme.scaled(200)
+                        Layout.preferredHeight: Theme.scaled(50)
+                        primary: true
+                        text: TranslationManager.translate("descaling.button.done", "Done")
+                        accessibleName: TranslationManager.translate("descaling.button.done", "Done")
+                        _customFontSize: Theme.scaled(18)
+                        _customFontWeight: Font.Bold
+                        onClicked: {
+                            showRinseInstructions = false
+                            root.goToIdle()
+                        }
                     }
                 }
             }
