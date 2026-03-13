@@ -424,14 +424,23 @@ bool MainController::isCurrentProfileRecipe() const {
 }
 
 QString MainController::currentEditorType() const {
-    // Title is the authority for editor selection (D-Flow/XXX → dflow, A-Flow/XXX → aflow)
+    // Title is the authority for D-Flow/A-Flow selection
     if (isDFlowTitle(m_currentProfile.title())) return QStringLiteral("dflow");
     if (isAFlowTitle(m_currentProfile.title())) return QStringLiteral("aflow");
 
-    // Simple profile types
+    // Simple profile types (from profileType field)
     QString profileType = m_currentProfile.profileType();
     if (profileType == "settings_2a") return QStringLiteral("pressure");
     if (profileType == "settings_2b") return QStringLiteral("flow");
+
+    // Recipe-mode profiles: use stored editor type for Pressure/Flow.
+    // D-Flow/A-Flow already handled by title check above, so this won't
+    // re-introduce the #421 bug where non-D-Flow profiles got the D-Flow editor.
+    if (m_currentProfile.isRecipeMode()) {
+        EditorType et = m_currentProfile.recipeParams().editorType;
+        if (et == EditorType::Pressure) return QStringLiteral("pressure");
+        if (et == EditorType::Flow) return QStringLiteral("flow");
+    }
 
     // Everything else → Advanced (never default to D-Flow for unknown profiles)
     return QStringLiteral("advanced");
@@ -1683,6 +1692,7 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     } else {
         // Only metadata changed — update target weight/volume without touching frames
         m_currentProfile.setTargetWeight(recipe.targetWeight);
+        m_currentProfile.setTargetVolume(recipe.targetVolume > 0 ? recipe.targetVolume : 100.0);
     }
 
     // Sync overrides so uploadCurrentProfile doesn't apply wrong delta

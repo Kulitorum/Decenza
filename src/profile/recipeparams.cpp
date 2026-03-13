@@ -89,17 +89,17 @@ void RecipeParams::applyEditorDefaults() {
         break;
     case EditorType::AFlow:
         // From A-Flow____default-medium.tcl stock profile (de1app)
-        fillTemperature = 93.0;
+        fillTemperature = 95.0;
         fillPressure = 3.0;
         fillTimeout = 15.0;
         infuseTime = 60.0;
         infusePressure = 3.0;
         infuseWeight = 3.6;
-        pourTemperature = 93.0;
+        pourTemperature = 95.0;
         pourPressure = 10.0;
         pourFlow = 2.0;
         rampTime = 10.0;
-        targetWeight = 42.0;
+        targetWeight = 36.0;
         break;
     case EditorType::Pressure:
     case EditorType::Flow:
