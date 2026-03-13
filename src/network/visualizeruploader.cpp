@@ -995,7 +995,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
         QVector<double> markerTimes;
         for (const auto& p : phases) {
             QVariantMap pm = p.toMap();
-            int frameNum = pm["frameNumber"].toInt(-1);
+            int frameNum = pm.value("frameNumber", -1).toInt();
             QString label = pm["label"].toString();
             if (frameNum >= 0 && label != "Start")
                 markerTimes.append(pm["time"].toDouble());
