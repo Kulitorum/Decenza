@@ -1444,6 +1444,7 @@ const QVariantMap& Settings::darkDefaults() {
         {"weightColor", "#a2693d"},
         {"weightFlowColor", "#d4a574"},
         {"resistanceColor", "#eae83d"},
+        {"waterLevelColor", "#4e85f4"},
         {"dyeDoseColor", "#6F4E37"},
         {"dyeOutputColor", "#9C27B0"},
         {"dyeTdsColor", "#FF9800"},
@@ -1495,6 +1496,7 @@ const QVariantMap& Settings::lightDefaults() {
         {"weightColor", "#8a5830"},
         {"weightFlowColor", "#c08858"},
         {"resistanceColor", "#a89800"},
+        {"waterLevelColor", "#2c5fc0"},
         // DYE metadata — same across modes (strong hues work on both)
         {"dyeDoseColor", "#6F4E37"},
         {"dyeOutputColor", "#9C27B0"},
@@ -2208,6 +2210,9 @@ QVariantMap Settings::generatePalette(double baseHue, double baseSat, double bas
 
     // Weight flow - lighter variant of weight color (same relationship as goal colors)
     palette["weightFlowColor"] = hslColor(splitComp1 + goldenAngle * 3, 55.0, 70.0);
+
+    // Water level - analogous to flow color
+    palette["waterLevelColor"] = hslColor(analogous1 + goldenAngle * 2, 70.0, 55.0);
 
     // Highlight color - analogous to warning for attention-drawing
     palette["highlightColor"] = palette["warningColor"];

@@ -42,7 +42,8 @@ KeyboardAwareContainer {
             { name: "temperatureGoalColor", display: "Temp Goal" },
             { name: "weightColor", display: "Weight" },
             { name: "weightFlowColor", display: "Weight Flow" },
-            { name: "resistanceColor", display: "Resistance" }
+            { name: "resistanceColor", display: "Resistance" },
+            { name: "waterLevelColor", display: "Water Level" }
         ]}
     ]
 

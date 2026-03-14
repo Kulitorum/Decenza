@@ -43,7 +43,7 @@ Item {
     // Shared color logic
     function scaleColor(pressed) {
         if (pressed) return Theme.accentColor
-        if (MainController.brewByRatioActive) return Theme.primaryColor
+        if (MainController.brewByRatioActive) return Theme.weightColor
         if (root.isFlowScale) return Theme.textSecondaryColor
         return Theme.weightColor
     }

@@ -36,7 +36,7 @@ Item {
             anchors.centerIn: parent
             text: root.showMl ? DE1Device.waterLevelMl + " ml" : DE1Device.waterLevel.toFixed(0) + "%"
             color: DE1Device.waterLevelMl < 200 ? Theme.errorColor :
-                   DE1Device.waterLevelMl < 400 ? Theme.warningColor : Theme.primaryColor
+                   DE1Device.waterLevelMl < 400 ? Theme.warningColor : Theme.waterLevelColor
             font: Theme.bodyFont
             Accessible.ignored: true
         }
@@ -60,7 +60,7 @@ Item {
                 text: root.showMl
                     ? DE1Device.waterLevelMl + " ml"
                     : DE1Device.waterLevel.toFixed(0) + "%"
-                color: DE1Device.waterLevel > 20 ? Theme.primaryColor : Theme.warningColor
+                color: DE1Device.waterLevel > 20 ? Theme.waterLevelColor : Theme.warningColor
                 font: Theme.valueFont
                 Accessible.ignored: true
             }

@@ -85,6 +85,7 @@ QtObject {
     property color weightColor: _c("weightColor", Settings.customThemeColors.weightColor || "#a2693d")
     property color weightFlowColor: _c("weightFlowColor", Settings.customThemeColors.weightFlowColor || "#d4a574")
     property color resistanceColor: _c("resistanceColor", Settings.customThemeColors.resistanceColor || "#eae83d")
+    property color waterLevelColor: _c("waterLevelColor", Settings.customThemeColors.waterLevelColor || "#4e85f4")
 
     // Tracking status colors (profile goal vs actual)
     property color trackOnTargetColor: _c("trackOnTargetColor", Settings.customThemeColors.trackOnTargetColor || "#00cc6d")

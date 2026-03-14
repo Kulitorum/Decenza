@@ -23,15 +23,15 @@ Item {
             case MachineStateType.Phase.Heating:             return Theme.errorColor
             case MachineStateType.Phase.Ready:               return Theme.successColor
             case MachineStateType.Phase.EspressoPreheating:  return Theme.warningColor
-            case MachineStateType.Phase.Preinfusion:         return Theme.primaryColor
-            case MachineStateType.Phase.Pouring:             return Theme.primaryColor
+            case MachineStateType.Phase.Preinfusion:         return Theme.accentColor
+            case MachineStateType.Phase.Pouring:             return Theme.accentColor
             case MachineStateType.Phase.Ending:              return Theme.textSecondaryColor
-            case MachineStateType.Phase.Steaming:            return Theme.primaryColor
-            case MachineStateType.Phase.HotWater:            return Theme.primaryColor
-            case MachineStateType.Phase.Flushing:            return Theme.primaryColor
+            case MachineStateType.Phase.Steaming:            return Theme.accentColor
+            case MachineStateType.Phase.HotWater:            return Theme.accentColor
+            case MachineStateType.Phase.Flushing:            return Theme.accentColor
             case MachineStateType.Phase.Refill:              return Theme.warningColor
-            case MachineStateType.Phase.Descaling:           return Theme.primaryColor
-            case MachineStateType.Phase.Cleaning:            return Theme.primaryColor
+            case MachineStateType.Phase.Descaling:           return Theme.accentColor
+            case MachineStateType.Phase.Cleaning:            return Theme.accentColor
             default:                                         return Theme.textSecondaryColor
         }
     }

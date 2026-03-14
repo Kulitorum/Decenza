@@ -31,7 +31,8 @@ const COLOR_DEFS = [
         { name: "temperatureColor", display: "Temperature" },
         { name: "temperatureGoalColor", display: "Temp Goal" },
         { name: "weightColor", display: "Weight" },
-        { name: "weightFlowColor", display: "Weight Flow" }
+        { name: "weightFlowColor", display: "Weight Flow" },
+        { name: "waterLevelColor", display: "Water Level" }
     ]},
     { category: "DYE Metadata", colors: [
         { name: "dyeDoseColor", display: "Dose" },
