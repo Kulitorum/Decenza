@@ -95,21 +95,23 @@ Item {
                     property var pos3d: latLonTo3D(modelData.lat, modelData.lon, globeRoot.globeRadius + 3)
                     property real ageHours: modelData.age || 0
                     property real shotOpacity: getOpacityFromAge(ageHours)
+                    property bool isNew: ageHours < 1
+                    property real newness: isNew ? (1 - ageHours) : 0
                     position: Qt.vector3d(pos3d.x, pos3d.y, pos3d.z)
 
                     Model {
                         source: "#Sphere"
-                        property real s: globeRoot.widgetMode ? 0.06 : 0.2
+                        property real s: globeRoot.widgetMode ? 0.0375 : 0.1
                         scale: Qt.vector3d(s, s, s)
                         materials: DefaultMaterial {
                             diffuseColor: globeRoot.mapTexture === "bright" ? "#ff6b35" : "#4a9eff"
-                            opacity: 0.3 * globeShotMarker.shotOpacity
+                            opacity: (0.3 + 0.4 * globeShotMarker.newness) * globeShotMarker.shotOpacity
                         }
                     }
 
                     Model {
                         source: "#Sphere"
-                        property real s: globeRoot.widgetMode ? 0.03 : 0.08
+                        property real s: globeRoot.widgetMode ? 0.015 : 0.04
                         scale: Qt.vector3d(s, s, s)
                         materials: DefaultMaterial {
                             diffuseColor: globeRoot.mapTexture === "bright" ? "#ff6b35" : "#4a9eff"

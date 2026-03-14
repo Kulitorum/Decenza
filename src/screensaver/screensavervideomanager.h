@@ -116,6 +116,7 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(QString shotMapTexture READ shotMapTexture WRITE setShotMapTexture NOTIFY shotMapTextureChanged)
     Q_PROPERTY(bool shotMapShowClock READ shotMapShowClock WRITE setShotMapShowClock NOTIFY shotMapShowClockChanged)
     Q_PROPERTY(bool shotMapShowProfiles READ shotMapShowProfiles WRITE setShotMapShowProfiles NOTIFY shotMapShowProfilesChanged)
+    Q_PROPERTY(bool shotMapShowTerminator READ shotMapShowTerminator WRITE setShotMapShowTerminator NOTIFY shotMapShowTerminatorChanged)
 
     // Show clock settings (per screensaver type)
     Q_PROPERTY(bool videosShowClock READ videosShowClock WRITE setVideosShowClock NOTIFY videosShowClockChanged)
@@ -182,6 +183,7 @@ public:
     QString shotMapTexture() const { return m_shotMapTexture; }
     bool shotMapShowClock() const { return m_shotMapShowClock; }
     bool shotMapShowProfiles() const { return m_shotMapShowProfiles; }
+    bool shotMapShowTerminator() const { return m_shotMapShowTerminator; }
 
     // Hardware video decoder detection
     bool hasHardwareVideoDecoder() const;
@@ -211,6 +213,7 @@ public:
     void setShotMapTexture(const QString& texture);
     void setShotMapShowClock(bool show);
     void setShotMapShowProfiles(bool show);
+    void setShotMapShowTerminator(bool show);
 
 public slots:
     // Screen wake lock (prevents screen from turning off)
@@ -285,6 +288,7 @@ signals:
     void shotMapTextureChanged();
     void shotMapShowClockChanged();
     void shotMapShowProfilesChanged();
+    void shotMapShowTerminatorChanged();
     void rateLimitedChanged();
 
 private slots:
@@ -399,6 +403,7 @@ private:
     QString m_shotMapTexture = "dark";  // dark, bright, satellite
     bool m_shotMapShowClock = true;
     bool m_shotMapShowProfiles = true;
+    bool m_shotMapShowTerminator = true;
 
     // Rate limiting (after cache clear to prevent S3 abuse)
     QDateTime m_rateLimitedUntil;  // Rate limit active until this time

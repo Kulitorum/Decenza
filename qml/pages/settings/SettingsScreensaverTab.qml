@@ -575,7 +575,7 @@ Item {
                 // Shot Map settings (shotmap mode only)
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(20)
+                    spacing: Theme.scaled(30)
                     visible: ScreensaverManager.screensaverType === "shotmap"
 
                     RowLayout {
@@ -591,7 +591,7 @@ Item {
 
                         StyledComboBox {
                             id: shotMapShapeCombo
-                            width: Theme.scaled(100)
+                            Layout.preferredWidth: Theme.scaled(120)
                             accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.shape", "Shape")
                             model: [
                                 TranslationManager.translate("settings.screensaver.shotmap.flat", "Flat"),
@@ -617,7 +617,7 @@ Item {
 
                         StyledComboBox {
                             id: shotMapTextureCombo
-                            width: Theme.scaled(110)
+                            Layout.preferredWidth: Theme.scaled(130)
                             accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.texture", "Texture")
                             model: [
                                 TranslationManager.translate("settings.screensaver.shotmap.dark", "Dark"),
@@ -632,6 +632,15 @@ Item {
                             }
                         }
                     }
+
+                    Item { Layout.fillWidth: true }
+                }
+
+                // Shot Map toggles (shotmap mode only)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(30)
+                    visible: ScreensaverManager.screensaverType === "shotmap"
 
                     RowLayout {
                         spacing: Theme.scaled(8)
@@ -664,6 +673,23 @@ Item {
                             checked: ScreensaverManager.shotMapShowProfiles
                             accessibleName: TranslationManager.translate("settings.screensaver.shotmap.profiles", "Profiles")
                             onToggled: ScreensaverManager.shotMapShowProfiles = checked
+                        }
+                    }
+
+                    RowLayout {
+                        spacing: Theme.scaled(8)
+
+                        Tr {
+                            key: "settings.screensaver.shotmap.terminator"
+                            fallback: "Day/Night"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        StyledSwitch {
+                            checked: ScreensaverManager.shotMapShowTerminator
+                            accessibleName: TranslationManager.translate("settings.screensaver.shotmap.terminator", "Day/Night terminator")
+                            onToggled: ScreensaverManager.shotMapShowTerminator = checked
                         }
                     }
 

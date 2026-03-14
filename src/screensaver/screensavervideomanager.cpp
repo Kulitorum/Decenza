@@ -75,6 +75,7 @@ ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkM
     m_shotMapTexture = m_settings->value("screensaver/shotMapTexture", "dark").toString();
     m_shotMapShowClock = m_settings->value("screensaver/shotMapShowClock", true).toBool();
     m_shotMapShowProfiles = m_settings->value("screensaver/shotMapShowProfiles", true).toBool();
+    m_shotMapShowTerminator = m_settings->value("screensaver/shotMapShowTerminator", true).toBool();
     m_dimPercent = qBound(0, m_settings->value("screensaver/dimPercent", 0).toInt(), 100);
     m_dimDelayMinutes = qBound(0, m_settings->value("screensaver/dimDelayMinutes", 15).toInt(), 45);
 
@@ -475,6 +476,15 @@ void ScreensaverVideoManager::setShotMapShowProfiles(bool show)
         m_shotMapShowProfiles = show;
         m_settings->setValue("screensaver/shotMapShowProfiles", show);
         emit shotMapShowProfilesChanged();
+    }
+}
+
+void ScreensaverVideoManager::setShotMapShowTerminator(bool show)
+{
+    if (m_shotMapShowTerminator != show) {
+        m_shotMapShowTerminator = show;
+        m_settings->setValue("screensaver/shotMapShowTerminator", show);
+        emit shotMapShowTerminatorChanged();
     }
 }
 
