@@ -2388,7 +2388,7 @@ void MainController::computeAutoFlowCalibration() {
     constexpr double kMinMachineFlow = 0.1;          // ml/s - excludes stalled flow
     constexpr double kMaxScaleDataGap = 1.0;         // seconds - max distance to nearest weight flow point
     constexpr double kMinWindowDuration = 1.5;       // seconds — shorter profiles (e.g. Adaptive v2) have brief steady phases
-    constexpr int    kMinWindowSamples = 5;
+    constexpr int    kMinWindowSamples = 7;          // ~1.5s at 5Hz pressure sampling
     constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
     constexpr double kCalibrationMin = 0.5;          // sanity lower bound
     constexpr double kCalibrationMax = 1.8;          // sanity upper bound
