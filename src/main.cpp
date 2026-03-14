@@ -1380,7 +1380,7 @@ int main(int argc, char *argv[])
             if (physicalScale && physicalScale->isConnected()) {
                 QEventLoop waitLoop;
                 bool scaleDone = false;
-                QObject::connect(physicalScale, &ScaleDevice::sleepCompleted,
+                QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
                                  &waitLoop, [&]() { scaleDone = true; waitLoop.quit(); });
                 physicalScale->sleep();
                 if (!scaleDone) {
@@ -1516,7 +1516,7 @@ int main(int argc, char *argv[])
             }
 
             if (physicalScale && physicalScale->isConnected()) {
-                QObject::connect(physicalScale, &ScaleDevice::sleepCompleted,
+                QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
                                  &waitLoop, [&]() { drained = true; waitLoop.quit(); });
                 physicalScale->sleep();
             }
