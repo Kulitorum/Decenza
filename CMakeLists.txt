@@ -115,76 +115,12 @@ if(IOS)
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
 
-    # Build OpenSSL for iOS from source (required for HTTPS web server)
-    # Downloads OpenSSL 3.4.1 and cross-compiles as static libraries for iOS arm64.
-    # Uses FetchContent_Populate (not MakeAvailable) because OpenSSL uses its own
-    # build system — there is no CMakeLists.txt to add_subdirectory.
-    include(FetchContent)
-    FetchContent_Declare(
-        ios_openssl
-        URL https://github.com/openssl/openssl/releases/download/openssl-3.4.1/openssl-3.4.1.tar.gz
-        URL_HASH SHA256=002a2d6b30b58bf4bea46c43bdd96365aaf8daa6c428782aa4feee06da197df3
-        DOWNLOAD_EXTRACT_TIMESTAMP true
-    )
-    FetchContent_GetProperties(ios_openssl)
-    if(NOT ios_openssl_POPULATED)
-        FetchContent_Populate(ios_openssl)
-    endif()
-
-    # Cross-compile OpenSSL for iOS at configure time.
-    # Builds out-of-source in a separate directory to avoid polluting the
-    # FetchContent source tree (safe to reconfigure/retry after partial failures).
-    include(ProcessorCount)
-    ProcessorCount(IOS_OPENSSL_JOBS)
-    if(IOS_OPENSSL_JOBS EQUAL 0)
-        set(IOS_OPENSSL_JOBS 4)
-    endif()
-    set(IOS_OPENSSL_INSTALL "${CMAKE_BINARY_DIR}/openssl-ios-install")
-    set(IOS_OPENSSL_BUILD "${CMAKE_BINARY_DIR}/openssl-ios-build")
-    if(NOT EXISTS "${IOS_OPENSSL_INSTALL}/lib/libssl.a")
-        file(MAKE_DIRECTORY ${IOS_OPENSSL_BUILD})
-        message(STATUS "Building OpenSSL for iOS arm64...")
-        execute_process(
-            COMMAND perl ${ios_openssl_SOURCE_DIR}/Configure
-                ios64-xcrun
-                no-shared no-tests no-ui-console
-                --prefix=${IOS_OPENSSL_INSTALL}
-            WORKING_DIRECTORY ${IOS_OPENSSL_BUILD}
-            RESULT_VARIABLE OPENSSL_CONFIGURE_RESULT
-        )
-        if(NOT OPENSSL_CONFIGURE_RESULT EQUAL 0)
-            message(FATAL_ERROR "OpenSSL Configure failed for iOS")
-        endif()
-        execute_process(
-            COMMAND make -j${IOS_OPENSSL_JOBS}
-            WORKING_DIRECTORY ${IOS_OPENSSL_BUILD}
-            RESULT_VARIABLE OPENSSL_BUILD_RESULT
-        )
-        if(NOT OPENSSL_BUILD_RESULT EQUAL 0)
-            message(FATAL_ERROR "OpenSSL build failed for iOS")
-        endif()
-        execute_process(
-            COMMAND make install_sw
-            WORKING_DIRECTORY ${IOS_OPENSSL_BUILD}
-            RESULT_VARIABLE OPENSSL_INSTALL_RESULT
-        )
-        if(NOT OPENSSL_INSTALL_RESULT EQUAL 0)
-            message(FATAL_ERROR "OpenSSL install failed for iOS")
-        endif()
-        message(STATUS "OpenSSL for iOS built successfully")
-    endif()
-    # Set explicit paths so find_package(OpenSSL) doesn't pick up host macOS OpenSSL
-    # when cross-compiling with the Xcode generator
-    set(OPENSSL_ROOT_DIR "${IOS_OPENSSL_INSTALL}")
-    set(OPENSSL_INCLUDE_DIR "${IOS_OPENSSL_INSTALL}/include")
-    set(OPENSSL_SSL_LIBRARY "${IOS_OPENSSL_INSTALL}/lib/libssl.a")
-    set(OPENSSL_CRYPTO_LIBRARY "${IOS_OPENSSL_INSTALL}/lib/libcrypto.a")
-    set(OPENSSL_USE_STATIC_LIBS TRUE)
 endif()
 
 # OpenSSL for HTTPS/TLS and self-signed certificate generation
-# Android uses KDAB android_openssl (fetched above), iOS builds from source (see above)
-if(NOT ANDROID)
+# Android uses KDAB android_openssl (fetched above)
+# iOS uses Apple Security.framework instead (no OpenSSL needed)
+if(NOT ANDROID AND NOT IOS)
     find_package(OpenSSL REQUIRED)
 endif()
 
@@ -202,12 +138,12 @@ FetchContent_Declare(
 set(PAHO_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(PAHO_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(PAHO_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-if(NOT ANDROID)
-    # Desktop/iOS: use OpenSSL's SHA1 to avoid duplicate symbols with libcrypto.a
+if(NOT ANDROID AND NOT IOS)
+    # Desktop: use OpenSSL's SHA1 to avoid duplicate symbols with libcrypto.a
     set(PAHO_WITH_SSL ON CACHE BOOL "" FORCE)
 else()
-    # Android: KDAB provides OpenSSL separately (Paho links without SSL;
-    # Android's OpenSSL is added via add_android_openssl_libraries below)
+    # Android/iOS: no OpenSSL linked with Paho (Android uses KDAB separately,
+    # iOS uses Apple Security.framework for TLS cert generation)
     set(PAHO_WITH_SSL OFF CACHE BOOL "" FORCE)
 endif()
 set(PAHO_HIGH_PERFORMANCE OFF CACHE BOOL "" FORCE)
@@ -498,17 +434,17 @@ if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE Qt6::SerialPort)
 endif()
 
-# Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop/iOS where OpenSSL is
-# statically linked (avoids duplicate SHA1 symbols), non-SSL on Android
-if(NOT ANDROID)
+# Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
+# statically linked (avoids duplicate SHA1 symbols), non-SSL on Android/iOS
+if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE paho-mqtt3as-static)
 else()
     target_link_libraries(Decenza PRIVATE paho-mqtt3a-static)
 endif()
 
-# Link OpenSSL (non-Android; Android uses add_android_openssl_libraries below,
-# iOS uses static OpenSSL built from source during configure)
-if(NOT ANDROID)
+# Link OpenSSL on desktop only (Android uses KDAB add_android_openssl_libraries,
+# iOS uses Apple Security.framework for cert generation)
+if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
@@ -839,6 +775,10 @@ if(IOS)
     # Link CoreBluetooth for native scale BLE transport
     target_link_libraries(Decenza PRIVATE
         "-framework CoreBluetooth"
+    )
+    # Link Security.framework for self-signed TLS certificate generation
+    target_link_libraries(Decenza PRIVATE
+        "-framework Security"
     )
 endif()
 

@@ -52,12 +52,17 @@
 #include <cerrno>
 #endif
 
+#ifdef Q_OS_IOS
+#include <Security/Security.h>
+#import <Foundation/Foundation.h>
+#else
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/rand.h>
+#endif
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -2019,22 +2024,20 @@ bool ShotServer::setupTls()
     QString certPath = dataDir + "/server.crt";
     QString keyPath = dataDir + "/server.key";
 
+    // iOS uses RSA keys (SecureTransport requires RSA/DSA for PKCS12), other platforms use EC
+#ifdef Q_OS_IOS
+    const auto keyAlgo = QSsl::Rsa;
+#else
+    const auto keyAlgo = QSsl::Ec;
+#endif
+
     // Check if cert/key already exist
     if (QFile::exists(certPath) && QFile::exists(keyPath)) {
         QFile certFile(certPath);
         QFile keyFile(keyPath);
         if (certFile.open(QIODevice::ReadOnly) && keyFile.open(QIODevice::ReadOnly)) {
             m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
-            // iOS uses RSA keys (SecureTransport requires RSA/DSA), other platforms use EC
-#ifdef Q_OS_IOS
-            m_sslKey = QSslKey(keyFile.readAll(), QSsl::Rsa, QSsl::Pem);
-            // Regenerate if we loaded an EC key from a previous build
-            if (m_sslKey.isNull()) {
-                qDebug() << "ShotServer: Existing key is not RSA, regenerating for iOS SecureTransport";
-            }
-#else
-            m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
-#endif
+            m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
             if (!m_sslCert.isNull() && !m_sslKey.isNull()) {
                 if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
                     qDebug() << "ShotServer: TLS certificate expired, regenerating";
@@ -2044,6 +2047,8 @@ bool ShotServer::setupTls()
                     qDebug() << "ShotServer: Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
                     return true;
                 }
+            } else {
+                qDebug() << "ShotServer: Existing cert/key invalid or wrong type, regenerating";
             }
         }
     }
@@ -2063,11 +2068,7 @@ bool ShotServer::setupTls()
     }
 
     m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
-#ifdef Q_OS_IOS
-    m_sslKey = QSslKey(keyFile.readAll(), QSsl::Rsa, QSsl::Pem);
-#else
-    m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
-#endif
+    m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
 
     if (m_sslCert.isNull() || m_sslKey.isNull()) {
         qWarning() << "ShotServer: Generated certificate or key is invalid";
@@ -2078,17 +2079,261 @@ bool ShotServer::setupTls()
     return true;
 }
 
+#ifdef Q_OS_IOS
+// ---------------------------------------------------------------------------
+// iOS: Self-signed certificate generation using Apple Security.framework
+// Uses SecKeyCreateRandomKey for RSA-2048 and manual DER/ASN.1 encoding
+// for X509v3 with Subject Alternative Names. No OpenSSL dependency.
+// ---------------------------------------------------------------------------
+
+// ASN.1 DER encoding helpers
+static QByteArray derLength(int len)
+{
+    QByteArray out;
+    if (len < 128) {
+        out.append(static_cast<char>(len));
+    } else if (len < 256) {
+        out.append(static_cast<char>(0x81));
+        out.append(static_cast<char>(len));
+    } else {
+        out.append(static_cast<char>(0x82));
+        out.append(static_cast<char>((len >> 8) & 0xFF));
+        out.append(static_cast<char>(len & 0xFF));
+    }
+    return out;
+}
+
+static QByteArray derTag(unsigned char tag, const QByteArray& content)
+{
+    QByteArray out;
+    out.append(static_cast<char>(tag));
+    out.append(derLength(content.size()));
+    out.append(content);
+    return out;
+}
+
+static QByteArray derSequence(const QByteArray& content) { return derTag(0x30, content); }
+static QByteArray derSet(const QByteArray& content) { return derTag(0x31, content); }
+static QByteArray derOctetString(const QByteArray& content) { return derTag(0x04, content); }
+static QByteArray derBool(bool val) { QByteArray v; v.append(static_cast<char>(val ? 0xFF : 0x00)); return derTag(0x01, v); }
+
+static QByteArray derInteger(const QByteArray& val)
+{
+    QByteArray v = val;
+    // Ensure positive by prepending 0x00 if high bit is set
+    if (!v.isEmpty() && (static_cast<unsigned char>(v[0]) & 0x80))
+        v.prepend(static_cast<char>(0x00));
+    return derTag(0x02, v);
+}
+
+static QByteArray derBitString(const QByteArray& content)
+{
+    QByteArray v;
+    v.append(static_cast<char>(0x00)); // no unused bits
+    v.append(content);
+    return derTag(0x03, v);
+}
+
+static QByteArray derOid(const char* bytes, int len)
+{
+    return derTag(0x06, QByteArray(bytes, len));
+}
+
+static QByteArray derUtf8String(const QByteArray& s) { return derTag(0x0C, s); }
+
+static QByteArray derUtcTime(const QDateTime& dt)
+{
+    // UTCTime format: YYMMDDHHMMSSZ
+    QByteArray s = dt.toUTC().toString("yyMMddHHmmss").toLatin1() + "Z";
+    return derTag(0x17, s);
+}
+
+static QByteArray derExplicitTag(int tagNum, const QByteArray& content)
+{
+    return derTag(static_cast<unsigned char>(0xA0 | tagNum), content);
+}
+
+// OID constants
+static const char OID_SHA256_RSA[] = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x0b"; // 1.2.840.113549.1.1.11
+static const char OID_RSA[]        = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01"; // 1.2.840.113549.1.1.1
+static const char OID_CN[]         = "\x55\x04\x03";                           // 2.5.4.3
+static const char OID_SAN[]        = "\x55\x1d\x11";                           // 2.5.29.17
+
+static QByteArray sha256RsaAlgorithm()
+{
+    return derSequence(derOid(OID_SHA256_RSA, 9) + derTag(0x05, QByteArray())); // AlgorithmIdentifier { sha256WithRSA, NULL }
+}
+
+static QByteArray buildSanExtension(const QStringList& sanEntries)
+{
+    QByteArray generalNames;
+    for (const QString& entry : sanEntries) {
+        if (entry.startsWith("DNS:")) {
+            QByteArray dns = entry.mid(4).toLatin1();
+            generalNames.append(derTag(0x82, dns)); // [2] dNSName
+        } else if (entry.startsWith("IP:")) {
+            QHostAddress addr(entry.mid(3));
+            quint32 ip4 = addr.toIPv4Address();
+            QByteArray ipBytes;
+            ipBytes.append(static_cast<char>((ip4 >> 24) & 0xFF));
+            ipBytes.append(static_cast<char>((ip4 >> 16) & 0xFF));
+            ipBytes.append(static_cast<char>((ip4 >> 8) & 0xFF));
+            ipBytes.append(static_cast<char>(ip4 & 0xFF));
+            generalNames.append(derTag(0x87, ipBytes)); // [7] iPAddress
+        }
+    }
+    // Extension: OID + critical=false + OCTET STRING wrapping the GeneralNames SEQUENCE
+    return derSequence(derOid(OID_SAN, 3) + derOctetString(derSequence(generalNames)));
+}
+
 bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
 {
-    // Generate key pair using OpenSSL EVP API
-    // iOS SecureTransport TLS backend only supports RSA/DSA for PKCS12 conversion,
-    // so we use RSA-2048 on iOS and EC P-256 on all other platforms.
+    // Generate RSA-2048 key pair using Security.framework
+    NSDictionary* keyAttrs = @{
+        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
+        (id)kSecAttrKeySizeInBits: @2048,
+    };
+    CFErrorRef error = nullptr;
+    SecKeyRef privateKey = SecKeyCreateRandomKey((__bridge CFDictionaryRef)keyAttrs, &error);
+    if (!privateKey) {
+        if (error) {
+            qWarning() << "ShotServer: SecKeyCreateRandomKey failed:" << CFBridgingRelease(error);
+        }
+        return false;
+    }
+
+    SecKeyRef publicKey = SecKeyCopyPublicKey(privateKey);
+    if (!publicKey) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: Failed to extract public key";
+        return false;
+    }
+
+    // Export public key (PKCS#1 DER format)
+    CFDataRef pubKeyData = SecKeyCopyExternalRepresentation(publicKey, &error);
+    CFRelease(publicKey);
+    if (!pubKeyData) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: Failed to export public key:" << CFBridgingRelease(error);
+        return false;
+    }
+    QByteArray pubKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(pubKeyData)),
+                          static_cast<int>(CFDataGetLength(pubKeyData)));
+    CFRelease(pubKeyData);
+
+    // Export private key (PKCS#1 DER format)
+    CFDataRef privKeyData = SecKeyCopyExternalRepresentation(privateKey, &error);
+    if (!privKeyData) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: Failed to export private key:" << CFBridgingRelease(error);
+        return false;
+    }
+    QByteArray privKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(privKeyData)),
+                           static_cast<int>(CFDataGetLength(privKeyData)));
+    CFRelease(privKeyData);
+
+    // Build SubjectPublicKeyInfo: SEQUENCE { AlgorithmIdentifier, BIT STRING { pubkey } }
+    QByteArray spki = derSequence(
+        derSequence(derOid(OID_RSA, 9) + derTag(0x05, QByteArray())) +
+        derBitString(pubKeyDer)
+    );
+
+    // Build issuer/subject: RDNSequence with CN=Decenza
+    QByteArray rdnSeq = derSequence(
+        derSet(derSequence(derOid(OID_CN, 3) + derUtf8String("Decenza")))
+    );
+
+    // Serial number (16 random bytes)
+    QByteArray serialBytes(16, Qt::Uninitialized);
+    SecRandomCopyBytes(kSecRandomDefault, serialBytes.size(),
+                        reinterpret_cast<uint8_t*>(serialBytes.data()));
+    // Ensure positive
+    serialBytes[0] = serialBytes[0] & 0x7F;
+
+    // Validity: now to 10 years
+    QDateTime notBefore = QDateTime::currentDateTimeUtc();
+    QDateTime notAfter = notBefore.addYears(10);
+
+    // Subject Alternative Names
+    QStringList sanEntries;
+    sanEntries << "IP:127.0.0.1" << "DNS:localhost";
+    for (const QHostAddress& addr : QNetworkInterface::allAddresses()) {
+        if (!addr.isLoopback() && addr.protocol() == QAbstractSocket::IPv4Protocol) {
+            sanEntries << QString("IP:%1").arg(addr.toString());
+        }
+    }
+
+    // Extensions: SAN only
+    QByteArray extensions = derSequence(buildSanExtension(sanEntries));
+
+    // Build TBSCertificate
+    QByteArray tbs = derSequence(
+        derExplicitTag(0, derInteger(QByteArray(1, 0x02))) +  // version v3
+        derInteger(serialBytes) +
+        sha256RsaAlgorithm() +
+        rdnSeq +                                               // issuer
+        derSequence(derUtcTime(notBefore) + derUtcTime(notAfter)) +
+        rdnSeq +                                               // subject (self-signed)
+        spki +
+        derExplicitTag(3, extensions)
+    );
+
+    // Sign TBSCertificate with private key
+    CFDataRef tbsData = CFDataCreate(kCFAllocatorDefault,
+                                      reinterpret_cast<const UInt8*>(tbs.constData()),
+                                      tbs.size());
+    CFDataRef signature = SecKeyCreateSignature(privateKey,
+                                                 kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256,
+                                                 tbsData, &error);
+    CFRelease(tbsData);
+    CFRelease(privateKey);
+
+    if (!signature) {
+        qWarning() << "ShotServer: SecKeyCreateSignature failed:" << CFBridgingRelease(error);
+        return false;
+    }
+
+    QByteArray sigBytes(reinterpret_cast<const char*>(CFDataGetBytePtr(signature)),
+                         static_cast<int>(CFDataGetLength(signature)));
+    CFRelease(signature);
+
+    // Build final Certificate DER
+    QByteArray certDer = derSequence(tbs + sha256RsaAlgorithm() + derBitString(sigBytes));
+
+    // Write certificate as PEM
+    QByteArray certPem = "-----BEGIN CERTIFICATE-----\n" +
+                          certDer.toBase64(QByteArray::Base64Encoding) + "\n" +
+                          "-----END CERTIFICATE-----\n";
+
+    // Write private key as PEM (PKCS#1 RSA format)
+    QByteArray keyPem = "-----BEGIN RSA PRIVATE KEY-----\n" +
+                         privKeyDer.toBase64(QByteArray::Base64Encoding) + "\n" +
+                         "-----END RSA PRIVATE KEY-----\n";
+
+    QFile certFile(certPath);
+    if (!certFile.open(QIODevice::WriteOnly)) return false;
+    certFile.write(certPem);
+    certFile.close();
+
+    QFile keyFile(keyPath);
+    if (!keyFile.open(QIODevice::WriteOnly)) return false;
+    keyFile.write(keyPem);
+    keyFile.close();
+
+    QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    return true;
+}
+
+#else // !Q_OS_IOS
+// ---------------------------------------------------------------------------
+// Desktop/Android: Self-signed certificate generation using OpenSSL
+// ---------------------------------------------------------------------------
+
+bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
+{
+    // Generate EC P-256 key pair using OpenSSL EVP API
     EVP_PKEY* pkey = nullptr;
-#ifdef Q_OS_IOS
-    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
-#else
     EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
-#endif
     if (!pctx) return false;
 
     bool success = false;
@@ -2096,11 +2341,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
     do {
         if (EVP_PKEY_keygen_init(pctx) <= 0) break;
-#ifdef Q_OS_IOS
-        if (EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048) <= 0) break;
-#else
         if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0) break;
-#endif
         if (EVP_PKEY_keygen(pctx, &pkey) <= 0) break;
 
         // Create X509 certificate
@@ -2177,6 +2418,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
     return success;
 }
+#endif // Q_OS_IOS
 
 // Session management, extractCookie, checkSession, createSession, hasStoredTotpSecret,
 // loadSessions, saveSessions are all in shotserver_auth.cpp
