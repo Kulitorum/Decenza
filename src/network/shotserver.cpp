@@ -55,14 +55,12 @@
 #include <cerrno>
 #endif
 
-#ifndef Q_OS_IOS
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/rand.h>
-#endif
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -2017,18 +2015,6 @@ void ShotServer::sendRedirect(QTcpSocket* socket, const QString& location, const
     resetKeepAliveTimer(socket);
 }
 
-#ifdef Q_OS_IOS
-bool ShotServer::setupTls()
-{
-    qWarning() << "ShotServer: TLS not available on iOS (OpenSSL not linked)";
-    return false;
-}
-
-bool ShotServer::generateSelfSignedCert(const QString&, const QString&)
-{
-    return false;
-}
-#else
 bool ShotServer::setupTls()
 {
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -2171,7 +2157,6 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
     return success;
 }
-#endif // Q_OS_IOS
 
 // Session management, extractCookie, checkSession, createSession, hasStoredTotpSecret,
 // loadSessions, saveSessions are all in shotserver_auth.cpp

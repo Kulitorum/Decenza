@@ -114,11 +114,64 @@ if(IOS)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
+
+    # Build OpenSSL for iOS from source (required for HTTPS web server)
+    # Downloads OpenSSL 3.4.1 and cross-compiles as static libraries for iOS arm64
+    include(FetchContent)
+    FetchContent_Declare(
+        ios_openssl
+        URL https://github.com/openssl/openssl/releases/download/openssl-3.4.1/openssl-3.4.1.tar.gz
+        URL_HASH SHA256=002a2d6b30b58bf4bea46c43bdd96365aaf8daa6c428782aa4feee06da197df3
+        DOWNLOAD_EXTRACT_TIMESTAMP true
+        SOURCE_SUBDIR _none  # Prevent add_subdirectory (OpenSSL uses its own build system)
+    )
+    FetchContent_MakeAvailable(ios_openssl)
+
+    # Cross-compile OpenSSL for iOS at configure time
+    include(ProcessorCount)
+    ProcessorCount(IOS_OPENSSL_JOBS)
+    if(IOS_OPENSSL_JOBS EQUAL 0)
+        set(IOS_OPENSSL_JOBS 4)
+    endif()
+    set(IOS_OPENSSL_INSTALL "${CMAKE_BINARY_DIR}/openssl-ios-install")
+    if(NOT EXISTS "${IOS_OPENSSL_INSTALL}/lib/libssl.a")
+        message(STATUS "Building OpenSSL for iOS arm64...")
+        execute_process(
+            COMMAND perl ${ios_openssl_SOURCE_DIR}/Configure
+                ios64-xcrun
+                no-shared no-tests no-ui-console
+                --prefix=${IOS_OPENSSL_INSTALL}
+            WORKING_DIRECTORY ${ios_openssl_SOURCE_DIR}
+            RESULT_VARIABLE OPENSSL_CONFIGURE_RESULT
+        )
+        if(NOT OPENSSL_CONFIGURE_RESULT EQUAL 0)
+            message(FATAL_ERROR "OpenSSL Configure failed for iOS")
+        endif()
+        execute_process(
+            COMMAND make -j${IOS_OPENSSL_JOBS}
+            WORKING_DIRECTORY ${ios_openssl_SOURCE_DIR}
+            RESULT_VARIABLE OPENSSL_BUILD_RESULT
+        )
+        if(NOT OPENSSL_BUILD_RESULT EQUAL 0)
+            message(FATAL_ERROR "OpenSSL build failed for iOS")
+        endif()
+        execute_process(
+            COMMAND make install_sw
+            WORKING_DIRECTORY ${ios_openssl_SOURCE_DIR}
+            RESULT_VARIABLE OPENSSL_INSTALL_RESULT
+        )
+        if(NOT OPENSSL_INSTALL_RESULT EQUAL 0)
+            message(FATAL_ERROR "OpenSSL install failed for iOS")
+        endif()
+        message(STATUS "OpenSSL for iOS built successfully")
+    endif()
+    set(OPENSSL_ROOT_DIR "${IOS_OPENSSL_INSTALL}")
+    set(OPENSSL_USE_STATIC_LIBS TRUE)
 endif()
 
 # OpenSSL for HTTPS/TLS and self-signed certificate generation
-# Android uses KDAB android_openssl (fetched above), iOS doesn't need it (no web server)
-if(NOT ANDROID AND NOT IOS)
+# Android uses KDAB android_openssl (fetched above), iOS builds from source (see above)
+if(NOT ANDROID)
     find_package(OpenSSL REQUIRED)
 endif()
 
@@ -136,11 +189,11 @@ FetchContent_Declare(
 set(PAHO_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(PAHO_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(PAHO_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-if(NOT ANDROID AND NOT IOS)
-    # Desktop: use OpenSSL's SHA1 to avoid duplicate symbols with libcrypto.a
+if(NOT ANDROID)
+    # Desktop/iOS: use OpenSSL's SHA1 to avoid duplicate symbols with libcrypto.a
     set(PAHO_WITH_SSL ON CACHE BOOL "" FORCE)
 else()
-    # Android: KDAB provides OpenSSL separately; iOS: no OpenSSL at all
+    # Android: KDAB provides OpenSSL separately
     set(PAHO_WITH_SSL OFF CACHE BOOL "" FORCE)
 endif()
 set(PAHO_HIGH_PERFORMANCE OFF CACHE BOOL "" FORCE)
@@ -431,16 +484,17 @@ if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE Qt6::SerialPort)
 endif()
 
-# Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
-# statically linked (avoids duplicate SHA1 symbols), non-SSL on mobile
-if(NOT ANDROID AND NOT IOS)
+# Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop/iOS where OpenSSL is
+# statically linked (avoids duplicate SHA1 symbols), non-SSL on Android
+if(NOT ANDROID)
     target_link_libraries(Decenza PRIVATE paho-mqtt3as-static)
 else()
     target_link_libraries(Decenza PRIVATE paho-mqtt3a-static)
 endif()
 
-# Link OpenSSL (non-Android, non-iOS; Android uses add_android_openssl_libraries below)
-if(NOT ANDROID AND NOT IOS)
+# Link OpenSSL (non-Android; Android uses add_android_openssl_libraries below,
+# iOS uses static OpenSSL built from source during configure)
+if(NOT ANDROID)
     target_link_libraries(Decenza PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
