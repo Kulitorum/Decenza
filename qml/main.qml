@@ -1673,13 +1673,14 @@ ApplicationWindow {
             id: sawBypassedText
             anchors.centerIn: parent
             text: TranslationManager.translate("espresso.sawBypassed", "Scale not tared — auto-stop disabled")
-            color: "white"
+            color: Theme.primaryContrastColor
             font: Theme.bodyFont
             Accessible.ignored: true
         }
 
         Accessible.role: Accessible.AlertMessage
         Accessible.name: sawBypassedText.text
+        Accessible.focusable: true
     }
 
     Timer {
@@ -1747,12 +1748,17 @@ ApplicationWindow {
             NumberAnimation { id: fadeOutAnim; duration: 2000 }
         }
 
+        Accessible.role: Accessible.AlertMessage
+        Accessible.name: stopReasonText.text
+        Accessible.focusable: true
+
         Text {
             id: stopReasonText
             anchors.centerIn: parent
             text: getStopReasonText()
             color: "black"
             font: Theme.bodyFont
+            Accessible.ignored: true
         }
     }
 
