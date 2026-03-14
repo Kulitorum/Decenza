@@ -11,8 +11,10 @@ Dialog {
 
     property string currentMode: "chart"
     property bool showPhaseIndicator: true
+    property bool showStats: true
     signal modeSelected(string mode)
     signal phaseIndicatorToggled(bool enabled)
+    signal statsToggled(bool enabled)
 
     title: TranslationManager.translate("espresso.viewSelector.title", "Extraction View")
     modal: true
@@ -190,6 +192,44 @@ Dialog {
                     Accessible.focusable: true
                     onToggled: {
                         selectorDialog.phaseIndicatorToggled(checked)
+                    }
+                }
+            }
+        }
+
+        // Stats toggle
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(48)
+            Layout.topMargin: Theme.spacingSmall
+            radius: Theme.cardRadius
+            color: Theme.backgroundColor
+
+            Accessible.ignored: true
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacingMedium
+                anchors.rightMargin: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
+                    color: Theme.textColor
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    Layout.fillWidth: true
+                    Accessible.ignored: true
+                }
+
+                CheckBox {
+                    id: statsCheck
+                    checked: selectorDialog.showStats
+                    Accessible.name: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
+                    Accessible.checked: checked
+                    Accessible.focusable: true
+                    onToggled: {
+                        selectorDialog.statsToggled(checked)
                     }
                 }
             }

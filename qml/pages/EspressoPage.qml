@@ -325,6 +325,10 @@ Page {
         var v = Settings.value("espresso/showPhaseIndicator", true)
         return v === true || v === "true"
     }
+    property bool showStats: {
+        var v = Settings.value("espresso/showStats", true)
+        return v === true || v === "true"
+    }
 
     // Sync from Settings changes made elsewhere (e.g. SettingsPreferencesTab)
     Connections {
@@ -335,6 +339,10 @@ Page {
             else if (key === "espresso/showPhaseIndicator") {
                 var v = Settings.value("espresso/showPhaseIndicator", true)
                 espressoPage.showPhaseIndicator = (v === true || v === "true")
+            }
+            else if (key === "espresso/showStats") {
+                var vs = Settings.value("espresso/showStats", true)
+                espressoPage.showStats = (vs === true || vs === "true")
             }
         }
     }
@@ -422,6 +430,7 @@ Page {
         id: viewSelectorDialog
         currentMode: espressoPage.extractionViewMode
         showPhaseIndicator: espressoPage.showPhaseIndicator
+        showStats: espressoPage.showStats
         onModeSelected: function(mode) {
             espressoPage.extractionViewMode = mode
             Settings.setValue("espresso/extractionView", mode)
@@ -429,6 +438,10 @@ Page {
         onPhaseIndicatorToggled: function(enabled) {
             espressoPage.showPhaseIndicator = enabled
             Settings.setValue("espresso/showPhaseIndicator", enabled)
+        }
+        onStatsToggled: function(enabled) {
+            espressoPage.showStats = enabled
+            Settings.setValue("espresso/showStats", enabled)
         }
     }
 
@@ -681,6 +694,7 @@ Page {
 
             // Timer
             ColumnLayout {
+                visible: espressoPage.showStats
                 Layout.preferredWidth: Theme.scaled(100)
                 spacing: Theme.scaled(2)
 
@@ -705,6 +719,7 @@ Page {
 
             // Divider
             Rectangle {
+                visible: espressoPage.showStats
                 Layout.preferredWidth: Theme.scaled(1)
                 Layout.fillHeight: true
                 Layout.topMargin: Theme.chartMarginSmall
@@ -716,6 +731,7 @@ Page {
             // Pressure
             ColumnLayout {
                 id: pressureColumn
+                visible: espressoPage.showStats
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
@@ -758,6 +774,7 @@ Page {
             // Flow
             ColumnLayout {
                 id: flowColumn
+                visible: espressoPage.showStats
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
@@ -799,6 +816,7 @@ Page {
 
             // Temperature
             ColumnLayout {
+                visible: espressoPage.showStats
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
@@ -823,6 +841,7 @@ Page {
 
             // Weight flow rate (delta weight from scale)
             ColumnLayout {
+                visible: espressoPage.showStats
                 Layout.preferredWidth: Theme.scaled(80)
                 spacing: Theme.scaled(2)
 
@@ -847,6 +866,7 @@ Page {
 
             // Divider
             Rectangle {
+                visible: espressoPage.showStats
                 Layout.preferredWidth: Theme.scaled(1)
                 Layout.fillHeight: true
                 Layout.topMargin: Theme.chartMarginSmall
@@ -874,6 +894,7 @@ Page {
                     : TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + currentValue.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + targetValue.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams")
 
                 RowLayout {
+                    visible: espressoPage.showStats
                     spacing: Theme.spacingSmall
 
                     Text {
@@ -896,6 +917,7 @@ Page {
                 }
 
                 RowLayout {
+                    visible: espressoPage.showStats
                     Layout.fillWidth: true
                     spacing: Theme.spacingSmall
 
@@ -921,35 +943,37 @@ Page {
                             }
                         }
                     }
+                }
+            }
 
-                    // Skip to next profile frame
-                    Rectangle {
-                        id: skipFrameButton
-                        Layout.preferredWidth: Theme.scaled(56)
-                        Layout.preferredHeight: Theme.scaled(24)
-                        radius: Theme.scaled(12)
-                        color: skipFrameTapHandler.pressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
-                        visible: MachineState.phase === MachineStateType.Phase.Preinfusion ||
-                                 MachineState.phase === MachineStateType.Phase.Pouring
+            // Skip to next profile frame
+            Rectangle {
+                id: skipFrameButton
+                Layout.preferredWidth: Theme.scaled(56)
+                Layout.preferredHeight: Theme.scaled(24)
+                Layout.alignment: Qt.AlignVCenter
+                radius: Theme.scaled(12)
+                color: skipFrameTapHandler.pressed ? Qt.darker(Theme.accentColor, 1.3) : Theme.accentColor
+                visible: MachineState.phase === MachineStateType.Phase.Preinfusion ||
+                         MachineState.phase === MachineStateType.Phase.Pouring
 
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
-                        Accessible.focusable: true
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
+                Accessible.focusable: true
+                Accessible.onPressAction: skipFrameTapHandler.tapped(null)
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: TranslationManager.translate("espresso.button.skip", "Skip")
-                            color: "white"
-                            font.pixelSize: Theme.scaled(11)
-                            font.weight: Font.Medium
-                            Accessible.ignored: true
-                        }
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("espresso.button.skip", "Skip")
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(11)
+                    font.weight: Font.Medium
+                    Accessible.ignored: true
+                }
 
-                        TapHandler {
-                            id: skipFrameTapHandler
-                            onTapped: DE1Device.skipToNextFrame()
-                        }
-                    }
+                TapHandler {
+                    id: skipFrameTapHandler
+                    onTapped: DE1Device.skipToNextFrame()
                 }
             }
         }
