@@ -51,22 +51,31 @@ ChartView {
     // Solve: max = rawTime + paddingPixels * (max / plotWidth)
     // => max = rawTime * plotWidth / (plotWidth - paddingPixels)
     //
-    // NOTE: calculatedMax intentionally does NOT bind to chart.plotArea.width.
-    // plotArea.width depends on timeAxis.max (axis changes trigger ChartView relayout),
-    // which would create a binding loop: plotArea → calculatedMax → timeAxis.max → plotArea.
-    // Instead, we cache plotWidth and update it imperatively via onPlotAreaChanged.
+    // Both calculatedMax and cachedPlotWidth are updated imperatively to avoid a
+    // binding loop: calculatedMax → timeAxis.max → ChartView relayout → plotArea →
+    // cachedPlotWidth → calculatedMax. Qt detects the circular dependency chain even
+    // when guards prevent infinite recursion, so we break it by removing the binding.
     property double minTime: 5.0
     property double paddingPixels: Theme.scaled(5)
     property double cachedPlotWidth: 1
-    property double calculatedMax: ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
+    property double calculatedMax: minTime
+
+    function recalcMax() {
+        var newMax = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
+        if (newMax !== calculatedMax)
+            calculatedMax = newMax
+    }
+
+    Connections {
+        target: ShotDataModel
+        function onRawTimeChanged() { chart.recalcMax() }
+    }
 
     onPlotAreaChanged: {
-        // Update cached width imperatively to break the binding loop.
-        // This fires after ChartView relayout, so setting it here won't re-trigger
-        // timeAxis.max → relayout → plotArea in a tight loop.
         var w = Math.max(1, chart.plotArea.width)
         if (Math.abs(w - cachedPlotWidth) > 1) {
             cachedPlotWidth = w
+            recalcMax()
         }
     }
 
