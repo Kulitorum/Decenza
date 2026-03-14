@@ -1496,7 +1496,7 @@ int main(int argc, char *argv[])
             QEventLoop waitLoop;
             auto* transport = de1Device.transport();
             bool drained = false;
-            int timeoutMs = 500; // Scale-only default
+            int timeoutMs = 1500; // Scale-only: no drain signal, just wait for BLE write
 
             if (transport && transport->isConnected()) {
                 QObject::connect(transport, &DE1Transport::queueDrained,
