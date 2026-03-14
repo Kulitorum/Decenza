@@ -85,8 +85,8 @@ ChartView {
     ValueAxis {
         id: timeAxis
         min: 0
-        // Use calculated max (with 5px padding) or minimum 5 seconds
-        max: Math.max(minTime, calculatedMax)
+        // recalcMax() guarantees calculatedMax >= minTime
+        max: calculatedMax
         tickCount: Math.min(7, Math.max(3, Math.floor(max / 10) + 2))
         labelFormat: "%.0f"
         labelsColor: Theme.textSecondaryColor
