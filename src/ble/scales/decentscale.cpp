@@ -252,6 +252,7 @@ void DecentScale::resetTimer() {
 }
 
 void DecentScale::sleep() {
+    stopHeartbeat();
     if (!m_transport || !m_characteristicsReady) {
         emit sleepCompleted();
         return;
