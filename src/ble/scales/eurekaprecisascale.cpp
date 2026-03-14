@@ -177,6 +177,12 @@ void EurekaPrecisaScale::setUnitToGrams() {
     sendCommand(QByteArray::fromHex("AA033600"));
 }
 
+void EurekaPrecisaScale::sleep() {
+    turnOff();
+    // WriteWithoutResponse: no BLE confirmation possible, emit immediately
+    emit sleepCompleted();
+}
+
 void EurekaPrecisaScale::turnOff() {
     sendCommand(QByteArray::fromHex("AA023232"));
 }

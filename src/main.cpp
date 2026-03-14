@@ -1371,12 +1371,15 @@ int main(int argc, char *argv[])
 #endif
 
             if (physicalScale && physicalScale->isConnected()) {
-                physicalScale->sleep();
-                // Give BLE write time to complete before app suspends
-                // de1app waits 1 second, we use 500ms as a compromise
                 QEventLoop waitLoop;
-                QTimer::singleShot(500, &waitLoop, &QEventLoop::quit);
-                waitLoop.exec();
+                bool scaleDone = false;
+                QObject::connect(physicalScale, &ScaleDevice::sleepCompleted,
+                                 &waitLoop, [&]() { scaleDone = true; waitLoop.quit(); });
+                physicalScale->sleep();
+                if (!scaleDone) {
+                    QTimer::singleShot(1500, &waitLoop, &QEventLoop::quit);
+                    waitLoop.exec();
+                }
             }
             // DE1 intentionally NOT put to sleep - user may be checking other apps
             // while machine heats up
@@ -1487,7 +1490,6 @@ int main(int argc, char *argv[])
         // Put scale to sleep if connected
         if (physicalScale && physicalScale->isConnected()) {
             qDebug() << "Sending physical scale to sleep on app exit";
-            physicalScale->sleep();
             needBleWait = true;
         }
 
@@ -1496,7 +1498,7 @@ int main(int argc, char *argv[])
             QEventLoop waitLoop;
             auto* transport = de1Device.transport();
             bool drained = false;
-            int timeoutMs = 500; // Scale-only default
+            int timeoutMs = 1500; // Safety-net timeout
 
             if (transport && transport->isConnected()) {
                 QObject::connect(transport, &DE1Transport::queueDrained,
@@ -1504,6 +1506,12 @@ int main(int argc, char *argv[])
                 QObject::connect(transport, &DE1Transport::disconnected,
                                  &waitLoop, [&]() { waitLoop.quit(); });
                 timeoutMs = 2000;
+            }
+
+            if (physicalScale && physicalScale->isConnected()) {
+                QObject::connect(physicalScale, &ScaleDevice::sleepCompleted,
+                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
+                physicalScale->sleep();
             }
 
             qDebug() << "Waiting for BLE queue to drain before exit...";

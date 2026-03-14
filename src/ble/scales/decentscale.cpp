@@ -252,6 +252,14 @@ void DecentScale::resetTimer() {
 }
 
 void DecentScale::sleep() {
+    stopHeartbeat();
+    if (!m_transport || !m_characteristicsReady) {
+        emit sleepCompleted();
+        return;
+    }
+    connect(m_transport, &ScaleBleTransport::characteristicWritten,
+            this, [this]() { emit sleepCompleted(); },
+            Qt::SingleShotConnection);
     // Command 0A 02 00 disables LCD and puts scale to sleep
     sendCommand(QByteArray::fromHex("0A0200"));
 }
