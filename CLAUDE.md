@@ -25,7 +25,7 @@ Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE co
 
 - **ADB path**: `/c/Users/Micro/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 - **Uninstall app**: `adb uninstall io.github.kulitorum.decenza_de1`
-- **WiFi debugging**: `192.168.1.212:5555` (reconnect: `adb connect 192.168.1.212:5555`)
+- **WiFi debugging**: `192.168.1.208:5555` (reconnect: `adb connect 192.168.1.208:5555`)
 - **Qt version**: 6.10.2
 - **Qt path**: `C:/Qt/6.10.2/msvc2022_64`
 - **C++ standard**: C++17
@@ -151,9 +151,19 @@ qml/
 └── Theme.qml               # Singleton styling (+ emojiToImage())
 
 resources/
+├── CoffeeCup/              # 3D-rendered cup images for CupFillView
+│   ├── BackGround.png      # Cup back, interior, handle (701x432)
+│   ├── Mask.png            # Black = coffee area, white = no coffee
+│   ├── Overlay.png         # Rim, front highlights (lighten blend)
+│   └── FullRes.7z          # Source PSD archive
 ├── emoji/                  # ~750 Twemoji SVGs (CC-BY 4.0)
 ├── emoji.qrc               # Qt resource file for emoji SVGs
 └── resources.qrc           # Icons, fonts, other assets
+
+shaders/
+├── crt.frag                # CRT/retro display effect
+├── cup_mask.frag           # Masks coffee to cup interior (inverts Mask.png)
+└── cup_lighten.frag        # Lighten (MAX) blend + brightness-to-alpha
 
 scripts/
 └── download_emoji.py       # Download emoji SVGs from various sources
@@ -338,6 +348,35 @@ python scripts/download_emoji.py openmoji
 
 ### Attribution
 Twemoji by Twitter/X (CC-BY 4.0): https://github.com/twitter/twemoji
+
+## Cup Fill View
+
+The espresso extraction cup visualization (`qml/components/CupFillView.qml`) uses a hybrid image+procedural approach:
+
+### Layer Stack
+```
+1. BackGround.png (Image)     — cup back, interior, handle
+2. Coffee Canvas (masked)     — liquid fill, crema, waves, ripples
+3. Effects Canvas (unmasked)  — stream, steam wisps, completion glow
+4. Overlay.png (lighten blend) — rim, front wall highlights
+5. Weight text overlay
+```
+
+### GPU Shaders (require Qt6 ShaderTools)
+- **cup_mask.frag**: Masks coffee to cup interior using Mask.png (black = coffee visible, inverted in shader)
+- **cup_lighten.frag**: MAX blend per channel with brightness-to-alpha (black areas become transparent)
+- Compiled via `qt_add_shaders()` in CMakeLists.txt to `.qsb` format
+
+### Updating Cup Images
+1. Edit `resources/CoffeeCup/FullRes.7z` (contains source PSD)
+2. Export three layers as 701x432 RGBA PNGs:
+   - `BackGround.png` — everything behind the coffee (on transparent/black)
+   - `Mask.png` — black silhouette of cup interior, white elsewhere
+   - `Overlay.png` — everything in front of coffee (on black, for lighten blend)
+3. Rebuild (images are in `resources.qrc`)
+
+### Coffee Geometry
+The procedural coffee rendering uses proportional coordinates relative to the cup image dimensions. Key geometry is defined in `cupGeometry()`: cup center at 44% width, rim at 6% height, bottom at 92% height. Adjust these if the cup shape changes.
 
 ## Profile System
 
