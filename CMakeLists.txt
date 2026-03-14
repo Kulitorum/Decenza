@@ -789,16 +789,12 @@ if(IOS)
     if(NOT IOS_BUNDLE_ID)
         set(IOS_BUNDLE_ID "io.github.kulitorum.decenza")
     endif()
-    if(NOT IOS_DEVELOPMENT_TEAM)
-        set(IOS_DEVELOPMENT_TEAM "")
-    endif()
     set_target_properties(Decenza PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${CMAKE_PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "${CURRENT_VERSION_CODE}"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${IOS_BUNDLE_ID}"
-        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${IOS_DEVELOPMENT_TEAM}"
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${CMAKE_PROJECT_VERSION}"
         XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${CURRENT_VERSION_CODE}"
@@ -810,6 +806,12 @@ if(IOS)
         XCODE_ATTRIBUTE_DWARF_DSYM_FOLDER_PATH "$(CONFIGURATION_BUILD_DIR)"
         XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/ios/Decenza.entitlements"
     )
+    # Only override Xcode's signing team when explicitly provided
+    if(IOS_DEVELOPMENT_TEAM)
+        set_target_properties(Decenza PROPERTIES
+            XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${IOS_DEVELOPMENT_TEAM}"
+        )
+    endif()
     # Add iOS asset catalog for app icon
     target_sources(Decenza PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets"

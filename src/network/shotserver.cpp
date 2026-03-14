@@ -2025,7 +2025,16 @@ bool ShotServer::setupTls()
         QFile keyFile(keyPath);
         if (certFile.open(QIODevice::ReadOnly) && keyFile.open(QIODevice::ReadOnly)) {
             m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
+            // iOS uses RSA keys (SecureTransport requires RSA/DSA), other platforms use EC
+#ifdef Q_OS_IOS
+            m_sslKey = QSslKey(keyFile.readAll(), QSsl::Rsa, QSsl::Pem);
+            // Regenerate if we loaded an EC key from a previous build
+            if (m_sslKey.isNull()) {
+                qDebug() << "ShotServer: Existing key is not RSA, regenerating for iOS SecureTransport";
+            }
+#else
             m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
+#endif
             if (!m_sslCert.isNull() && !m_sslKey.isNull()) {
                 if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
                     qDebug() << "ShotServer: TLS certificate expired, regenerating";
@@ -2054,7 +2063,11 @@ bool ShotServer::setupTls()
     }
 
     m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
+#ifdef Q_OS_IOS
+    m_sslKey = QSslKey(keyFile.readAll(), QSsl::Rsa, QSsl::Pem);
+#else
     m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
+#endif
 
     if (m_sslCert.isNull() || m_sslKey.isNull()) {
         qWarning() << "ShotServer: Generated certificate or key is invalid";
@@ -2067,9 +2080,15 @@ bool ShotServer::setupTls()
 
 bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
 {
-    // Generate EC P-256 key pair using OpenSSL EVP API
+    // Generate key pair using OpenSSL EVP API
+    // iOS SecureTransport TLS backend only supports RSA/DSA for PKCS12 conversion,
+    // so we use RSA-2048 on iOS and EC P-256 on all other platforms.
     EVP_PKEY* pkey = nullptr;
+#ifdef Q_OS_IOS
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+#else
     EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
+#endif
     if (!pctx) return false;
 
     bool success = false;
@@ -2077,7 +2096,11 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
     do {
         if (EVP_PKEY_keygen_init(pctx) <= 0) break;
+#ifdef Q_OS_IOS
+        if (EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048) <= 0) break;
+#else
         if (EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0) break;
+#endif
         if (EVP_PKEY_keygen(pctx, &pkey) <= 0) break;
 
         // Create X509 certificate

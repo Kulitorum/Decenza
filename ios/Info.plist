@@ -9,7 +9,7 @@
     <key>CFBundleExecutable</key>
     <string>Decenza</string>
     <key>CFBundleIdentifier</key>
-    <string>io.github.kulitorum.decenza</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key>
     <string>Decenza</string>
     <key>CFBundlePackageType</key>
