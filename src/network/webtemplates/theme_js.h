@@ -10,6 +10,7 @@ const COLOR_DEFS = [
         { name: "backgroundColor", display: "Background" },
         { name: "surfaceColor", display: "Surface" },
         { name: "primaryColor", display: "Primary" },
+        { name: "primaryContrastColor", display: "Primary Contrast" },
         { name: "secondaryColor", display: "Secondary" },
         { name: "textColor", display: "Text" },
         { name: "textSecondaryColor", display: "Text Secondary" },

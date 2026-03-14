@@ -1475,7 +1475,7 @@ const QVariantMap& Settings::lightDefaults() {
         // Core UI — blue-gray tinted backgrounds echo the navy dark theme
         {"backgroundColor", "#eef0f6"},
         {"surfaceColor", "#ffffff"},
-        {"primaryColor", "#2c5fc0"},
+        {"primaryColor", "#d1daee"},
         {"secondaryColor", "#8890a8"},
         {"textColor", "#1a1a2e"},
         {"textSecondaryColor", "#5d6478"},
@@ -1518,7 +1518,7 @@ const QVariantMap& Settings::lightDefaults() {
         {"trackOnTargetColor", "#00a856"},
         {"trackDriftingColor", "#d99a00"},
         {"trackOffTargetColor", "#d93050"},
-        {"primaryContrastColor", "#ffffff"}
+        {"primaryContrastColor", "#4e85f4"}
     };
     return defaults;
 }
@@ -2240,6 +2240,12 @@ QVariantMap Settings::generatePalette(double baseHue, double baseSat, double bas
     palette["sourceBadgeBlueColor"] = hslColor(baseHue + 210.0, 65.0, 55.0);   // Cool tone
     palette["sourceBadgeGreenColor"] = hslColor(baseHue + 90.0, 65.0, 55.0);   // Green-ish
     palette["sourceBadgeOrangeColor"] = hslColor(baseHue + 330.0, 65.0, 55.0); // Warm tone
+
+    // Primary contrast - white on dark primaries, dark on light primaries
+    // Use relative luminance of the primary color to decide
+    QColor primary(palette["primaryColor"].toString());
+    double lum = 0.2126 * primary.redF() + 0.7152 * primary.greenF() + 0.0722 * primary.blueF();
+    palette["primaryContrastColor"] = (lum > 0.4) ? "#1a1a2e" : "#ffffff";
 
     // Derived colors
     palette["focusColor"] = palette["primaryColor"];

@@ -23,18 +23,10 @@ Item {
     readonly property bool hasEmoji: emoji !== ""
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
-    // Light mode: blend button color at 15% over page background for soft tint
-    function _blendColor(fg, bg, t) {
-        return Qt.rgba(fg.r * t + bg.r * (1 - t),
-                       fg.g * t + bg.g * (1 - t),
-                       fg.b * t + bg.b * (1 - t), 1.0)
-    }
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
-    readonly property color _effectiveBackground: !Theme.isDarkMode && hasAction
-        ? _blendColor(_parsedBgColor, Theme.backgroundColor, 0.15)
-        : _parsedBgColor
-    // In light mode, icon and text use the button's color; in dark mode, white
-    readonly property color _contentColor: !Theme.isDarkMode && hasAction ? _parsedBgColor : Theme.textColor
+    readonly property color _effectiveBackground: _parsedBgColor
+    // Content color for text and icon tinting on the button background
+    readonly property color _contentColor: Theme.primaryContrastColor
 
     readonly property int qtAlignment: {
         switch (textAlign) {
@@ -456,8 +448,8 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
                 Accessible.ignored: true
-                // Tint white SVG icons for light mode visibility
-                layer.enabled: !Theme.isDarkMode && root.emojiIsSvg
+                // Tint SVG icons to match text color in both modes
+                layer.enabled: root.emojiIsSvg
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
