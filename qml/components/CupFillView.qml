@@ -77,14 +77,14 @@ Item {
         var cupW = w * 0.46
         var cupBotW = w * 0.40
         var rimOvalH = h * 0.08
-        var botOvalH = h * 0.12
+        var botOvalH = h * 0.04
         var cupH = botCy - rimCy
 
         var fillRatio = root.targetWeight > 0
             ? Math.min(root.currentWeight / root.targetWeight, 1.0) : 0
         var interiorH = cupH * 0.8  // 100% fill reaches 80% of cup height
         var fillH = fillRatio * interiorH
-        var fillTopY = botCy - fillH - h * 0.012  // shift coffee up ~5px
+        var fillTopY = botCy - fillH
         var isPouring = root.phase === MachineStateType.Phase.Preinfusion ||
                         root.phase === MachineStateType.Phase.Pouring
 
@@ -168,10 +168,10 @@ Item {
                     // Only show coffee once scale reports weight
                     if (root.currentWeight <= 0) return
 
-                    // Ensure a minimum visible fill so coffee appears with crema immediately
-                    var effectiveFillRatio = Math.max(g.fillRatio, 0.12)
+                    // Shift fill forward so coffee appears with crema at first weight
+                    var effectiveFillRatio = Math.min(g.fillRatio + 0.12, 1.0)
                     var effectiveFillH = effectiveFillRatio * g.interiorH
-                    var effectiveFillTopY = g.botCy - effectiveFillH - h * 0.012
+                    var effectiveFillTopY = g.botCy - effectiveFillH
 
                     var t = effectiveFillH / g.interiorH
                     var fillRx = g.cupBotW + (g.cupW - g.cupBotW) * t
@@ -179,7 +179,7 @@ Item {
                     var waveAmp = root.currentFlow > 0.1 ? h * 0.006 : 0
                     var wSteps = 36
 
-                    // Liquid body
+                    // Liquid body — uses same effectiveFillTopY as crema
                     var liqVertGrad = ctx.createLinearGradient(0, g.botCy + g.botOvalH, 0, effectiveFillTopY)
                     liqVertGrad.addColorStop(0, "#140600")
                     liqVertGrad.addColorStop(0.15, "#1E0A00")
@@ -384,13 +384,17 @@ Item {
                 g.rimCy += yOff
                 g.botCy += yOff
                 g.fillTopY += yOff
+                // Match the visual fill level used by the liquid canvas (+0.12 boost)
+                var effectiveFillRatio = Math.min(g.fillRatio + 0.12, 1.0)
+                var effectiveFillH = effectiveFillRatio * g.interiorH
+                var effectiveFillTopY = g.botCy - effectiveFillH
                 var N = 36
 
                 // ---- Stream from above (during extraction) ----
                 if (g.isPouring && root.currentFlow > 0.3 && root.currentWeight > 0 && g.fillRatio < 1.0) {
                     var streamTopY = 0  // enters from top of screen
                     var cupFloorY = g.botCy - g.botOvalH - cupH * 0.02
-                    var streamBot = g.fillH > 1 ? Math.min(g.fillTopY, cupFloorY) : cupFloorY
+                    var streamBot = root.currentWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
                     var streamLen = Math.max(streamBot - streamTopY, cupH * 0.01)
                     var streamTopW = Math.min(cupH * 0.032 + root.currentFlow * cupH * 0.007, cupH * 0.06)
                     var streamBotW = streamTopW * 0.5
@@ -438,7 +442,7 @@ Item {
                         var drT = ((root.wavePhase * 1.5 + dr * 1.4) % 3.5) / 3.5
                         if (drT > 0.95) continue
                         var drY = streamTopY + streamLen * drT
-                        if (g.fillH > 1 && drY > g.fillTopY + cupH * 0.01) continue
+                        if (root.currentWeight > 0 && drY > effectiveFillTopY + cupH * 0.01) continue
                         var drWob = Math.sin(root.wavePhase * 2.2 + drT * 5.0) * cupH * 0.006 * drT
                         var drSize = (cupH * 0.006 + root.currentFlow * cupH * 0.001) * (1 - drT * 0.3)
                         ctx.beginPath()
@@ -448,7 +452,7 @@ Item {
                     }
 
                     // Splash glow
-                    var splashY = g.fillH > 1 ? Math.min(g.fillTopY, cupFloorY) : cupFloorY
+                    var splashY = root.currentWeight > 0 ? Math.min(effectiveFillTopY, cupFloorY) : cupFloorY
                     var splashR = cupH * 0.042
                     var splashGlow = ctx.createRadialGradient(g.cx, splashY, cupH * 0.005, g.cx, splashY, splashR)
                     splashGlow.addColorStop(0, Qt.rgba(0.7, 0.5, 0.3, 0.5))
@@ -465,7 +469,7 @@ Item {
                     var steamAlphaBase = Math.min(root.currentWeight / 5.0, 1.0) * 0.14
                     for (var sp = 0; sp < 4; sp++) {
                         var steamOffX = (sp - 1.5) * g.cupW * 0.25
-                        var steamBaseY = g.fillH > 1 ? g.fillTopY : g.rimCy
+                        var steamBaseY = root.currentWeight > 0 ? effectiveFillTopY : g.rimCy
                         var steamStartY = Math.min(steamBaseY, g.rimCy) - cupH * 0.007
                         var steamH2 = cupH * (0.07 + sp * 0.023)
                         var steamEndY = steamStartY - steamH2
@@ -523,8 +527,8 @@ Item {
     // Weight text overlay
     // ================================================================
     Column {
-        anchors.centerIn: parent
-        anchors.verticalCenterOffset: parent.height * 0.12
+        x: root.cupX + root.cupDisplayW * 0.44 - width / 2  // centered on cup's cx (44%)
+        y: root.cupY + root.cupDisplayH * 0.55 - height / 2
         spacing: Theme.scaled(2)
 
         Text {

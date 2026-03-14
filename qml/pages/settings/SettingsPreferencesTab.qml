@@ -1219,7 +1219,7 @@ KeyboardAwareContainer {
                             delegate: Rectangle {
                                 id: viewOptionCard
                                 Layout.fillWidth: true
-                                height: Theme.scaled(44)
+                                Layout.preferredHeight: Theme.scaled(44)
                                 radius: Theme.scaled(8)
                                 color: extractionViewContent.currentMode === model.mode
                                     ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
