@@ -45,6 +45,7 @@ ChartView {
             pressureRenderer, flowRenderer, temperatureRenderer,
             weightRenderer, weightFlowRenderer, resistanceRenderer
         )
+        recalcMax()
     }
 
     // Calculate axis max: data fills frame with exactly 5 scaled pixels padding at right
@@ -61,7 +62,8 @@ ChartView {
     property double calculatedMax: minTime
 
     function recalcMax() {
-        var newMax = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
+        var raw = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
+        var newMax = Math.max(minTime, raw)
         if (newMax !== calculatedMax)
             calculatedMax = newMax
     }
