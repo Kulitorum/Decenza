@@ -2115,7 +2115,6 @@ static QByteArray derTag(unsigned char tag, const QByteArray& content)
 static QByteArray derSequence(const QByteArray& content) { return derTag(0x30, content); }
 static QByteArray derSet(const QByteArray& content) { return derTag(0x31, content); }
 static QByteArray derOctetString(const QByteArray& content) { return derTag(0x04, content); }
-static QByteArray derBool(bool val) { QByteArray v; v.append(static_cast<char>(val ? 0xFF : 0x00)); return derTag(0x01, v); }
 
 static QByteArray derInteger(const QByteArray& val)
 {
@@ -2141,10 +2140,17 @@ static QByteArray derOid(const char* bytes, int len)
 
 static QByteArray derUtf8String(const QByteArray& s) { return derTag(0x0C, s); }
 
-static QByteArray derUtcTime(const QDateTime& dt)
+static QByteArray derTime(const QDateTime& dt)
 {
+    // RFC 5280 §4.1.2.5: UTCTime for years through 2049, GeneralizedTime for 2050+
+    QDateTime utc = dt.toUTC();
+    if (utc.date().year() >= 2050) {
+        // GeneralizedTime format: YYYYMMDDHHMMSSZ
+        QByteArray s = utc.toString("yyyyMMddHHmmss").toLatin1() + "Z";
+        return derTag(0x18, s);
+    }
     // UTCTime format: YYMMDDHHMMSSZ
-    QByteArray s = dt.toUTC().toString("yyMMddHHmmss").toLatin1() + "Z";
+    QByteArray s = utc.toString("yyMMddHHmmss").toLatin1() + "Z";
     return derTag(0x17, s);
 }
 
@@ -2272,7 +2278,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         derInteger(serialBytes) +
         sha256RsaAlgorithm() +
         rdnSeq +                                               // issuer
-        derSequence(derUtcTime(notBefore) + derUtcTime(notAfter)) +
+        derSequence(derTime(notBefore) + derTime(notAfter)) +
         rdnSeq +                                               // subject (self-signed)
         spki +
         derExplicitTag(3, extensions)
@@ -2300,14 +2306,23 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     // Build final Certificate DER
     QByteArray certDer = derSequence(tbs + sha256RsaAlgorithm() + derBitString(sigBytes));
 
-    // Write certificate as PEM
+    // Write certificate as PEM (RFC 7468 requires 64-char line wrapping)
+    auto base64Wrapped = [](const QByteArray& der) {
+        QByteArray b64 = der.toBase64(QByteArray::Base64Encoding);
+        QByteArray wrapped;
+        for (qsizetype i = 0; i < b64.size(); i += 64) {
+            wrapped.append(b64.mid(i, 64));
+            wrapped.append('\n');
+        }
+        return wrapped;
+    };
     QByteArray certPem = "-----BEGIN CERTIFICATE-----\n" +
-                          certDer.toBase64(QByteArray::Base64Encoding) + "\n" +
+                          base64Wrapped(certDer) +
                           "-----END CERTIFICATE-----\n";
 
     // Write private key as PEM (PKCS#1 RSA format)
     QByteArray keyPem = "-----BEGIN RSA PRIVATE KEY-----\n" +
-                         privKeyDer.toBase64(QByteArray::Base64Encoding) + "\n" +
+                         base64Wrapped(privKeyDer) +
                          "-----END RSA PRIVATE KEY-----\n";
 
     QFile certFile(certPath);
