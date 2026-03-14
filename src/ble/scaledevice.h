@@ -58,6 +58,7 @@ signals:
     void buttonPressed(int button);
     void errorOccurred(const QString& error);
     void simulationModeChanged();
+    void sleepCompleted();  // Emitted when the sleep BLE write completes (or immediately if no confirmation possible)
     void logMessage(const QString& message);  // For debug logging to UI/file
 
 protected:

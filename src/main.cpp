@@ -1496,7 +1496,7 @@ int main(int argc, char *argv[])
             QEventLoop waitLoop;
             auto* transport = de1Device.transport();
             bool drained = false;
-            int timeoutMs = 1500; // Scale-only: no drain signal, just wait for BLE write
+            int timeoutMs = 1500; // Safety-net timeout
 
             if (transport && transport->isConnected()) {
                 QObject::connect(transport, &DE1Transport::queueDrained,
@@ -1504,6 +1504,9 @@ int main(int argc, char *argv[])
                 QObject::connect(transport, &DE1Transport::disconnected,
                                  &waitLoop, [&]() { waitLoop.quit(); });
                 timeoutMs = 2000;
+            } else if (physicalScale && physicalScale->isConnected()) {
+                QObject::connect(physicalScale, &ScaleDevice::sleepCompleted,
+                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
             }
 
             qDebug() << "Waiting for BLE queue to drain before exit...";

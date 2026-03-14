@@ -190,6 +190,17 @@ void SkaleScale::enableLcd() {
     sendCommand(0xEC);  // Display weight
 }
 
+void SkaleScale::sleep() {
+    if (!m_transport || !m_characteristicsReady) {
+        emit sleepCompleted();
+        return;
+    }
+    connect(m_transport, &ScaleBleTransport::characteristicWritten,
+            this, [this]() { emit sleepCompleted(); },
+            Qt::SingleShotConnection);
+    disableLcd();
+}
+
 void SkaleScale::disableLcd() {
     sendCommand(0xEE);
 }
