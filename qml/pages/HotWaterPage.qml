@@ -193,7 +193,6 @@ Page {
                 accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
 
                 onValueModified: function(newValue) {
-                    liveFlowRateInput.value = Math.round(newValue)
                     MainController.setHotWaterFlowRateImmediate(Math.round(newValue))
                 }
             }
