@@ -105,6 +105,12 @@ QtObject {
         return trackOffTargetColor
     }
 
+    // Translucent, pastel-tinted overlay text color derived from a tracking color.
+    // Lightens toward white for readability over dark backgrounds.
+    function tintedOverlayColor(baseColor, alpha) {
+        return Qt.rgba(0.7 + baseColor.r * 0.3, 0.7 + baseColor.g * 0.3, 0.7 + baseColor.b * 0.3, alpha)
+    }
+
     // DYE measurement colors (Shot Info page)
     property color dyeDoseColor: _c("dyeDoseColor", Settings.customThemeColors.dyeDoseColor || "#6F4E37")
     property color dyeOutputColor: _c("dyeOutputColor", Settings.customThemeColors.dyeOutputColor || "#9C27B0")
