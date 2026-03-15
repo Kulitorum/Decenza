@@ -14,6 +14,8 @@ void ios_restoreScreenBrightness();                // Restore to pre-dim value
 void ios_checkAndRestoreBrightness();              // Call at startup to recover from crash while dimmed
 void ios_setIdleTimerDisabled(bool disabled);      // Prevent iOS auto-lock (equivalent of FLAG_KEEP_SCREEN_ON)
 void ios_setStatusBarStyle(bool isDarkTheme);      // Set status bar icons light (dark theme) or dark (light theme)
+void ios_activateAudioSession();                    // Balance AVAudioSession before video playback
+void ios_deactivateAudioSession();                  // Deactivate audio session after video stops
 
 #ifdef __cplusplus
 }

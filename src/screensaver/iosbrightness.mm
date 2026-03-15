@@ -5,6 +5,7 @@
 #if TARGET_OS_IOS
 
 #import <UIKit/UIKit.h>
+#import <AVFoundation/AVAudioSession.h>
 #include <QDebug>
 
 static NSString * const kSavedBrightnessKey = @"DecenzaSavedBrightness";
@@ -81,6 +82,27 @@ void ios_setStatusBarStyle(bool isDarkTheme)
     });
 }
 
+void ios_activateAudioSession()
+{
+    NSError *error = nil;
+    [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:&error];
+    if (error) {
+        NSLog(@"[Screensaver] iOS: failed to set audio session category: %@", error);
+    }
+    error = nil;
+    [[AVAudioSession sharedInstance] setActive:YES error:&error];
+    if (error) {
+        NSLog(@"[Screensaver] iOS: failed to activate audio session: %@", error);
+    }
+}
+
+void ios_deactivateAudioSession()
+{
+    [[AVAudioSession sharedInstance] setActive:NO
+                                  withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+                                        error:nil];
+}
+
 #else
 // macOS — no UIScreen API, brightness control not available
 void ios_setScreenBrightness(float) {}
@@ -88,5 +110,7 @@ void ios_restoreScreenBrightness() {}
 void ios_checkAndRestoreBrightness() {}
 void ios_setIdleTimerDisabled(bool) {}
 void ios_setStatusBarStyle(bool) {}
+void ios_activateAudioSession() {}
+void ios_deactivateAudioSession() {}
 #endif
 #endif

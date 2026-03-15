@@ -152,6 +152,9 @@ void ScreensaverVideoManager::setKeepScreenOn(bool on)
     // via brightness control, so the system idle timer is redundant. Without this, iOS
     // will lock the screen and suspend the app, breaking smart charging and BLE comms.
     ios_setIdleTimerDisabled(on);
+    if (on) {
+        ios_activateAudioSession();
+    }
 #else
     Q_UNUSED(on)
 #endif
@@ -194,6 +197,7 @@ void ScreensaverVideoManager::restoreScreenBrightness()
     });
 #elif defined(Q_OS_IOS)
     ios_restoreScreenBrightness();
+    ios_deactivateAudioSession();
 #endif
 }
 
