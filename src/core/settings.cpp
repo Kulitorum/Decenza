@@ -339,6 +339,8 @@ void Settings::removeKnownScale(const QString& address) {
         setScaleAddress(QString());
         setScaleType(QString());
         setScaleName(QString());
+        // Re-emit so QML sees the cleared primaryScaleAddress
+        emit knownScalesChanged();
     }
 }
 

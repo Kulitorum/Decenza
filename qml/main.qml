@@ -1077,7 +1077,7 @@ ApplicationWindow {
         function onFlowScaleFallback() {
             // Only show "No Scale Found" if user has a saved scale.
             // Users without a saved scale expect FlowScale — no need to nag them.
-            if (!Settings.primaryScaleAddress !== "") return
+            if (Settings.primaryScaleAddress === "") return
             if (!Settings.showScaleDialogs) return
             // Don't nag if a USB scale is connected — it satisfies the requirement (not available on iOS)
             if (Qt.platform.os !== "ios" && UsbScaleManager.scaleConnected) return

@@ -774,7 +774,6 @@ Item {
                             model: Settings.knownScales
 
                             Rectangle {
-                                id: scaleDelegate
                                 Layout.fillWidth: true
                                 height: knownScaleRow.implicitHeight + Theme.scaled(12)
                                 radius: Theme.scaled(6)
@@ -783,7 +782,25 @@ Item {
                                     : Qt.rgba(Theme.textColor.r, Theme.textColor.g, Theme.textColor.b, 0.05)
                                 border.color: modelData.isPrimary ? Theme.accentColor : "transparent"
                                 border.width: modelData.isPrimary ? 1 : 0
-                                Accessible.ignored: true
+
+                                // Whole-delegate tap to set primary (sighted users)
+                                MouseArea {
+                                    anchors.fill: parent
+                                    z: -1
+                                    onClicked: {
+                                        if (!modelData.isPrimary) {
+                                            Settings.setPrimaryScale(modelData.address)
+                                            BLEManager.setSavedScaleAddress(modelData.address, modelData.type, modelData.name)
+                                        }
+                                    }
+                                }
+
+                                // Accessibility: delegate announced as a list item
+                                Accessible.role: Accessible.ListItem
+                                Accessible.name: modelData.name + " " + modelData.type + (modelData.isPrimary
+                                    ? " " + TranslationManager.translate("settings.bluetooth.primaryScale", "Primary")
+                                    : "")
+                                Accessible.focusable: true
 
                                 RowLayout {
                                     id: knownScaleRow
@@ -818,6 +835,17 @@ Item {
                                         Accessible.ignored: true
                                     }
 
+                                    // Set as primary button — only visible to TalkBack when not already primary
+                                    AccessibleButton {
+                                        text: TranslationManager.translate("settings.bluetooth.setPrimary", "Set Primary")
+                                        accessibleName: TranslationManager.translate("settings.bluetooth.tapToPrimary", "Tap to set as primary")
+                                        visible: !modelData.isPrimary
+                                        onClicked: {
+                                            Settings.setPrimaryScale(modelData.address)
+                                            BLEManager.setSavedScaleAddress(modelData.address, modelData.type, modelData.name)
+                                        }
+                                    }
+
                                     AccessibleButton {
                                         text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
                                         accessibleName: TranslationManager.translate("connections.forgetScale", "Forget scale") + " " + modelData.name
@@ -826,21 +854,6 @@ Item {
                                                 BLEManager.clearSavedScale()
                                             }
                                             Settings.removeKnownScale(modelData.address)
-                                        }
-                                    }
-                                }
-
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    z: -1
-                                    accessibleName: modelData.name + " " + modelData.type + (modelData.isPrimary
-                                        ? " " + TranslationManager.translate("settings.bluetooth.primaryScale", "Primary")
-                                        : "") + ". " + TranslationManager.translate("settings.bluetooth.tapToPrimary", "Tap to set as primary")
-                                    accessibleItem: scaleDelegate
-                                    onClicked: {
-                                        if (!modelData.isPrimary) {
-                                            Settings.setPrimaryScale(modelData.address)
-                                            BLEManager.setSavedScaleAddress(modelData.address, modelData.type, modelData.name)
                                         }
                                     }
                                 }
