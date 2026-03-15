@@ -285,7 +285,7 @@ QVariantList Settings::knownScales() const {
         scale["address"] = m_settings.value("address").toString();
         scale["type"] = m_settings.value("type").toString();
         scale["name"] = m_settings.value("name").toString();
-        scale["isPrimary"] = (scale["address"].toString() == primary);
+        scale["isPrimary"] = (scale["address"].toString().compare(primary, Qt::CaseInsensitive) == 0);
         result.append(scale);
     }
     m_settings.endArray();
@@ -340,8 +340,6 @@ void Settings::removeKnownScale(const QString& address) {
         setScaleType(QString());
         setScaleName(QString());
     }
-
-    emit knownScalesChanged();
 }
 
 void Settings::setPrimaryScale(const QString& address) {

@@ -222,6 +222,7 @@ void BLEManager::stopScan() {
         m_discoveryAgent->stop();
     m_scanning = false;
     m_scanningForScales = false;
+    m_userInitiatedScaleScan = false;
     emit scanningChanged();
 }
 
@@ -277,7 +278,7 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
 
         // During auto-reconnect (not user-initiated scan), only connect to primary scale.
         // This prevents #440: nearby non-primary scales hijacking the connection.
-        if (!m_scanningForScales && !m_savedScaleAddress.isEmpty()) {
+        if (!m_userInitiatedScaleScan && !m_savedScaleAddress.isEmpty()) {
             if (!deviceIdentifiersMatch(device, m_savedScaleAddress)) {
                 appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
                 return;
@@ -292,6 +293,7 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
 void BLEManager::onScanFinished() {
     m_scanning = false;
     m_scanningForScales = false;
+    m_userInitiatedScaleScan = false;
     emit de1LogMessage("Scan complete");
     appendScaleLog("Scan complete");
     emit scanningChanged();
@@ -333,6 +335,7 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
     emit errorOccurred(errorMsg);
     m_scanning = false;
     m_scanningForScales = false;
+    m_userInitiatedScaleScan = false;
     emit scanningChanged();
 }
 
@@ -525,8 +528,9 @@ void BLEManager::scanForScales() {
         stopScan();
     }
 
-    // Set flag AFTER stopScan (which clears it)
+    // Set flags AFTER stopScan (which clears them)
     m_scanningForScales = true;
+    m_userInitiatedScaleScan = true;
     startScan();
 }
 

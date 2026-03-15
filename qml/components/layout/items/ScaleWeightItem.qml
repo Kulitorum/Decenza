@@ -15,7 +15,7 @@ Item {
     // Scale warning: saved BLE scale not connected or connection failed
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
     property bool showScaleWarning: !root.scaleConnected
-        && (BLEManager.scaleConnectionFailed || BLEManager.hasSavedScale)
+        && (BLEManager.scaleConnectionFailed || Settings.primaryScaleAddress !== "")
         && (Qt.platform.os === "ios" || !UsbScaleManager.scaleConnected)
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth

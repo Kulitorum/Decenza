@@ -128,7 +128,8 @@ private:
     QList<QPair<QBluetoothDeviceInfo, QString>> m_scales;  // device, type
     bool m_scanning = false;
     bool m_permissionRequested = false;
-    bool m_scanningForScales = false;  // True when user requested scale scan
+    bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
+    bool m_userInitiatedScaleScan = false;  // True only for user-initiated scan (show all scales)
     bool m_scaleConnectionFailed = false;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;

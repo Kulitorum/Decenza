@@ -774,6 +774,7 @@ Item {
                             model: Settings.knownScales
 
                             Rectangle {
+                                id: scaleDelegate
                                 Layout.fillWidth: true
                                 height: knownScaleRow.implicitHeight + Theme.scaled(12)
                                 radius: Theme.scaled(6)
@@ -782,18 +783,7 @@ Item {
                                     : Qt.rgba(Theme.textColor.r, Theme.textColor.g, Theme.textColor.b, 0.05)
                                 border.color: modelData.isPrimary ? Theme.accentColor : "transparent"
                                 border.width: modelData.isPrimary ? 1 : 0
-
-                                Accessible.role: Accessible.Button
-                                Accessible.name: modelData.name + " " + modelData.type + (modelData.isPrimary
-                                    ? " " + TranslationManager.translate("settings.bluetooth.primaryScale", "Primary")
-                                    : "") + ". " + TranslationManager.translate("settings.bluetooth.tapToPrimary", "Tap to set as primary")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: {
-                                    if (!modelData.isPrimary) {
-                                        Settings.setPrimaryScale(modelData.address)
-                                        BLEManager.setSavedScaleAddress(modelData.address, modelData.type, modelData.name)
-                                    }
-                                }
+                                Accessible.ignored: true
 
                                 RowLayout {
                                     id: knownScaleRow
@@ -803,10 +793,10 @@ Item {
                                     anchors.margins: Theme.scaled(8)
                                     spacing: Theme.scaled(6)
 
-                                    Text {
-                                        text: modelData.isPrimary ? "★" : "☆"
-                                        color: modelData.isPrimary ? Theme.accentColor : Theme.textSecondaryColor
-                                        font.pixelSize: Theme.scaled(14)
+                                    Image {
+                                        source: modelData.isPrimary ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
+                                        sourceSize.width: Theme.scaled(14)
+                                        sourceSize.height: Theme.scaled(14)
                                         Accessible.ignored: true
                                     }
 
@@ -840,10 +830,13 @@ Item {
                                     }
                                 }
 
-                                MouseArea {
+                                AccessibleMouseArea {
                                     anchors.fill: parent
-                                    // Don't steal clicks from the Forget button
                                     z: -1
+                                    accessibleName: modelData.name + " " + modelData.type + (modelData.isPrimary
+                                        ? " " + TranslationManager.translate("settings.bluetooth.primaryScale", "Primary")
+                                        : "") + ". " + TranslationManager.translate("settings.bluetooth.tapToPrimary", "Tap to set as primary")
+                                    accessibleItem: scaleDelegate
                                     onClicked: {
                                         if (!modelData.isPrimary) {
                                             Settings.setPrimaryScale(modelData.address)
