@@ -2395,6 +2395,10 @@ void MainController::computeAutoFlowCalibration() {
     constexpr double kCalibrationMin = 0.5;          // sanity lower bound
     constexpr double kCalibrationMax = 1.8;          // sanity upper bound
     constexpr double kChangeThreshold = 0.02;        // 2% relative change required to update
+    constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
+    constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
+    constexpr double kMaxWindowRatio = 1.35;         // window-mean machine/weight ratio — reject if scale data is suspect
+    constexpr double kMinWindowRatio = 0.75;         // (de1app GFC users get ~0.9-1.1 ratios on good data)
 
     // Find the best steady-pour window: stable pressure above minimum + meaningful weight flow.
     // We track the best (longest) qualifying window found across the entire shot.
@@ -2485,6 +2489,17 @@ void MainController::computeAutoFlowCalibration() {
             continue;
         }
 
+        // Per-sample ratio guard: reject samples where machine/weight flow diverge
+        // wildly, which indicates scale data hasn't caught up (smoothing delay) or
+        // weight flow is from a stale/interpolated reading. Uses generous bounds
+        // since individual samples are noisy; the tighter window-level check below
+        // catches systematic issues.
+        double sampleRatio = mf / wf;
+        if (sampleRatio > kMaxSampleRatio || sampleRatio < kMinSampleRatio) {
+            finishWindow();
+            continue;
+        }
+
         // Extend or start window
         if (winStart < 0) {
             winStart = t;
@@ -2508,18 +2523,34 @@ void MainController::computeAutoFlowCalibration() {
 
     double meanMachineFlow = bestSumMF / bestCount;
     double meanWeightFlow = bestSumWF / bestCount;
+    double windowRatio = meanMachineFlow / meanWeightFlow;
 
     qDebug() << "Auto flow cal: steady window found"
              << "t=" << bestStart << "-" << bestEnd << "(" << windowDuration << "s,"
              << bestCount << "samples)"
              << "meanMachineFlow=" << meanMachineFlow
-             << "meanWeightFlow=" << meanWeightFlow;
+             << "meanWeightFlow=" << meanWeightFlow
+             << "ratio=" << windowRatio;
 
     // Guard against division by zero. Should be impossible since every sample
     // in the window passed the kMinWeightFlow (0.5 g/s) check.
     if (meanWeightFlow < 0.001) {
         qWarning() << "Auto flow cal: meanWeightFlow unexpectedly low ("
                    << meanWeightFlow << ") after qualifying window";
+        return;
+    }
+
+    // Window-level ratio sanity check. Reject windows where machine flow and
+    // scale-derived weight flow diverge too much. A healthy ratio is ~0.9-1.1
+    // (matching what de1app GFC users see when the curves overlap). Ratios
+    // outside [0.75, 1.35] indicate scale data quality problems: smoothing
+    // lag, stale weight readings, or the scale capturing a non-representative
+    // period. Without this check, bad windows drag the per-profile calibration
+    // down to ~0.6 when the correct value is ~0.9.
+    if (windowRatio > kMaxWindowRatio || windowRatio < kMinWindowRatio) {
+        qDebug() << "Auto flow cal: window ratio" << windowRatio
+                 << "outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio << "]"
+                 << "- skipping (scale data suspect)";
         return;
     }
 
@@ -2578,7 +2609,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
         }
     }
 
-    if (values.size() < 2) return;  // Need at least 2 espresso profiles
+    if (values.isEmpty()) return;
 
     std::sort(values.begin(), values.end());
 

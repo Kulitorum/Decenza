@@ -17,9 +17,10 @@ Automatic per-profile flow calibration using scale data as ground truth. After e
    - Weight flow is meaningful (> 0.5 g/s)
    - Machine flow is meaningful (> 0.1 ml/s)
    - Scale data is recent (nearest weight flow point within 1 second)
-   - Window lasts at least 5 seconds
-3. **Compute ratio**: `current_multiplier * mean(weight_flow) / mean(machine_flow)` over the steady window
-4. **Density correction**: Multiply by ~0.963 (water density at ~93°C vs room temp)
+   - Per-sample machine/weight flow ratio is within [0.4, 2.5] (rejects scale data glitches)
+   - Window lasts at least 1.5 seconds with at least 7 samples
+3. **Ratio guard**: Window-mean machine/weight flow ratio must be within [0.75, 1.35] — rejects windows where scale data is systematically unreliable
+4. **Compute ratio**: `current_multiplier * mean(weight_flow) / (mean(machine_flow) * 0.963)` over the steady window
 5. **Sanity check**: Clamp to [0.5, 1.8] — cap extreme values that likely indicate measurement errors
 6. **Store & apply**: If the computed value differs from current by > 2%, save it per-profile and send to the machine
 
@@ -33,8 +34,15 @@ The algorithm iterates through the shot's pressure data looking for the longest 
 - Weight flow > 0.5 g/s (excludes dripping/dead time)
 - Machine flow > 0.1 ml/s (excludes stalled flow)
 - Nearest scale data point within 1 second (ensures weight flow data alignment)
+- Per-sample machine/weight flow ratio within [0.4, 2.5] (rejects individual scale data glitches — generous bounds since single samples are noisy)
 
-Any sample that fails these criteria breaks the current window, and the algorithm picks the longest qualifying window from the entire shot. The window must span at least 4 seconds with at least 5 samples to provide a reliable average.
+Any sample that fails these criteria breaks the current window, and the algorithm picks the longest qualifying window from the entire shot. The window must span at least 1.5 seconds with at least 7 samples to provide a reliable average.
+
+### Window Ratio Guard
+
+After finding the best window, the algorithm checks whether the mean machine/weight flow ratio falls within [0.75, 1.35]. This guard rejects entire windows where scale data is systematically unreliable — for example, when weight flow smoothing lag causes the scale to consistently under-report during part of the pour.
+
+Without this guard, shots with poor scale data quality can produce calibration values around 0.6 when the correct value is ~0.9-1.0. These bad values corrupt the global median (see below), which in turn poisons new profiles via inheritance. Analysis of 26 D-Flow shots on a properly GFC-calibrated machine showed 5 outlier shots (ratio 1.4-1.7x) that would have dragged the calibration from the correct ~0.95 down to ~0.63. The ratio guard rejects these outliers while accepting the 21 good shots.
 
 ### Stream Force Rejection
 
@@ -92,6 +100,10 @@ After each per-profile calibration update, the global multiplier is updated to t
 ### MMR Write
 
 The calibration multiplier is written to the DE1 via the existing `DE1Device::setFlowCalibrationMultiplier()` method, which writes to the appropriate MMR address.
+
+## v2 Migration (Ratio Guard Reset)
+
+A one-time migration resets all per-profile flow calibrations and the global multiplier to 1.0. This is necessary because the pre-v2 algorithm had no ratio guards, allowing shots with poor scale data to drag calibrations down to ~0.6. The corrupted values then spread via the global median to new profiles (bootstrap problem). After the reset, the improved algorithm re-converges to correct values (~0.9-1.0) within a few shots per profile.
 
 ## Limitations
 

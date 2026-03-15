@@ -153,6 +153,21 @@ Settings::Settings(QObject* parent)
         qDebug() << "Settings: Migrated auto flow calibration to default-on";
     }
 
+    // One-time reset: clear all per-profile flow calibrations and reset global to 1.0.
+    // The auto-cal algorithm prior to this version had no ratio guards, allowing shots
+    // with poor scale data (machine/weight ratio > 1.4) to drag calibrations down to
+    // ~0.6 when the correct value is ~0.9-1.0. This corrupted the global median, which
+    // in turn poisoned new profiles via inheritance. Reset everything so the improved
+    // algorithm (with per-sample and window-level ratio checks) can re-converge cleanly.
+    if (!m_settings.contains("calibration/v2RatioGuardReset")) {
+        m_settings.setValue("calibration/perProfileFlow", "{}");
+        m_settings.setValue("calibration/flowMultiplier", 1.0);
+        m_settings.setValue("calibration/v2RatioGuardReset", true);
+        m_perProfileFlowCalCache = QJsonObject();
+        m_perProfileFlowCalCacheValid = true;
+        qDebug() << "Settings: Reset all flow calibrations to 1.0 (v2 ratio guard migration)";
+    }
+
     // Migrate legacy DYE grinder field: split combined model into brand/model/burrs
     if (!m_settings.contains("dye/grinderBrand") || m_settings.value("dye/grinderBrand").toString().isEmpty()) {
         QString oldModel = m_settings.value("dye/grinderModel").toString();
