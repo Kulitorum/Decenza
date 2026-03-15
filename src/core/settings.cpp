@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "grinderaliases.h"
+#include <algorithm>
 #include <QStandardPaths>
 #include <QDir>
 #include <QJsonDocument>
@@ -196,6 +197,23 @@ Settings::Settings(QObject* parent)
         qDebug() << "Settings: Migrated user themes colors → colorsDark";
     }
 
+    // Migrate single saved scale to known scales list (one-time)
+    if (!m_settings.contains("knownScales/migrated")) {
+        QString savedAddress = m_settings.value("scale/address").toString();
+        QString savedType = m_settings.value("scale/type").toString();
+        QString savedName = m_settings.value("scale/name").toString();
+        if (!savedAddress.isEmpty()) {
+            QVariantMap scale;
+            scale["address"] = savedAddress;
+            scale["type"] = savedType;
+            scale["name"] = savedName;
+            writeKnownScales({scale});
+            m_settings.setValue("knownScales/primaryAddress", savedAddress);
+            qDebug() << "Settings: Migrated single scale to known scales:" << savedName << savedAddress;
+        }
+        m_settings.setValue("knownScales/migrated", true);
+    }
+
     // Initialize resolved dark mode from persisted themeMode
     m_isDarkMode = (themeMode() != "light");  // "dark" or "system" default to dark until system detection runs
 
@@ -254,6 +272,127 @@ void Settings::setScaleName(const QString& name) {
         m_settings.setValue("scale/name", name);
         emit scaleNameChanged();
     }
+}
+
+// Multi-scale management
+QVariantList Settings::knownScales() const {
+    QVariantList result;
+    QString primary = primaryScaleAddress();
+    qsizetype count = m_settings.beginReadArray("knownScales/scales");
+    for (qsizetype i = 0; i < count; ++i) {
+        m_settings.setArrayIndex(static_cast<int>(i));
+        QVariantMap scale;
+        scale["address"] = m_settings.value("address").toString();
+        scale["type"] = m_settings.value("type").toString();
+        scale["name"] = m_settings.value("name").toString();
+        scale["isPrimary"] = (scale["address"].toString().compare(primary, Qt::CaseInsensitive) == 0);
+        result.append(scale);
+    }
+    m_settings.endArray();
+    return result;
+}
+
+void Settings::addKnownScale(const QString& address, const QString& type, const QString& name) {
+    if (address.isEmpty()) return;
+
+    // Read existing scales
+    QVariantList scales = knownScales();
+
+    // Check for existing entry — update name/type if found
+    for (qsizetype i = 0; i < scales.size(); ++i) {
+        QVariantMap s = scales[i].toMap();
+        if (s["address"].toString().compare(address, Qt::CaseInsensitive) == 0) {
+            if (s["type"].toString() != type || s["name"].toString() != name) {
+                s["type"] = type;
+                s["name"] = name;
+                scales[i] = s;
+                writeKnownScales(scales);
+            }
+            return;
+        }
+    }
+
+    // Add new scale
+    QVariantMap newScale;
+    newScale["address"] = address;
+    newScale["type"] = type;
+    newScale["name"] = name;
+    newScale["isPrimary"] = false;
+    scales.append(newScale);
+    writeKnownScales(scales);
+}
+
+void Settings::removeKnownScale(const QString& address) {
+    QVariantList scales = knownScales();
+    bool wasPrimary = (primaryScaleAddress().compare(address, Qt::CaseInsensitive) == 0);
+
+    scales.erase(std::remove_if(scales.begin(), scales.end(), [&](const QVariant& v) {
+        return v.toMap()["address"].toString().compare(address, Qt::CaseInsensitive) == 0;
+    }), scales.end());
+
+    writeKnownScales(scales);
+
+    if (wasPrimary) {
+        // Clear primary — if there are remaining scales, don't auto-promote
+        m_settings.setValue("knownScales/primaryAddress", QString());
+        // Also clear legacy scale/address so existing code stays in sync
+        setScaleAddress(QString());
+        setScaleType(QString());
+        setScaleName(QString());
+        // Re-emit so QML sees the cleared primaryScaleAddress
+        emit knownScalesChanged();
+    }
+}
+
+void Settings::setPrimaryScale(const QString& address) {
+    if (primaryScaleAddress().compare(address, Qt::CaseInsensitive) == 0)
+        return;
+
+    m_settings.setValue("knownScales/primaryAddress", address);
+
+    // Sync legacy scale/* keys for backward compat
+    QVariantList scales = knownScales();
+    for (const QVariant& v : scales) {
+        QVariantMap s = v.toMap();
+        if (s["address"].toString().compare(address, Qt::CaseInsensitive) == 0) {
+            setScaleAddress(address);
+            setScaleType(s["type"].toString());
+            setScaleName(s["name"].toString());
+            break;
+        }
+    }
+
+    emit knownScalesChanged();
+}
+
+QString Settings::primaryScaleAddress() const {
+    return m_settings.value("knownScales/primaryAddress", "").toString();
+}
+
+bool Settings::isKnownScale(const QString& address) const {
+    qsizetype count = m_settings.beginReadArray("knownScales/scales");
+    for (qsizetype i = 0; i < count; ++i) {
+        m_settings.setArrayIndex(static_cast<int>(i));
+        if (m_settings.value("address").toString().compare(address, Qt::CaseInsensitive) == 0) {
+            m_settings.endArray();
+            return true;
+        }
+    }
+    m_settings.endArray();
+    return false;
+}
+
+void Settings::writeKnownScales(const QVariantList& scales) {
+    m_settings.beginWriteArray("knownScales/scales", static_cast<int>(scales.size()));
+    for (qsizetype i = 0; i < scales.size(); ++i) {
+        m_settings.setArrayIndex(static_cast<int>(i));
+        QVariantMap s = scales[i].toMap();
+        m_settings.setValue("address", s["address"]);
+        m_settings.setValue("type", s["type"]);
+        m_settings.setValue("name", s["name"]);
+    }
+    m_settings.endArray();
+    emit knownScalesChanged();
 }
 
 // FlowScale

@@ -38,8 +38,6 @@ class BLEManager : public QObject {
     Q_PROPERTY(QVariantList discoveredDevices READ discoveredDevices NOTIFY devicesChanged)
     Q_PROPERTY(QVariantList discoveredScales READ discoveredScales NOTIFY scalesChanged)
     Q_PROPERTY(bool scaleConnectionFailed READ scaleConnectionFailed NOTIFY scaleConnectionFailedChanged)
-    // CONSTANT because QML only checks these at startup before BLE discovery runs
-    Q_PROPERTY(bool hasSavedScale READ hasSavedScale CONSTANT)
     Q_PROPERTY(bool hasSavedDE1 READ hasSavedDE1 CONSTANT)
     Q_PROPERTY(bool disabled READ isDisabled WRITE setDisabled NOTIFY disabledChanged)
 
@@ -65,7 +63,7 @@ public:
     void setScaleDevice(ScaleDevice* scale);
 
     // Scale address management
-    void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
+    Q_INVOKABLE void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void clearSavedScale();
 
     // DE1 address management
@@ -128,7 +126,8 @@ private:
     QList<QPair<QBluetoothDeviceInfo, QString>> m_scales;  // device, type
     bool m_scanning = false;
     bool m_permissionRequested = false;
-    bool m_scanningForScales = false;  // True when user requested scale scan
+    bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
+    bool m_userInitiatedScaleScan = false;  // True only for user-initiated scan (show all scales)
     bool m_scaleConnectionFailed = false;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;

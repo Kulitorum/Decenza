@@ -905,12 +905,11 @@ int main(int argc, char *argv[])
             return;
         }
 
-        // Save scale address for future direct wake connections
-        // Use getDeviceIdentifier to handle iOS (uses UUID) vs other platforms (uses MAC address)
-        settings.setScaleAddress(getDeviceIdentifier(device));
-        settings.setScaleType(type);
-        settings.setScaleName(device.name());
-        bleManager.setSavedScaleAddress(getDeviceIdentifier(device), type, device.name());
+        // Save scale to known scales and set as primary
+        QString deviceId = getDeviceIdentifier(device);
+        settings.addKnownScale(deviceId, type, device.name());
+        settings.setPrimaryScale(deviceId);
+        bleManager.setSavedScaleAddress(deviceId, type, device.name());
 
         // Switch MachineState and TimingController to use physical scale instead of FlowScale
         machineState.setScale(physicalScale.get());

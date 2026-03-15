@@ -1077,7 +1077,7 @@ ApplicationWindow {
         function onFlowScaleFallback() {
             // Only show "No Scale Found" if user has a saved scale.
             // Users without a saved scale expect FlowScale — no need to nag them.
-            if (!BLEManager.hasSavedScale) return
+            if (Settings.primaryScaleAddress === "") return
             if (!Settings.showScaleDialogs) return
             // Don't nag if a USB scale is connected — it satisfies the requirement (not available on iOS)
             if (Qt.platform.os !== "ios" && UsbScaleManager.scaleConnected) return
@@ -2035,7 +2035,7 @@ ApplicationWindow {
             BLEManager.tryDirectConnectToDE1()
         }
 
-        if (BLEManager.hasSavedScale) {
+        if (Settings.primaryScaleAddress !== "") {
             // Try direct connect if we have a saved scale (this also starts scanning)
             BLEManager.tryDirectConnectToScale()
         } else {
@@ -2137,7 +2137,7 @@ ApplicationWindow {
                     // (FlowScale is always "connected" so don't let it suppress dialogs)
                     if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
                         removeQueuedScalePopups()
-                    } else if (BLEManager.hasSavedScale) {
+                    } else if (Settings.primaryScaleAddress !== "") {
                         showNextPendingPopup()  // Show deferred dialog now
                     }
                 } else if (phase === MachineStateType.Phase.Sleep) {
