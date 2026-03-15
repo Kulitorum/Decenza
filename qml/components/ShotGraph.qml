@@ -59,7 +59,7 @@ ChartView {
     property double minTime: 5.0
     property double paddingPixels: Theme.scaled(5)
     property double cachedPlotWidth: 1
-    property double calculatedMax: minTime
+    property double calculatedMax: 5.0  // initial value; updated imperatively by recalcMax()
 
     function recalcMax() {
         var raw = ShotDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
