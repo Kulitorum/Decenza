@@ -757,39 +757,118 @@ Item {
                         }
                     }
 
-                    // Saved scale info
-                    RowLayout {
+                    // Known Scales list
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        visible: BLEManager.hasSavedScale
+                        visible: Settings.knownScales.length > 0
+                        spacing: Theme.scaled(4)
 
                         Tr {
-                            key: "settings.bluetooth.savedScale"
-                            fallback: "Saved scale:"
+                            key: "settings.bluetooth.knownScales"
+                            fallback: "Known Scales"
                             color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(13)
+                        }
+
+                        Repeater {
+                            model: Settings.knownScales
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: knownScaleRow.implicitHeight + Theme.scaled(12)
+                                radius: Theme.scaled(6)
+                                color: modelData.isPrimary
+                                    ? Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.12)
+                                    : Qt.rgba(Theme.textColor.r, Theme.textColor.g, Theme.textColor.b, 0.05)
+                                border.color: modelData.isPrimary ? Theme.accentColor : "transparent"
+                                border.width: modelData.isPrimary ? 1 : 0
+
+                                Accessible.role: Accessible.Button
+                                Accessible.name: modelData.name + " " + modelData.type + (modelData.isPrimary
+                                    ? " " + TranslationManager.translate("settings.bluetooth.primaryScale", "Primary")
+                                    : "") + ". " + TranslationManager.translate("settings.bluetooth.tapToPrimary", "Tap to set as primary")
+                                Accessible.focusable: true
+                                Accessible.onPressAction: {
+                                    if (!modelData.isPrimary) {
+                                        Settings.setPrimaryScale(modelData.address)
+                                        BLEManager.setSavedScaleAddress(modelData.address, modelData.type, modelData.name)
+                                    }
+                                }
+
+                                RowLayout {
+                                    id: knownScaleRow
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.margins: Theme.scaled(8)
+                                    spacing: Theme.scaled(6)
+
+                                    Text {
+                                        text: modelData.isPrimary ? "★" : "☆"
+                                        color: modelData.isPrimary ? Theme.accentColor : Theme.textSecondaryColor
+                                        font.pixelSize: Theme.scaled(14)
+                                        Accessible.ignored: true
+                                    }
+
+                                    Text {
+                                        text: modelData.name || modelData.type
+                                        color: Theme.textColor
+                                        font.pixelSize: Theme.scaled(13)
+                                        font.bold: modelData.isPrimary
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                        Accessible.ignored: true
+                                    }
+
+                                    Text {
+                                        text: modelData.type
+                                        color: Theme.textSecondaryColor
+                                        font.pixelSize: Theme.scaled(11)
+                                        visible: modelData.name !== modelData.type && modelData.name !== ""
+                                        Accessible.ignored: true
+                                    }
+
+                                    AccessibleButton {
+                                        text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
+                                        accessibleName: TranslationManager.translate("connections.forgetScale", "Forget scale") + " " + modelData.name
+                                        onClicked: {
+                                            if (modelData.isPrimary) {
+                                                BLEManager.clearSavedScale()
+                                            }
+                                            Settings.removeKnownScale(modelData.address)
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    // Don't steal clicks from the Forget button
+                                    z: -1
+                                    onClicked: {
+                                        if (!modelData.isPrimary) {
+                                            Settings.setPrimaryScale(modelData.address)
+                                            BLEManager.setSavedScaleAddress(modelData.address, modelData.type, modelData.name)
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         Text {
-                            text: Settings.scaleType || "Unknown"
-                            color: Theme.textColor
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
-                            accessibleName: TranslationManager.translate("connections.forgetSavedScale", "Forget saved scale")
-                            onClicked: {
-                                Settings.scaleAddress = ""
-                                Settings.scaleType = ""
-                                BLEManager.clearSavedScale()
-                            }
+                            text: TranslationManager.translate("settings.bluetooth.primaryHint", "Tap a scale to set as primary. Primary scale auto-connects.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                            visible: Settings.knownScales.length > 1
+                            Accessible.ignored: true
                         }
                     }
 
                     // Scale connection alert toggle
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: BLEManager.hasSavedScale
+                        visible: Settings.knownScales.length > 0
                         spacing: Theme.scaled(15)
 
                         ColumnLayout {

@@ -65,7 +65,7 @@ public:
     void setScaleDevice(ScaleDevice* scale);
 
     // Scale address management
-    void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
+    Q_INVOKABLE void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void clearSavedScale();
 
     // DE1 address management

@@ -275,7 +275,16 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
             m_directConnectAddress.clear();
         }
 
-        // Always emit - main.cpp checks if already connected before attempting connection
+        // During auto-reconnect (not user-initiated scan), only connect to primary scale.
+        // This prevents #440: nearby non-primary scales hijacking the connection.
+        if (!m_scanningForScales && !m_savedScaleAddress.isEmpty()) {
+            if (!deviceIdentifiersMatch(device, m_savedScaleAddress)) {
+                appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
+                return;
+            }
+        }
+
+        // Emit for user-initiated scan (all scales) or primary match during auto-reconnect
         emit scaleDiscovered(device, scaleType);
     }
 }
