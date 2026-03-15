@@ -179,6 +179,25 @@ Page {
                 }
             }
 
+            // Live flow rate control
+            ValueInput {
+                id: liveFlowRateInput
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: Theme.scaled(180)
+                value: Settings.hotWaterFlowRate
+                from: 5
+                to: 100
+                stepSize: 5
+                displayText: (value / 10).toFixed(1) + " mL/s"
+                valueColor: Theme.flowColor
+                accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
+
+                onValueModified: function(newValue) {
+                    liveFlowRateInput.value = Math.round(newValue)
+                    MainController.setHotWaterFlowRateImmediate(Math.round(newValue))
+                }
+            }
+
             Item { Layout.fillHeight: true }
 
             // Stop button for headless machines
@@ -585,7 +604,7 @@ Page {
                             Layout.preferredWidth: Theme.scaled(180)
                             value: getCurrentVesselFlowRate()
                             from: 5
-                            to: 80
+                            to: 100
                             stepSize: 5
                             displayText: (value / 10).toFixed(1) + " mL/s"
                             valueColor: Theme.flowColor

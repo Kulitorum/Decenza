@@ -3034,7 +3034,7 @@ void Settings::setHeaterWarmupTimeout(int value) {
 
 int Settings::hotWaterFlowRate() const {
     int val = m_settings.value("calibration/hotWaterFlowRate", 10).toInt();
-    return qBound(5, val, 80);
+    return qBound(5, val, 100);
 }
 
 void Settings::setHotWaterFlowRate(int value) {

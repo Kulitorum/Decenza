@@ -220,6 +220,9 @@ public slots:
     void applyHotWaterSettings();
     void applyFlushSettings();
 
+    // Real-time hot water setting updates
+    Q_INVOKABLE void setHotWaterFlowRateImmediate(int flow);
+
     // Real-time steam setting updates
     void setSteamTemperatureImmediate(double temp);
     void setSteamFlowImmediate(int flow);

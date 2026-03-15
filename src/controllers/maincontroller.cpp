@@ -2269,6 +2269,9 @@ void MainController::sendMachineSettings() {
     // 4. Flush timeout MMR (value × 10)
     int secondsValue = static_cast<int>(m_settings->flushSeconds() * 10);
     m_device->writeMMR(0x803848, secondsValue);
+
+    // 5. Hot water flow rate MMR
+    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
 }
 
 void MainController::applySteamSettings() {
@@ -2759,6 +2762,16 @@ void MainController::turnOffSteamHeater() {
     );
 
     qDebug() << "Turned off steam heater (steamDisabled=true)";
+}
+
+void MainController::setHotWaterFlowRateImmediate(int flow) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    m_settings->setHotWaterFlowRate(flow);
+
+    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, flow);
+
+    qDebug() << "Hot water flow rate set to:" << flow;
 }
 
 void MainController::setSteamFlowImmediate(int flow) {
