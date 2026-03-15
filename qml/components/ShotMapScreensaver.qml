@@ -42,15 +42,6 @@ Item {
         fetchShots()
     }
 
-    // Poll API every 30 seconds
-    Timer {
-        id: pollTimer
-        interval: 30000
-        running: root.running && root.visible
-        repeat: true
-        onTriggered: fetchShots()
-    }
-
     // Globe rotation animation
     NumberAnimation on globeRotation {
         running: root.running && root.visible && mapShape === "globe"
