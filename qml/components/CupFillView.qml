@@ -534,7 +534,8 @@ Item {
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: root.currentWeight.toFixed(1) + TranslationManager.translate("common.unit.grams", "g")
-            color: Theme.textColor
+            // Lighten track color toward white for readability over coffee, then apply translucency
+            color: Qt.rgba(0.7 + root.trackColor.r * 0.3, 0.7 + root.trackColor.g * 0.3, 0.7 + root.trackColor.b * 0.3, 0.5)
             font.pixelSize: Theme.scaled(38)
             font.weight: Font.Bold
         }
@@ -544,7 +545,7 @@ Item {
             text: root.targetWeight > 0
                 ? TranslationManager.translate("espresso.cupFill.target", "target") + " " + root.targetWeight.toFixed(0) + TranslationManager.translate("common.unit.grams", "g")
                 : ""
-            color: Theme.textSecondaryColor
+            color: Qt.rgba(0.7 + root.trackColor.r * 0.3, 0.7 + root.trackColor.g * 0.3, 0.7 + root.trackColor.b * 0.3, 0.4)
             font.pixelSize: Theme.scaled(16)
         }
     }
