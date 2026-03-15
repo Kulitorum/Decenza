@@ -257,17 +257,17 @@ Item {
 
                     // Port info
                     Text {
-                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + USBManager.portName
+                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (typeof USBManager !== "undefined" ? USBManager.portName : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                     }
 
                     // Serial number
                     Text {
-                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + USBManager.serialNumber
+                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (typeof USBManager !== "undefined" ? USBManager.serialNumber : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
-                        visible: USBManager.serialNumber !== ""
+                        visible: typeof USBManager !== "undefined" && USBManager.serialNumber !== ""
                     }
 
                     // Firmware version
