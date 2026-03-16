@@ -19,6 +19,9 @@ Item {
     // List of text fields to track
     property var textFields: []
 
+    // Optional Flickable to scroll on Android (adjustPan can't scroll inside Flickables)
+    property Flickable targetFlickable: null
+
     // Current shift amount
     property real keyboardOffset: 0
 
@@ -52,8 +55,11 @@ Item {
         }
 
         // Android uses adjustPan which handles keyboard avoidance at the OS level.
-        // Skip our manual shift to avoid double-shifting.
+        // Skip container shift to avoid double-shifting, but scroll the Flickable
+        // since adjustPan can't scroll inside Qt Flickables.
         if (Qt.platform.os === "android") {
+            if (targetFlickable)
+                ensureFieldVisibleInFlickable(focusedField)
             keyboardOffset = 0
             return
         }
@@ -80,6 +86,28 @@ Item {
         var margin = root.height * 0.05
 
         keyboardOffset = Math.max(0, fieldBottomOriginal - visibleBottom + margin)
+    }
+
+    function ensureFieldVisibleInFlickable(field) {
+        if (!targetFlickable) return
+
+        var fieldPos = field.mapToItem(targetFlickable.contentItem, 0, 0)
+        var fieldBottom = fieldPos.y + field.height
+
+        var kbHeight = Qt.inputMethod.keyboardRectangle.height
+        if (kbHeight <= 0) kbHeight = root.height * 0.5
+
+        var visibleHeight = targetFlickable.height - kbHeight
+        if (visibleHeight <= 0) visibleHeight = targetFlickable.height * 0.5
+
+        var margin = field.height
+        var visibleBottom = targetFlickable.contentY + visibleHeight
+
+        if (fieldBottom + margin > visibleBottom) {
+            targetFlickable.contentY = Math.max(0,
+                Math.min(fieldBottom + margin - visibleHeight,
+                         targetFlickable.contentHeight - targetFlickable.height))
+        }
     }
 
     // Connect to each text field's focus signal

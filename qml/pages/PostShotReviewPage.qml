@@ -249,6 +249,7 @@ Page {
     KeyboardAwareContainer {
         id: keyboardContainer
         anchors.fill: parent
+        targetFlickable: flickable
         textFields: [
             roasterField.textField, coffeeField.textField, roastDateField.textField,
             grinderBrandField.textField, grinderModelField.textField, grinderBurrsField.textField,
