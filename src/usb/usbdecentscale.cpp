@@ -275,7 +275,7 @@ void UsbDecentScale::processPacket(const QByteArray& packet)
         setWeight(weight);
     } else if (command == 0x0A) {
         // LED response packet (openscale/HDS format):
-        // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5-6]=firmware version
+        // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5]=firmware high, [6]=XOR
         // Battery: 0-100 = percentage, 0xFF = charging
         uint8_t battByte = d[4];
         if (battByte <= 100) {

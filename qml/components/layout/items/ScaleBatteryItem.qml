@@ -31,7 +31,7 @@ Item {
 
     readonly property string displayText: {
         if (!scaleConnected) return "--"
-        if (!hasLevel) return "N/A"
+        if (!hasLevel) return TranslationManager.translate("scaleBattery.display.notAvailable", "N/A")
         return level + "%"
     }
 
@@ -60,6 +60,7 @@ Item {
         anchors.fill: parent
         implicitWidth: compactRow.implicitWidth
         implicitHeight: compactRow.implicitHeight
+        Accessible.ignored: true
 
         Row {
             id: compactRow
@@ -108,6 +109,7 @@ Item {
         anchors.fill: parent
         implicitWidth: fullColumn.implicitWidth
         implicitHeight: fullColumn.implicitHeight
+        Accessible.ignored: true
 
         ColumnLayout {
             id: fullColumn
@@ -124,6 +126,12 @@ Item {
                     sourceSize.width: Theme.valueFont.pixelSize
                     sourceSize.height: Theme.valueFont.pixelSize
                     Accessible.ignored: true
+                    layer.enabled: !Theme.isDarkMode
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textColor
+                    }
                 }
 
                 Text {
