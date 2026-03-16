@@ -171,13 +171,20 @@ Dialog {
 
         // Phase indicator toggle
         Rectangle {
+            id: phaseToggleCard
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(48)
             Layout.topMargin: Theme.spacingSmall
             radius: Theme.cardRadius
             color: Theme.backgroundColor
 
-            Accessible.ignored: true
+            property bool isChecked: selectorDialog.showPhaseIndicator
+
+            Accessible.role: Accessible.CheckBox
+            Accessible.name: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
+            Accessible.checked: isChecked
+            Accessible.focusable: true
+            Accessible.onPressAction: phaseToggleArea.clicked(null)
 
             RowLayout {
                 anchors.fill: parent
@@ -194,44 +201,42 @@ Dialog {
                     Accessible.ignored: true
                 }
 
-                CheckBox {
-                    id: phaseIndicatorCheck
-                    checked: selectorDialog.showPhaseIndicator
-                    Accessible.name: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
-                    Accessible.checked: checked
-                    Accessible.focusable: true
-                    onToggled: {
-                        selectorDialog.phaseIndicatorToggled(checked)
-                    }
-                    indicator: Rectangle {
-                        implicitWidth: Theme.scaled(22)
-                        implicitHeight: Theme.scaled(22)
-                        radius: Theme.scaled(4)
-                        color: phaseIndicatorCheck.checked ? Theme.primaryColor : "transparent"
-                        border.color: phaseIndicatorCheck.checked ? Theme.primaryColor : Theme.textSecondaryColor
-                        border.width: Theme.scaled(2)
+                Rectangle {
+                    width: Theme.scaled(20)
+                    height: Theme.scaled(20)
+                    radius: Theme.scaled(4)
+                    color: phaseToggleCard.isChecked ? Theme.primaryColor : "transparent"
+                    border.color: phaseToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
+                    border.width: Theme.scaled(2)
+                    Layout.alignment: Qt.AlignVCenter
 
-                        Image {
-                            anchors.centerIn: parent
-                            source: "qrc:/icons/tick.svg"
-                            sourceSize.width: Theme.scaled(14)
-                            sourceSize.height: Theme.scaled(14)
-                            visible: phaseIndicatorCheck.checked
-                            Accessible.ignored: true
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/tick.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
+                        visible: phaseToggleCard.isChecked
+                        Accessible.ignored: true
 
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                colorization: 1.0
-                                colorizationColor: Theme.surfaceColor
-                            }
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.surfaceColor
                         }
                     }
                 }
+            }
+
+            MouseArea {
+                id: phaseToggleArea
+                anchors.fill: parent
+                onClicked: selectorDialog.phaseIndicatorToggled(!phaseToggleCard.isChecked)
             }
         }
 
         // Stats toggle
         Rectangle {
+            id: statsToggleCard
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(48)
             Layout.topMargin: Theme.spacingSmall
@@ -239,7 +244,13 @@ Dialog {
             radius: Theme.cardRadius
             color: Theme.backgroundColor
 
-            Accessible.ignored: true
+            property bool isChecked: selectorDialog.showStats
+
+            Accessible.role: Accessible.CheckBox
+            Accessible.name: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
+            Accessible.checked: isChecked
+            Accessible.focusable: true
+            Accessible.onPressAction: statsToggleArea.clicked(null)
 
             RowLayout {
                 anchors.fill: parent
@@ -256,39 +267,36 @@ Dialog {
                     Accessible.ignored: true
                 }
 
-                CheckBox {
-                    id: statsCheck
-                    checked: selectorDialog.showStats
-                    Accessible.name: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
-                    Accessible.checked: checked
-                    Accessible.focusable: true
-                    onToggled: {
-                        selectorDialog.statsToggled(checked)
-                    }
-                    indicator: Rectangle {
-                        implicitWidth: Theme.scaled(22)
-                        implicitHeight: Theme.scaled(22)
-                        radius: Theme.scaled(4)
-                        color: statsCheck.checked ? Theme.primaryColor : "transparent"
-                        border.color: statsCheck.checked ? Theme.primaryColor : Theme.textSecondaryColor
-                        border.width: Theme.scaled(2)
+                Rectangle {
+                    width: Theme.scaled(20)
+                    height: Theme.scaled(20)
+                    radius: Theme.scaled(4)
+                    color: statsToggleCard.isChecked ? Theme.primaryColor : "transparent"
+                    border.color: statsToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
+                    border.width: Theme.scaled(2)
+                    Layout.alignment: Qt.AlignVCenter
 
-                        Image {
-                            anchors.centerIn: parent
-                            source: "qrc:/icons/tick.svg"
-                            sourceSize.width: Theme.scaled(14)
-                            sourceSize.height: Theme.scaled(14)
-                            visible: statsCheck.checked
-                            Accessible.ignored: true
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/tick.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
+                        visible: statsToggleCard.isChecked
+                        Accessible.ignored: true
 
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                colorization: 1.0
-                                colorizationColor: Theme.surfaceColor
-                            }
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.surfaceColor
                         }
                     }
                 }
+            }
+
+            MouseArea {
+                id: statsToggleArea
+                anchors.fill: parent
+                onClicked: selectorDialog.statsToggled(!statsToggleCard.isChecked)
             }
         }
     }
