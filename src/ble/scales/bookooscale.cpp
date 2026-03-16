@@ -142,8 +142,11 @@ void BookooScale::onNotificationsEnabled(const QBluetoothUuid& characteristicUui
 }
 
 void BookooScale::parseWeightData(const QByteArray& data) {
-    // Bookoo format: h1 h2 h3 h4 h5 h6 sign w1 w2 w3 (10 bytes)
-    // de1app checks >= 9 bytes, we check >= 10 to be safe
+    // Bookoo 20-byte weight notification (from BooKooCode/OpenSource protocol docs):
+    // [0]=0x03, [1]=0x0B, [2-4]=timer ms, [5]=unit, [6]=sign, [7-9]=weight*100,
+    // [10]=flow sign, [11-12]=flow*100, [13]=battery%, [14-15]=standby min,
+    // [16]=buzzer, [17]=flow smooth, [18-19]=XOR
+    // de1app only parses bytes 0-9 (weight). We also extract battery from byte 13.
     if (data.size() >= 10) {
         const uint8_t* d = reinterpret_cast<const uint8_t*>(data.constData());
 
@@ -158,6 +161,14 @@ void BookooScale::parseWeightData(const QByteArray& data) {
         }
 
         setWeight(weight);
+
+        // Battery at byte 13 (0-100%)
+        if (data.size() >= 14) {
+            uint8_t battery = d[13];
+            if (battery <= 100) {
+                setBatteryLevel(battery);
+            }
+        }
     }
 }
 
