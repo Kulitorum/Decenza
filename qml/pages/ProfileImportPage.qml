@@ -119,7 +119,8 @@ Page {
                     text: TranslationManager.translate("profileimport.button.browse", "Browse...")
                     accessibleName: TranslationManager.translate("profileImport.browseFolder", "Browse for de1plus folder")
                     // Android FolderDialog returns SAF content:// URIs which QDir can't iterate;
-                    // folder browsing only works on desktop platforms.
+                    // folder browsing only works on desktop platforms. On Android, the
+                    // "Import File..." button below offers single-file import instead.
                     visible: Qt.platform.os !== "android"
                     enabled: !MainController.profileImporter.isScanning
                     onClicked: folderPickerDialog.open()
@@ -127,7 +128,7 @@ Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.import_file", "Import File...")
-                    accessibleName: TranslationManager.translate("profileImport.openFilePicker", "Open file picker to select a profile file")
+                    accessibleName: TranslationManager.translate("profileImport.importFileAndroid", "Open file picker to import a profile file")
                     visible: Qt.platform.os === "android"
                     enabled: !MainController.profileImporter.isImporting
                     onClicked: profileFileDialog.open()
@@ -336,6 +337,7 @@ Page {
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
                 }
 
                 // Loading indicator
