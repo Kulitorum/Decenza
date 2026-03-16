@@ -25,6 +25,7 @@ Item {
             case "scaleBattery":
             case "scaleWeight":
             case "weather":
+            case "ghcSimulator":
                 return true
             default:
                 return false

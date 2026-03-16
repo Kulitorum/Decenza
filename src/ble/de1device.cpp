@@ -5,7 +5,7 @@
 #include "profile/profile.h"
 #include "../core/settings.h"
 
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
 #include "../simulator/de1simulator.h"
 #endif
 #include <QBluetoothAddress>
@@ -489,7 +489,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         switch (state) {
         case DE1::State::Espresso:
@@ -592,7 +592,7 @@ void DE1Device::customEvent(QEvent* event) {
 }
 
 void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->stop();
         return;
@@ -622,7 +622,7 @@ void DE1Device::skipToNextFrame() {
 }
 
 void DE1Device::goToSleep() {
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->goToSleep();
         return;
@@ -661,7 +661,7 @@ void DE1Device::clearCommandQueue() {
 }
 
 void DE1Device::uploadProfile(const Profile& profile) {
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->setProfile(profile);
     }
@@ -707,7 +707,7 @@ void DE1Device::uploadProfile(const Profile& profile) {
 }
 
 void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->setProfile(profile);
     }

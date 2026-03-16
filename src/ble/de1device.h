@@ -28,7 +28,7 @@ class Settings;
 class DE1Transport;
 class BleTransport;
 
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
 class DE1Simulator;
 #endif
 
@@ -117,7 +117,7 @@ public:
     // For simulator integration - allows external code to set state and emit signals
     void setSimulatedState(DE1::State state, DE1::SubState subState);
     void emitSimulatedShotSample(const ShotSample& sample);
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     void setSimulator(DE1Simulator* simulator) { m_simulator = simulator; }
 #endif
 
@@ -248,7 +248,7 @@ private:
 
     bool m_connecting = false;
     bool m_simulationMode = false;
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     DE1Simulator* m_simulator = nullptr;  // For simulation mode
 #endif
     Settings* m_settings = nullptr;       // For water level calibration persistence

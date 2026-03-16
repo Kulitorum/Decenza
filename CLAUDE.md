@@ -205,7 +205,8 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 - Use `qsizetype` (not `int`) for container sizes — `QVector::size()`, `QList::size()`, `QString::size()` etc. return `qsizetype` (64-bit on iOS/macOS). Assigning to `int` causes `-Wshorten-64-to-32` warnings.
 
 ### QML
-- Files: `PascalCase.qml`
+- Files: `PascalCase.qml` — new QML files **must** be added to `CMakeLists.txt` (in the `qt_add_qml_module` file list) to be included in the Qt resource system. Without this, the file won't be found at runtime.
+- **New layout widgets** require registration in 4 places: (1) `CMakeLists.txt` file list, (2) `LayoutItemDelegate.qml` switch, (3) `LayoutEditorZone.qml` widget palette + chip label map, (4) `shotserver_layout.cpp` web editor widget list. Optionally add to `LayoutCenterZone.qml` if the widget should be allowed in center/idle zones.
 - IDs/properties: `camelCase`
 - Use `Theme.qml` singleton for all styling — never hardcode colors, font sizes, spacing, or radii. Use `Theme.textColor`, `Theme.bodyFont`, `Theme.subtitleFont`, `Theme.spacingMedium`, `Theme.cardRadius`, etc.
 - All user-visible text must be internationalized. Use `TranslationManager.translate("section.key", "Fallback text")` for property bindings and inline expressions. Use the `Tr` component for standalone visible text (`Tr { key: "section.name"; fallback: "English text" }`). For text used in properties via `Tr`, use a hidden instance: `Tr { id: trMyLabel; key: "my.key"; fallback: "Label"; visible: false }` then `text: trMyLabel.text`. Reuse existing keys like `common.button.ok` and `common.accessibility.dismissDialog` where applicable.

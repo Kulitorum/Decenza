@@ -75,11 +75,13 @@
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
 
-// GHC Simulator for Windows debug builds
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-#include "simulator/ghcsimulator.h"
+// Simulator engine (all debug builds) and GHC window (desktop debug only)
+#ifdef QT_DEBUG
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+#include "simulator/ghcsimulator.h"
+#endif
 #endif
 
 using namespace Qt::StringLiterals;
@@ -366,7 +368,7 @@ int main(int argc, char *argv[])
     BLEManager bleManager;
 
     // Disable BLE when simulation mode is active
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     bleManager.setDisabled(settings.simulationMode());
 #endif
 
@@ -1221,17 +1223,19 @@ int main(int argc, char *argv[])
     engine.load(url);
     checkpoint("engine.load(main.qml) returned");
 
-    // GHC Simulator window for debug builds (runs when simulation mode is on)
+    // Simulator engine (all debug builds) and GHC window (desktop debug only)
     // NOTE: These must be declared outside the if-block so they survive through
     // app.exec(). Otherwise the if-block scope destroys them before the event
     // loop starts, and signal connections become dangling references (use-after-free).
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     std::unique_ptr<DE1Simulator> de1SimulatorPtr;
     std::unique_ptr<SimulatedScale> simulatedScalePtr;
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
+#endif
 
     if (settings.simulationMode()) {
-        qDebug() << "Creating DE1 Simulator and GHC window...";
+        qDebug() << "Creating DE1 Simulator...";
 
         // Create the DE1 machine simulator
         de1SimulatorPtr = std::make_unique<DE1Simulator>();
@@ -1299,6 +1303,8 @@ int main(int argc, char *argv[])
         QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
                          &simulatedScale, &SimulatedScale::setSimulatedWeight);
 
+        // GHC Simulator window (desktop debug only — other platforms use the layout widget)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
         // Configure GHC visual controller (created earlier for main window access)
         ghcSimulator.setDE1Device(&de1Device);
         ghcSimulator.setDE1Simulator(&de1Simulator);
@@ -1321,8 +1327,9 @@ int main(int argc, char *argv[])
 
         const QUrl ghcUrl(u"qrc:/qt/qml/Decenza/qml/simulator/GHCSimulatorWindow.qml"_s);
         ghcEngine.load(ghcUrl);
+#endif // desktop GHC window
     }
-#endif
+#endif // QT_DEBUG
 
 #ifdef Q_OS_ANDROID
     // Set landscape orientation on Android (after QML is loaded)

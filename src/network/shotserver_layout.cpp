@@ -2287,6 +2287,8 @@ QString ShotServer::generateLayoutPage() const
         {type:"temperature",label:"Temperature"},
         {type:"batteryLevel",label:"Battery Level"},
         {type:"scaleBattery",label:"Scale Battery"},
+        {type:"machineStatus",label:"Machine Status"},
+        {type:"ghcSimulator",label:"GHC Simulator"},
         {type:"waterLevel",label:"Water Level"},
         // Utility (orange)
         {type:"custom",label:"Custom",special:true},
