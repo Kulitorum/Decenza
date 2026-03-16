@@ -448,7 +448,7 @@ KeyboardAwareContainer {
                                 var randomLight = 50 + Math.random() * 10  // 50-60%
                                 var palette = Settings.generatePalette(randomHue, randomSat, randomLight)
                                 Settings.customThemeColors = palette
-                                Settings.setActiveThemeName("Custom")
+                                Settings.activeThemeName = "Custom"
                             }
                             background: Rectangle {
                                 gradient: Gradient {

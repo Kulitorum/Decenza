@@ -2205,24 +2205,33 @@ QVariantList Settings::getPresetThemes() const {
 
 void Settings::applyPresetTheme(const QString& name) {
     if (name == "Default" || name == "Default Dark") {
-        // Clear both palettes — darkDefaults()/lightDefaults() will provide values
+        // Only reset the dark palette — preserve user's custom light palette
         m_settings.remove("theme/customColorsDark");
-        m_settings.remove("theme/customColorsLight");
         setActiveShader("");
         setDarkThemeName("Default Dark");
-        setLightThemeName("Default Light");
-        emit customThemeColorsChanged();
+        // Switch to dark mode (skip if already resolved to dark, e.g. "system" on a dark OS)
+        if (!m_isDarkMode) {
+            setThemeMode("dark");
+        } else if (themeMode() != "dark" && themeMode() != "system") {
+            setThemeMode("dark");
+        } else {
+            emit customThemeColorsChanged();  // Palette changed, mode didn't
+        }
         return;
     }
     if (name == "Default Light") {
-        m_settings.setValue("theme/customColorsDark",
-            QJsonDocument(QJsonObject::fromVariantMap(lightDefaults())).toJson());
-        m_settings.setValue("theme/customColorsLight",
-            QJsonDocument(QJsonObject::fromVariantMap(lightDefaults())).toJson());
+        // Only reset the light palette — preserve user's custom dark palette
+        m_settings.remove("theme/customColorsLight");
         setActiveShader("");
-        setDarkThemeName("Default Light");
         setLightThemeName("Default Light");
-        emit customThemeColorsChanged();
+        // Switch to light mode (skip if already resolved to light, e.g. "system" on a light OS)
+        if (m_isDarkMode) {
+            setThemeMode("light");
+        } else if (themeMode() != "light" && themeMode() != "system") {
+            setThemeMode("light");
+        } else {
+            emit customThemeColorsChanged();  // Palette changed, mode didn't
+        }
         return;
     }
 
