@@ -11,7 +11,10 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
 #include <pthread.h>
+#endif
 
 #ifdef Q_OS_ANDROID
 #include <unwind.h>
@@ -179,9 +182,11 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     char threadName[64] = {0};
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_LINUX)
     pthread_getname_np(pthread_self(), threadName, sizeof(threadName));
-#endif
     fprintf(f, "Thread: %p name=\"%s\"\n",
             (void*)pthread_self(), threadName[0] ? threadName : "(unnamed)");
+#elif defined(Q_OS_WIN)
+    fprintf(f, "Thread: %lu\n", (unsigned long)GetCurrentThreadId());
+#endif
 
     // Last debug message
     if (s_lastDebugMessage[0] != '\0') {

@@ -63,7 +63,7 @@ Rectangle {
         topPadding: Theme.scaled(4)
         bottomPadding: Theme.scaled(4)
         text: Theme.replaceEmojiWithImg(formatTextWithLinks(root.text), root.textFont.pixelSize)
-        textFormat: Text.StyledText
+        textFormat: Text.RichText
         font: root.textFont
         color: Theme.textColor
         wrapMode: Text.Wrap

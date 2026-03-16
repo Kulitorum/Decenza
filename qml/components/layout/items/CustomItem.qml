@@ -411,7 +411,7 @@ Item {
         AccessibleTapHandler {
             id: compactTap
             anchors.fill: parent
-            accessibleName: root.resolvedText
+            accessibleName: Theme.stripEmoji(root.resolvedText)
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
             onAccessibleClicked: root.executeActionString(root.action)
@@ -489,7 +489,7 @@ Item {
         AccessibleTapHandler {
             id: fullTap
             anchors.fill: parent
-            accessibleName: root.resolvedText
+            accessibleName: Theme.stripEmoji(root.resolvedText)
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
             onAccessibleClicked: root.executeActionString(root.action)

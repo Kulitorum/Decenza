@@ -93,14 +93,18 @@ QtObject {
                         continue
                     }
                     if (next === 0x200D) {
-                        // ZWJ — consume it and the next codepoint
-                        j += nextLen
-                        if (j < text.length) {
-                            var after = text.codePointAt(j)
-                            emojiCps.push(after)
-                            j += after > 0xFFFF ? 2 : 1
+                        // ZWJ — consume it only if followed by an emoji
+                        var zjPos = j + nextLen
+                        if (zjPos < text.length) {
+                            var after = text.codePointAt(zjPos)
+                            if (_isEmoji(after)) {
+                                j = zjPos
+                                emojiCps.push(after)
+                                j += after > 0xFFFF ? 2 : 1
+                                continue
+                            }
                         }
-                        continue
+                        break  // ZWJ not followed by emoji — end sequence
                     }
                     if (_isEmoji(next) || (next >= 0x1F3FB && next <= 0x1F3FF)) {
                         // Skin tone modifier or continuation
