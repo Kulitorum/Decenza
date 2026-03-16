@@ -94,19 +94,23 @@ Item {
         var fieldPos = field.mapToItem(targetFlickable.contentItem, 0, 0)
         var fieldBottom = fieldPos.y + field.height
 
-        var kbHeight = Qt.inputMethod.keyboardRectangle.height
+        var kbHeight = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
         if (kbHeight <= 0) kbHeight = root.height * 0.5
 
         var visibleHeight = targetFlickable.height - kbHeight
         if (visibleHeight <= 0) visibleHeight = targetFlickable.height * 0.5
 
-        var margin = field.height
-        var visibleBottom = targetFlickable.contentY + visibleHeight
+        var margin = 20
+        var maxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
 
-        if (fieldBottom + margin > visibleBottom) {
-            targetFlickable.contentY = Math.max(0,
-                Math.min(fieldBottom + margin - visibleHeight,
-                         targetFlickable.contentHeight - targetFlickable.height))
+        // Scroll up if field is above visible area
+        if (fieldPos.y < targetFlickable.contentY + margin) {
+            targetFlickable.contentY = Math.max(0, fieldPos.y - margin)
+        }
+        // Scroll down if field is below visible area
+        else if (fieldBottom + margin > targetFlickable.contentY + visibleHeight) {
+            targetFlickable.contentY = Math.min(
+                fieldBottom + margin - visibleHeight, maxContentY)
         }
     }
 
