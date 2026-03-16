@@ -99,6 +99,7 @@ QtObject {
                             var after = text.codePointAt(zjPos)
                             if (_isEmoji(after)) {
                                 j = zjPos
+                                emojiCps.push(0x200D)
                                 emojiCps.push(after)
                                 j += after > 0xFFFF ? 2 : 1
                                 continue
@@ -144,6 +145,14 @@ QtObject {
             i += charLen
         }
         return result
+    }
+
+    // Strip HTML tags and emoji from a string for accessible names.
+    // Use on text that has been through replaceEmojiWithImg() to get
+    // a clean plain-text string for TalkBack/VoiceOver.
+    function toAccessibleText(html) {
+        if (!html) return ""
+        return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
     }
 
     // Helper function to scale values
