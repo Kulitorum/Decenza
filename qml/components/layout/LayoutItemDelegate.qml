@@ -174,6 +174,7 @@ Item {
                 case "lastShot":         src = "items/LastShotItem.qml"; break
                 case "machineStatus":    src = "items/MachineStatusItem.qml"; break
                 case "batteryLevel":     src = "items/BatteryLevelItem.qml"; break
+                case "scaleBattery":     src = "items/ScaleBatteryItem.qml"; break
                 case "screensaverFlipClock":
                 case "screensaverPipes":
                 case "screensaverAttractor":

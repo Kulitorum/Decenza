@@ -498,16 +498,23 @@ Item {
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
+            clip: true
 
-            ColumnLayout {
+            Flickable {
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(15)
+                contentHeight: scaleColumn.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            ColumnLayout {
+                id: scaleColumn
+                width: parent.width
                 spacing: Theme.scaled(10)
 
                 // === USB Scale view (shown when USB scale connected, not available on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     visible: usbAvailable && UsbScaleManager.scaleConnected
                     spacing: Theme.scaled(10)
 
@@ -571,7 +578,7 @@ Item {
                     // USB scale log
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        Layout.preferredHeight: Theme.scaled(150)
                         color: Qt.darker(Theme.surfaceColor, 1.2)
                         radius: Theme.scaled(4)
 
@@ -635,7 +642,6 @@ Item {
                 // === BLE Scale view (shown when no USB scale, or always on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     visible: !usbAvailable || !UsbScaleManager.scaleConnected
                     spacing: Theme.scaled(10)
 
@@ -695,7 +701,7 @@ Item {
                         }
                     }
 
-                    // Connected BLE scale name
+                    // Connected BLE scale name + battery
                     RowLayout {
                         Layout.fillWidth: true
                         visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
@@ -709,6 +715,40 @@ Item {
                         Text {
                             text: ScaleDevice ? ScaleDevice.name : ""
                             color: Theme.textColor
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Row {
+                            spacing: Theme.scaled(4)
+                            visible: ScaleDevice && ScaleDevice.batteryLevel >= 0 && ScaleDevice.batteryLevel <= 100
+
+                            Image {
+                                anchors.verticalCenter: parent.verticalCenter
+                                source: {
+                                    var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
+                                    if (level <= 10) return "qrc:/icons/battery-0.svg"
+                                    if (level <= 37) return "qrc:/icons/battery-25.svg"
+                                    if (level <= 62) return "qrc:/icons/battery-50.svg"
+                                    if (level <= 87) return "qrc:/icons/battery-75.svg"
+                                    return "qrc:/icons/battery-100.svg"
+                                }
+                                sourceSize.width: Theme.scaled(14)
+                                sourceSize.height: Theme.scaled(14)
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: (ScaleDevice ? ScaleDevice.batteryLevel : 0) + "%"
+                                color: {
+                                    var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
+                                    if (level > 50) return Theme.successColor
+                                    if (level > 20) return Theme.warningColor
+                                    return Theme.errorColor
+                                }
+                                font.pixelSize: Theme.scaled(13)
+                                Accessible.ignored: true
+                            }
                         }
                     }
 
@@ -977,7 +1017,7 @@ Item {
                     // Scale scan log
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        Layout.preferredHeight: Theme.scaled(150)
                         color: Qt.darker(Theme.surfaceColor, 1.2)
                         radius: Theme.scaled(4)
 
@@ -1037,6 +1077,7 @@ Item {
                     }
                 }
 
+            }
             }
         }
     }

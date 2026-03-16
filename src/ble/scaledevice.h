@@ -75,6 +75,6 @@ private:
     bool m_simulationMode = false;
     double m_weight = 0.0;
     double m_flowRate = 0.0;
-    int m_batteryLevel = 100;
+    int m_batteryLevel = -1;  // -1 = not reported by this scale
     QTimer m_keepAliveTimer;
 };

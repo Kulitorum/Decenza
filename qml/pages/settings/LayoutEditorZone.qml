@@ -408,6 +408,7 @@ Rectangle {
                             { type: "steamTemperature", label: TranslationManager.translate("layoutEditor.widgetSteamTemp", "Steam Temp") },
                             { type: "temperature", label: TranslationManager.translate("layoutEditor.widgetTemperature", "Temperature") },
                             { type: "batteryLevel", label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
+                            { type: "scaleBattery", label: TranslationManager.translate("layoutEditor.widgetScaleBattery", "Scale Battery") },
                             { type: "waterLevel", label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
                             // Utility (orange)
                             { type: "custom", label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
@@ -537,6 +538,7 @@ Rectangle {
             "connectionStatus": TranslationManager.translate("layoutEditor.chipConnection", "Connection"),
             "machineStatus": TranslationManager.translate("layoutEditor.chipStatus", "Status"),
             "scaleWeight": TranslationManager.translate("layoutEditor.chipScale", "Scale"),
+            "scaleBattery": TranslationManager.translate("layoutEditor.chipScaleBat", "Scale Bat"),
             "shotPlan": TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan"),
             "pageTitle": TranslationManager.translate("layoutEditor.chipPageTitle", "Page Title"),
             "spacer": TranslationManager.translate("layoutEditor.chipSpacer", "Spacer"),
