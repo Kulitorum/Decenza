@@ -149,6 +149,17 @@ endif()
 set(PAHO_HIGH_PERFORMANCE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(paho_mqtt_c)
 
+# mjansson/mdns: header-only mDNS library for resolving .local hostnames on Android
+# (Android's getaddrinfo doesn't reliably handle mDNS)
+if(ANDROID)
+    FetchContent_Declare(
+        mdns_lib
+        GIT_REPOSITORY https://github.com/mjansson/mdns.git
+        GIT_TAG        1.4.3
+    )
+    FetchContent_Populate(mdns_lib)
+endif()
+
 # Address Sanitizer - enabled for single-config Debug builds (Makefiles, Ninja).
 # Multi-config generators (Visual Studio, Xcode) don't set CMAKE_BUILD_TYPE at
 # configure time, so flags would leak into Release builds. Android requires special
@@ -476,6 +487,9 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}  # For version.h
 )
+if(ANDROID)
+    target_include_directories(Decenza PRIVATE ${mdns_lib_SOURCE_DIR})
+endif()
 
 # QML module - mark Theme.qml as singleton
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)

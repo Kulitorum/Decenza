@@ -12,11 +12,12 @@
 #include <QUuid>
 #include <QMutexLocker>
 #ifdef Q_OS_ANDROID
-#include <QUdpSocket>
-#include <QNetworkDatagram>
 #include <QElapsedTimer>
 #include <QThread>
 #include <QPointer>
+#define MDNS_IMPLEMENTATION
+#include <mdns.h>
+#include <QHostAddress>
 #endif
 
 MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
@@ -172,131 +173,104 @@ void MqttClient::onSubscribeFailure(void* context, MQTTAsync_failureData* respon
 }
 
 #ifdef Q_OS_ANDROID
-// Resolve a .local hostname via direct mDNS multicast query (UDP to 224.0.0.251:5353).
-// Android's getaddrinfo() doesn't reliably handle mDNS, so we query the network directly.
+
+struct MdnsResolveContext {
+    QByteArray hostname;
+    QString resolvedIp;
+};
+
+static int mdnsResolveCallback(int sock, const struct sockaddr* from, size_t addrlen,
+                                mdns_entry_type_t entry, uint16_t query_id,
+                                uint16_t rtype, uint16_t rclass, uint32_t ttl,
+                                const void* data, size_t size,
+                                size_t name_offset, size_t name_length,
+                                size_t record_offset, size_t record_length,
+                                void* user_data)
+{
+    Q_UNUSED(sock); Q_UNUSED(from); Q_UNUSED(addrlen);
+    Q_UNUSED(query_id); Q_UNUSED(rclass); Q_UNUSED(ttl);
+
+    auto* ctx = static_cast<MdnsResolveContext*>(user_data);
+    if (!ctx->resolvedIp.isEmpty())
+        return 0; // Already found
+
+    if (entry != MDNS_ENTRYTYPE_ANSWER || rtype != MDNS_RECORDTYPE_A)
+        return 0;
+
+    // Extract record name (handles DNS compression pointers)
+    char namebuf[256];
+    size_t nameOffset = name_offset;
+    mdns_string_t name = mdns_string_extract(data, size, &nameOffset, namebuf, sizeof(namebuf));
+
+    QByteArray recordName = QByteArray(name.str, static_cast<qsizetype>(name.length));
+    if (recordName.endsWith('.'))
+        recordName.chop(1);
+
+    if (recordName.toLower() != ctx->hostname.toLower())
+        return 0;
+
+    // Parse the A record
+    struct sockaddr_in addr;
+    mdns_record_parse_a(data, size, record_offset, record_length, &addr);
+    ctx->resolvedIp = QHostAddress(ntohl(addr.sin_addr.s_addr)).toString();
+
+    return 0;
+}
+
+// Resolve a .local hostname via mDNS using mjansson/mdns library.
 // Called on a background thread — safe to block.
 static QString resolveMdns(const QString& hostname, int timeoutMs = 2000)
 {
-    // Build wire-format QNAME for matching against responses
-    QByteArray name = hostname.toUtf8();
-    if (!name.endsWith('.'))
-        name.append('.');
+    // Open mDNS socket (binds to ephemeral port, joins multicast group)
+    struct sockaddr_in bindAddr;
+    memset(&bindAddr, 0, sizeof(bindAddr));
+    bindAddr.sin_family = AF_INET;
+    bindAddr.sin_addr.s_addr = INADDR_ANY;
+    int sock = mdns_socket_open_ipv4(&bindAddr);
+    if (sock < 0)
+        return {};
 
-    QByteArray qname;
-    for (const QByteArray& label : name.split('.')) {
-        if (label.isEmpty()) continue;
-        qname.append(static_cast<char>(label.size()));
-        qname.append(label.toLower());
+    // Send A record query
+    char buffer[2048];
+    QByteArray hostBytes = hostname.toUtf8();
+    if (mdns_query_send(sock, MDNS_RECORDTYPE_A, hostBytes.constData(),
+                        static_cast<size_t>(hostBytes.size()),
+                        buffer, sizeof(buffer), 0) < 0) {
+        mdns_socket_close(sock);
+        return {};
     }
-    qname.append('\x00');
 
-    // DNS header: ID=0x0000, flags=0x0000 (standard query), QDCOUNT=1
-    QByteArray packet;
-    packet.append(QByteArray(4, '\0'));       // ID + flags
-    packet.append('\x00'); packet.append('\x01'); // QDCOUNT = 1
-    packet.append(QByteArray(6, '\0'));       // ANCOUNT, NSCOUNT, ARCOUNT = 0
+    MdnsResolveContext ctx;
+    ctx.hostname = hostBytes;
+    if (ctx.hostname.endsWith('.'))
+        ctx.hostname.chop(1);
 
-    // QNAME + QTYPE(A) + QCLASS(IN with QU bit for unicast response per RFC 6762 §5.4)
-    packet.append(qname);
-    packet.append('\x00'); packet.append('\x01'); // QTYPE = A (1)
-    packet.append('\x80'); packet.append('\x01'); // QCLASS = IN (1) | QU bit (0x8000)
-
-    QHostAddress multicast("224.0.0.251");
-    QUdpSocket socket;
-    socket.bind(QHostAddress::AnyIPv4, 0, QUdpSocket::ShareAddress);
-    socket.joinMulticastGroup(multicast);
-    socket.writeDatagram(packet, multicast, 5353);
-
-    // Wait for matching response with deadline tracking
+    // Poll for responses with deadline tracking
     QElapsedTimer deadline;
     deadline.start();
 
-    while (deadline.elapsed() < timeoutMs) {
-        qsizetype remaining = timeoutMs - deadline.elapsed();
+    while (deadline.elapsed() < timeoutMs && ctx.resolvedIp.isEmpty()) {
+        int remaining = static_cast<int>(timeoutMs - deadline.elapsed());
         if (remaining <= 0) break;
-        if (!socket.waitForReadyRead(static_cast<int>(remaining))) continue;
 
-        while (socket.hasPendingDatagrams()) {
-            QNetworkDatagram dg = socket.receiveDatagram();
-            QByteArray reply = dg.data();
-            if (reply.size() < 12) continue;
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(sock, &readfds);
+        struct timeval tv;
+        tv.tv_sec = remaining / 1000;
+        tv.tv_usec = (remaining % 1000) * 1000;
 
-            // Parse answer count from DNS header
-            qsizetype ancount = (static_cast<quint8>(reply[6]) << 8) | static_cast<quint8>(reply[7]);
-            if (ancount == 0) continue;
+        if (select(sock + 1, &readfds, nullptr, nullptr, &tv) <= 0)
+            break;
 
-            // Skip header (12 bytes) and question section
-            qsizetype pos = 12;
-            // Skip QNAME
-            while (pos < reply.size() && reply[pos] != '\0') {
-                if ((static_cast<quint8>(reply[pos]) & 0xC0) == 0xC0) {
-                    pos += 2;
-                    goto skipQuestionDone;
-                }
-                qsizetype labelLen = static_cast<quint8>(reply[pos]);
-                if (pos + labelLen + 1 > reply.size()) goto nextPacket;
-                pos += labelLen + 1;
-            }
-            if (pos < reply.size()) pos++; // Skip root label
-            skipQuestionDone:
-            if (pos + 4 > reply.size()) continue;
-            pos += 4; // Skip QTYPE + QCLASS
-
-            // Parse answer records looking for A record matching our query
-            for (qsizetype i = 0; i < ancount && pos < reply.size(); i++) {
-                // Extract answer name and check if it matches our query
-                bool nameMatch = false;
-                if (pos < reply.size() && (static_cast<quint8>(reply[pos]) & 0xC0) == 0xC0) {
-                    // Compressed name — follow pointer and compare against qname
-                    if (pos + 2 > reply.size()) break;
-                    qsizetype ptr = ((static_cast<quint8>(reply[pos]) & 0x3F) << 8)
-                                    | static_cast<quint8>(reply[pos + 1]);
-                    if (ptr + qname.size() <= reply.size())
-                        nameMatch = (reply.mid(ptr, qname.size()).toLower() == qname);
-                    pos += 2;
-                } else {
-                    // Uncompressed name — walk labels and compare
-                    qsizetype nameStart = pos;
-                    while (pos < reply.size() && reply[pos] != '\0') {
-                        if ((static_cast<quint8>(reply[pos]) & 0xC0) == 0xC0) {
-                            pos += 2;
-                            goto nameWalkDone;
-                        }
-                        qsizetype labelLen = static_cast<quint8>(reply[pos]);
-                        if (pos + labelLen + 1 > reply.size()) goto nextRecord;
-                        pos += labelLen + 1;
-                    }
-                    if (pos < reply.size()) pos++; // Skip root label
-                    nameWalkDone:
-                    nameMatch = (reply.mid(nameStart, pos - nameStart).toLower() == qname);
-                }
-
-                nextRecord:
-                if (pos + 10 > reply.size()) break;
-
-                quint16 rtype = (static_cast<quint8>(reply[pos]) << 8) | static_cast<quint8>(reply[pos + 1]);
-                quint16 rdlen = (static_cast<quint8>(reply[pos + 8]) << 8) | static_cast<quint8>(reply[pos + 9]);
-                pos += 10; // Skip TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
-
-                if (rtype == 1 && rdlen == 4 && nameMatch && pos + 4 <= reply.size()) {
-                    QHostAddress addr(
-                        (static_cast<quint32>(static_cast<quint8>(reply[pos])) << 24) |
-                        (static_cast<quint32>(static_cast<quint8>(reply[pos + 1])) << 16) |
-                        (static_cast<quint32>(static_cast<quint8>(reply[pos + 2])) << 8) |
-                        static_cast<quint32>(static_cast<quint8>(reply[pos + 3])));
-                    socket.leaveMulticastGroup(multicast);
-                    return addr.toString();
-                }
-                if (pos + rdlen > reply.size()) break;
-                pos += rdlen;
-            }
-            nextPacket:;
-        }
+        mdns_query_recv(sock, buffer, sizeof(buffer),
+                        mdnsResolveCallback, &ctx, 0);
     }
 
-    socket.leaveMulticastGroup(multicast);
-    return {};
+    mdns_socket_close(sock);
+    return ctx.resolvedIp;
 }
+
 #endif // Q_OS_ANDROID
 
 void MqttClient::connectToBroker()
@@ -324,7 +298,6 @@ void MqttClient::connectToBroker()
         QPointer<MqttClient> guard(this);
         QThread* thread = QThread::create([guard, host]() {
             QString resolved = resolveMdns(host);
-            if (!guard) return;
             QMetaObject::invokeMethod(guard.data(), [guard, resolved, host]() {
                 if (!guard) return;
                 if (!resolved.isEmpty()) {
@@ -361,6 +334,7 @@ void MqttClient::connectWithHost(const QString& host)
         m_reconnectAttempts = 0;
         emit reconnectAttemptsChanged();
     }
+    m_isReconnecting = false;
 
     // Build server URI
     int port = m_settings ? m_settings->mqttBrokerPort() : 1883;
@@ -671,10 +645,9 @@ void MqttClient::onReconnectTimerTick()
 
     qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts << "of" << MAX_RECONNECT_ATTEMPTS;
 
-    // Call connectToBroker with flag to preserve reconnect state
+    // Flag preserved until connectWithHost() checks it (may be async on Android)
     m_isReconnecting = true;
     connectToBroker();
-    m_isReconnecting = false;
 }
 
 void MqttClient::onSettingsChanged()
