@@ -64,7 +64,7 @@ Dialog {
             delegate: Rectangle {
                 id: optionCard
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(72)
+                implicitHeight: optionRow.implicitHeight + Theme.spacingMedium * 2
                 radius: Theme.cardRadius
                 color: Theme.backgroundColor
                 border.color: selectorDialog.currentMode === model.mode
@@ -75,7 +75,10 @@ Dialog {
                 Accessible.ignored: true
 
                 RowLayout {
-                    anchors.fill: parent
+                    id: optionRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingMedium
 
@@ -111,7 +114,7 @@ Dialog {
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                             Layout.fillWidth: true
-                            elide: Text.ElideRight
+                            wrapMode: Text.WordWrap
                             Accessible.ignored: true
                         }
                     }
@@ -193,6 +196,23 @@ Dialog {
                     onToggled: {
                         selectorDialog.phaseIndicatorToggled(checked)
                     }
+                    indicator: Rectangle {
+                        implicitWidth: Theme.scaled(22)
+                        implicitHeight: Theme.scaled(22)
+                        radius: Theme.scaled(4)
+                        color: phaseIndicatorCheck.checked ? Theme.primaryColor : "transparent"
+                        border.color: phaseIndicatorCheck.checked ? Theme.primaryColor : Theme.textSecondaryColor
+                        border.width: Theme.scaled(2)
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "\u2713"
+                            color: Theme.surfaceColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                            visible: phaseIndicatorCheck.checked
+                        }
+                    }
                 }
             }
         }
@@ -230,6 +250,23 @@ Dialog {
                     Accessible.focusable: true
                     onToggled: {
                         selectorDialog.statsToggled(checked)
+                    }
+                    indicator: Rectangle {
+                        implicitWidth: Theme.scaled(22)
+                        implicitHeight: Theme.scaled(22)
+                        radius: Theme.scaled(4)
+                        color: statsCheck.checked ? Theme.primaryColor : "transparent"
+                        border.color: statsCheck.checked ? Theme.primaryColor : Theme.textSecondaryColor
+                        border.width: Theme.scaled(2)
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "\u2713"
+                            color: Theme.surfaceColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                            visible: statsCheck.checked
+                        }
                     }
                 }
             }
