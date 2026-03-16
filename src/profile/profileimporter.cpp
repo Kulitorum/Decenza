@@ -86,12 +86,13 @@ void ProfileImporter::scanProfiles()
         bool de1plusExists = false;
 #ifdef Q_OS_ANDROID
         de1plusExists = QDir("/sdcard/de1plus").exists() ||
-                        QDir("/storage/emulated/0/de1plus").exists();
+                        QDir("/storage/emulated/0/de1plus").exists() ||
+                        QDir("/sdcard/Android/data/tk.tcl.wish/files/de1plus").exists();
 #endif
         if (de1plusExists) {
-            setStatus("DE1 app found but no profiles directory — use Import File to import individual profiles");
+            setStatus(tr("DE1 app found but no profiles directory — use Import File to import individual profiles"));
         } else {
-            setStatus("DE1 app not found");
+            setStatus(tr("DE1 app not found"));
         }
         m_detectedPath.clear();
         emit detectedPathChanged();
