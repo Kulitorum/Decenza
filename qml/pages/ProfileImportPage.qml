@@ -126,6 +126,14 @@ Page {
                 }
 
                 AccessibleButton {
+                    text: TranslationManager.translate("profileimport.button.import_file", "Import File...")
+                    accessibleName: TranslationManager.translate("profileImport.openFilePicker", "Open file picker to select a profile file")
+                    visible: Qt.platform.os === "android"
+                    enabled: !MainController.profileImporter.isImporting
+                    onClicked: profileFileDialog.open()
+                }
+
+                AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.rescan", "Rescan")
                     accessibleName: TranslationManager.translate("profileImport.rescanProfiles", "Rescan for profiles from Decent tablet")
                     enabled: !MainController.profileImporter.isScanning
@@ -322,7 +330,9 @@ Page {
                     visible: profileList.count === 0 && !MainController.profileImporter.isScanning
                     text: MainController.profileImporter.detectedPath ?
                           TranslationManager.translate("profileimport.empty", "No profiles found in DE1 app folders") :
-                          TranslationManager.translate("profileimport.not_installed", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Browse to select the folder manually.")
+                          (Qt.platform.os === "android"
+                           ? TranslationManager.translate("profileimport.not_installed_android", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Import File to select profiles individually.")
+                           : TranslationManager.translate("profileimport.not_installed", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Browse to select the folder manually."))
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
