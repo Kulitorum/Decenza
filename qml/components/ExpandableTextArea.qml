@@ -62,7 +62,7 @@ Rectangle {
         rightPadding: Theme.scaled(24) // room for expand button
         topPadding: Theme.scaled(4)
         bottomPadding: Theme.scaled(4)
-        text: formatTextWithLinks(root.text)
+        text: Theme.replaceEmojiWithImg(formatTextWithLinks(root.text), root.textFont.pixelSize)
         textFormat: Text.StyledText
         font: root.textFont
         color: Theme.textColor

@@ -60,7 +60,7 @@
 #include "ai/aimanager.h"
 #include "ai/aiconversation.h"
 #include "screensaver/screensavervideomanager.h"
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "screensaver/iosbrightness.h"
 #endif
 #include "screensaver/strangeattractorrenderer.h"
@@ -312,13 +312,21 @@ int main(int argc, char *argv[])
     // PNGReadPlugin::InitializePluginData crashes on QSGRenderThread when CoreText
     // tries to decode emoji bitmaps from the sbix font table via CTFontDrawGlyphs →
     // CopyEmojiImage → CGImageSourceCreateImageAtIndex.
-    // QtTextRendering uses distance fields (glyph outlines) instead of
-    // NativeTextRendering (which calls imageForGlyph → bitmap path), avoiding the
-    // crash entirely. This app renders emoji as SVG images (Theme.emojiToImage),
-    // so bitmap emoji glyphs are not needed.
-    // Applied unconditionally — the version check (>= macOS 16) was unreliable
-    // across the 15→26 version jump, and QtTextRendering works fine on all macOS.
-    QQuickWindow::setTextRenderType(QQuickWindow::QtTextRendering);
+    //
+    // QtTextRendering (distance fields) was tried first, but Qt 6.x STILL falls back
+    // to native rendering when QGlyphRun contains color font glyphs — if CoreText's
+    // font shaping assigns ANY character to Apple Color Emoji (a color font), Qt uses
+    // QSGTextMaskMaterial (bitmap path) for that glyph run, triggering the crash.
+    //
+    // CurveTextRendering (Qt 6.7+) renders ALL glyphs as bezier curves on the GPU,
+    // never calling QCoreTextFontEngine::imageForGlyph, completely avoiding the
+    // CopyEmojiImage crash path. This app renders emoji as SVG images
+    // (Theme.emojiToImage), so bitmap emoji glyphs are not needed.
+    QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
+    // Probe which characters CoreText routes to Apple Color Emoji — diagnostic
+    // for the CopyEmojiImage crash. If any non-emoji chars use the emoji font,
+    // it explains why Qt fell back to native rendering despite QtTextRendering.
+    macos_probeEmojiFont();
 #endif
 
     // Set application metadata

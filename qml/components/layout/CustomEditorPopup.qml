@@ -162,7 +162,8 @@ Dialog {
         var now = new Date()
         result = result.replace(/%TIME%/g, Qt.formatTime(now, Settings.use12HourTime ? "h:mmap" : "hh:mm"))
         result = result.replace(/%DATE%/g, Qt.formatDate(now, "yyyy-MM-dd"))
-        return result
+        // Convert any emoji Unicode to <img> tags to avoid CoreText crash on macOS
+        return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize)
     }
 
     // Helper to get action label
