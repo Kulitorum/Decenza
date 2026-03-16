@@ -51,6 +51,7 @@ Item {
             return
         }
 
+
         // Use real keyboard height if available; estimate only on mobile
         var kbHeight = Qt.inputMethod.keyboardRectangle.height
         if (kbHeight <= 0) {
