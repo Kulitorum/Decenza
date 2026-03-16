@@ -2628,7 +2628,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
         if (filtered.size() >= 2) {
             values = filtered;
         }
-        // If filtering leaves <2, use all values (outlier detection unreliable with tiny sets)
+        // If filtering leaves <2, keep unfiltered values (IQR unreliable with few data points)
     }
 
     qsizetype n = values.size();

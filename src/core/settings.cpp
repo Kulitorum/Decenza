@@ -160,11 +160,9 @@ Settings::Settings(QObject* parent)
     // in turn poisoned new profiles via inheritance. Reset everything so the improved
     // algorithm (with per-sample and window-level ratio checks) can re-converge cleanly.
     if (!m_settings.contains("calibration/v2RatioGuardReset")) {
-        m_settings.setValue("calibration/perProfileFlow", "{}");
-        m_settings.setValue("calibration/flowMultiplier", 1.0);
+        savePerProfileFlowCalMap(QJsonObject());
+        setFlowCalibrationMultiplier(1.0);
         m_settings.setValue("calibration/v2RatioGuardReset", true);
-        m_perProfileFlowCalCache = QJsonObject();
-        m_perProfileFlowCalCacheValid = true;
         qDebug() << "Settings: Reset all flow calibrations to 1.0 (v2 ratio guard migration)";
     }
 
