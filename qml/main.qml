@@ -2872,7 +2872,14 @@ ApplicationWindow {
     property bool _textInputFocused: {
         var item = root.activeFocusItem
         if (!item) return false
-        return "cursorPosition" in item
+        if (!("cursorPosition" in item)) return false
+        // Hide when focus is inside a modal dialog (it provides its own hide button;
+        // the global button is untappable behind the modal overlay anyway)
+        for (var p = item; p; p = p.parent) {
+            if (p instanceof Dialog && p.modal)
+                return false
+        }
+        return true
     }
     Rectangle {
         id: globalHideKeyboardButton
