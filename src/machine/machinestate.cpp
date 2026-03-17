@@ -492,7 +492,7 @@ void MachineState::onScaleWeightChanged(double weight) {
                         subState == DE1::SubState::Stabilising);
     }
 
-    if (isFlowBefore && !m_tareSuppressed && m_tareCompleted && weight > AUTO_TARE_THRESHOLD) {
+    if (isFlowBefore && m_tareCompleted && weight > AUTO_TARE_THRESHOLD) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
         if (now - m_lastAutoTareTime >= AUTO_TARE_HOLDOFF_MS) {
             m_lastAutoTareTime = now;
