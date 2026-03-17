@@ -95,7 +95,7 @@ Item {
                         "navigate:beaninfo",
                         "command:sleep", "command:startEspresso", "command:startSteam",
                         "command:startHotWater", "command:startFlush", "command:idle",
-                        "command:tare", "command:quit",
+                        "command:tare", "command:tareAndHold", "command:quit",
                         "togglePreset:espresso", "togglePreset:steam",
                         "togglePreset:hotwater", "togglePreset:flush", "togglePreset:beans"]
                     filterAction = actions[currentIndex]

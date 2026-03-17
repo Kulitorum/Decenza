@@ -24,7 +24,9 @@ Item {
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
-    readonly property color _effectiveBackground: _parsedBgColor
+    readonly property bool _isActiveToggle: action === "command:tareAndHold" &&
+                                            typeof MachineState !== "undefined" && MachineState.tareSuppressed
+    readonly property color _effectiveBackground: _isActiveToggle ? Theme.primaryColor : _parsedBgColor
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.primaryContrastColor
 
@@ -378,7 +380,7 @@ Item {
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
             color: {
-                var base = root.bgColor || "#555555"
+                var base = root._effectiveBackground
                 return compactTap.isPressed ? Qt.darker(base, 1.2) : base
             }
             radius: Theme.cardRadius

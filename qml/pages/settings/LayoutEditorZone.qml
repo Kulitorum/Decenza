@@ -513,7 +513,7 @@ Rectangle {
                 "command:sleep": "Sleep", "command:quit": "Quit",
                 "command:startEspresso": "Espresso", "command:startSteam": "Steam",
                 "command:startHotWater": "Hot Water", "command:startFlush": "Flush",
-                "command:tare": "Tare", "command:idle": "Stop"
+                "command:tare": "Tare", "command:tareAndHold": "Tare & Hold", "command:idle": "Stop"
             }
             if (actionLabels[action]) return actionLabels[action]
         }

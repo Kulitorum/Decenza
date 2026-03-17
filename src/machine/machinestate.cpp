@@ -277,14 +277,17 @@ void MachineState::updatePhase() {
     }
 
     if (m_phase != oldPhase) {
-        // Clear tare-and-hold when entering any operational phase
+        // Clear tare-and-hold when entering any non-idle phase, or when returning to idle/sleep/disconnected
         // Must happen before espressoCycleStarted() and hot water tare so normal taring proceeds
         if (m_tareSuppressed &&
             (m_phase == Phase::EspressoPreheating || m_phase == Phase::Steaming ||
-             m_phase == Phase::HotWater || m_phase == Phase::Flushing)) {
+             m_phase == Phase::HotWater || m_phase == Phase::Flushing ||
+             m_phase == Phase::Descaling || m_phase == Phase::Cleaning ||
+             m_phase == Phase::Idle || m_phase == Phase::Ready ||
+             m_phase == Phase::Sleep || m_phase == Phase::Disconnected)) {
             m_tareSuppressed = false;
             emit tareSuppressedChanged();
-            qDebug() << "=== TARE HOLD: Cleared (mode started:" << phaseString() << ") ===";
+            qDebug() << "=== TARE HOLD: Cleared (phase changed to:" << phaseString() << ") ===";
         }
 
         // Detect espresso cycle start (entering preheating from non-espresso state)
@@ -779,6 +782,18 @@ void MachineState::tareAndHold() {
         m_tareSuppressed = false;
         emit tareSuppressedChanged();
         qDebug() << "=== TARE HOLD: Disabled ===";
+        return;
+    }
+
+    // Refuse to arm during active extraction phases — the shot is already in progress
+    // and arming mid-shot would suppress tares for the remainder of the shot unexpectedly.
+    // Clearing on phase change (updatePhase) handles the case where user arms before a shot.
+    bool isActivePhase = (m_phase == Phase::Preinfusion || m_phase == Phase::Pouring ||
+                          m_phase == Phase::Ending || m_phase == Phase::Steaming ||
+                          m_phase == Phase::HotWater || m_phase == Phase::Flushing ||
+                          m_phase == Phase::Descaling || m_phase == Phase::Cleaning);
+    if (isActivePhase) {
+        qDebug() << "=== TARE HOLD: Ignored (active phase:" << phaseString() << ") ===";
         return;
     }
 
