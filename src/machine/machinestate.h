@@ -163,10 +163,6 @@ private:
     // Throttled debug logging for scale weight during active phases
     qint64 m_lastWeightLogMs = 0;
 
-    // Auto-tare on cup removal detection
-    double m_lastIdleWeight = 0.0;
-    qint64 m_lastWeightTime = 0;
-
     // Auto-tare during "flow before" phase (cup placed during preheat)
     qint64 m_lastAutoTareTime = 0;
 

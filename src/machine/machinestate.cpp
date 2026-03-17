@@ -436,34 +436,6 @@ void MachineState::onScaleWeightChanged(double weight) {
         emit tareCompleted();
     }
 
-    // Auto-tare when cup is removed (significant weight drop while idle)
-    // BUT: don't trigger during SAW settling (scale readings are unstable)
-    if (m_phase == Phase::Ready || m_phase == Phase::Idle) {
-        // Skip auto-tare if SAW settling is in progress (prevents false triggers from scale glitches)
-        bool isSettling = m_timingController && m_timingController->isSawSettling();
-        if (isSettling) {
-            // Update tracking variables but don't auto-tare
-            m_lastIdleWeight = weight;
-            m_lastWeightTime = QDateTime::currentMSecsSinceEpoch();
-            return;
-        }
-
-        qint64 now = QDateTime::currentMSecsSinceEpoch();
-
-        // Detect cup removal: weight was >50g and dropped to <10g within 2 seconds
-        if (m_lastIdleWeight > 50.0 && weight < 10.0) {
-            qint64 elapsed = now - m_lastWeightTime;
-            if (elapsed < 2000) {  // Drop happened within 2 seconds
-                qDebug() << "=== AUTO-TARE: Cup removed (weight dropped from"
-                         << m_lastIdleWeight << "to" << weight << ") ===";
-                tareScale();
-            }
-        }
-
-        m_lastIdleWeight = weight;
-        m_lastWeightTime = now;
-        return;
-    }
 
     // Auto-tare during "flow before" phase (like de1app: heating substates before water flows)
     // Handles forgotten-cup scenario for both Espresso and HotWater
@@ -493,8 +465,6 @@ void MachineState::onScaleWeightChanged(double weight) {
         }
     }
 
-    // Reset tracking when not idle (so we detect removal after next shot)
-    m_lastIdleWeight = 0.0;
 
     DE1::State state = m_device->state();
 
