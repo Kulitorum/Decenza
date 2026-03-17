@@ -7,7 +7,7 @@ import Decenza
 // The global hide-keyboard button in main.qml is behind the modal overlay
 // and can't be tapped, so modal dialogs with text inputs need their own.
 //
-// Usage: place inside a dialog header with anchors.right / anchors.verticalCenter.
+// Usage: place inside a dialog header or content area, anchored to a right edge.
 // Automatically hides on desktop and when no text input has focus.
 Rectangle {
     id: root
@@ -18,16 +18,15 @@ Rectangle {
     color: Theme.primaryColor
     visible: _hasTextInputFocus && (Qt.platform.os === "android" || Qt.platform.os === "ios")
 
+    // Track whether a text input has focus. Uses Window.window attached property
+    // which is reactive in Qt 6 (windowChanged + activeFocusItemChanged signals).
     property bool _hasTextInputFocus: {
         var item = root.Window.window ? root.Window.window.activeFocusItem : null
         if (!item) return false
         return "cursorPosition" in item
     }
 
-    Accessible.role: Accessible.Button
-    Accessible.name: TranslationManager.translate("main.hidekeyboard", "Hide keyboard")
-    Accessible.focusable: true
-    Accessible.onPressAction: hideKbArea.clicked(null)
+    Accessible.ignored: true
 
     Image {
         anchors.centerIn: parent
@@ -38,10 +37,13 @@ Rectangle {
         Accessible.ignored: true
     }
 
-    MouseArea {
-        id: hideKbArea
+    AccessibleMouseArea {
         anchors.fill: parent
-        onClicked: {
+        accessibleName: TranslationManager.translate("main.hidekeyboard", "Hide keyboard")
+        accessibleItem: root
+        onAccessibleClicked: {
+            // Must clear focus BEFORE hiding keyboard, otherwise
+            // KeyboardAwareContainer sees focus + no keyboard and reopens it
             var window = root.Window.window
             if (window && window.activeFocusItem)
                 window.activeFocusItem.focus = false

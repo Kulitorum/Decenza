@@ -2874,11 +2874,14 @@ ApplicationWindow {
         var item = root.activeFocusItem
         if (!item) return false
         if (!("cursorPosition" in item)) return false
-        // Suppress when focus is inside a modal dialog — the global button sits
+        // Suppress when focus is inside a popup/dialog — the global button sits
         // behind the modal overlay and can't be tapped. Dialogs with text inputs
-        // should provide their own hide-keyboard button (see ExpandableTextArea).
+        // should provide their own hide-keyboard button (see HideKeyboardButton.qml).
+        // Walk the visual parent chain: popup content goes through the Overlay item,
+        // regular page content does not.
+        var overlay = root.Overlay.overlay
         for (var p = item; p; p = p.parent) {
-            if (p instanceof Dialog && p.modal)
+            if (p === overlay)
                 return false
         }
         return true
@@ -2907,6 +2910,7 @@ ApplicationWindow {
             height: Theme.scaled(20)
             source: "qrc:/icons/hide-keyboard.svg"
             sourceSize: Qt.size(width, height)
+            Accessible.ignored: true
         }
 
         MouseArea {
