@@ -11,7 +11,8 @@ MouseArea {
     required property string accessibleName
 
     // Optional hint text describing secondary actions (double-tap, long-press)
-    // TalkBack/VoiceOver reads this after the name, e.g. "Double-tap to select profile. Long-press for settings."
+    // TalkBack/VoiceOver reads this after the name. Format: "Double-tap or long-press to <action>."
+    // e.g. "Tap to toggle presets. Double-tap or long-press to select profile."
     property string accessibleDescription: ""
 
     // The item to track for "tap again to activate" (defaults to parent)

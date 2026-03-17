@@ -24,7 +24,9 @@ Item {
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
     // Accessibility hint describing configured secondary actions (for TalkBack/VoiceOver)
+    // Action labels are intentionally generic because action strings (e.g. "navigate:settings") have no associated human-readable label.
     readonly property string _accessibleHint: {
+        var _ = TranslationManager.translationVersion  // re-evaluate on language change
         var hasLP = root.longPressAction !== ""
         var hasDC = root.doubleclickAction !== ""
         if (hasLP && hasDC)

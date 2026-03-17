@@ -22,10 +22,23 @@ Item {
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     // Accessibility: expose weight/status to screen readers
+    // Reactive computed property so TalkBack re-announces when scale state or weight changes.
+    readonly property string _accessibleName: {
+        if (root.showScaleWarning && !root.scaleConnected)
+            return BLEManager.scaleConnectionFailed
+                ? TranslationManager.translate("statusbar.scale_not_found_tap", "Scale not found. Tap to scan")
+                : TranslationManager.translate("statusbar.scale_connecting", "Scale connecting")
+        if (root.scaleConnected)
+            return TranslationManager.translate("idle.accessible.scale.weight", "Scale weight:") + " " + root.weightText() + ". " + TranslationManager.translate("idle.accessible.scale.tare", "Tap to tare")
+        return TranslationManager.translate("idle.accessible.scale.none", "No scale connected")
+    }
+
     Accessible.role: Accessible.Button
-    Accessible.name: root.accessibleDescription()
-    Accessible.description: root.scaleConnected
-        ? TranslationManager.translate("idle.accessible.scale.hint", "Tap to tare. Double-tap or long-press for brew settings.")
+    Accessible.name: root._accessibleName
+    // Long-press for brew settings is only available in compact mode (fullContent has no MouseArea).
+    // Long-press is also gated on accessibilityEnabled — safe to advertise to screen reader users.
+    Accessible.description: root.isCompact && root.scaleConnected
+        ? TranslationManager.translate("idle.accessible.scale.hint", "Long-press for brew settings.")
         : ""
     Accessible.focusable: true
     Accessible.onPressAction: {
@@ -33,14 +46,6 @@ Item {
             MachineState.tareScale()
         else if (root.showScaleWarning)
             BLEManager.scanForScales()
-    }
-
-    function accessibleDescription() {
-        if (root.showScaleWarning && !root.scaleConnected)
-            return BLEManager.scaleConnectionFailed ? "Scale not found. Tap to scan" : "Scale connecting"
-        if (root.scaleConnected)
-            return "Scale weight: " + root.weightText() + ". Tap to tare"
-        return "No scale connected"
     }
 
     // Shared color logic
