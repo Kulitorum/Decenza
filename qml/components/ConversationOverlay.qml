@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import Decenza
 
 /**
@@ -128,8 +129,21 @@ Rectangle {
         id: conversationKeyboardContainer
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
-        anchors.bottomMargin: Theme.bottomBarHeight
+        anchors.bottomMargin: Theme.bottomBarHeight + _androidKeyboardHeight
         textFields: [conversationInput]
+
+        // On Android, adjustPan can't help because this overlay fills the window.
+        // Shrink the container from the bottom so the input row stays above the keyboard.
+        property real _androidKeyboardHeight: {
+            if (Qt.platform.os !== "android") return 0
+            if (!conversationKeyboardContainer.textFieldFocused) return 0
+            var kbh = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
+            return kbh > 0 ? kbh : overlay.height * 0.45
+        }
+
+        Behavior on anchors.bottomMargin {
+            NumberAnimation { duration: 250; easing.type: Easing.OutQuad }
+        }
 
         // Main conversation content
         Rectangle {
@@ -227,6 +241,14 @@ Rectangle {
                                 }
                             }
                         }
+                    }
+
+                    // Spacer to avoid overlap with global hide-keyboard button on mobile
+                    // (button is scaled(36) wide + standardMargin from edge)
+                    Item {
+                        visible: (Qt.platform.os === "android" || Qt.platform.os === "ios")
+                        width: Theme.scaled(52)
+                        height: 1
                     }
                 }
 
@@ -459,6 +481,9 @@ Rectangle {
 
                             if (sent) {
                                 text = ""
+                                // Dismiss keyboard after sending
+                                conversationInput.focus = false
+                                Qt.inputMethod.hide()
                                 if (hasShotData)
                                     overlay.pendingShotSummaryCleared()
                             }
@@ -519,17 +544,28 @@ Rectangle {
 
     // Scroll management for conversation updates
     property real _preResponseHeight: 0
+    property bool _waitingForResponse: false
     Connections {
         target: MainController.aiManager ? MainController.aiManager.conversation : null
         function onResponseReceived(response) {
-            // Scroll to top of the new response
+            overlay._waitingForResponse = false
+            // Refresh text with the response, then scroll to top of new response
+            conversationText.text = MainController.aiManager.conversation.getConversationText()
             Qt.callLater(function() {
                 conversationFlickable.contentY = Math.max(0, overlay._preResponseHeight)
             })
         }
+        function onErrorOccurred(error) {
+            // Reset flag so the next send captures scroll position correctly
+            overlay._waitingForResponse = false
+        }
         function onHistoryChanged() {
-            // Save height before updating — this is where the new response will start
-            overlay._preResponseHeight = conversationText.contentHeight
+            // Only save the scroll target when the user sends (before response arrives).
+            // The response triggers historyChanged too, but we handle that in onResponseReceived.
+            if (!overlay._waitingForResponse) {
+                overlay._preResponseHeight = conversationText.contentHeight
+                overlay._waitingForResponse = true
+            }
             // Refresh conversation text
             conversationText.text = MainController.aiManager.conversation.getConversationText()
             // Scroll to bottom to show the user's message / thinking indicator
