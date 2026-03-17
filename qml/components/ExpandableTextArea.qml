@@ -267,6 +267,7 @@ Rectangle {
                         height: Theme.scaled(20)
                         source: "qrc:/icons/hide-keyboard.svg"
                         sourceSize: Qt.size(width, height)
+                        Accessible.ignored: true
                     }
 
                     MouseArea {
