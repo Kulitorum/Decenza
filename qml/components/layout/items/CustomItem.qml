@@ -24,7 +24,9 @@ Item {
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
-    readonly property bool _isActiveToggle: action === "command:tareAndHold" &&
+    readonly property bool _isActiveToggle: (action === "command:tareAndHold" ||
+                                             longPressAction === "command:tareAndHold" ||
+                                             doubleclickAction === "command:tareAndHold") &&
                                             typeof MachineState !== "undefined" && MachineState.tareSuppressed
     readonly property color _effectiveBackground: _isActiveToggle ? Theme.primaryColor : _parsedBgColor
     // Content color for text and icon tinting on the button background
