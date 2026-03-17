@@ -444,6 +444,7 @@ void MachineState::onScaleWeightChanged(double weight) {
     if (m_waitingForTare && qAbs(weight) < 1.0) {
         m_waitingForTare = false;
         m_tareCompleted = true;
+        m_lastIdleWeight = 0.0;  // Reset peak so next cup placement establishes a fresh baseline
         if (m_tareTimeoutTimer)
             m_tareTimeoutTimer->stop();
         emit tareCompleted();
@@ -454,27 +455,23 @@ void MachineState::onScaleWeightChanged(double weight) {
     if (m_phase == Phase::Ready || m_phase == Phase::Idle) {
         // Skip auto-tare if SAW settling is in progress (prevents false triggers from scale glitches)
         bool isSettling = m_timingController && m_timingController->isSawSettling();
-        if (isSettling) {
-            // Update tracking variables but don't auto-tare
-            m_lastIdleWeight = weight;
-            m_lastWeightTime = QDateTime::currentMSecsSinceEpoch();
-            return;
-        }
-
-        qint64 now = QDateTime::currentMSecsSinceEpoch();
-
-        // Detect cup removal: weight was >50g and dropped to <10g within 2 seconds
-        if (!m_tareSuppressed && m_lastIdleWeight > 50.0 && weight < 10.0) {
-            qint64 elapsed = now - m_lastWeightTime;
-            if (elapsed < 2000) {  // Drop happened within 2 seconds
+        if (!isSettling) {
+            // Detect cup removal: peak idle weight was >50g and current weight dropped to <10g.
+            // High-watermark tracking ensures intermediate readings (e.g. 100→70→40→8g) don't
+            // corrupt the baseline before the condition is evaluated.
+            if (!m_tareSuppressed && m_lastIdleWeight > 50.0 && weight < 10.0) {
                 qDebug() << "=== AUTO-TARE: Cup removed (weight dropped from"
                          << m_lastIdleWeight << "to" << weight << ") ===";
                 tareScale();
             }
         }
 
-        m_lastIdleWeight = weight;
-        m_lastWeightTime = now;
+        // High-watermark: only update upward so the pre-removal baseline is preserved
+        // across the full settling arc (e.g. 100→70→40→8g during cup removal).
+        // Resets to 0 after a tare completes (see above), re-establishes on next cup placement.
+        if (weight > m_lastIdleWeight)
+            m_lastIdleWeight = weight;
+
         return;
     }
 
@@ -506,8 +503,6 @@ void MachineState::onScaleWeightChanged(double weight) {
         }
     }
 
-    // Reset tracking when not idle (so we detect removal after next shot)
-    m_lastIdleWeight = 0.0;
 
     DE1::State state = m_device->state();
 
