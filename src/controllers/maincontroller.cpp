@@ -2588,18 +2588,22 @@ void MainController::computeAutoFlowCalibration() {
 
     ideal = qBound(kCalibrationMin, ideal, kCalibrationMax);
 
-    // EMA smoothing: blend ideal toward current to dampen shot-to-shot oscillation.
-    // alpha=0.3 moves 30% toward the ideal each shot, converging in ~5-7 shots while
-    // preventing a single noisy shot from dominating (vs. jumping straight to ideal).
-    constexpr double kEmaAlpha = 0.3;
-    double computed = kEmaAlpha * ideal + (1.0 - kEmaAlpha) * currentEffective;
-
-    // Only update if relative change > 2%. The > 0.01 guard avoids division by zero
-    // on first use (before any calibration is set).
-    if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
-        qDebug() << "Auto flow cal: computed" << computed << "≈ current" << currentEffective << "(< 2% change, skipping)";
+    // Only update if the ideal itself differs enough from current. Checking ideal (not the
+    // EMA output) preserves the original 2% deadband regardless of alpha. The > 0.01 guard
+    // avoids division by zero on first use (before any calibration is set).
+    if (currentEffective > 0.01 && qAbs(ideal - currentEffective) / currentEffective < kChangeThreshold) {
+        qDebug() << "Auto flow cal: ideal" << ideal << "≈ current" << currentEffective << "(< 2% change, skipping)";
         return;
     }
+
+    // EMA smoothing: blend current toward ideal to dampen shot-to-shot oscillation.
+    // alpha=0.3 moves 30% toward the ideal each shot, converging in ~5-7 shots while
+    // preventing a single noisy shot from dominating (vs. jumping straight to ideal).
+    // Skip EMA on the first shot for this profile — no oscillation history to dampen yet.
+    constexpr double kEmaAlpha = 0.3;
+    double computed = m_settings->hasProfileFlowCalibration(m_baseProfileName)
+        ? kEmaAlpha * ideal + (1.0 - kEmaAlpha) * currentEffective
+        : ideal;
 
     double oldValue = currentEffective;
     if (!m_settings->setProfileFlowCalibration(m_baseProfileName, computed)) {
