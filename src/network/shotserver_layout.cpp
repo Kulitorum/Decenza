@@ -2336,7 +2336,7 @@ QString ShotServer::generateLayoutPage() const
         {id:"command:startFlush",label:"Start Flush",contexts:["idle"]},
         {id:"command:idle",label:"Stop (Idle)",contexts:["idle","espresso","steam","hotwater","flush"]},
         {id:"command:tare",label:"Tare Scale",contexts:["idle","espresso","all"]},
-        {id:"command:tareAndHold",label:"Tare & Hold",contexts:["idle","all"]},
+        {id:"command:tareAndHold",label:"Tare & Hold",contexts:["idle","espresso","all"]},
         {id:"command:scanDE1",label:"Scan for DE1",contexts:["idle","all"]},
         {id:"command:scanScale",label:"Scan for Scale",contexts:["idle","all"]},
         {id:"command:quit",label:"Quit App",contexts:["idle"]}

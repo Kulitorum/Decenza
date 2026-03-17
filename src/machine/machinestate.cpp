@@ -788,20 +788,18 @@ void MachineState::tareAndHold() {
     // Refuse to arm during active extraction phases — the shot is already in progress
     // and arming mid-shot would suppress tares for the remainder of the shot unexpectedly.
     // Clearing on phase change (updatePhase) handles the case where user arms before a shot.
-    bool isActivePhase = (m_phase == Phase::Preinfusion || m_phase == Phase::Pouring ||
-                          m_phase == Phase::Ending || m_phase == Phase::Steaming ||
-                          m_phase == Phase::HotWater || m_phase == Phase::Flushing ||
-                          m_phase == Phase::Descaling || m_phase == Phase::Cleaning);
+    bool isActivePhase = (m_phase == Phase::EspressoPreheating || m_phase == Phase::Preinfusion ||
+                          m_phase == Phase::Pouring || m_phase == Phase::Ending ||
+                          m_phase == Phase::Steaming || m_phase == Phase::HotWater ||
+                          m_phase == Phase::Flushing || m_phase == Phase::Descaling ||
+                          m_phase == Phase::Cleaning);
     if (isActivePhase) {
         qDebug() << "=== TARE HOLD: Ignored (active phase:" << phaseString() << ") ===";
         return;
     }
 
     // Tare first, then suppress auto-tares
-    if (m_scale && m_scale->isConnected()) {
-        m_scale->tare();
-        m_scale->resetFlowCalculation();
-    }
+    tareScale();
     m_tareSuppressed = true;
     emit tareSuppressedChanged();
     qDebug() << "=== TARE HOLD: Enabled (tared and suppressing auto-tares) ===";
