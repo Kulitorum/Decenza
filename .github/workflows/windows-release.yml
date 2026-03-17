@@ -66,6 +66,21 @@ jobs:
         with:
           arch: x64
 
+      - name: Find Qt bundled Ninja and add to PATH
+        shell: powershell
+        run: |
+          $ninja = Get-ChildItem "$env:QT_ROOT_DIR\..\..\Tools" -Recurse -Filter "ninja.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $ninja) { Write-Error "Ninja not found in Qt Tools directory"; exit 1 }
+          Write-Host "Found Ninja at: $($ninja.FullName)"
+          Add-Content $env:GITHUB_PATH $ninja.DirectoryName
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          variant: sccache
+          key: sccache-windows-x64-qt6.10.2
+          max-size: 500M
+
       - name: Install OpenSSL
         id: openssl
         shell: powershell
@@ -107,12 +122,12 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+          cmake .. -G Ninja -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
       - name: Build Release
         run: |
           cd build
-          cmake --build . --config Release --parallel
+          cmake --build . --parallel
 
       - name: Download VC++ Redistributable
         shell: powershell
@@ -147,7 +162,7 @@ jobs:
           @"
           ; CI-generated paths
           #define SourceDir "$WORKSPACE"
-          #define AppBuildDir "$WORKSPACE\build\Release"
+          #define AppBuildDir "$WORKSPACE\build"
           #define AppDeployDir "$WORKSPACE\installer\deploy"
           #define QtDir "$QT_DIR"
           #define VcRedistDir "$WORKSPACE\vcredist"
