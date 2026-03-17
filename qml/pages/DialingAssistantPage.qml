@@ -209,6 +209,8 @@ Page {
 
                         MainController.aiManager.conversation.followUp(followUpInput.text)
                         followUpInput.text = ""
+                        followUpInput.focus = false
+                        Qt.inputMethod.hide()
                     }
                 }
             }
@@ -319,13 +321,20 @@ Page {
     }
 
     // Handle conversation updates (follow-ups)
+    property real _preResponseHeight: 0
     Connections {
         target: MainController.aiManager ? MainController.aiManager.conversation : null
         function onResponseReceived(response) {
-            // Scroll to bottom when follow-up response arrives
+            // Scroll to top of the new response so it's readable from the start
             Qt.callLater(function() {
-                recommendationFlickable.contentY = Math.max(0, recommendationFlickable.contentHeight - recommendationFlickable.height)
+                recommendationFlickable.contentY = Math.max(0, _preResponseHeight)
             })
+        }
+        function onHistoryChanged() {
+            // Save scroll target before the response text is added
+            if (MainController.aiManager.conversation.busy) {
+                _preResponseHeight = recommendationText.contentHeight
+            }
         }
     }
 
