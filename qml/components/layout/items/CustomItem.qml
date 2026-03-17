@@ -405,7 +405,7 @@ Item {
             Text {
                 text: root.resolvedText
                 textFormat: Text.RichText
-                color: Theme.textColor
+                color: root._isActiveToggle ? root._contentColor : Theme.textColor
                 font: Theme.bodyFont
                 horizontalAlignment: root.qtAlignment
                 elide: Text.ElideRight
@@ -485,7 +485,7 @@ Item {
             width: Math.max(0, parent.width - (root.hasAction ? Theme.scaled(24) : 0))
             text: root.resolvedText
             textFormat: Text.RichText
-            color: Theme.textColor
+            color: root._isActiveToggle ? root._contentColor : Theme.textColor
             font: Theme.bodyFont
             horizontalAlignment: root.qtAlignment
             wrapMode: Text.Wrap

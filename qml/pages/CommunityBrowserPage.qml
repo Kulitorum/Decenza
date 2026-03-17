@@ -83,7 +83,7 @@ Item {
                         "Go to Bean Info",
                         "Sleep", "Start Espresso", "Start Steam",
                         "Start Hot Water", "Start Flush", "Stop",
-                        "Tare Scale", "Tare & Hold", "Quit App",
+                        "Tare Scale", TranslationManager.translate("customaction.command.tareAndHold", "Tare & Hold"), "Quit App",
                         "Toggle Espresso", "Toggle Steam",
                         "Toggle Hot Water", "Toggle Flush", "Toggle Beans"]
                 onCurrentIndexChanged: {
