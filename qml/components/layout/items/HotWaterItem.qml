@@ -79,6 +79,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.hotwater", "Hot Water")
+            accessibleDescription: TranslationManager.translate("idle.accessible.hotwater.hint", "Tap to toggle presets. Double-tap or long-press to configure hot water.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToHotWater()
             onAccessibleLongPressed: root.goToHotWater()
@@ -104,7 +105,7 @@ Item {
             onPressAndHold: root.goToHotWater()
             onDoubleClicked: root.goToHotWater()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.hotwater.description", "Dispense hot water. Long-press to configure.")
+            Accessible.description: TranslationManager.translate("idle.accessible.hotwater.description", "Dispense hot water. Double-tap or long-press to configure.")
         }
     }
 

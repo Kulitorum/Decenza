@@ -79,6 +79,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.steam", "Steam")
+            accessibleDescription: TranslationManager.translate("idle.accessible.steam.hint", "Tap to toggle presets. Double-tap or long-press to configure steam.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToSteam()
             onAccessibleLongPressed: root.goToSteam()
@@ -104,7 +105,7 @@ Item {
             onPressAndHold: root.goToSteam()
             onDoubleClicked: root.goToSteam()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.steam.description", "Start steaming milk. Long-press to configure.")
+            Accessible.description: TranslationManager.translate("idle.accessible.steam.description", "Start steaming milk. Double-tap or long-press to configure.")
         }
     }
 

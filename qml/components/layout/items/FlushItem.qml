@@ -79,6 +79,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.flush", "Flush")
+            accessibleDescription: TranslationManager.translate("idle.accessible.flush.hint", "Tap to toggle presets. Double-tap or long-press to configure flush.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToFlush()
             onAccessibleLongPressed: root.goToFlush()
@@ -104,7 +105,7 @@ Item {
             onPressAndHold: root.goToFlush()
             onDoubleClicked: root.goToFlush()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.flush.description", "Flush the group head. Long-press to configure.")
+            Accessible.description: TranslationManager.translate("idle.accessible.flush.description", "Flush the group head. Double-tap or long-press to configure.")
         }
     }
 

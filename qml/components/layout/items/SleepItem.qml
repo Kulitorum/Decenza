@@ -99,6 +99,8 @@ Item {
             backgroundColor: Theme.buttonDisabled
             onClicked: root.doSleep()
             onPressAndHold: Qt.quit()
+
+            Accessible.description: TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.")
         }
     }
 }

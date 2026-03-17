@@ -24,6 +24,9 @@ Item {
     // Accessibility: expose weight/status to screen readers
     Accessible.role: Accessible.Button
     Accessible.name: root.accessibleDescription()
+    Accessible.description: root.scaleConnected
+        ? TranslationManager.translate("idle.accessible.scale.hint", "Tap to tare. Double-tap or long-press for brew settings.")
+        : ""
     Accessible.focusable: true
     Accessible.onPressAction: {
         if (root.scaleConnected)

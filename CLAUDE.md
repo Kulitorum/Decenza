@@ -261,6 +261,7 @@ KeyboardAwareContainer {
 | List delegate | — | `Accessible.role: Accessible.Button` + `name` (summarize row content) + `focusable` + `onPressAction` |
 
 Common mistakes:
+- **Multi-action element missing `Accessible.description` hint**: Any interactive element with secondary actions (long-press, double-tap) **must** set `Accessible.description` (or `accessibleDescription` on `AccessibleTapHandler`) to announce those actions. TalkBack/VoiceOver reads this as a hint after the element name. Without it, blind users cannot discover secondary actions. Format: `"Double-tap or long-press to <action>."` For `AccessibleTapHandler` use the `accessibleDescription` property; for `ActionButton` and raw `Rectangle` use `Accessible.description` directly.
 - **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton`, `AccessibleMouseArea`, or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
 - **Accessibility on raw MouseArea instead of Rectangle**: Never put `Accessible.role`/`name`/`focusable` on a raw `MouseArea` child — put them on the parent Rectangle. MouseArea should only have an `id` so the Rectangle's `Accessible.onPressAction` can route to it. This does **not** apply to `AccessibleMouseArea`, which is a project component designed to handle accessibility on behalf of the parent via `accessibleItem`.
 - **Missing `Accessible.onPressAction`**: Every raw Rectangle+MouseArea button **must** have `Accessible.onPressAction: mouseAreaId.clicked(null)` (or `.tapped()` for TapHandler). Without it, TalkBack/VoiceOver double-tap does nothing. This applies even when the other three properties (`role`, `name`, `focusable`) are present. Not needed when using `AccessibleMouseArea` or `AccessibleButton`.
@@ -518,9 +519,10 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 ### Rules for New Components
 
 1. Every interactive element must have `Accessible.role`, `Accessible.name`, `Accessible.focusable`, `Accessible.onPressAction` **on itself** (not on a child). Exception: `AccessibleMouseArea` with `accessibleItem` carries accessibility for its parent — see anti-pattern #1 exception above.
-2. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates
-3. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
-4. Test with TalkBack: double-tap to activate, swipe to navigate
+2. Every interactive element with secondary actions (long-press, double-tap) **must** also set `Accessible.description` (or `accessibleDescription` on `AccessibleTapHandler`) describing those actions. Format: `"Double-tap or long-press to <action>."` This is how TalkBack/VoiceOver announces hints — without it, blind users cannot discover secondary workflows.
+3. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates
+4. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
+5. Test with TalkBack: double-tap to activate, swipe to navigate
 
 ### Rules for Modifying Existing Components
 

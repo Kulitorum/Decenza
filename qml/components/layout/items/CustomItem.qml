@@ -23,6 +23,19 @@ Item {
     readonly property bool hasEmoji: emoji !== ""
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
 
+    // Accessibility hint describing configured secondary actions (for TalkBack/VoiceOver)
+    readonly property string _accessibleHint: {
+        var hasLP = root.longPressAction !== ""
+        var hasDC = root.doubleclickAction !== ""
+        if (hasLP && hasDC)
+            return TranslationManager.translate("customitem.accessible.hint.both", "Long-press or double-tap for additional actions.")
+        if (hasLP)
+            return TranslationManager.translate("customitem.accessible.hint.longpress", "Long-press for additional action.")
+        if (hasDC)
+            return TranslationManager.translate("customitem.accessible.hint.doubletap", "Double-tap for additional action.")
+        return ""
+    }
+
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
     readonly property color _effectiveBackground: _parsedBgColor
     // Content color for text and icon tinting on the button background
@@ -412,6 +425,7 @@ Item {
             id: compactTap
             anchors.fill: parent
             accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
             onAccessibleClicked: root.executeActionString(root.action)
@@ -490,6 +504,7 @@ Item {
             id: fullTap
             anchors.fill: parent
             accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
             onAccessibleClicked: root.executeActionString(root.action)
