@@ -245,7 +245,8 @@ Rectangle {
                     Accessible.ignored: true
                 }
 
-                // Hide keyboard button (modal dialog blocks the global one in main.qml)
+                // Hide keyboard button — the global one in main.qml is behind the modal
+                // overlay and can't be tapped, so modal dialogs with text inputs need their own.
                 Rectangle {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(8)
