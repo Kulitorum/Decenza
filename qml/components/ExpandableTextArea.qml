@@ -245,40 +245,10 @@ Rectangle {
                     Accessible.ignored: true
                 }
 
-                // Hide keyboard button — the global one in main.qml is behind the modal
-                // overlay and can't be tapped, so modal dialogs with text inputs need their own.
-                Rectangle {
+                HideKeyboardButton {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(8)
                     anchors.verticalCenter: parent.verticalCenter
-                    width: Theme.scaled(36)
-                    height: Theme.scaled(36)
-                    radius: Theme.scaled(18)
-                    color: Theme.primaryColor
-                    visible: dialogTextArea.activeFocus && (Qt.platform.os === "android" || Qt.platform.os === "ios")
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("main.hidekeyboard", "Hide keyboard")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: dialogHideKbArea.clicked(null)
-
-                    Image {
-                        anchors.centerIn: parent
-                        width: Theme.scaled(20)
-                        height: Theme.scaled(20)
-                        source: "qrc:/icons/hide-keyboard.svg"
-                        sourceSize: Qt.size(width, height)
-                        Accessible.ignored: true
-                    }
-
-                    MouseArea {
-                        id: dialogHideKbArea
-                        anchors.fill: parent
-                        onClicked: {
-                            dialogTextArea.focus = false
-                            Qt.inputMethod.hide()
-                        }
-                    }
                 }
 
                 Rectangle {

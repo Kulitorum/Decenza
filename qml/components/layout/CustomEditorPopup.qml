@@ -187,6 +187,14 @@ Dialog {
     }
 
     contentItem: Item {
+        HideKeyboardButton {
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.scaled(8)
+            anchors.top: parent.top
+            anchors.topMargin: Theme.scaled(4)
+            z: 10
+        }
+
         Flickable {
             id: editorFlickable
             anchors.fill: parent

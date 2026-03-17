@@ -86,6 +86,12 @@ Dialog {
                     }
                 }
 
+                HideKeyboardButton {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.scaled(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
                 Rectangle {
                     anchors.bottom: parent.bottom
                     anchors.left: parent.left
