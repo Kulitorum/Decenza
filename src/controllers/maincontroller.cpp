@@ -2577,16 +2577,22 @@ void MainController::computeAutoFlowCalibration() {
     // Since raw = reported / current_multiplier, this simplifies to:
     // ideal = current_multiplier * weight_flow / (reported_flow * density)
     double currentEffective = m_settings->effectiveFlowCalibration(m_baseProfileName);
-    double computed = currentEffective * meanWeightFlow / (meanMachineFlow * kWaterDensity93C);
+    double ideal = currentEffective * meanWeightFlow / (meanMachineFlow * kWaterDensity93C);
 
-    if (!std::isfinite(computed)) {
-        qWarning() << "Auto flow cal: computed non-finite value" << computed
+    if (!std::isfinite(ideal)) {
+        qWarning() << "Auto flow cal: computed non-finite value" << ideal
                    << "(meanMachineFlow:" << meanMachineFlow
                    << "meanWeightFlow:" << meanWeightFlow << ")";
         return;
     }
 
-    computed = qBound(kCalibrationMin, computed, kCalibrationMax);
+    ideal = qBound(kCalibrationMin, ideal, kCalibrationMax);
+
+    // EMA smoothing: blend ideal toward current to dampen shot-to-shot oscillation.
+    // alpha=0.3 moves 30% toward the ideal each shot, converging in ~5-7 shots while
+    // preventing a single noisy shot from dominating (vs. jumping straight to ideal).
+    constexpr double kEmaAlpha = 0.3;
+    double computed = kEmaAlpha * ideal + (1.0 - kEmaAlpha) * currentEffective;
 
     // Only update if relative change > 2%. The > 0.01 guard avoids division by zero
     // on first use (before any calibration is set).
@@ -2605,7 +2611,8 @@ void MainController::computeAutoFlowCalibration() {
 
     qDebug() << "Auto flow cal: updated" << m_baseProfileName
              << "from" << oldValue << "to" << computed
-             << "(window:" << windowDuration << "s," << bestCount << "samples)";
+             << "(ideal:" << ideal << "EMA alpha:" << kEmaAlpha
+             << "window:" << windowDuration << "s," << bestCount << "samples)";
 
     emit flowCalibrationAutoUpdated(m_currentProfile.title(), oldValue, computed);
 
