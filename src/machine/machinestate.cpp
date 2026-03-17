@@ -465,7 +465,7 @@ void MachineState::onScaleWeightChanged(double weight) {
         }
     }
 
-
+    if (!m_device) return;
     DE1::State state = m_device->state();
 
     // Throttled weight logging during SAW-relevant phases (~every 2s)
