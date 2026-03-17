@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Effects
 import Decenza
 
 // Circular button to dismiss the soft keyboard inside modal dialogs.
