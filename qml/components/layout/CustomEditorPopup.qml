@@ -1661,6 +1661,7 @@ Dialog {
             { id: "command:startFlush",      label: TranslationManager.translate("customaction.command.startFlush", "Start Flush"),               contexts: ["idle"] },
             { id: "command:idle",            label: TranslationManager.translate("customaction.command.idle", "Stop (Idle)"),                     contexts: ["idle", "espresso", "steam", "hotwater", "flush"] },
             { id: "command:tare",            label: TranslationManager.translate("customaction.command.tare", "Tare Scale"),                      contexts: ["idle", "espresso", "all"] },
+            { id: "command:tareAndHold",    label: TranslationManager.translate("customaction.command.tareAndHold", "Tare & Hold"),              contexts: ["idle", "all"] },
             { id: "command:scanDE1",         label: TranslationManager.translate("customaction.command.scanDE1", "Scan for DE1"),                 contexts: ["idle", "all"] },
             { id: "command:scanScale",       label: TranslationManager.translate("customaction.command.scanScale", "Scan for Scale"),             contexts: ["idle", "all"] },
             { id: "command:brewSettings",    label: TranslationManager.translate("customaction.command.brewSettings", "Open Brew Settings"),      contexts: ["idle"] },

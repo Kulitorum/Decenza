@@ -277,6 +277,16 @@ void MachineState::updatePhase() {
     }
 
     if (m_phase != oldPhase) {
+        // Clear tare-and-hold when entering any operational phase
+        // Must happen before espressoCycleStarted() and hot water tare so normal taring proceeds
+        if (m_tareSuppressed &&
+            (m_phase == Phase::EspressoPreheating || m_phase == Phase::Steaming ||
+             m_phase == Phase::HotWater || m_phase == Phase::Flushing)) {
+            m_tareSuppressed = false;
+            emit tareSuppressedChanged();
+            qDebug() << "=== TARE HOLD: Cleared (mode started:" << phaseString() << ") ===";
+        }
+
         // Detect espresso cycle start (entering preheating from non-espresso state)
         bool wasInEspresso = (oldPhase == Phase::EspressoPreheating ||
                               oldPhase == Phase::Preinfusion ||
@@ -451,7 +461,7 @@ void MachineState::onScaleWeightChanged(double weight) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
 
         // Detect cup removal: weight was >50g and dropped to <10g within 2 seconds
-        if (m_lastIdleWeight > 50.0 && weight < 10.0) {
+        if (!m_tareSuppressed && m_lastIdleWeight > 50.0 && weight < 10.0) {
             qint64 elapsed = now - m_lastWeightTime;
             if (elapsed < 2000) {  // Drop happened within 2 seconds
                 qDebug() << "=== AUTO-TARE: Cup removed (weight dropped from"
@@ -482,7 +492,7 @@ void MachineState::onScaleWeightChanged(double weight) {
                         subState == DE1::SubState::Stabilising);
     }
 
-    if (isFlowBefore && m_tareCompleted && weight > AUTO_TARE_THRESHOLD) {
+    if (isFlowBefore && !m_tareSuppressed && m_tareCompleted && weight > AUTO_TARE_THRESHOLD) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
         if (now - m_lastAutoTareTime >= AUTO_TARE_HOLDOFF_MS) {
             m_lastAutoTareTime = now;
@@ -761,6 +771,25 @@ void MachineState::tareScale() {
         }
         m_tareTimeoutTimer->start();
     }
+}
+
+void MachineState::tareAndHold() {
+    if (m_tareSuppressed) {
+        // Toggle off — resume normal auto-tare behavior
+        m_tareSuppressed = false;
+        emit tareSuppressedChanged();
+        qDebug() << "=== TARE HOLD: Disabled ===";
+        return;
+    }
+
+    // Tare first, then suppress auto-tares
+    if (m_scale && m_scale->isConnected()) {
+        m_scale->tare();
+        m_scale->resetFlowCalculation();
+    }
+    m_tareSuppressed = true;
+    emit tareSuppressedChanged();
+    qDebug() << "=== TARE HOLD: Enabled (tared and suppressing auto-tares) ===";
 }
 
 void MachineState::onTimingControllerTareComplete() {

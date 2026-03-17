@@ -1964,6 +1964,7 @@ QString ShotServer::generateLayoutPage() const
                     <option value="command:startHotWater">Start Hot Water</option>
                     <option value="command:startFlush">Start Flush</option>
                     <option value="command:tare">Tare Scale</option>
+                    <option value="command:tareAndHold">Tare &amp; Hold</option>
                     <option value="command:scanDE1">Scan for DE1</option>
                     <option value="command:scanScale">Scan for Scale</option>
                     <option value="command:quit">Quit</option>
@@ -2335,6 +2336,7 @@ QString ShotServer::generateLayoutPage() const
         {id:"command:startFlush",label:"Start Flush",contexts:["idle"]},
         {id:"command:idle",label:"Stop (Idle)",contexts:["idle","espresso","steam","hotwater","flush"]},
         {id:"command:tare",label:"Tare Scale",contexts:["idle","espresso","all"]},
+        {id:"command:tareAndHold",label:"Tare & Hold",contexts:["idle","all"]},
         {id:"command:scanDE1",label:"Scan for DE1",contexts:["idle","all"]},
         {id:"command:scanScale",label:"Scan for Scale",contexts:["idle","all"]},
         {id:"command:quit",label:"Quit App",contexts:["idle"]}

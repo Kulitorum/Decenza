@@ -296,6 +296,10 @@ Item {
                     if (typeof MachineState !== "undefined")
                         MachineState.tareScale()
                     break
+                case "tareAndHold":
+                    if (typeof MachineState !== "undefined")
+                        MachineState.tareAndHold()
+                    break
                 case "scanDE1":
                     if (typeof BLEManager !== "undefined")
                         BLEManager.startScan()

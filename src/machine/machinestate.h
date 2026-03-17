@@ -29,6 +29,7 @@ class MachineState : public QObject {
     Q_PROPERTY(double preinfusionVolume READ preinfusionVolume NOTIFY preinfusionVolumeChanged)
     Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged)
     Q_PROPERTY(StopAtType stopAtType READ stopAtType NOTIFY stopAtTypeChanged)
+    Q_PROPERTY(bool tareSuppressed READ tareSuppressed NOTIFY tareSuppressedChanged)
 
 public:
     enum class Phase {
@@ -72,6 +73,7 @@ public:
     double preinfusionVolume() const { return m_preinfusionVolume; }
     double pourVolume() const { return m_pourVolume; }
     StopAtType stopAtType() const { return m_stopAtType; }
+    bool tareSuppressed() const { return m_tareSuppressed; }
 
     ScaleDevice* scale() const;
     void setScale(ScaleDevice* scale);
@@ -95,6 +97,9 @@ public:
     // Tare the scale (call from MainController when first user frame starts)
     Q_INVOKABLE void tareScale();
 
+    // Tare the scale and suppress auto-tares until toggled off or a mode starts
+    Q_INVOKABLE void tareAndHold();
+
 signals:
     void phaseChanged();
     void shotTimeChanged();
@@ -114,6 +119,7 @@ signals:
     void tareCompleted();         // Emitted when scale reports ~0g after tare command
     void flowBeforeAutoTare();    // Emitted when auto-tare fires during preheat (tells WeightProcessor to reset)
     void sawBypassed();           // Emitted when SAW is skipped due to untared cup
+    void tareSuppressedChanged();
 
 private slots:
     void onDE1StateChanged();
@@ -154,6 +160,7 @@ private:
     bool m_stopAtTimeTriggered = false;
     bool m_tareCompleted = false;
     bool m_waitingForTare = false;  // True after tare sent, waiting for scale to report ~0g
+    bool m_tareSuppressed = false;  // True when tareAndHold is active (suppresses auto-tares)
     QTimer* m_tareTimeoutTimer = nullptr;
 
     // Cached flow rates from WeightProcessor (updated via signal from worker thread)
