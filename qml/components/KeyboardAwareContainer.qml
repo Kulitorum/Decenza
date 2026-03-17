@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 import Decenza
 
 // Container that shifts content up when a text field has focus.
@@ -94,17 +95,12 @@ Item {
         var fieldPos = field.mapToItem(targetFlickable.contentItem, 0, 0)
         var fieldBottom = fieldPos.y + field.height
 
-        // On Android, adjustPan already shifts the window above the keyboard.
-        // Only subtract keyboard height on other platforms to avoid double-shifting.
-        var visibleHeight
-        if (Qt.platform.os === "android") {
-            visibleHeight = targetFlickable.height
-        } else {
-            var kbHeight = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
-            if (kbHeight <= 0) kbHeight = root.height * 0.5
-            visibleHeight = targetFlickable.height - kbHeight
-            if (visibleHeight <= 0) visibleHeight = targetFlickable.height * 0.5
-        }
+        // adjustPan shifts the window but not the Flickable's coordinate space,
+        // so we still need to subtract keyboard height to know the truly visible area.
+        var kbHeight = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
+        if (kbHeight <= 0) kbHeight = root.height * 0.45
+        var visibleHeight = targetFlickable.height - kbHeight
+        if (visibleHeight <= 0) visibleHeight = targetFlickable.height * 0.5
 
         var margin = 20
         var maxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)

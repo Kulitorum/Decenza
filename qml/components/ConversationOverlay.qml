@@ -244,9 +244,10 @@ Rectangle {
                     }
 
                     // Spacer to avoid overlap with global hide-keyboard button on mobile
+                    // (button is scaled(36) wide + standardMargin from edge)
                     Item {
                         visible: (Qt.platform.os === "android" || Qt.platform.os === "ios")
-                        width: Theme.scaled(40)
+                        width: Theme.scaled(52)
                         height: 1
                     }
                 }
@@ -553,6 +554,10 @@ Rectangle {
             Qt.callLater(function() {
                 conversationFlickable.contentY = Math.max(0, overlay._preResponseHeight)
             })
+        }
+        function onErrorOccurred(error) {
+            // Reset flag so the next send captures scroll position correctly
+            overlay._waitingForResponse = false
         }
         function onHistoryChanged() {
             // Only save the scroll target when the user sends (before response arrives).
