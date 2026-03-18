@@ -35,9 +35,6 @@
         "pourTemperature": 90.0,
         "rampEnabled": false,
         "rampTime": 0,
-        "declineEnabled": false,
-        "declineTo": 6.0,
-        "declineTime": 30.0,
         "targetWeight": 45.0
     },
     "steps": [

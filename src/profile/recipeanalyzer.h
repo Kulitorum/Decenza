@@ -12,7 +12,6 @@
  *
  * Detection patterns:
  * - Simple D-Flow: Fill → Infuse → Pour (3 frames)
- * - D-Flow with decline: Fill → Infuse → Pour → Decline (4 frames)
  * - Complex profiles: More than 4 frames or non-matching patterns → not convertible
  */
 class RecipeAnalyzer {
@@ -54,7 +53,6 @@ private:
     static bool isInfuseFrame(const ProfileFrame& frame);
     static bool isRampFrame(const ProfileFrame& frame);
     static bool isPourFrame(const ProfileFrame& frame);
-    static bool isDeclineFrame(const ProfileFrame& frame, const ProfileFrame* previousFrame);
 
     // Parameter extraction from frames
     static double extractFillPressure(const ProfileFrame& frame);
@@ -64,5 +62,4 @@ private:
     static double extractPourFlow(const ProfileFrame& frame);
     static double extractFlowLimit(const ProfileFrame& frame);
     static double extractPressureLimit(const ProfileFrame& frame);
-    static double extractDeclineTime(const ProfileFrame& frame);
 };

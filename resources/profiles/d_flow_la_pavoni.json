@@ -13,11 +13,6 @@
     "target_weight": 46.0,
     "target_volume": 0,
     "recipe": {
-        "bloomEnabled": false,
-        "bloomTime": 10,
-        "declineEnabled": false,
-        "declineTime": 30,
-        "declineTo": 1,
         "dose": 18,
         "editorType": "dflow",
         "fillFlow": 8,

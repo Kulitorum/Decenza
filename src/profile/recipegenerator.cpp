@@ -18,27 +18,16 @@ QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) 
 
     // D-Flow frame generation
     // Always 3 core frames (matching de1app): Filling, Infusing, Pouring
-    // Optional Decenza extras: Bloom (before Infusing), Decline (after Pouring)
     QList<ProfileFrame> frames;
 
     // Filling - pressure mode to saturate puck (always first)
     frames.append(createFillFrame(recipe));
-
-    // Bloom - optional pause for CO2 release (Decenza extra, not in de1app)
-    if (recipe.bloomEnabled && recipe.bloomTime > 0) {
-        frames.append(createBloomFrame(recipe));
-    }
 
     // Infusing - hold at soak pressure (always emitted; seconds=0 skips it when disabled)
     frames.append(createInfuseFrame(recipe));
 
     // Pouring - main extraction phase
     frames.append(createPourFrame(recipe));
-
-    // Decline - optional flow decline
-    if (recipe.declineEnabled) {
-        frames.append(createDeclineFrame(recipe));
-    }
 
     // Fallback: add empty frame if no frames were created (consistency with other generators)
     if (frames.isEmpty()) {
@@ -144,33 +133,6 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
     return frame;
 }
 
-ProfileFrame RecipeGenerator::createBloomFrame(const RecipeParams& recipe) {
-    ProfileFrame frame;
-
-    frame.name = "Bloom";
-    frame.pump = "flow";
-    frame.flow = 0.0;  // Zero flow - let puck rest
-    frame.pressure = 0.0;
-    frame.temperature = recipe.fillTemperature;
-    frame.seconds = recipe.bloomTime;
-    frame.transition = "fast";
-    frame.sensor = "coffee";
-    frame.volume = 0.0;
-
-    // Exit when pressure drops (CO2 has escaped)
-    frame.exitIf = true;
-    frame.exitType = "pressure_under";
-    frame.exitPressureOver = 11.0;
-    frame.exitPressureUnder = 0.5;
-    frame.exitFlowOver = 6.0;
-    frame.exitFlowUnder = 0.0;
-
-    frame.maxFlowOrPressure = 0.0;
-    frame.maxFlowOrPressureRange = 0.2;
-
-    return frame;
-}
-
 ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
     ProfileFrame frame;
 
@@ -229,34 +191,6 @@ ProfileFrame RecipeGenerator::createPourFrame(const RecipeParams& recipe) {
     frame.exitPressureOver = 11.0;
     frame.exitPressureUnder = 0.0;
     frame.exitFlowOver = 2.80;
-    frame.exitFlowUnder = 0.0;
-
-    return frame;
-}
-
-ProfileFrame RecipeGenerator::createDeclineFrame(const RecipeParams& recipe) {
-    ProfileFrame frame;
-
-    frame.name = "Decline";
-    frame.temperature = recipe.pourTemperature;
-    frame.seconds = recipe.declineTime;
-    frame.transition = "smooth";  // Key: smooth ramp creates the decline curve
-    frame.sensor = "coffee";
-    frame.volume = 100.0;
-
-    // Flow mode decline - reduce flow over time
-    frame.pump = "flow";
-    frame.flow = recipe.declineTo;
-    frame.pressure = recipe.pourPressure;
-    frame.maxFlowOrPressure = recipe.pourPressure;
-    frame.maxFlowOrPressureRange = 0.2;
-
-    // No exit condition - time/weight handles termination
-    frame.exitIf = false;
-    frame.exitType = "";
-    frame.exitPressureOver = 0.0;
-    frame.exitPressureUnder = 0.0;
-    frame.exitFlowOver = 0.0;
     frame.exitFlowUnder = 0.0;
 
     return frame;

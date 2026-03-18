@@ -38,7 +38,7 @@ inline EditorType editorTypeFromString(const QString& str) {
  * frames by RecipeGenerator.
  *
  * Supports four editor types via EditorType enum:
- * - DFlow: Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
+ * - DFlow: Fill → [Infuse] → [Ramp] → Pour
  * - AFlow: Fill → [Infuse] → Pressure Up → Pressure Decline → Flow Start → Flow Extraction
  * - Pressure: Preinfusion → [Forced Rise] → Hold → Decline (settings_2a)
  * - Flow: Preinfusion → Hold → Decline (settings_2b)
@@ -61,8 +61,6 @@ struct RecipeParams {
     double infuseTime = 20.0;           // Soak duration (seconds)
     double infuseWeight = 4.0;          // Weight to exit infuse (grams, 0 = disabled)
     double infuseVolume = 100.0;        // Max volume during infuse (mL)
-    bool bloomEnabled = false;          // Enable bloom (pause with 0 flow)
-    double bloomTime = 10.0;            // Bloom pause duration (seconds)
 
     // === Pour Phase (Extraction) ===
     // Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow model).
@@ -77,11 +75,6 @@ struct RecipeParams {
     bool rampDownEnabled = false;       // Split pressure ramp into up + decline phases
     bool flowExtractionUp = true;       // Flow ramps up during extraction (smooth vs fast)
     bool secondFillEnabled = false;     // Add 2nd Fill + Pause frames before pressure ramp
-
-    // === Decline Phase (D-Flow/A-Flow recipes — simple profiles use simpleDeclineTime below) ===
-    bool declineEnabled = false;        // Enable flow decline during extraction
-    double declineTo = 1.0;             // Target flow to decline to (mL/s)
-    double declineTime = 30.0;          // Decline duration (seconds)
 
     // === Simple Profile Parameters (pressure/flow editors) ===
     double preinfusionTime = 20.0;        // Preinfusion duration (seconds)

@@ -5,7 +5,7 @@ bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     const auto& steps = profile.steps();
 
     // Need at least 2 frames (Fill + Pour) and at most 9 frames
-    // D-Flow: Fill → [Bloom] → [Infuse] → [Ramp] → Pour → [Decline]
+    // D-Flow: Fill → [Infuse] → [Ramp] → Pour
     // A-Flow: Fill → [Infuse] → [2ndFill] → [Pause] → [RampUp] → [RampDown] → PourStart → Pour
     if (steps.size() < 2 || steps.size() > 9) {
         return false;
@@ -15,19 +15,13 @@ bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     // Pattern 1: Fill → Pour (2 frames)
     // Pattern 2: Fill → Infuse → Pour (3 frames)
     // Pattern 3: Fill → Infuse → Ramp → Pour (4 frames)
-    // Pattern 4: Fill → Infuse → Pour → Decline (4 frames)
-    // Pattern 5: Fill → Infuse → Ramp → Pour → Decline (5 frames)
-
     // First frame should be a fill frame
     if (!isFillFrame(steps[0])) {
         return false;
     }
 
-    // Last frame (or second-to-last if decline) should be a pour frame
+    // Last frame should be a pour frame
     int pourIndex = static_cast<int>(steps.size()) - 1;
-    if (steps.size() >= 2 && isDeclineFrame(steps[pourIndex], &steps[pourIndex - 1])) {
-        pourIndex--;
-    }
 
     if (pourIndex < 1) {
         return false;
@@ -63,19 +57,14 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
     int infuseIndex = -1;
     int rampIndex = -1;
     int pourIndex = -1;
-    int declineIndex = -1;
 
     // First frame is fill
     if (isFillFrame(steps[0])) {
         fillIndex = 0;
     }
 
-    // Find pour frame (last non-decline frame)
+    // Find pour frame (last frame)
     for (int i = static_cast<int>(steps.size()) - 1; i >= 1; i--) {
-        if (i > 0 && isDeclineFrame(steps[i], &steps[i - 1])) {
-            declineIndex = i;
-            continue;
-        }
         if (isPourFrame(steps[i])) {
             pourIndex = i;
             break;
@@ -103,14 +92,6 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         if (fillFrame.temperature > 0) {
             params.fillTemperature = fillFrame.temperature;
         }
-    }
-
-    // Extract bloom parameters
-    if (bloomIndex >= 0 && bloomIndex < steps.size()) {
-        params.bloomEnabled = true;
-        params.bloomTime = steps[bloomIndex].seconds;
-    } else {
-        params.bloomEnabled = false;
     }
 
     // Extract infuse parameters
@@ -145,22 +126,6 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         if (pourFrame.temperature > 0) {
             params.pourTemperature = pourFrame.temperature;
         }
-    }
-
-    // Extract decline parameters (decline is now flow-based: declineTo = target flow in mL/s)
-    if (declineIndex >= 0 && declineIndex < steps.size()) {
-        const auto& declineFrame = steps[declineIndex];
-        params.declineEnabled = true;
-        // New model: decline is flow reduction. Extract target flow from decline frame.
-        if (declineFrame.pump == "flow" && declineFrame.flow > 0) {
-            params.declineTo = declineFrame.flow;
-        } else {
-            // Legacy pressure-mode decline: approximate flow decline from pour flow
-            params.declineTo = params.pourFlow * 0.5;
-        }
-        params.declineTime = extractDeclineTime(declineFrame);
-    } else {
-        params.declineEnabled = false;
     }
 
     return params;
@@ -229,13 +194,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
             continue;
         }
 
-        // Look for bloom frame
-        if (foundFill && !foundInfuse && isBloomFrame(frame)) {
-            params.bloomEnabled = true;
-            params.bloomTime = frame.seconds > 0 ? frame.seconds : 10.0;
-            continue;
-        }
-
         // Look for infuse-like frame
         if (foundFill && !foundInfuse && (isInfuseFrame(frame) || frame.pump == "pressure")) {
             foundInfuse = true;
@@ -259,19 +217,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
             }
             if (frame.temperature > 0) {
                 params.pourTemperature = frame.temperature;
-            }
-            // Check next frame for decline
-            if (i + 1 < steps.size()) {
-                const auto& nextFrame = steps[i + 1];
-                if (isDeclineFrame(nextFrame, &frame)) {
-                    params.declineEnabled = true;
-                    if (nextFrame.pump == "flow" && nextFrame.flow > 0) {
-                        params.declineTo = nextFrame.flow;
-                    } else {
-                        params.declineTo = params.pourFlow * 0.5;
-                    }
-                    params.declineTime = extractDeclineTime(nextFrame);
-                }
             }
             break;  // Pour found, we're done
         }
@@ -402,31 +347,6 @@ bool RecipeAnalyzer::isPourFrame(const ProfileFrame& frame) {
     return false;
 }
 
-bool RecipeAnalyzer::isDeclineFrame(const ProfileFrame& frame, const ProfileFrame* previousFrame) {
-    // Decline frame characteristics:
-    // - Usually named "Decline", "Ramp Down"
-    // - Smooth transition
-    // - Lower pressure than previous frame
-    // - Pressure pump mode
-
-    QString nameLower = frame.name.toLower();
-    if (nameLower.contains("decline") || nameLower.contains("ramp down")) {
-        return true;
-    }
-
-    // Heuristic: smooth transition to lower pressure or lower flow
-    if (frame.transition == "smooth" && previousFrame) {
-        if (frame.pump == "pressure" && frame.pressure < previousFrame->pressure) {
-            return true;
-        }
-        if (frame.pump == "flow" && frame.flow < previousFrame->flow) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 // === Parameter Extraction ===
 
 double RecipeAnalyzer::extractFillPressure(const ProfileFrame& frame) {
@@ -473,6 +393,3 @@ double RecipeAnalyzer::extractPressureLimit(const ProfileFrame& frame) {
     return 0.0;
 }
 
-double RecipeAnalyzer::extractDeclineTime(const ProfileFrame& frame) {
-    return frame.seconds > 0 ? frame.seconds : 30.0;
-}

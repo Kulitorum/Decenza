@@ -12,11 +12,6 @@
     "target_weight": 32.0,
     "target_volume": 0,
     "recipe": {
-        "bloomEnabled": false,
-        "bloomTime": 10,
-        "declineEnabled": false,
-        "declineTime": 30,
-        "declineTo": 6,
         "dose": 18,
         "fillFlow": 8,
         "fillPressure": 6,

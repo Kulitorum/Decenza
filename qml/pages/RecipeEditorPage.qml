@@ -66,7 +66,6 @@ Page {
         // Match frame name to section
         if (name === "pre fill") return "infuse"  // Pre Fill workaround frame
         if (name.indexOf("fill") !== -1 && name.indexOf("2nd") === -1) return "infuse"  // Fill maps to infuse section
-        if (name.indexOf("bloom") !== -1) return "infuse"
         if (name.indexOf("infuse") !== -1 || name.indexOf("preinfuse") !== -1) return "infuse"
         if (name.indexOf("2nd fill") !== -1) return "aflowToggles"
         if (name.indexOf("pause") !== -1) return "aflowToggles"
@@ -76,7 +75,6 @@ Page {
         if (name.indexOf("flow start") !== -1) return "pour"
         if (name.indexOf("flow extraction") !== -1) return "pour"
         if (name.indexOf("pour") !== -1 || name.indexOf("extraction") !== -1) return "pour"
-        if (name.indexOf("decline") !== -1) return "pour"
 
         // Fallback: use frame position heuristic
         var totalFrames = profile.steps.length
