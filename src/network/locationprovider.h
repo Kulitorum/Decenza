@@ -85,6 +85,8 @@ private:
     QString m_manualCountryCode;
     bool m_manualGeocoded = false;
 
+    bool m_hasFreshFix = false;  // true once a live GPS fix (not cached) has been received
+
     // Throttle reverse geocoding (don't query if position hasn't changed much)
     double m_lastGeocodedLat = 0.0;
     double m_lastGeocodedLon = 0.0;

@@ -261,10 +261,10 @@ KeyboardAwareContainer {
                         text: {
                             if (Qt.platform.os === "android") {
                                 if (MainController.shotReporter.isGpsEnabled())
-                                    return "Acquiring location…"
-                                return "GPS disabled - tap to open Settings"
+                                    return TranslationManager.translate("settings.preferences.gpsAcquiring", "Acquiring location…")
+                                return TranslationManager.translate("settings.preferences.gpsDisabled", "GPS disabled - tap to open Settings")
                             }
-                            return "No location - tap to enable"
+                            return TranslationManager.translate("settings.preferences.noLocation", "No location - tap to enable")
                         }
                         color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(12)
