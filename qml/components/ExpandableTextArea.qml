@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
+import QtQuick.Window
 import Decenza
 
 Rectangle {
@@ -202,8 +203,8 @@ Rectangle {
             onClicked: {
                 dialogTextArea.text = root.text
                 expandDialog.open()
-                dialogTextArea.forceActiveFocus()
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                    dialogTextArea.forceActiveFocus()
                     AccessibilityManager.announce(TranslationManager.translate("expandableText.accessible.expandedEditor", "%1 expanded editor").arg(root.accessibleName))
                 }
             }
@@ -213,12 +214,39 @@ Rectangle {
     // Expanded editor dialog
     Dialog {
         id: expandDialog
-        anchors.centerIn: Overlay.overlay
+        parent: Overlay.overlay
         width: Math.min(Theme.windowWidth * 0.85, Theme.scaled(600))
-        height: Math.min(Theme.windowHeight * 0.75, Theme.scaled(500))
         modal: true
         padding: 0
         closePolicy: Dialog.CloseOnEscape
+
+        // Track whether keyboard is covering the dialog
+        property bool keyboardActive: dialogTextArea.activeFocus
+        property real keyboardHeight: {
+            if (!keyboardActive) return 0
+            var kbh = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
+            return kbh > 0 ? kbh : Theme.windowHeight * 0.45
+        }
+
+        // On Android, adjustPan shifts the window when keyboard appears, so
+        // the dialog doesn't need to reposition itself (that would double-shift).
+        // On iOS/desktop, reposition the dialog above the keyboard ourselves.
+        property bool shouldReposition: keyboardActive && Qt.platform.os !== "android"
+
+        // Size: shrink when keyboard is active (all platforms — even on Android
+        // the visible window area is reduced by adjustPan)
+        height: {
+            var maxH = Math.min(Theme.windowHeight * 0.75, Theme.scaled(500))
+            if (keyboardActive) {
+                var available = Theme.windowHeight - keyboardHeight - Theme.scaled(20)
+                return Math.min(maxH, Math.max(Theme.scaled(200), available))
+            }
+            return maxH
+        }
+        x: (Theme.windowWidth - width) / 2
+        y: shouldReposition
+            ? Math.max(Theme.scaled(10), (Theme.windowHeight - keyboardHeight - height) / 2)
+            : (Theme.windowHeight - height) / 2
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -262,6 +290,7 @@ Rectangle {
 
             // Large text editing area
             ScrollView {
+                id: dialogScrollView
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.margins: Theme.scaled(12)
@@ -287,6 +316,22 @@ Rectangle {
                     Accessible.name: root.accessibleName
                     Accessible.description: text
                     Accessible.focusable: true
+
+                    // Scroll to keep cursor visible when typing or tapping
+                    onCursorRectangleChanged: {
+                        if (!activeFocus) return
+                        var flickable = dialogScrollView.contentItem
+                        if (!flickable) return
+                        var cursorY = cursorRectangle.y
+                        var cursorBottom = cursorY + cursorRectangle.height
+                        var margin = Theme.scaled(20)
+                        var maxContentY = Math.max(0, flickable.contentHeight - flickable.height)
+                        if (cursorY < flickable.contentY + margin) {
+                            flickable.contentY = Math.max(0, cursorY - margin)
+                        } else if (cursorBottom + margin > flickable.contentY + flickable.height) {
+                            flickable.contentY = Math.min(cursorBottom + margin - flickable.height, maxContentY)
+                        }
+                    }
                 }
             }
 
