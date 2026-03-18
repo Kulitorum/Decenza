@@ -154,7 +154,12 @@ Page {
                 playNextMedia()
                 return
             } else {
-                // Play video - reset image state
+                // Play video - stop previous video first to release decoder resources.
+                // Without this, FFmpeg/VideoToolbox leaks ~15 MB per video transition
+                // because the old decoder isn't fully torn down before the new one starts.
+                mediaPlayer.stop()
+                mediaPlayer.source = ""
+                // Reset image state
                 imageDisplayTimer.stop()
                 currentImageSource = ""
                 useFirstImage = true
