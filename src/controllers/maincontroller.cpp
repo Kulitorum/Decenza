@@ -2897,7 +2897,7 @@ void MainController::onEspressoCycleStarted() {
                             && activeScale->type() != QStringLiteral("flow");
         if (!hasRealScale) {
             // Check if the profile actually needs a scale
-            bool profileNeedsScale = (m_currentProfile.stopAtType() == Profile::StopAtType::Weight);
+            bool profileNeedsScale = (m_currentProfile.targetWeight() > 0);
             if (!profileNeedsScale) {
                 // Also check per-frame exit weights
                 for (const auto& step : m_currentProfile.steps()) {
@@ -3020,21 +3020,20 @@ void MainController::onShotEnded() {
 
     double doseWeight = m_settings->dyeBeanWeight();
 
-    // Get final weight from shot data (cumulative weight, not flow rate)
-    // In volume mode, estimate weight from ml: ml - 5 - dose*0.5
-    // (5g waste tray loss + 50% of dose retained in wet puck)
+    // Get final weight from shot data — prefer actual scale weight, fall back
+    // to volume estimation when no scale is connected
     double finalWeight = 0;
-    if (m_machineState && m_machineState->stopAtType() == MachineState::StopAtType::Volume) {
+    const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
+    if (!cumulativeWeight.isEmpty() && cumulativeWeight.last().y() > 0) {
+        finalWeight = cumulativeWeight.last().y();
+    } else if (m_machineState) {
+        // No scale data — estimate weight from volume: ml - 5 - dose*0.5
+        // (5g waste tray loss + 50% of dose retained in wet puck)
         double cumulativeVolume = m_machineState->cumulativeVolume();
         double puckRetention = doseWeight > 0 ? doseWeight * 0.5 : 9.0;  // fallback 9g if no dose
         finalWeight = cumulativeVolume - 5.0 - puckRetention;
         if (finalWeight < 0) finalWeight = 0;
-        qDebug() << "Volume mode: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
-    } else {
-        const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
-        if (!cumulativeWeight.isEmpty()) {
-            finalWeight = cumulativeWeight.last().y();
-        }
+        qDebug() << "No scale: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
     }
 
     // Smooth weight flow rate before saving (centered moving average over 7 points ≈ 1.4s at 5Hz).

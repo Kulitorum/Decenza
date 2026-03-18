@@ -371,9 +371,10 @@ Page {
                             text: {
                                 stepVersion
                                 if (!profile) return TranslationManager.translate("profileEditor.limits", "Limits")
-                                var stopAtValue = profile.stop_at_type === "volume"
-                                    ? (profile.target_volume || 36).toFixed(0) + "ml"
-                                    : (profile.target_weight || 36).toFixed(0) + "g"
+                                var parts = []
+                                if (profile.target_weight > 0) parts.push(profile.target_weight.toFixed(0) + "g")
+                                if (profile.target_volume > 0) parts.push(profile.target_volume.toFixed(0) + "ml")
+                                var stopAtValue = parts.length > 0 ? parts.join(" / ") : "—"
                                 return TranslationManager.translate("profileEditor.limits", "Limits") + " (" + stopAtValue + ")"
                             }
                             accessibleName: TranslationManager.translate("profileEditor.openLimits", "Open limits settings")
@@ -740,13 +741,19 @@ Page {
         Text {
             text: {
                 if (!profile) return ""
-                if (profile.stop_at_type === "volume") {
-                    return (profile.target_volume || 36).toFixed(0) + "ml"
-                } else {
-                    return (profile.target_weight || 36).toFixed(0) + "g"
-                }
+                var parts = []
+                if (profile.target_weight > 0) parts.push(profile.target_weight.toFixed(0) + "g")
+                if (profile.target_volume > 0) parts.push(profile.target_volume.toFixed(0) + "ml")
+                return parts.length > 0 ? parts.join(" / ") : "—"
             }
-            color: profile && profile.stop_at_type === "volume" ? Theme.flowColor : Theme.weightColor
+            color: {
+                if (!profile) return bottomBar.contentColor
+                var hasWeight = profile.target_weight > 0
+                var hasVolume = profile.target_volume > 0
+                if (hasWeight && !hasVolume) return Theme.weightColor
+                if (hasVolume && !hasWeight) return Theme.flowColor
+                return bottomBar.contentColor  // both set — neutral color
+            }
             font: Theme.bodyFont
         }
         AccessibleButton {

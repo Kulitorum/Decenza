@@ -593,7 +593,9 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
         }
 
         // Check if we should stop at volume (only during espresso)
-        if (state == DE1::State::Espresso && m_stopAtType == StopAtType::Volume) {
+        // Like de1app, both weight and volume are checked independently —
+        // whichever target is reached first stops the shot.
+        if (state == DE1::State::Espresso) {
             checkStopAtVolume();
         }
     }
