@@ -9,7 +9,7 @@
     "maximum_pressure": 0.0,
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
-    "target_weight": 350.0,
+    "target_weight": 0.0,
     "target_volume": 0,
     "mode": "frame_based",
     "is_recipe_mode": false,

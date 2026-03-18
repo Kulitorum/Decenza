@@ -118,7 +118,7 @@
             "transition": "fast",
             "pressure": 9.0,
             "flow": 0.0,
-            "seconds": 45.0,
+            "seconds": 10.0,
             "volume": 200.0,
             "limiter": {
                 "value": 0.0,

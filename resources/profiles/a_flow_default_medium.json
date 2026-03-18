@@ -10,7 +10,7 @@
     "maximum_pressure": 0.0,
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
-    "target_weight": 36.0,
+    "target_weight": 42.0,
     "target_volume": 100.0,
     "recipe": {
         "bloomEnabled": false,
@@ -209,7 +209,7 @@
     "espresso_pressure": 6.0,
     "espresso_decline_time": 30.0,
     "espresso_hold_time": 15.0,
-    "preinfusion_time": 20.0,
+    "preinfusion_time": 5.0,
     "preinfusion_stop_pressure": 4.0,
     "preinfusion_flow_rate": 4.0,
     "pressure_end": 4.0,
