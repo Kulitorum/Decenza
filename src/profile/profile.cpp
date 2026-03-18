@@ -666,25 +666,18 @@ Profile Profile::loadFromTclString(const QString& content) {
     // Determine if this is an advanced profile (settings_2c or settings_2c2)
     bool isAdvancedProfile = profile.m_profileType.startsWith("settings_2c");
 
-    // Extract target weight - use _advanced value for advanced profiles
+    // Extract target weight/volume — always use _advanced keys since de1app's
+    // SAW/SAV runtime reads from those regardless of profile type.
+    // Fall back to non-advanced keys only if _advanced is absent (old profiles).
     QString val;
-    if (isAdvancedProfile) {
-        val = extractValue("final_desired_shot_weight_advanced");
-        if (val.isEmpty() || val.toDouble() == 0) {
-            val = extractValue("final_desired_shot_weight");
-        }
-    } else {
+    val = extractValue("final_desired_shot_weight_advanced");
+    if (val.isEmpty()) {
         val = extractValue("final_desired_shot_weight");
     }
     if (!val.isEmpty()) profile.m_targetWeight = val.toDouble();
 
-    // Extract target volume - use _advanced value for advanced profiles
-    if (isAdvancedProfile) {
-        val = extractValue("final_desired_shot_volume_advanced");
-        if (val.isEmpty() || val.toDouble() == 0) {
-            val = extractValue("final_desired_shot_volume");
-        }
-    } else {
+    val = extractValue("final_desired_shot_volume_advanced");
+    if (val.isEmpty()) {
         val = extractValue("final_desired_shot_volume");
     }
     if (!val.isEmpty()) profile.m_targetVolume = val.toDouble();
