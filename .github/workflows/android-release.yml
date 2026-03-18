@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -94,7 +95,7 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/$QT_NDK_VERSION" >> $GITHUB_ENV
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.20
+        uses: hendrikmuhs/ccache-action@v1.2.21
         with:
           key: android-arm64
           max-size: 500M
@@ -333,3 +334,11 @@ jobs:
         if: always()
         run: |
           rm -f $RUNNER_TEMP/keystore.jks || true
+
+      - name: Warm main branch cache for next release
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run "$GITHUB_WORKFLOW" --ref main || echo "Cache warm dispatch failed (non-fatal)"
