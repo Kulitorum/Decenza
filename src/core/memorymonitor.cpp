@@ -23,6 +23,10 @@
 #include <QTextStream>
 #endif
 
+#ifndef QT_NO_DEBUG
+#include <QQuickItem>
+#endif
+
 MemoryMonitor::MemoryMonitor(QObject* parent)
     : QObject(parent)
 {
@@ -85,6 +89,10 @@ void MemoryMonitor::onSampleTimerTick()
 #endif
 
     emit sampleTaken();
+
+#ifndef QT_NO_DEBUG
+    scanForEmojiText();
+#endif
 }
 
 quint64 MemoryMonitor::readRss() const
@@ -350,3 +358,69 @@ QJsonObject MemoryMonitor::toJson() const
 
     return root;
 }
+
+#ifndef QT_NO_DEBUG
+static bool isEmojiCodepoint(uint cp) {
+    if (cp >= 0x2600 && cp <= 0x26FF) return true;   // Miscellaneous Symbols (☀☁⚡ etc.)
+    if (cp >= 0x2700 && cp <= 0x27BF) return true;   // Dingbats
+    if (cp >= 0x1F600 && cp <= 0x1F64F) return true;  // Emoticons
+    if (cp >= 0x1F300 && cp <= 0x1F5FF) return true;  // Miscellaneous Symbols and Pictographs
+    if (cp >= 0x1F680 && cp <= 0x1F6FF) return true;  // Transport and Map Symbols
+    if (cp >= 0x1F900 && cp <= 0x1F9FF) return true;  // Supplemental Symbols
+    if (cp >= 0x1FA00 && cp <= 0x1FA6F) return true;  // Symbols and Pictographs Extended-A
+    if (cp == 0xFE0F) return true;                     // Emoji presentation selector
+    return false;
+}
+
+void MemoryMonitor::scanForEmojiText()
+{
+    if (!m_engine) return;
+
+    const auto roots = m_engine->rootObjects();
+    for (auto* root : roots) {
+        if (!root) continue;
+        const auto items = root->findChildren<QQuickItem*>();
+        for (auto* item : items) {
+            if (!item->isVisible()) continue;
+
+            int textPropIdx = item->metaObject()->indexOfProperty("text");
+            if (textPropIdx < 0) continue;
+
+            QString text = item->property("text").toString();
+            if (text.isEmpty()) continue;
+
+            bool hasEmoji = false;
+            QString emojiChars;
+            for (auto it = text.cbegin(); it != text.cend(); ++it) {
+                uint cp = it->unicode();
+                if (it->isHighSurrogate()) {
+                    auto next = it + 1;
+                    if (next != text.cend() && next->isLowSurrogate()) {
+                        cp = QChar::surrogateToUcs4(it->unicode(), next->unicode());
+                        ++it;
+                    }
+                }
+                if (isEmojiCodepoint(cp)) {
+                    hasEmoji = true;
+                    emojiChars += QString("U+%1 ").arg(cp, 4, 16, QChar('0')).toUpper();
+                }
+            }
+
+            if (hasEmoji) {
+                QString preview = text.left(80);
+                if (text.length() > 80) preview += "...";
+                QString key = QString("%1:%2").arg(item->metaObject()->className(), preview);
+
+                if (!m_reportedEmojiTexts.contains(key)) {
+                    m_reportedEmojiTexts.insert(key);
+                    qWarning("[EmojiScan] Text with emoji codepoints: class=%s objectName=\"%s\" emoji=[%s] text=\"%s\"",
+                             item->metaObject()->className(),
+                             qPrintable(item->objectName()),
+                             qPrintable(emojiChars.trimmed()),
+                             qPrintable(preview));
+                }
+            }
+        }
+    }
+}
+#endif
