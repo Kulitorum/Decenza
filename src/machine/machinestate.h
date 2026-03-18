@@ -150,6 +150,11 @@ private:
     // Auto-tare during "flow before" phase (cup placed during preheat)
     qint64 m_lastAutoTareTime = 0;
 
+    // Hot water fire-and-forget tare: baseline weight at tare time.
+    // SAW uses (scale_weight - baseline) so it works whether or not the BLE tare executes.
+    double m_hotWaterTareBaseline = 0.0;
+    qint64 m_hotWaterTareTimeMs = 0;  // For burst logging first 2s after tare
+
     // Throttle scaleWeightChanged / scaleFlowRateChanged to QML (10Hz cap).
     // Trailing-edge timers ensure the last update is never dropped.
     QElapsedTimer m_weightEmitTimer;                 // Throttle gate for scaleWeightChanged
