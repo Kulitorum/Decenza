@@ -110,7 +110,15 @@ jobs:
           echo "Installed certificates:"
           security find-identity -v -p codesigning $KEYCHAIN_PATH
 
+      - name: Cache universal OpenSSL
+        uses: actions/cache@v4
+        id: openssl-cache
+        with:
+          path: ${{ runner.temp }}/openssl-universal
+          key: openssl-3.5.0-universal-macos
+
       - name: Build universal OpenSSL
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
         run: |
           OPENSSL_VERSION="3.5.0"
           OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
