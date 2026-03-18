@@ -95,13 +95,11 @@ Item {
         var fieldPos = field.mapToItem(targetFlickable.contentItem, 0, 0)
         var fieldBottom = fieldPos.y + field.height
 
-        // adjustPan shifts the window but not the Flickable's coordinate space,
-        // so we still need to subtract keyboard height to know the truly visible area.
-        var kbHeight = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
-        if (kbHeight <= 0) kbHeight = root.height * 0.45
-        var visibleHeight = targetFlickable.height - kbHeight
-        if (visibleHeight <= 0) visibleHeight = targetFlickable.height * 0.5
-
+        // This function is only called on Android where adjustPan handles
+        // keyboard avoidance at the OS level (shifts the window up).
+        // Only scroll the Flickable when the field is outside its normal
+        // viewport — don't subtract keyboard height since adjustPan handles that.
+        var visibleHeight = targetFlickable.height
         var margin = 20
         var maxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
 
