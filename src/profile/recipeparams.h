@@ -68,7 +68,6 @@ struct RecipeParams {
     double pourTemperature = 93.0;      // Pour water temperature (Celsius)
     double pourPressure = 9.0;          // Pressure limit/cap (bar) — max_flow_or_pressure
     double pourFlow = 2.0;              // Extraction flow setpoint (mL/s)
-    bool rampEnabled = true;            // Enable ramp transition phase
     double rampTime = 5.0;              // Transition ramp duration (seconds)
 
     // === A-Flow Specific ===

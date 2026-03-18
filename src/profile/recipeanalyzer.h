@@ -12,7 +12,7 @@
  *
  * Detection patterns:
  * - Simple D-Flow: Fill → Infuse → Pour (3 frames)
- * - Complex profiles: More than 4 frames or non-matching patterns → not convertible
+ * - Complex profiles: More than 9 frames or non-matching patterns → not convertible
  */
 class RecipeAnalyzer {
 public:
@@ -49,7 +49,6 @@ public:
 private:
     // Frame pattern detection
     static bool isFillFrame(const ProfileFrame& frame);
-    static bool isBloomFrame(const ProfileFrame& frame);
     static bool isInfuseFrame(const ProfileFrame& frame);
     static bool isRampFrame(const ProfileFrame& frame);
     static bool isPourFrame(const ProfileFrame& frame);

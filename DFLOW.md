@@ -79,7 +79,6 @@ The de1app uses `settings_profile_type` to distinguish profile complexity:
 | Infuse Enabled | `infuseEnabled` | true | — | bool |
 | Infuse Pressure | `infusePressure` | 3.0 | 0–6 | bar |
 | Infuse Time | `infuseTime` | 20 | 0–60 | s |
-| Infuse by Weight | `infuseByWeight` | false | — | bool |
 | Infuse Weight | `infuseWeight` | 4.0 | 0–20 | g |
 | Infuse Volume | `infuseVolume` | 100 | 10–200 | mL |
 ### Pour Phase (D-Flow / A-Flow)
@@ -92,7 +91,6 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 | Pour Temperature | `pourTemperature` | 93 | 80–100 | °C |
 | Pour Pressure | `pourPressure` | 9.0 | 1–12 | bar |
 | Pour Flow | `pourFlow` | 2.0 | 0.1–8 | mL/s |
-| Ramp Enabled | `rampEnabled` | true | — | bool |
 | Ramp Time | `rampTime` | 5.0 | 0–30 | s |
 
 ### A-Flow Specific
@@ -467,7 +465,6 @@ Recipe profiles store both the recipe parameters and generated frames:
     "pourTemperature": 93.0,
     "pourPressure": 9.0,
     "pourFlow": 2.0,
-    "rampEnabled": true,
     "rampTime": 5.0,
     "rampDownEnabled": false,
     "flowExtractionUp": true,

@@ -19,7 +19,6 @@
         "fillTemperature": 89,
         "fillTimeout": 2,
         "flowLimit": 0,
-        "infuseByWeight": false,
         "infuseEnabled": true,
         "infusePressure": 2.2,
         "infuseTime": 10,
@@ -30,7 +29,6 @@
         "pourStyle": "pressure",
         "pourTemperature": 88,
         "pressureLimit": 6,
-        "rampEnabled": true,
         "rampTime": 5,
         "targetWeight": 42
     },

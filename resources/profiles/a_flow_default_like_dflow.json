@@ -18,7 +18,6 @@
         "fillPressure": 3,
         "fillTemperature": 93,
         "fillTimeout": 15,
-        "infuseByWeight": false,
         "infuseEnabled": true,
         "infusePressure": 3,
         "infuseTime": 60,

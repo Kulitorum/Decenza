@@ -5,7 +5,7 @@ bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     const auto& steps = profile.steps();
 
     // Need at least 2 frames (Fill + Pour) and at most 9 frames
-    // D-Flow: Fill → [Infuse] → [Ramp] → Pour
+    // D-Flow: Fill → [Infuse] → Pour
     // A-Flow: Fill → [Infuse] → [2ndFill] → [Pause] → [RampUp] → [RampDown] → PourStart → Pour
     if (steps.size() < 2 || steps.size() > 9) {
         return false;
@@ -14,7 +14,6 @@ bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     // Check for basic D-Flow pattern
     // Pattern 1: Fill → Pour (2 frames)
     // Pattern 2: Fill → Infuse → Pour (3 frames)
-    // Pattern 3: Fill → Infuse → Ramp → Pour (4 frames)
     // First frame should be a fill frame
     if (!isFillFrame(steps[0])) {
         return false;
@@ -53,7 +52,6 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
 
     // Find frame indices
     int fillIndex = 0;
-    int bloomIndex = -1;
     int infuseIndex = -1;
     int rampIndex = -1;
     int pourIndex = -1;
@@ -71,11 +69,9 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
         }
     }
 
-    // Find bloom, infuse, and ramp frames (between fill and pour)
+    // Find infuse and ramp frames (between fill and pour)
     for (int i = fillIndex + 1; i < pourIndex; i++) {
-        if (isBloomFrame(steps[i])) {
-            bloomIndex = i;
-        } else if (isRampFrame(steps[i])) {
+        if (isRampFrame(steps[i])) {
             rampIndex = i;
         } else if (isInfuseFrame(steps[i])) {
             infuseIndex = i;
@@ -259,26 +255,6 @@ bool RecipeAnalyzer::isFillFrame(const ProfileFrame& frame) {
 
     // Heuristic: first frame with low pressure and pressure_over exit
     if (frame.pressure <= 6.0 && frame.exitIf && frame.exitType == "pressure_over") {
-        return true;
-    }
-
-    return false;
-}
-
-bool RecipeAnalyzer::isBloomFrame(const ProfileFrame& frame) {
-    // Bloom frame characteristics:
-    // - Usually named "Bloom"
-    // - Zero or very low flow
-    // - Short duration (5-30s)
-    // - Pressure_under exit condition (waiting for CO2 to release)
-
-    QString nameLower = frame.name.toLower();
-    if (nameLower.contains("bloom")) {
-        return true;
-    }
-
-    // Heuristic: zero flow with pressure_under exit
-    if (frame.flow <= 0.1 && frame.exitIf && frame.exitType == "pressure_under") {
         return true;
     }
 

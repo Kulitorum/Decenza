@@ -21,7 +21,6 @@ bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
         && eq(pourTemperature, other.pourTemperature)
         && eq(pourPressure, other.pourPressure)
         && eq(pourFlow, other.pourFlow)
-        && rampEnabled == other.rampEnabled
         && eq(rampTime, other.rampTime)
         // A-Flow specific
         && rampDownEnabled == other.rampDownEnabled
@@ -228,7 +227,6 @@ QJsonObject RecipeParams::toJson() const {
     obj["pourTemperature"] = pourTemperature;
     obj["pourPressure"] = pourPressure;
     obj["pourFlow"] = pourFlow;
-    obj["rampEnabled"] = rampEnabled;
     obj["rampTime"] = rampTime;
 
     // A-Flow specific
@@ -307,7 +305,6 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
         json["pressureLimit"].toDouble(6.0),
         json.contains("pressureLimit"));
 
-    params.rampEnabled = json["rampEnabled"].toBool(true);  // Default true for legacy
     params.rampTime = json["rampTime"].toDouble(5.0);
 
     // A-Flow specific
@@ -369,7 +366,6 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["pourTemperature"] = pourTemperature;
     map["pourPressure"] = pourPressure;
     map["pourFlow"] = pourFlow;
-    map["rampEnabled"] = rampEnabled;
     map["rampTime"] = rampTime;
 
     // A-Flow specific
@@ -448,7 +444,6 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
         map.value("pressureLimit", 6.0).toDouble(),
         map.contains("pressureLimit"));
 
-    params.rampEnabled = map.value("rampEnabled", true).toBool();  // Default true for legacy
     params.rampTime = map.value("rampTime", 5.0).toDouble();
 
     // A-Flow specific

@@ -91,7 +91,6 @@ Page {
             case "core": targetY = coreSection.y; break
             case "infuse": targetY = infuseSection.y; break
             case "aflowToggles": targetY = aflowTogglesSection.y; break
-            case "ramp": targetY = rampSection.y; break
             case "pour": targetY = pourSection.y; break
             default: return
         }
@@ -111,7 +110,6 @@ Page {
             { name: "core", item: coreSection },
             { name: "infuse", item: infuseSection },
             { name: "aflowToggles", item: aflowTogglesSection },
-            { name: "ramp", item: rampSection },
             { name: "pour", item: pourSection }
         ]
 
@@ -478,14 +476,6 @@ Page {
                                     ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight"); from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: val(recipe.infuseWeight, 4.0); onValueModified: function(newValue) { updateRecipe("infuseWeight", Math.round(newValue * 10) / 10) } }
                                 }
                             }
-                        }
-
-                        // Ramp section anchor (for scroll sync compatibility)
-                        Item {
-                            id: rampSection
-                            visible: false
-                            Layout.fillWidth: true
-                            implicitHeight: 0
                         }
 
                         // === Pour Phase ===
