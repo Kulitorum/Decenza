@@ -77,7 +77,7 @@ jobs:
           cache-key-prefix: 'qt-linux-arm64-v1'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.20
+        uses: hendrikmuhs/ccache-action@v1.2.21
         with:
           key: linux-arm64
 
