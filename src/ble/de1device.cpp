@@ -363,16 +363,7 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     constexpr double SENSOR_OFFSET = 5.0;
     m_waterLevelMm = rawMm + SENSOR_OFFSET;
 
-    // Use fixed full point matching de1app (water_level_full_point = 40)
-    constexpr double FULL_POINT = 40.0;
-    double refillPoint = m_settings ? static_cast<double>(m_settings->waterRefillPoint()) : 5.0;
-
-    // Calculate percentage: 0% at refill point, 100% at full point
-    double range = FULL_POINT - refillPoint;
-    if (range <= 0) range = 1.0;
-    m_waterLevel = qBound(0.0, ((m_waterLevelMm - refillPoint) / range) * 100.0, 100.0);
-
-    // Lookup table from de1app CAD data
+    // Lookup table from de1app CAD data (mm index → ml volume)
     static const int mmToMl[] = {
         0, 16, 43, 70, 97, 124, 151, 179, 206, 233,      // 0-9mm
         261, 288, 316, 343, 371, 398, 426, 453, 481, 509, // 10-19mm
@@ -392,6 +383,12 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     } else {
         m_waterLevelMl = mmToMl[index];
     }
+
+    // Calculate percentage from volume: 0% = empty, 100% = full (40mm = 1104ml)
+    // Uses ml (volume) rather than mm (height) so the percentage reflects actual
+    // tank fullness and is independent of the refill warning threshold.
+    constexpr int FULL_ML = 1104;  // mmToMl[40], matching de1app water_level_full_point
+    m_waterLevel = qBound(0.0, (static_cast<double>(m_waterLevelMl) / FULL_ML) * 100.0, 100.0);
 
     // Only emit when water level changes by at least 0.5% or ml changes
     if (qAbs(m_waterLevel - m_lastEmittedWaterLevel) >= 0.5
