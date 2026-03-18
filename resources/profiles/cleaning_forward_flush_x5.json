@@ -29,11 +29,7 @@
             "pressure": 9.999999999999993,
             "flow": 4.0,
             "seconds": 2.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pressure rise 1",
@@ -44,11 +40,7 @@
             "pressure": 9.999999999999993,
             "flow": 4.0,
             "seconds": 18.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pause 1",
@@ -59,11 +51,7 @@
             "pressure": 0.0,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pressure rise 2",
@@ -74,11 +62,7 @@
             "pressure": 9.999999999999993,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pause 2",
@@ -89,11 +73,7 @@
             "pressure": -3.885780586188048e-16,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pressure rise 3",
@@ -104,11 +84,7 @@
             "pressure": 9.999999999999993,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pause 3",
@@ -119,11 +95,7 @@
             "pressure": -5.717648576819556e-15,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pressure rise 4",
@@ -134,11 +106,7 @@
             "pressure": 9.999999999999993,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pause 4",
@@ -149,11 +117,7 @@
             "pressure": -5.717648576819556e-15,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pressure rise 5",
@@ -164,11 +128,25 @@
             "pressure": 9.999999999999993,
             "flow": 6.5,
             "seconds": 15.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         }
-    ]
+    ],
+    "espresso_temperature": 85.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6,
+    "espresso_pressure": 8.4,
+    "espresso_decline_time": 30.0,
+    "espresso_hold_time": 10.0,
+    "preinfusion_time": 6.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 3.5,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.2,
+    "flow_profile_preinfusion_time": 6.0,
+    "flow_profile_hold": 4.0,
+    "flow_profile_hold_time": 2.0,
+    "flow_profile_decline": 1.0,
+    "flow_profile_decline_time": 23.0,
+    "flow_profile_minimum_pressure": 6.0
 }

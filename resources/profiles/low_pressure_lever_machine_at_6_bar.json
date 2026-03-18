@@ -1,7 +1,7 @@
 {
     "title": "Low pressure lever machine at 6 bar",
     "author": "Decent",
-    "beverage_type": "espresso",
+    "beverage_type": "{espresso}",
     "notes": "Lever espresso machines are why we refer to pulling an espresso.  You pull a spring-loaded lever by hand to create pressure on the coffee puck.  This 6 bar espresso is a classic Italian technique, and will result in a very sweet and gentle espresso.",
     "legacy_profile_type": "settings_2a",
     "version": "2",
@@ -19,5 +19,23 @@
         93,
         96
     ],
-    "steps": []
+    "steps": [],
+    "espresso_temperature": 94.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 6.0,
+    "espresso_decline_time": 27.0,
+    "espresso_hold_time": 8.0,
+    "preinfusion_time": 6.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.5,
+    "pressure_end": 0.0,
+    "flow_profile_preinfusion": 4.2,
+    "flow_profile_preinfusion_time": 6.0,
+    "flow_profile_hold": 2.3,
+    "flow_profile_hold_time": 2.0,
+    "flow_profile_decline": 1.0,
+    "flow_profile_decline_time": 23.0,
+    "flow_profile_minimum_pressure": 6.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

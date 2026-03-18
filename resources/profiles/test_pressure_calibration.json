@@ -1,7 +1,7 @@
 {
     "title": "Test/pressure calibration",
     "author": "Decent",
-    "beverage_type": "calibrate",
+    "beverage_type": "{calibrate}",
     "notes": "You will need a portafilter fitted with a pressure gauge that leaks or has a slow flow rate.  This profile will slowly rise to 9 bar and hold it.  Compare what is on the screen with what your analog pressure gauge tells you.  Go to Settings->Machine->Calibrate and enter the held pressure value, and then retest until the pressure until the two agree.",
     "legacy_profile_type": "settings_2c",
     "version": "2",
@@ -34,10 +34,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 7.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -49,11 +45,7 @@
             "pressure": 9.0,
             "flow": 0.0,
             "seconds": 3.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "hold",
@@ -64,11 +56,25 @@
             "pressure": 9.0,
             "flow": 0.0,
             "seconds": 60.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         }
-    ]
+    ],
+    "espresso_temperature": 1.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 9.0,
+    "espresso_decline_time": 0.0,
+    "espresso_hold_time": 35.0,
+    "preinfusion_time": 6.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.5,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.2,
+    "flow_profile_preinfusion_time": 6.0,
+    "flow_profile_hold": 1.8,
+    "flow_profile_hold_time": 0.0,
+    "flow_profile_decline": 1.0,
+    "flow_profile_decline_time": 23.0,
+    "flow_profile_minimum_pressure": 6.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

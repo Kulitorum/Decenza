@@ -8,8 +8,8 @@
     "number_of_preinfuse_frames": 0,
     "maximum_pressure": 0.0,
     "maximum_flow": 0.0,
-    "target_weight": 36,
-    "target_volume": 36,
+    "target_weight": 0.0,
+    "target_volume": 0.0,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,
@@ -96,5 +96,8 @@
                 "range": 0.2
             }
         }
-    ]
+    ],
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

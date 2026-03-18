@@ -33,10 +33,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 4.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -48,11 +44,7 @@
             "pressure": 8.6,
             "flow": 0.0,
             "seconds": 4.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "Scan 3.5 mL.s",
@@ -68,10 +60,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 3.4
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -88,10 +76,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 3.2
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -108,10 +92,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 3.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -128,10 +108,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.8
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -148,10 +124,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.6
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -168,10 +140,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.5
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -188,10 +156,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.4
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -208,10 +172,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.3
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -228,10 +188,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.2
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -248,10 +204,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.1
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -268,10 +220,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 2.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -288,10 +236,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 1.9
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -308,10 +252,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 1.7
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -328,10 +268,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 1.5
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -348,10 +284,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 1.3
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -368,10 +300,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 1.1
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -388,10 +316,6 @@
                 "type": "flow",
                 "condition": "under",
                 "value": 0.9
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -403,11 +327,25 @@
             "pressure": 6.0,
             "flow": 0.5,
             "seconds": 127.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         }
-    ]
+    ],
+    "espresso_temperature": 88.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 8.6,
+    "espresso_decline_time": 35.0,
+    "espresso_hold_time": 4.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

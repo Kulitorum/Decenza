@@ -29,11 +29,7 @@
             "pressure": 1.0,
             "flow": 11.0,
             "seconds": 20.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Initial fill",
@@ -49,10 +45,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 1.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -69,10 +61,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 9.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -84,11 +72,7 @@
             "pressure": 1.0,
             "flow": 0.0,
             "seconds": 10.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Short flush",
@@ -104,10 +88,6 @@
                 "type": "pressure",
                 "condition": "under",
                 "value": 7.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -124,10 +104,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 9.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -144,10 +120,6 @@
                 "type": "pressure",
                 "condition": "under",
                 "value": 7.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -159,11 +131,7 @@
             "pressure": 0.0,
             "flow": 0.1,
             "seconds": 10.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Long flush",
@@ -174,11 +142,7 @@
             "pressure": 0.0,
             "flow": 0.0,
             "seconds": 10.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Fill to rinse",
@@ -194,10 +158,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 9.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -209,11 +169,7 @@
             "pressure": 0.0,
             "flow": 0.0,
             "seconds": 10.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Fill to rinse",
@@ -229,10 +185,6 @@
                 "type": "pressure",
                 "condition": "under",
                 "value": 8.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -249,10 +201,6 @@
                 "type": "pressure",
                 "condition": "under",
                 "value": 0.1
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -269,10 +217,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 9.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -284,11 +228,25 @@
             "pressure": 0.0,
             "flow": 6.0,
             "seconds": 30.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         }
-    ]
+    ],
+    "espresso_temperature": 105.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 8.6,
+    "espresso_decline_time": 35.0,
+    "espresso_hold_time": 38.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 0.2,
+    "preinfusion_flow_rate": 0.5,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

@@ -1,7 +1,7 @@
 {
     "title": "Tea portafilter/Chinese green",
     "author": "Decent",
-    "beverage_type": "tea_portafilter",
+    "beverage_type": "{tea_portafilter}",
     "notes": "This profile requires a specially designed tea portafilter that opens its valve at pressures of 3 bar or above.  Put a tea bag or loose leaf tea into the basket.  Makes about 230ml of tea in 3 minutes.  The 2 bar of pressure extract a stronger brew, with different flavors.  You can up the pressure during the infusion steps, if you tighten the screw on your tea portafilter.",
     "legacy_profile_type": "settings_2c",
     "version": "2",
@@ -34,10 +34,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 2.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -49,11 +45,7 @@
             "pressure": 0.1,
             "flow": 4.0,
             "seconds": 30.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Flush",
@@ -64,11 +56,7 @@
             "pressure": 6.0,
             "flow": 11.0,
             "seconds": 12.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Infuse",
@@ -79,11 +67,7 @@
             "pressure": 0.1,
             "flow": 4.0,
             "seconds": 40.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Flush",
@@ -94,11 +78,7 @@
             "pressure": 0.5,
             "flow": 11.0,
             "seconds": 12.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Infuse",
@@ -109,11 +89,7 @@
             "pressure": 0.1,
             "flow": 6.0,
             "seconds": 40.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Flush",
@@ -124,11 +100,7 @@
             "pressure": 0.5,
             "flow": 11.0,
             "seconds": 11.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Flush cooler",
@@ -139,11 +111,25 @@
             "pressure": 0.5,
             "flow": 11.0,
             "seconds": 13.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         }
-    ]
+    ],
+    "espresso_temperature": 80.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 8.6,
+    "espresso_decline_time": 0.0,
+    "espresso_hold_time": 25.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }
