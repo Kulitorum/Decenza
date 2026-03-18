@@ -56,6 +56,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Install minimal host dependencies
+        run: sudo apt-get install -y --no-install-recommends libegl1 libgl1
+
       - name: Install Qt for Android
         uses: jurplel/install-qt-action@v4
         with:
@@ -63,7 +66,7 @@ jobs:
           target: 'android'
           arch: 'android_arm64_v8a'
           modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets'
-          install-deps: false  # Skip apt-get of desktop X11/GL libs — not needed for Android cross-compilation
+          install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
           cache: true
           cache-key-prefix: 'qt-android-v1'
 
