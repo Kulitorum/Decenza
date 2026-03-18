@@ -258,9 +258,14 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         visible: MainController.shotReporter && MainController.shotReporter.enabled
                              && !MainController.shotReporter.hasLocation
-                        text: Qt.platform.os === "android"
-                              ? "GPS disabled - tap to open Settings"
-                              : "No location - tap to enable"
+                        text: {
+                            if (Qt.platform.os === "android") {
+                                if (MainController.shotReporter.isGpsEnabled())
+                                    return "Acquiring location…"
+                                return "GPS disabled - tap to open Settings"
+                            }
+                            return "No location - tap to enable"
+                        }
                         color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(12)
                         font.underline: true
@@ -274,7 +279,7 @@ KeyboardAwareContainer {
                                 // refreshLocation() handles the permission prompt on macOS/iOS;
                                 // openLocationSettings() is for Android (GPS system toggle)
                                 MainController.shotReporter.refreshLocation()
-                                if (Qt.platform.os === "android")
+                                if (Qt.platform.os === "android" && !MainController.shotReporter.isGpsEnabled())
                                     MainController.shotReporter.openLocationSettings()
                             }
                         }
