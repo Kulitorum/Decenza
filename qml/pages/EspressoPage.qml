@@ -54,7 +54,7 @@ Page {
                 var parts = []
                 if (MachineState.targetWeight > 0) parts.push("Weight: " + espressoPage.currentWeight.toFixed(1) + " of " + MainController.targetWeight.toFixed(0) + " grams")
                 if (MachineState.targetVolume > 0) parts.push("Volume: " + MachineState.pourVolume.toFixed(1) + " of " + MachineState.targetVolume.toFixed(0) + " milliliters")
-                return parts.join(", ") || "No stop target"
+                return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
             default:
                 return ""
         }

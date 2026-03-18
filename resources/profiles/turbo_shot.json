@@ -4,8 +4,8 @@
     "author": "Decenza",
     "notes": "High-flow turbo extraction - fast, punchy espresso",
     "beverage_type": "espresso",
-    "target_weight": 45.0,
-    "target_volume": 45.0,
+    "target_weight": 39,
+    "target_volume": 0,
     "espresso_temperature": 90.0,
     "temperature_presets": [
         86.0,

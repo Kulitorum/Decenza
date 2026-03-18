@@ -10,7 +10,7 @@
     "maximum_flow": 4.5,
     "minimum_pressure": 6.0,
     "target_weight": 60.0,
-    "target_volume": 36,
+    "target_volume": 0,
     "mode": "frame_based",
     "is_recipe_mode": false,
     "temperature_presets": [

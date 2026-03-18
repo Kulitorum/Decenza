@@ -10,7 +10,7 @@
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
     "target_weight": 32.0,
-    "target_volume": 32,
+    "target_volume": 0,
     "recipe": {
         "bloomEnabled": false,
         "bloomTime": 10,

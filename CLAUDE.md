@@ -386,6 +386,8 @@ The procedural coffee rendering uses proportional coordinates relative to the cu
 - **DirectControl mode**: App sends setpoints frame-by-frame
 - Formats: JSON (unified with de1app v2), TCL (de1app import)
 - Tare happens when frame 0 starts (after machine preheat)
+- **Stop limits**: Both `target_weight` and `target_volume` are checked independently during espresso — whichever target is reached first stops the shot (matching de1app). A value of 0 means that limit is disabled. There is no `stop_at_type` selector.
+- **Profile comparison**: Run `python scripts/compare_profiles.py [de1app_profiles_dir]` to compare built-in profiles against de1app TCL sources. Checks frame data, exit conditions, and classifies differences by severity.
 
 ### JSON Format (unified with de1app)
 

@@ -233,7 +233,7 @@ private:
 
     // Targets
     double m_targetWeight = 36.0;
-    double m_targetVolume = 36.0;
+    double m_targetVolume = 0.0;
 
     // Temperature
     double m_espressoTemperature = 93.0;

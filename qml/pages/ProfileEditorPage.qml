@@ -374,7 +374,7 @@ Page {
                                 var parts = []
                                 if (profile.target_weight > 0) parts.push(profile.target_weight.toFixed(0) + "g")
                                 if (profile.target_volume > 0) parts.push(profile.target_volume.toFixed(0) + "ml")
-                                var stopAtValue = parts.length > 0 ? parts.join(" / ") : "—"
+                                var stopAtValue = parts.length > 0 ? parts.join(" / ") : TranslationManager.translate("profileEditor.off", "off")
                                 return TranslationManager.translate("profileEditor.limits", "Limits") + " (" + stopAtValue + ")"
                             }
                             accessibleName: TranslationManager.translate("profileEditor.openLimits", "Open limits settings")
@@ -621,7 +621,13 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtVolume", "Stop at volume"); font: Theme.captionFont; color: Theme.flowColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("profileEditor.stopAtVolume", "Stop at volume")
+                          + (profile && profile.target_volume <= 0 ? " (" + TranslationManager.translate("profileEditor.off", "off") + ")" : "")
+                    font: Theme.captionFont; color: profile && profile.target_volume > 0 ? Theme.flowColor : Theme.textSecondaryColor
+                    verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap
+                }
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.afterPreinfusionStopAccessible", "After preinfusion, stop the shot at volume")
@@ -641,7 +647,13 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtWeight", "Stop at weight"); font: Theme.captionFont; color: Theme.weightColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("profileEditor.stopAtWeight", "Stop at weight")
+                          + (profile && profile.target_weight <= 0 ? " (" + TranslationManager.translate("profileEditor.off", "off") + ")" : "")
+                    font: Theme.captionFont; color: profile && profile.target_weight > 0 ? Theme.weightColor : Theme.textSecondaryColor
+                    verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap
+                }
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.weightColor
                     accessibleName: TranslationManager.translate("profileEditor.stopAtWeightAccessible", "Stop at weight")
