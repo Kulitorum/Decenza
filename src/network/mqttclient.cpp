@@ -1129,13 +1129,14 @@ void MqttClient::publishHomeAssistantDiscovery()
     }
 
     // Espresso count sensor
-    // No state_class — count can decrease when shots are deleted from history,
-    // which is incompatible with "total_increasing" (HA would treat decreases as resets)
+    // total_increasing: HA treats value decreases (e.g. history cleared) as meter resets
+    // and continues accumulating from the new value — no inflation.
     {
         QJsonObject config;
         config["name"] = "DE1 Espresso Count";
         config["state_topic"] = baseTopic + "/espresso_count";
         config["icon"] = "mdi:counter";
+        config["state_class"] = "total_increasing";
         config["unique_id"] = QString("de1_%1_espresso_count").arg(m_clientId);
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;
