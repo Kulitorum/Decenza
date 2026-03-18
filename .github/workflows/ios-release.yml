@@ -209,6 +209,14 @@ jobs:
           retention-days: 1
           overwrite: true
 
+      - name: Upload dSYMs for crash symbolication
+        uses: actions/upload-artifact@v7
+        with:
+          name: Decenza-iOS-dSYMs
+          path: ${{ runner.temp }}/Decenza.xcarchive/dSYMs/
+          retention-days: 90
+          overwrite: true
+
       - name: Cleanup keychain
         if: always()
         run: |
