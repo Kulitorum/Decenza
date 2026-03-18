@@ -17,6 +17,7 @@
 #include <QFileInfo>
 #include <QSet>
 #include <QStandardPaths>
+#include <QPixmapCache>
 #include <memory>
 #include <vector>
 #include <QElapsedTimer>
@@ -335,6 +336,11 @@ int main(int argc, char *argv[])
     app.setApplicationName("Decenza");
     app.setApplicationVersion(VERSION_STRING);
     runAppNameMigrationOnce();
+
+    // Limit Qt's pixmap cache to 32 MB (default is 10 MB on desktop but unbounded
+    // growth via QML Image elements can reach 100+ MB on devices with many emoji/icon SVGs).
+    // iPad 7,4 has 3 GB RAM — keep cache reasonable to avoid OOM kills.
+    QPixmapCache::setCacheLimit(32 * 1024);  // 32 MB in KB
 
     // Set Qt Quick Controls style (must be before QML engine creation)
     QQuickStyle::setStyle("Material");
