@@ -25,7 +25,6 @@
         "fillPressure": 4.0,
         "fillTemperature": 90.0,
         "fillTimeout": 5.0,
-        "infuseByWeight": false,
         "infuseEnabled": false,
         "infusePressure": 0.0,
         "infuseTime": 0.0,
@@ -33,11 +32,7 @@
         "pourFlow": 4.5,
         "pourPressure": 6.0,
         "pourTemperature": 90.0,
-        "rampEnabled": false,
         "rampTime": 0,
-        "declineEnabled": false,
-        "declineTo": 6.0,
-        "declineTime": 30.0,
         "targetWeight": 45.0
     },
     "steps": [

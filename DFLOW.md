@@ -79,12 +79,8 @@ The de1app uses `settings_profile_type` to distinguish profile complexity:
 | Infuse Enabled | `infuseEnabled` | true | — | bool |
 | Infuse Pressure | `infusePressure` | 3.0 | 0–6 | bar |
 | Infuse Time | `infuseTime` | 20 | 0–60 | s |
-| Infuse by Weight | `infuseByWeight` | false | — | bool |
 | Infuse Weight | `infuseWeight` | 4.0 | 0–20 | g |
 | Infuse Volume | `infuseVolume` | 100 | 10–200 | mL |
-| Bloom Enabled | `bloomEnabled` | false | — | bool |
-| Bloom Time | `bloomTime` | 10 | 0+ | s |
-
 ### Pour Phase (D-Flow / A-Flow)
 
 Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow model).
@@ -95,7 +91,6 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 | Pour Temperature | `pourTemperature` | 93 | 80–100 | °C |
 | Pour Pressure | `pourPressure` | 9.0 | 1–12 | bar |
 | Pour Flow | `pourFlow` | 2.0 | 0.1–8 | mL/s |
-| Ramp Enabled | `rampEnabled` | true | — | bool |
 | Ramp Time | `rampTime` | 5.0 | 0–30 | s |
 
 ### A-Flow Specific
@@ -105,14 +100,6 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 | Ramp Down | `rampDownEnabled` | false | Split pressure ramp into Up + Decline phases (doubles/halves `rampTime`) |
 | Flow Up | `flowExtractionUp` | true | Smooth flow ramp during extraction (vs flat) |
 | 2nd Fill | `secondFillEnabled` | false | Add 2nd Fill (15s) + Pause (15s) frames before pressure ramp |
-
-### Decline Phase (D-Flow)
-
-| Parameter | Key | Default | Range | Unit |
-|-----------|-----|---------|-------|------|
-| Decline Enabled | `declineEnabled` | false | — | bool |
-| Decline To | `declineTo` | 1.0 | 0–10 | mL/s |
-| Decline Time | `declineTime` | 30 | 0+ | s |
 
 ### Simple Profile Parameters (Pressure / Flow editors)
 
@@ -156,10 +143,10 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 ### D-Flow Frames
 
 ```
-Filling → [Bloom] → Infusing → Pouring → [Decline]
+Filling → Infusing → Pouring
 ```
 
-**Always 3 core frames** matching de1app (Filling, Infusing, Pouring). When `infuseEnabled=false`, Infusing is emitted with `seconds=0` (machine skips it), NOT omitted — this preserves the 3-frame structure de1app expects. Bloom and Decline are optional Decenza extras not present in de1app.
+**Always 3 core frames** matching de1app (Filling, Infusing, Pouring). When `infuseEnabled=false`, Infusing is emitted with `seconds=0` (machine skips it), NOT omitted — this preserves the 3-frame structure de1app expects.
 
 #### D-Flow Frame Details (matches `update_D-Flow` in de1app `D_Flow/code.tcl`)
 
@@ -475,19 +462,13 @@ Recipe profiles store both the recipe parameters and generated frames:
     "infuseTime": 20.0,
     "infuseWeight": 4.0,
     "infuseVolume": 100.0,
-    "bloomEnabled": false,
-    "bloomTime": 10.0,
     "pourTemperature": 93.0,
     "pourPressure": 9.0,
     "pourFlow": 2.0,
-    "rampEnabled": true,
     "rampTime": 5.0,
     "rampDownEnabled": false,
     "flowExtractionUp": true,
     "secondFillEnabled": false,
-    "declineEnabled": false,
-    "declineTo": 1.0,
-    "declineTime": 30.0
   },
 
   "steps": [

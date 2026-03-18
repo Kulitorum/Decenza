@@ -66,7 +66,6 @@ Page {
         // Match frame name to section
         if (name === "pre fill") return "infuse"  // Pre Fill workaround frame
         if (name.indexOf("fill") !== -1 && name.indexOf("2nd") === -1) return "infuse"  // Fill maps to infuse section
-        if (name.indexOf("bloom") !== -1) return "infuse"
         if (name.indexOf("infuse") !== -1 || name.indexOf("preinfuse") !== -1) return "infuse"
         if (name.indexOf("2nd fill") !== -1) return "aflowToggles"
         if (name.indexOf("pause") !== -1) return "aflowToggles"
@@ -76,7 +75,6 @@ Page {
         if (name.indexOf("flow start") !== -1) return "pour"
         if (name.indexOf("flow extraction") !== -1) return "pour"
         if (name.indexOf("pour") !== -1 || name.indexOf("extraction") !== -1) return "pour"
-        if (name.indexOf("decline") !== -1) return "pour"
 
         // Fallback: use frame position heuristic
         var totalFrames = profile.steps.length
@@ -93,7 +91,6 @@ Page {
             case "core": targetY = coreSection.y; break
             case "infuse": targetY = infuseSection.y; break
             case "aflowToggles": targetY = aflowTogglesSection.y; break
-            case "ramp": targetY = rampSection.y; break
             case "pour": targetY = pourSection.y; break
             default: return
         }
@@ -113,7 +110,6 @@ Page {
             { name: "core", item: coreSection },
             { name: "infuse", item: infuseSection },
             { name: "aflowToggles", item: aflowTogglesSection },
-            { name: "ramp", item: rampSection },
             { name: "pour", item: pourSection }
         ]
 
@@ -480,14 +476,6 @@ Page {
                                     ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight"); from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: val(recipe.infuseWeight, 4.0); onValueModified: function(newValue) { updateRecipe("infuseWeight", Math.round(newValue * 10) / 10) } }
                                 }
                             }
-                        }
-
-                        // Ramp section anchor (for scroll sync compatibility)
-                        Item {
-                            id: rampSection
-                            visible: false
-                            Layout.fillWidth: true
-                            implicitHeight: 0
                         }
 
                         // === Pour Phase ===
