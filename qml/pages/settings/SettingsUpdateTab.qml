@@ -362,7 +362,57 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                Item { Layout.fillHeight: true }
+                // Inline release notes preview
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    color: Theme.backgroundColor
+                    radius: Theme.scaled(8)
+                    visible: MainController.updateChecker.releaseNotes !== ""
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(10)
+                        spacing: Theme.scaled(6)
+
+                        Text {
+                            text: MainController.updateChecker.updateAvailable
+                                  ? TranslationManager.translate("settings.update.pendingNotes", "What's New in v%1").arg(MainController.updateChecker.latestVersion)
+                                  : TranslationManager.translate("settings.update.currentNotes", "Release Notes — v%1").arg(MainController.updateChecker.latestVersion)
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(12)
+                            font.bold: true
+                        }
+
+                        ScrollView {
+                            id: inlineNotesScrollView
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                            TextArea {
+                                width: inlineNotesScrollView.width
+                                readOnly: true
+                                text: MainController.updateChecker.releaseNotes
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
+                                background: null
+                                selectByMouse: true
+
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes") + ": " + MainController.updateChecker.releaseNotes
+                            }
+                        }
+                    }
+                }
+
+                // Spacer when no release notes
+                Item {
+                    Layout.fillHeight: true
+                    visible: MainController.updateChecker.releaseNotes === ""
+                }
             }
         }
     }
