@@ -52,8 +52,8 @@ Page {
                 return "Temperature: " + DE1Device.temperature.toFixed(1) + " degrees"
             case 5: // Weight and/or Volume
                 var parts = []
-                if (MachineState.targetWeight > 0) parts.push("Weight: " + espressoPage.currentWeight.toFixed(1) + " of " + MainController.targetWeight.toFixed(0) + " grams")
-                if (MachineState.targetVolume > 0) parts.push("Volume: " + MachineState.pourVolume.toFixed(1) + " of " + MachineState.targetVolume.toFixed(0) + " milliliters")
+                if (MachineState.targetWeight > 0) parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MainController.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
+                if (MachineState.targetVolume > 0) parts.push(TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + MachineState.pourVolume.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetVolume.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters"))
                 return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
             default:
                 return ""
@@ -889,9 +889,14 @@ Page {
                 readonly property color displayColor: isVolumeMode ? Theme.flowColor : Theme.weightColor
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: isVolumeMode
-                    ? TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + currentValue.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + targetValue.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters")
-                    : TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + currentValue.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + targetValue.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams")
+                Accessible.name: {
+                    var parts = []
+                    if (MachineState.targetWeight > 0)
+                        parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MainController.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
+                    if (MachineState.targetVolume > 0)
+                        parts.push(TranslationManager.translate("espresso.accessible.volume", "Volume:") + " " + MachineState.pourVolume.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetVolume.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.milliliters", "milliliters"))
+                    return parts.join(", ") || TranslationManager.translate("espresso.noStopTarget", "No stop target")
+                }
 
                 RowLayout {
                     visible: espressoPage.showStats

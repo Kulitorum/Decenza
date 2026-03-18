@@ -750,7 +750,7 @@ Page {
                 var parts = []
                 if (profile.target_weight > 0) parts.push(profile.target_weight.toFixed(0) + "g")
                 if (profile.target_volume > 0) parts.push(profile.target_volume.toFixed(0) + "ml")
-                return parts.length > 0 ? parts.join(" / ") : "—"
+                return parts.length > 0 ? parts.join(" / ") : TranslationManager.translate("profileEditor.off", "off")
             }
             color: {
                 if (!profile) return bottomBar.contentColor

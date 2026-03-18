@@ -388,6 +388,8 @@ The procedural coffee rendering uses proportional coordinates relative to the cu
 - Tare happens when frame 0 starts (after machine preheat)
 - **Stop limits**: Both `target_weight` and `target_volume` are checked independently during espresso — whichever target is reached first stops the shot (matching de1app). A value of 0 means that limit is disabled. There is no `stop_at_type` selector.
 - **Profile comparison**: Run `python scripts/compare_profiles.py [de1app_profiles_dir]` to compare built-in profiles against de1app TCL sources. Checks frame data, exit conditions, and classifies differences by severity.
+- **Profile sync**: Run `python scripts/sync_profiles.py [de1app_profiles_dir]` to update built-in profile JSON files to match de1app TCL sources. **Modifies `resources/profiles/` in-place** — review changes before committing.
+- **Profile import test**: Run `python scripts/test_profile_import.py [de1app_profiles_dir]` to build a C++ test app that loads all profiles through `Profile::fromJson()` and `Profile::loadFromTclString()` and verifies parsed weight/volume values match de1app.
 
 ### JSON Format (unified with de1app)
 

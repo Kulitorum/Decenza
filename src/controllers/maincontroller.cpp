@@ -3001,14 +3001,14 @@ void MainController::onShotEnded() {
 
     double doseWeight = m_settings->dyeBeanWeight();
 
-    // Get final weight from shot data — prefer actual scale weight, fall back
-    // to volume estimation when no scale is connected
+    // Get final weight — use actual scale data if available, estimate from volume only
+    // when no scale data was recorded at all (no scale connected)
     double finalWeight = 0;
     const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
-    if (!cumulativeWeight.isEmpty() && cumulativeWeight.last().y() > 0) {
+    if (!cumulativeWeight.isEmpty()) {
         finalWeight = cumulativeWeight.last().y();
     } else if (m_machineState) {
-        // No scale data — estimate weight from volume: ml - 5 - dose*0.5
+        // No scale data at all — estimate weight from volume: ml - 5 - dose*0.5
         // (5g waste tray loss + 50% of dose retained in wet puck)
         double cumulativeVolume = m_machineState->cumulativeVolume();
         double puckRetention = doseWeight > 0 ? doseWeight * 0.5 : 9.0;  // fallback 9g if no dose
