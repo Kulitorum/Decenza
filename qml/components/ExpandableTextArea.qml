@@ -72,7 +72,7 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Theme.scaled(6)
         leftPadding: Theme.scaled(8)
-        rightPadding: Theme.scaled(24) // room for expand button
+        rightPadding: root.isMobile ? Theme.scaled(8) : Theme.scaled(24) // room for expand button on desktop
         topPadding: Theme.scaled(4)
         bottomPadding: Theme.scaled(4)
         text: Theme.replaceEmojiWithImg(formatTextWithLinks(root.text), root.textFont.pixelSize)
@@ -146,7 +146,7 @@ Rectangle {
             wrapMode: TextArea.Wrap
             readOnly: root.readOnly
             leftPadding: Theme.scaled(8)
-            rightPadding: Theme.scaled(24) // room for expand button
+            rightPadding: root.isMobile ? Theme.scaled(8) : Theme.scaled(24) // room for expand button on desktop
             topPadding: Theme.scaled(4)
             bottomPadding: Theme.scaled(4)
             background: Rectangle { color: "transparent" }
@@ -201,7 +201,9 @@ Rectangle {
         z: 10
 
         Accessible.role: Accessible.Button
-        Accessible.name: root.readOnly ? "View full text" : "Expand editor"
+        Accessible.name: root.readOnly
+            ? TranslationManager.translate("expandableText.accessible.viewFullText", "View full text")
+            : TranslationManager.translate("expandableText.accessible.expandEditor", "Expand editor")
         Accessible.focusable: true
         Accessible.onPressAction: expandArea.clicked(null)
 
@@ -255,8 +257,6 @@ Rectangle {
             if (root.isMobile) {
                 // Android: adjustPan shifts the window to keep the cursor visible,
                 // so use full height — don't subtract keyboard height (double-shift).
-                // Footer buttons hide behind keyboard while typing; they reappear
-                // when the user dismisses the keyboard.
                 if (Qt.platform.os === "android")
                     return parent.height
                 // iOS: no adjustPan — shrink dialog to fit above keyboard
@@ -312,7 +312,7 @@ Rectangle {
                     Accessible.ignored: true
                 }
 
-                // Save/Close/Done button (mobile header, right side)
+                // Done/Close button (mobile header, right side)
                 AccessibleButton {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(8)
