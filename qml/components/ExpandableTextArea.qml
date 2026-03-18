@@ -162,16 +162,19 @@ Rectangle {
                 }
             }
 
+            property bool _redirectingToDialog: false
             onActiveFocusChanged: {
                 if (activeFocus && root.isMobile) {
                     // On mobile, redirect to fullscreen dialog
+                    _redirectingToDialog = true
                     focus = false
                     root.openEditorDialog()
                     return
                 }
-                if (!activeFocus) {
+                if (!activeFocus && !_redirectingToDialog) {
                     root.editingFinished()
                 }
+                _redirectingToDialog = false
             }
         }
     }
@@ -239,11 +242,10 @@ Rectangle {
         // True when the text area has focus (proxy for keyboard visibility)
         property bool keyboardActive: dialogTextArea.activeFocus
         property real keyboardHeight: {
-            if (!keyboardActive) return 0
+            if (!keyboardActive || !root.isMobile) return 0
             var kbh = Qt.inputMethod.keyboardRectangle.height
             if (kbh > 0) return kbh
-            if (root.isMobile) return parent.height * 0.45
-            return 0
+            return parent.height * 0.45
         }
 
         // On mobile: fill entire screen above keyboard (no margins, no centering)
@@ -300,9 +302,9 @@ Rectangle {
                 }
 
                 Text {
-                    anchors.centerIn: root.isMobile ? parent : undefined
+                    anchors.horizontalCenter: root.isMobile ? parent.horizontalCenter : undefined
                     anchors.left: root.isMobile ? undefined : parent.left
-                    anchors.leftMargin: root.isMobile ? undefined : Theme.scaled(16)
+                    anchors.leftMargin: root.isMobile ? 0 : Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.accessibleName
                     font: Theme.subtitleFont

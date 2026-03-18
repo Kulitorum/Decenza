@@ -184,7 +184,7 @@ Page {
     KeyboardAwareContainer {
         id: keyboardContainer
         anchors.fill: parent
-        textFields: [notesField, saveAsTitleField]
+        textFields: [notesField.textField, saveAsTitleField]
 
     // Editor mode header
     Rectangle {

@@ -284,8 +284,7 @@ if(NOT IOS)
     )
 endif()
 
-# Simulator engine - all debug builds
-# Always include sources: for multi-config generators (Xcode, Visual Studio)
+# Simulator engine - always included for multi-config generators (Xcode, Visual Studio)
 # CMAKE_BUILD_TYPE is empty at configure time, so conditional inclusion won't work.
 # The simulator code is small and has no extra dependencies, so it's safe to always link.
 list(APPEND SOURCES
