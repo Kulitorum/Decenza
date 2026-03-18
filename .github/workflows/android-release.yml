@@ -10,10 +10,9 @@ on:
         default: 'false'
         type: boolean
 
-  # Or trigger on version tags
-  push:
-    tags:
-      - 'v*'
+  # Trigger on full releases only (not pre-releases)
+  release:
+    types: [released]
 
 permissions:
   contents: write
