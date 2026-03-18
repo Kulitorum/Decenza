@@ -30,6 +30,19 @@ Rectangle {
         ? Math.min(inlineHeight, Math.max(Theme.scaled(36), displayText.contentHeight + Theme.scaled(24)))
         : inlineHeight
 
+    // On mobile, all editing goes through the fullscreen overlay dialog —
+    // no inline editing (the small inline field + on-screen keyboard is a poor experience).
+    property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
+
+    function openEditorDialog() {
+        dialogTextArea.text = root.text
+        expandDialog.open()
+        dialogTextArea.forceActiveFocus()
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            AccessibilityManager.announce(TranslationManager.translate("expandableText.accessible.expandedEditor", "%1 expanded editor").arg(root.accessibleName))
+        }
+    }
+
     // URL detection: convert plain text to StyledText with clickable links
     function escapeHtml(text) {
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -59,7 +72,7 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Theme.scaled(6)
         leftPadding: Theme.scaled(8)
-        rightPadding: Theme.scaled(24) // room for expand button
+        rightPadding: root.isMobile ? Theme.scaled(8) : Theme.scaled(24) // room for expand button on desktop
         topPadding: Theme.scaled(4)
         bottomPadding: Theme.scaled(4)
         text: Theme.replaceEmojiWithImg(formatTextWithLinks(root.text), root.textFont.pixelSize)
@@ -84,7 +97,10 @@ Rectangle {
         TapHandler {
             onTapped: {
                 if (!root.readOnly) {
-                    inlineTextArea.forceActiveFocus()
+                    if (root.isMobile)
+                        root.openEditorDialog()
+                    else
+                        inlineTextArea.forceActiveFocus()
                 }
             }
         }
@@ -104,7 +120,10 @@ Rectangle {
         TapHandler {
             onTapped: {
                 if (!root.readOnly) {
-                    inlineTextArea.forceActiveFocus()
+                    if (root.isMobile)
+                        root.openEditorDialog()
+                    else
+                        inlineTextArea.forceActiveFocus()
                 }
             }
         }
@@ -127,7 +146,7 @@ Rectangle {
             wrapMode: TextArea.Wrap
             readOnly: root.readOnly
             leftPadding: Theme.scaled(8)
-            rightPadding: Theme.scaled(24) // room for expand button
+            rightPadding: root.isMobile ? Theme.scaled(8) : Theme.scaled(24) // room for expand button on desktop
             topPadding: Theme.scaled(4)
             bottomPadding: Theme.scaled(4)
             background: Rectangle { color: "transparent" }
@@ -143,10 +162,19 @@ Rectangle {
                 }
             }
 
+            property bool _redirectingToDialog: false
             onActiveFocusChanged: {
-                if (!activeFocus) {
+                if (activeFocus && root.isMobile) {
+                    // On mobile, redirect to fullscreen dialog
+                    _redirectingToDialog = true
+                    focus = false
+                    root.openEditorDialog()
+                    return
+                }
+                if (!activeFocus && !_redirectingToDialog) {
                     root.editingFinished()
                 }
+                _redirectingToDialog = false
             }
         }
     }
@@ -169,11 +197,13 @@ Rectangle {
         height: Theme.scaled(28)
         radius: Theme.scaled(4)
         color: expandArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : Qt.lighter(Theme.surfaceColor, 1.3)
-        visible: root.text.length > 0 || !root.readOnly
+        visible: !root.isMobile && (root.text.length > 0 || !root.readOnly)
         z: 10
 
         Accessible.role: Accessible.Button
-        Accessible.name: root.readOnly ? "View full text" : "Expand editor"
+        Accessible.name: root.readOnly
+            ? TranslationManager.translate("expandableText.accessible.viewFullText", "View full text")
+            : TranslationManager.translate("expandableText.accessible.expandEditor", "Expand editor")
         Accessible.focusable: true
         Accessible.onPressAction: expandArea.clicked(null)
 
@@ -199,14 +229,7 @@ Rectangle {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: {
-                dialogTextArea.text = root.text
-                expandDialog.open()
-                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    dialogTextArea.forceActiveFocus()
-                    AccessibilityManager.announce(TranslationManager.translate("expandableText.accessible.expandedEditor", "%1 expanded editor").arg(root.accessibleName))
-                }
-            }
+            onClicked: root.openEditorDialog()
         }
     }
 
@@ -214,7 +237,6 @@ Rectangle {
     Dialog {
         id: expandDialog
         parent: Overlay.overlay
-        width: Math.min(Theme.windowWidth * 0.85, Theme.scaled(600))
         modal: true
         padding: 0
         closePolicy: Dialog.CloseOnEscape
@@ -222,23 +244,27 @@ Rectangle {
         // True when the text area has focus (proxy for keyboard visibility)
         property bool keyboardActive: dialogTextArea.activeFocus
         property real keyboardHeight: {
-            if (!keyboardActive) return 0
-            // Use real keyboard height if available
+            if (!keyboardActive || !root.isMobile) return 0
             var kbh = Qt.inputMethod.keyboardRectangle.height
             if (kbh > 0) return kbh
-            // Estimate only on platforms with on-screen keyboards
-            if (Qt.platform.os === "android" || Qt.platform.os === "ios")
-                return parent.height * 0.45
-            return 0
+            return parent.height * 0.45
         }
 
-        // On Android, adjustPan shifts the window when keyboard appears, so
-        // the dialog doesn't need to reposition itself (that would double-shift).
-        // On iOS, reposition the dialog above the keyboard ourselves.
-        property bool shouldReposition: keyboardActive && Qt.platform.os === "ios"
-
-        // Shrink dialog when keyboard is active on mobile
+        // On mobile: fill entire screen above keyboard (no margins, no centering)
+        // On desktop: centered dialog with max width/height
+        width: root.isMobile ? parent.width : Math.min(parent.width * 0.85, Theme.scaled(600))
         height: {
+            if (root.isMobile) {
+                // Android: adjustPan shifts the window to keep the cursor visible,
+                // so use full height — don't subtract keyboard height (double-shift).
+                if (Qt.platform.os === "android")
+                    return parent.height
+                // iOS: no adjustPan — shrink dialog to fit above keyboard
+                if (keyboardHeight > 0)
+                    return parent.height - keyboardHeight
+                return parent.height
+            }
+            // Desktop: centered dialog
             var maxH = Math.min(parent.height * 0.75, Theme.scaled(500))
             if (keyboardActive && keyboardHeight > 0) {
                 var available = parent.height - keyboardHeight - Theme.scaled(20)
@@ -246,30 +272,39 @@ Rectangle {
             }
             return maxH
         }
-        // Manual x/y instead of anchors.centerIn because height is dynamic
-        x: (parent.width - width) / 2
-        y: shouldReposition
-            ? Math.max(Theme.scaled(10), (parent.height - keyboardHeight - height) / 2)
-            : (parent.height - height) / 2
+        x: root.isMobile ? 0 : (parent.width - width) / 2
+        y: root.isMobile ? 0 : (parent.height - height) / 2
 
         background: Rectangle {
             color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
+            radius: root.isMobile ? 0 : Theme.cardRadius
+            border.width: root.isMobile ? 0 : 1
             border.color: "white"
         }
 
         contentItem: ColumnLayout {
             spacing: 0
 
-            // Header
+            // Header — on mobile, includes Cancel/Save buttons; on desktop, just title
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(44)
 
-                Text {
+                // Cancel button (mobile header, left side)
+                AccessibleButton {
                     anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(16)
+                    anchors.leftMargin: Theme.scaled(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.cancel", "Cancel")
+                    visible: root.isMobile && !root.readOnly
+                    onClicked: expandDialog.close()
+                }
+
+                Text {
+                    anchors.horizontalCenter: root.isMobile ? parent.horizontalCenter : undefined
+                    anchors.left: root.isMobile ? undefined : parent.left
+                    anchors.leftMargin: root.isMobile ? 0 : Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
                     text: root.accessibleName
                     font: Theme.subtitleFont
@@ -277,10 +312,34 @@ Rectangle {
                     Accessible.ignored: true
                 }
 
+                // Done/Close button (mobile header, right side)
+                AccessibleButton {
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.scaled(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.readOnly
+                        ? TranslationManager.translate("common.close", "Close")
+                        : TranslationManager.translate("common.button.done", "Done")
+                    accessibleName: root.readOnly
+                        ? TranslationManager.translate("common.close", "Close")
+                        : TranslationManager.translate("common.button.done", "Done")
+                    primary: !root.readOnly
+                    visible: root.isMobile
+                    onClicked: {
+                        if (!root.readOnly) {
+                            root.text = dialogTextArea.text
+                            root.editingFinished()
+                        }
+                        expandDialog.close()
+                    }
+                }
+
+                // Hide keyboard button (desktop only — mobile has header buttons)
                 HideKeyboardButton {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(8)
                     anchors.verticalCenter: parent.verticalCenter
+                    visible: !root.isMobile
                 }
 
                 Rectangle {
@@ -339,20 +398,21 @@ Rectangle {
                 }
             }
 
-            // Separator
+            // Footer separator + buttons (desktop only — mobile uses header buttons)
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
                 color: Theme.borderColor
+                visible: !root.isMobile
             }
 
-            // Footer buttons
             RowLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(52)
                 Layout.leftMargin: Theme.scaled(12)
                 Layout.rightMargin: Theme.scaled(12)
                 spacing: Theme.scaled(8)
+                visible: !root.isMobile
 
                 Item { Layout.fillWidth: true }
 

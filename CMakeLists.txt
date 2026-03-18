@@ -284,16 +284,16 @@ if(NOT IOS)
     )
 endif()
 
-# Simulator engine - all debug builds
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    list(APPEND SOURCES
-        src/simulator/de1simulator.cpp
-        src/simulator/simulatedscale.cpp
-    )
-endif()
+# Simulator engine - always included for multi-config generators (Xcode, Visual Studio)
+# CMAKE_BUILD_TYPE is empty at configure time, so conditional inclusion won't work.
+# The simulator code is small and has no extra dependencies, so it's safe to always link.
+list(APPEND SOURCES
+    src/simulator/de1simulator.cpp
+    src/simulator/simulatedscale.cpp
+)
 
-# GHC simulator window - desktop debug only
-if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# GHC simulator window - desktop only (uses QWidget window)
+if(WIN32 OR APPLE)
     list(APPEND SOURCES
         src/simulator/ghcsimulator.cpp
     )
@@ -398,16 +398,14 @@ if(NOT IOS)
     )
 endif()
 
-# Simulator engine headers - all debug builds
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    list(APPEND HEADERS
-        src/simulator/de1simulator.h
-        src/simulator/simulatedscale.h
-    )
-endif()
+# Simulator engine headers - always included (see source section comment)
+list(APPEND HEADERS
+    src/simulator/de1simulator.h
+    src/simulator/simulatedscale.h
+)
 
-# GHC simulator window header - desktop debug only
-if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# GHC simulator window header - desktop only
+if(WIN32 OR APPLE)
     list(APPEND HEADERS
         src/simulator/ghcsimulator.h
     )
@@ -659,8 +657,8 @@ set(QML_FILES
     qml/pages/CommunityBrowserPage.qml
 )
 
-# Simulator QML - Windows Debug or macOS
-if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Simulator QML - desktop only (GHC window uses QWidget)
+if(WIN32 OR APPLE)
     list(APPEND QML_FILES
         qml/simulator/GHCSimulatorWindow.qml
     )
