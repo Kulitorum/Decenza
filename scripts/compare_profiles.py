@@ -66,6 +66,55 @@ def parse_tcl_profile(filepath):
                             frames = parse_tcl_frames(fs)
                         break
     profile['frames'] = frames
+
+    # Extract all profile-level settings
+    # Map TCL key -> normalized key, with default value
+    tcl_settings = {
+        # Common settings
+        'final_desired_shot_weight_advanced': ('target_weight', 0.0),
+        'final_desired_shot_volume_advanced': ('target_volume', 0.0),
+        'espresso_temperature': ('espresso_temperature', 0.0),
+        'tank_desired_water_temperature': ('tank_temperature', 0.0),
+        'maximum_pressure': ('maximum_pressure', 0.0),
+        'maximum_flow': ('maximum_flow', 0.0),
+        'maximum_pressure_range_advanced': ('maximum_pressure_range', 0.6),
+        'maximum_flow_range_advanced': ('maximum_flow_range', 0.6),
+        'beverage_type': ('beverage_type', 'espresso'),
+        'settings_profile_type': ('profile_type', ''),
+        'final_desired_shot_volume_advanced_count_start': ('volume_count_start', 0.0),
+        'espresso_temperature_0': ('temperature_0', 0.0),
+        'espresso_temperature_1': ('temperature_1', 0.0),
+        'espresso_temperature_2': ('temperature_2', 0.0),
+        'espresso_temperature_3': ('temperature_3', 0.0),
+        'espresso_temperature_steps_enabled': ('temperature_steps_enabled', 0),
+        # Simple pressure profile (settings_2a) settings
+        'espresso_pressure': ('espresso_pressure', 0.0),
+        'espresso_decline_time': ('espresso_decline_time', 0.0),
+        'espresso_hold_time': ('espresso_hold_time', 0.0),
+        'preinfusion_time': ('preinfusion_time', 0.0),
+        'preinfusion_stop_pressure': ('preinfusion_stop_pressure', 0.0),
+        'preinfusion_flow_rate': ('preinfusion_flow_rate', 0.0),
+        'pressure_end': ('pressure_end', 0.0),
+        # Simple flow profile (settings_2b) settings
+        'flow_profile_preinfusion': ('flow_profile_preinfusion', 0.0),
+        'flow_profile_preinfusion_time': ('flow_profile_preinfusion_time', 0.0),
+        'flow_profile_hold': ('flow_profile_hold', 0.0),
+        'flow_profile_hold_time': ('flow_profile_hold_time', 0.0),
+        'flow_profile_decline': ('flow_profile_decline', 0.0),
+        'flow_profile_decline_time': ('flow_profile_decline_time', 0.0),
+        'flow_profile_minimum_pressure': ('flow_profile_minimum_pressure', 0.0),
+    }
+    for tcl_key, (norm_key, default) in tcl_settings.items():
+        if isinstance(default, float):
+            m = re.search(rf'{tcl_key}\s+([0-9.]+)', content)
+            profile[norm_key] = float(m.group(1)) if m else default
+        elif isinstance(default, int):
+            m = re.search(rf'{tcl_key}\s+([0-9]+)', content)
+            profile[norm_key] = int(m.group(1)) if m else default
+        else:
+            m = re.search(rf'{tcl_key}\s+(\S+)', content)
+            profile[norm_key] = m.group(1) if m else default
+
     return profile
 
 
@@ -277,6 +326,59 @@ for dk, dv in sorted(decenza.items()):
     tframes = de1app[mk]['data'].get('frames', [])
 
     has_major, has_exit, details = analyze_profile(jframes, tframes)
+
+    # Compare profile-level settings
+    # Map: (Decenza JSON key, de1app normalized key, label)
+    PROFILE_SETTINGS = [
+        ('target_weight', 'target_weight', 'target_weight'),
+        ('target_volume', 'target_volume', 'target_volume'),
+        ('espresso_temperature', 'espresso_temperature', 'espresso_temperature'),
+        ('tank_desired_water_temperature', 'tank_temperature', 'tank_temperature'),
+        ('maximum_pressure', 'maximum_pressure', 'maximum_pressure'),
+        ('maximum_flow', 'maximum_flow', 'maximum_flow'),
+        ('maximum_pressure_range_advanced', 'maximum_pressure_range', 'max_pressure_range'),
+        ('maximum_flow_range_advanced', 'maximum_flow_range', 'max_flow_range'),
+        ('beverage_type', 'beverage_type', 'beverage_type'),
+    ]
+    # Add simple profile settings based on profile type
+    jd = dv['data']
+    td = de1app[mk]['data']
+    ptype = jd.get('legacy_profile_type', jd.get('profile_type', ''))
+    if ptype == 'settings_2a':
+        PROFILE_SETTINGS += [
+            ('espresso_pressure', 'espresso_pressure', 'espresso_pressure'),
+            ('espresso_decline_time', 'espresso_decline_time', 'espresso_decline_time'),
+            ('espresso_hold_time', 'espresso_hold_time', 'espresso_hold_time'),
+            ('preinfusion_time', 'preinfusion_time', 'preinfusion_time'),
+            ('preinfusion_stop_pressure', 'preinfusion_stop_pressure', 'preinfusion_stop_pressure'),
+            ('preinfusion_flow_rate', 'preinfusion_flow_rate', 'preinfusion_flow_rate'),
+            ('pressure_end', 'pressure_end', 'pressure_end'),
+        ]
+    elif ptype == 'settings_2b':
+        PROFILE_SETTINGS += [
+            ('flow_profile_preinfusion', 'flow_profile_preinfusion', 'flow_profile_preinfusion'),
+            ('flow_profile_preinfusion_time', 'flow_profile_preinfusion_time', 'flow_preinfusion_time'),
+            ('flow_profile_hold', 'flow_profile_hold', 'flow_profile_hold'),
+            ('flow_profile_hold_time', 'flow_profile_hold_time', 'flow_hold_time'),
+            ('flow_profile_decline', 'flow_profile_decline', 'flow_profile_decline'),
+            ('flow_profile_decline_time', 'flow_profile_decline_time', 'flow_decline_time'),
+            ('flow_profile_minimum_pressure', 'flow_profile_minimum_pressure', 'flow_min_pressure'),
+            ('preinfusion_time', 'preinfusion_time', 'preinfusion_time'),
+            ('preinfusion_stop_pressure', 'preinfusion_stop_pressure', 'preinfusion_stop_pressure'),
+            ('preinfusion_flow_rate', 'preinfusion_flow_rate', 'preinfusion_flow_rate'),
+        ]
+    settings_diffs = []
+    for jkey, tkey, label in PROFILE_SETTINGS:
+        jv = jd.get(jkey, 0)
+        tv = td.get(tkey, 0)
+        if isinstance(jv, (int, float)) and isinstance(tv, (int, float)):
+            if abs(float(jv) - float(tv)) > 0.01:
+                settings_diffs.append(f"  {label}: D={jv}, T={tv}")
+        elif str(jv) != str(tv):
+            settings_diffs.append(f"  {label}: D={jv}, T={tv}")
+    if settings_diffs:
+        has_major = True
+        details = [f"  Profile-level settings:"] + settings_diffs + details
 
     if has_major:
         cat_major.append({'title': dv['title'], 'df': dv['file'],
