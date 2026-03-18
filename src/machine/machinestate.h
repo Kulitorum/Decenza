@@ -28,8 +28,6 @@ class MachineState : public QObject {
     Q_PROPERTY(double cumulativeVolume READ cumulativeVolume NOTIFY cumulativeVolumeChanged)
     Q_PROPERTY(double preinfusionVolume READ preinfusionVolume NOTIFY preinfusionVolumeChanged)
     Q_PROPERTY(double pourVolume READ pourVolume NOTIFY pourVolumeChanged)
-    Q_PROPERTY(StopAtType stopAtType READ stopAtType NOTIFY stopAtTypeChanged)
-
 public:
     enum class Phase {
         Disconnected,
@@ -50,14 +48,6 @@ public:
     };
     Q_ENUM(Phase)
 
-    // Stop-at modes (what triggers end of shot)
-    // NOTE: Must stay in sync with Profile::StopAtType
-    enum class StopAtType {
-        Weight,         // Stop when scale reaches target weight (brown curve)
-        Volume          // Stop when flow meter reaches target volume (blue curve)
-    };
-    Q_ENUM(StopAtType)
-
     explicit MachineState(DE1Device* device, QObject* parent = nullptr);
 
     Phase phase() const { return m_phase; }
@@ -71,16 +61,12 @@ public:
     double cumulativeVolume() const { return m_cumulativeVolume; }
     double preinfusionVolume() const { return m_preinfusionVolume; }
     double pourVolume() const { return m_pourVolume; }
-    StopAtType stopAtType() const { return m_stopAtType; }
-
     ScaleDevice* scale() const;
     void setScale(ScaleDevice* scale);
     void setSettings(Settings* settings);
     void setTimingController(ShotTimingController* controller);
     void setTargetWeight(double weight);
     void setTargetVolume(double volume);
-    void setStopAtType(StopAtType type);
-
     // Scale accessors (forward from current scale)
     double scaleWeight() const;
     double scaleFlowRate() const;
@@ -103,7 +89,6 @@ signals:
     void cumulativeVolumeChanged();
     void preinfusionVolumeChanged();
     void pourVolumeChanged();
-    void stopAtTypeChanged();
     void scaleWeightChanged();
     void scaleFlowRateChanged();
     void espressoCycleStarted();  // When entering espresso preheating (clear graph here)
@@ -145,7 +130,6 @@ private:
     int m_lastEmittedPreinfusionVolumeMl = -1;  // Throttle: only emit when rounded ml changes
     double m_pourVolume = 0.0;          // Volume during pouring substate (ml)
     int m_lastEmittedPourVolumeMl = -1;         // Throttle: only emit when rounded ml changes
-    StopAtType m_stopAtType = StopAtType::Weight;
 
     QTimer* m_shotTimer = nullptr;
     qint64 m_shotStartTime = 0;

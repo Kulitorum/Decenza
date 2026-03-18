@@ -351,7 +351,6 @@ QJsonDocument Profile::toJson() const {
     obj["legacy_profile_type"] = m_profileType;
     obj["target_weight"] = m_targetWeight;
     obj["target_volume"] = m_targetVolume;
-    obj["stop_at_type"] = (m_stopAtType == StopAtType::Volume) ? "volume" : "weight";
     obj["espresso_temperature"] = m_espressoTemperature;
     obj["maximum_pressure"] = m_maximumPressure;
     obj["maximum_flow"] = m_maximumFlow;
@@ -426,8 +425,6 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     profile.m_targetWeight = jsonToDouble(obj["target_weight"], 36.0);
     profile.m_targetVolume = jsonToDouble(obj["target_volume"], 0.0);
-    QString stopAtStr = obj["stop_at_type"].toString("weight");
-    profile.m_stopAtType = (stopAtStr == "volume") ? StopAtType::Volume : StopAtType::Weight;
     profile.m_espressoTemperature = jsonToDouble(obj["espresso_temperature"], 93.0);
     profile.m_maximumPressure = jsonToDouble(obj["maximum_pressure"], 12.0);
     profile.m_maximumFlow = jsonToDouble(obj["maximum_flow"], 6.0);
@@ -691,13 +688,6 @@ Profile Profile::loadFromTclString(const QString& content) {
         val = extractValue("final_desired_shot_volume");
     }
     if (!val.isEmpty()) profile.m_targetVolume = val.toDouble();
-
-    // Infer stop-at type from which value is set
-    if (profile.m_targetVolume > 0 && profile.m_targetWeight <= 0) {
-        profile.m_stopAtType = StopAtType::Volume;
-    } else {
-        profile.m_stopAtType = StopAtType::Weight;
-    }
 
     val = extractValue("espresso_temperature");
     if (!val.isEmpty()) profile.m_espressoTemperature = val.toDouble();

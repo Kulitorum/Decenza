@@ -27,13 +27,6 @@ public:
         DirectControl   // App sends live setpoints during shot
     };
 
-    // Stop-at modes (what triggers end of shot)
-    // NOTE: Must stay in sync with MachineState::StopAtType
-    enum class StopAtType {
-        Weight,         // Stop when scale reaches target weight (brown curve)
-        Volume          // Stop when flow meter reaches target volume (blue curve)
-    };
-
     Profile() = default;
 
     // === Metadata ===
@@ -64,9 +57,6 @@ public:
 
     double targetVolume() const { return m_targetVolume; }
     void setTargetVolume(double volume) { m_targetVolume = volume; }
-
-    StopAtType stopAtType() const { return m_stopAtType; }
-    void setStopAtType(StopAtType type) { m_stopAtType = type; }
 
     // === Temperature Settings ===
     // Primary espresso temperature (often mirrors first frame temp)
@@ -244,7 +234,6 @@ private:
     // Targets
     double m_targetWeight = 36.0;
     double m_targetVolume = 36.0;
-    StopAtType m_stopAtType = StopAtType::Weight;  // Default to weight-based stop
 
     // Temperature
     double m_espressoTemperature = 93.0;

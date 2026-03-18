@@ -768,7 +768,6 @@ QVariantMap MainController::getCurrentProfile() const {
     profile["profile_notes"] = m_currentProfile.profileNotes();
     profile["target_weight"] = m_currentProfile.targetWeight();
     profile["target_volume"] = m_currentProfile.targetVolume();
-    profile["stop_at_type"] = m_currentProfile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
     profile["espresso_temperature"] = m_currentProfile.espressoTemperature();
     profile["mode"] = m_currentProfile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
     profile["has_recommended_dose"] = m_currentProfile.hasRecommendedDose();
@@ -871,7 +870,6 @@ QVariantMap MainController::getProfileByFilename(const QString& filename) const 
     result["profile_notes"] = profile.profileNotes();
     result["target_weight"] = profile.targetWeight();
     result["target_volume"] = profile.targetVolume();
-    result["stop_at_type"] = profile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
     result["espresso_temperature"] = profile.espressoTemperature();
     result["mode"] = profile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
     result["has_recommended_dose"] = profile.hasRecommendedDose();
@@ -1035,10 +1033,6 @@ void MainController::loadProfile(const QString& profileName) {
     if (m_machineState) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setStopAtType(
-            m_currentProfile.stopAtType() == Profile::StopAtType::Volume
-                ? MachineState::StopAtType::Volume
-                : MachineState::StopAtType::Weight);
     }
 
     // Upload to machine if connected (for frame-based mode)
@@ -1087,10 +1081,6 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
     if (m_machineState) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setStopAtType(
-            m_currentProfile.stopAtType() == Profile::StopAtType::Volume
-                ? MachineState::StopAtType::Volume
-                : MachineState::StopAtType::Weight);
     }
 
     // Upload to machine if connected (for frame-based mode)
@@ -1516,15 +1506,6 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
             m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         }
     }
-    if (profileData.contains("stop_at_type")) {
-        QString typeStr = profileData["stop_at_type"].toString();
-        Profile::StopAtType type = (typeStr == "volume") ? Profile::StopAtType::Volume : Profile::StopAtType::Weight;
-        m_currentProfile.setStopAtType(type);
-        if (m_machineState) {
-            m_machineState->setStopAtType(type == Profile::StopAtType::Volume ? MachineState::StopAtType::Volume : MachineState::StopAtType::Weight);
-        }
-    }
-
     if (profileData.contains("has_recommended_dose")) {
         m_currentProfile.setHasRecommendedDose(profileData["has_recommended_dose"].toBool());
     }

@@ -630,9 +630,6 @@ Page {
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.target_volume = Math.round(newValue)
-                            if (newValue > 0) {
-                                profile.stop_at_type = "volume"
-                            }
                             stepVersion++
                             uploadProfile()
                         }
@@ -653,9 +650,6 @@ Page {
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.target_weight = Math.round(newValue * 10) / 10
-                            if (newValue > 0) {
-                                profile.stop_at_type = "weight"
-                            }
                             stepVersion++
                             uploadProfile()
                         }
@@ -1586,8 +1580,7 @@ Page {
                 title: MainController.currentProfileName || "New Profile",
                 steps: [],
                 target_weight: MainController.targetWeight || 36,
-                target_volume: 36,
-                stop_at_type: "weight",
+                target_volume: 0,
                 espresso_temperature: 93,
                 mode: "frame_based",
                 tank_desired_water_temperature: 0,
