@@ -38,7 +38,7 @@ inline EditorType editorTypeFromString(const QString& str) {
  * frames by RecipeGenerator.
  *
  * Supports four editor types via EditorType enum:
- * - DFlow: Fill → [Infuse] → [Ramp] → Pour
+ * - DFlow: Fill → [Infuse] → Pour
  * - AFlow: Fill → [Infuse] → Pressure Up → Pressure Decline → Flow Start → Flow Extraction
  * - Pressure: Preinfusion → [Forced Rise] → Hold → Decline (settings_2a)
  * - Flow: Preinfusion → Hold → Decline (settings_2b)
