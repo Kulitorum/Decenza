@@ -76,7 +76,7 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
 
     // Targets
     profile.setTargetWeight(recipe.targetWeight);
-    profile.setTargetVolume(recipe.targetVolume > 0 ? recipe.targetVolume : 100.0);
+    profile.setTargetVolume(recipe.targetVolume);
     // Mode
     profile.setMode(Profile::Mode::FrameBased);
 

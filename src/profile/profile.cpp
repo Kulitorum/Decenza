@@ -1124,7 +1124,7 @@ void Profile::regenerateFromRecipe() {
 
     // Update profile metadata from recipe
     m_targetWeight = m_recipeParams.targetWeight;
-    m_targetVolume = m_recipeParams.targetVolume > 0 ? m_recipeParams.targetVolume : 100.0;
+    m_targetVolume = m_recipeParams.targetVolume;
     // Use first frame temperature (matches de1app behavior)
     if (!m_steps.isEmpty()) {
         m_espressoTemperature = m_steps.first().temperature;

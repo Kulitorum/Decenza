@@ -1676,7 +1676,7 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     } else {
         // Only metadata changed — update target weight/volume without touching frames
         m_currentProfile.setTargetWeight(recipe.targetWeight);
-        m_currentProfile.setTargetVolume(recipe.targetVolume > 0 ? recipe.targetVolume : 100.0);
+        m_currentProfile.setTargetVolume(recipe.targetVolume);
     }
 
     // Sync overrides so uploadCurrentProfile doesn't apply wrong delta
@@ -2051,7 +2051,7 @@ void MainController::createNewProfile(const QString& title) {
     m_currentProfile.setBeverageType("espresso");
     m_currentProfile.setProfileType("settings_2c");
     m_currentProfile.setTargetWeight(36.0);
-    m_currentProfile.setTargetVolume(36.0);
+    m_currentProfile.setTargetVolume(0.0);
     m_currentProfile.setEspressoTemperature(93.0);
     m_currentProfile.setRecipeMode(false);
 
