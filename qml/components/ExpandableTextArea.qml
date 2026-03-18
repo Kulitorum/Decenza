@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import QtQuick.Window
 import Decenza
 
 Rectangle {
@@ -220,33 +219,38 @@ Rectangle {
         padding: 0
         closePolicy: Dialog.CloseOnEscape
 
-        // Track whether keyboard is covering the dialog
+        // True when the text area has focus (proxy for keyboard visibility)
         property bool keyboardActive: dialogTextArea.activeFocus
         property real keyboardHeight: {
             if (!keyboardActive) return 0
-            var kbh = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
-            return kbh > 0 ? kbh : Theme.windowHeight * 0.45
+            // Use real keyboard height if available
+            var kbh = Qt.inputMethod.keyboardRectangle.height
+            if (kbh > 0) return kbh
+            // Estimate only on platforms with on-screen keyboards
+            if (Qt.platform.os === "android" || Qt.platform.os === "ios")
+                return parent.height * 0.45
+            return 0
         }
 
         // On Android, adjustPan shifts the window when keyboard appears, so
         // the dialog doesn't need to reposition itself (that would double-shift).
-        // On iOS/desktop, reposition the dialog above the keyboard ourselves.
-        property bool shouldReposition: keyboardActive && Qt.platform.os !== "android"
+        // On iOS, reposition the dialog above the keyboard ourselves.
+        property bool shouldReposition: keyboardActive && Qt.platform.os === "ios"
 
-        // Size: shrink when keyboard is active (all platforms — even on Android
-        // the visible window area is reduced by adjustPan)
+        // Shrink dialog when keyboard is active on mobile
         height: {
-            var maxH = Math.min(Theme.windowHeight * 0.75, Theme.scaled(500))
-            if (keyboardActive) {
-                var available = Theme.windowHeight - keyboardHeight - Theme.scaled(20)
+            var maxH = Math.min(parent.height * 0.75, Theme.scaled(500))
+            if (keyboardActive && keyboardHeight > 0) {
+                var available = parent.height - keyboardHeight - Theme.scaled(20)
                 return Math.min(maxH, Math.max(Theme.scaled(200), available))
             }
             return maxH
         }
-        x: (Theme.windowWidth - width) / 2
+        // Manual x/y instead of anchors.centerIn because height is dynamic
+        x: (parent.width - width) / 2
         y: shouldReposition
-            ? Math.max(Theme.scaled(10), (Theme.windowHeight - keyboardHeight - height) / 2)
-            : (Theme.windowHeight - height) / 2
+            ? Math.max(Theme.scaled(10), (parent.height - keyboardHeight - height) / 2)
+            : (parent.height - height) / 2
 
         background: Rectangle {
             color: Theme.surfaceColor
