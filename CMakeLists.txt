@@ -35,12 +35,9 @@ set(CMAKE_AUTOUIC ON)
 # Address Sanitizer — catches use-after-free, heap overflow, etc.
 # Enable in Qt Creator: Projects → Build → CMake → add ENABLE_ASAN=ON
 # Or configure from CLI: cmake ... -DENABLE_ASAN=ON
-option(ENABLE_ASAN "Enable Address Sanitizer (debug builds)" OFF)
-if(ENABLE_ASAN)
-    message(STATUS "Address Sanitizer ENABLED")
-    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=address)
-endif()
+# Applied to the Decenza target only (after qt_add_executable) via the existing
+# ASan block further down in this file, which handles MSVC vs GCC/Clang flags.
+option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
 
 # Optional features (Quick3D not available on all platforms, e.g. Raspberry Pi)
 option(ENABLE_QUICK3D "Enable Qt Quick3D for 3D screensavers" ON)
@@ -170,11 +167,12 @@ if(ANDROID)
     FetchContent_Populate(mdns_lib)
 endif()
 
-# Address Sanitizer - enabled for single-config Debug builds (Makefiles, Ninja).
-# Multi-config generators (Visual Studio, Xcode) don't set CMAKE_BUILD_TYPE at
-# configure time, so flags would leak into Release builds. Android requires special
-# ASan packaging (wrap.sh + shared lib in APK) that isn't handled here.
-if(NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT APPLE)
+# Address Sanitizer - auto-enabled for single-config Debug builds (Makefiles, Ninja),
+# or manually via -DENABLE_ASAN=ON. Multi-config generators (Visual Studio, Xcode)
+# don't set CMAKE_BUILD_TYPE at configure time, so auto-enable is skipped to avoid
+# leaking flags into Release builds. Android requires special ASan packaging
+# (wrap.sh + shared lib in APK) that isn't handled here.
+if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT APPLE))
     if(MSVC)
         message(STATUS ">>> ASan ENABLED for debug build (MSVC) <<<")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /fsanitize=address")

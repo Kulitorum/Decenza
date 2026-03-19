@@ -174,10 +174,15 @@ Page {
                 mediaPlaying = true
                 videoSkipCount = 0
 
-                // Destroy old decoder, then create fresh one with new source
+                // Destroy old decoder, then create fresh one with new source.
+                // Setting active=false destroys the MediaPlayer; onItemChanged
+                // fires when item becomes null, then re-activates the Loader.
                 pendingVideoSource = source
                 mediaPlayerLoader.active = false
-                mediaPlayerRecreateTimer.restart()
+                // If no previous item existed (first play), activate directly
+                if (!mediaPlayerLoader.item) {
+                    mediaPlayerLoader.active = true
+                }
             }
         } else {
             mediaPlaying = false
@@ -189,20 +194,12 @@ Page {
         }
     }
 
-    // Short delay between destroying old MediaPlayer and creating new one,
-    // giving Qt/FFmpeg one event loop cycle to fully release decoder resources
-    Timer {
-        id: mediaPlayerRecreateTimer
-        interval: 50
-        repeat: false
-        onTriggered: {
-            mediaPlayerLoader.active = true
-        }
-    }
-
     function handleVideoFailure() {
+        // Ignore stale signals from a destroyed MediaPlayer
+        if (!mediaPlayerLoader.item) return
+
         // Prevent handling the same failure twice
-        var playerSource = mediaPlayerLoader.item ? mediaPlayerLoader.item.source.toString() : ""
+        var playerSource = mediaPlayerLoader.item.source.toString()
         if (playerSource === lastFailedSource) return
         lastFailedSource = playerSource
 
@@ -243,6 +240,15 @@ Page {
     Loader {
         id: mediaPlayerLoader
         active: false
+
+        // Event-driven recreation: when the old MediaPlayer is destroyed (item
+        // becomes null), re-activate the Loader to create a fresh decoder.
+        onItemChanged: {
+            if (item === null && pendingVideoSource.length > 0) {
+                mediaPlayerLoader.active = true
+            }
+        }
+
         sourceComponent: MediaPlayer {
             onMediaStatusChanged: {
                 if (mediaStatus === MediaPlayer.EndOfMedia) {
@@ -556,9 +562,8 @@ Page {
     Keys.onPressed: wake()
 
     function wake() {
-        mediaPlayerRecreateTimer.stop()
+        pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating
         mediaPlayerLoader.active = false
-        pendingVideoSource = ""
         mediaPlaying = false
 
         // Wake up the DE1, or try to reconnect if disconnected
@@ -585,9 +590,8 @@ Page {
     // Clean up media when page is being removed
     StackView.onRemoved: {
         console.log("[Screensaver] Waking: restoring brightness and cleaning up")
-        mediaPlayerRecreateTimer.stop()
+        pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating
         mediaPlayerLoader.active = false
-        pendingVideoSource = ""
         mediaPlaying = false
         imageDisplayTimer.stop()
         dimTimer.stop()
