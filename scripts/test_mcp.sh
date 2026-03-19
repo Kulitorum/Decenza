@@ -145,7 +145,7 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context"
 for tool in $EXPECTED_TOOLS; do
     assert_ok "tool '$tool' registered" "$TOOLS_JSON" \
         "'$tool' in d"
@@ -331,8 +331,34 @@ assert_ok "settings_get filter excludes other keys" "$FILTERED_SET" \
 
 echo
 
-# ─── 7. Session Management ───
-echo -e "${CYAN}7. Session Management${NC}"
+# ─── 7. Dial-In Context ───
+echo -e "${CYAN}7. Dial-In Context${NC}"
+
+DIALING_RAW=$(rpc 60 "tools/call" '{"name":"dialing_get_context","arguments":{}}')
+DIALING=$(echo "$DIALING_RAW" | parse_tool_result)
+assert_ok "dialing_get_context returns shotId" "$DIALING" \
+    "'shotId' in d"
+assert_ok "dialing_get_context returns shot summary" "$DIALING" \
+    "'shot' in d and 'profileName' in d.get('shot',{})"
+assert_ok "dialing_get_context returns currentBean" "$DIALING" \
+    "'currentBean' in d"
+assert_ok "dialing_get_context returns currentProfile" "$DIALING" \
+    "'currentProfile' in d"
+assert_ok "dialing_get_context returns profileKnowledge" "$DIALING" \
+    "'profileKnowledge' in d"
+
+# With specific shot ID
+if [ "$SHOT_ID" != "0" ] && [ -n "$SHOT_ID" ]; then
+    DIALING2_RAW=$(rpc 61 "tools/call" "{\"name\":\"dialing_get_context\",\"arguments\":{\"shot_id\":$SHOT_ID}}")
+    DIALING2=$(echo "$DIALING2_RAW" | parse_tool_result)
+    assert_ok "dialing_get_context with shot_id works" "$DIALING2" \
+        "d.get('shotId') == $SHOT_ID"
+fi
+
+echo
+
+# ─── 8. Session Management ───
+echo -e "${CYAN}8. Session Management${NC}"
 
 # DELETE session
 DEL_RESP=$(curl -s -X DELETE "$BASE" -H "Mcp-Session: $SESSION")

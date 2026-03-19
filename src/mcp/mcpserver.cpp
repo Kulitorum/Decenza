@@ -18,6 +18,8 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory);
 void registerProfileTools(McpToolRegistry* registry, MainController* mainController);
 void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings);
+void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
+                          ShotHistoryStorage* shotHistory, Settings* settings);
 
 McpServer::McpServer(QObject* parent)
     : QObject(parent)
@@ -46,6 +48,7 @@ void McpServer::registerAllTools()
     registerShotTools(m_toolRegistry, m_shotHistory);
     registerProfileTools(m_toolRegistry, m_mainController);
     registerSettingsReadTools(m_toolRegistry, m_settings);
+    registerDialingTools(m_toolRegistry, m_mainController, m_shotHistory, m_settings);
     qDebug() << "McpServer: Registered" << m_toolRegistry->listTools(2).size() << "tools";
 }
 
