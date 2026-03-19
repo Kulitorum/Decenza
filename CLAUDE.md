@@ -214,7 +214,7 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 - `ActionButton` dims icon (50% opacity) and text (secondary color) when disabled
 - `native` is a reserved JavaScript keyword - use `nativeName` instead
 - **Never use Unicode symbols as icons in text** (e.g., `"\u270E"`, `"\u2717"`, `"\u2630"`). These render as tofu squares on devices without the right font glyphs. Use SVG icons from `qrc:/icons/` with `Image` instead. For buttons/menu items, use a `Row { Image {} Text {} }` contentItem. Safe Unicode characters (°, ·, —, →, ×) that are in standard fonts are OK.
-- **Never override FINAL properties on Qt types.** Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`).
+- **Never override FINAL properties on Qt types.** Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`, `title`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`), or use the inherited property directly if it already exists on the base type.
 
 ### QML Gotchas
 

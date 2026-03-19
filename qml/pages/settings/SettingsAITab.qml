@@ -458,19 +458,19 @@ KeyboardAwareContainer {
                     Repeater {
                         model: [
                             {
-                                value: 0,
-                                name: TranslationManager.translate("settings.ai.mcp.access.monitor", "Monitor Only"),
-                                desc: TranslationManager.translate("settings.ai.mcp.access.monitorDesc", "Read state, telemetry, shot history, profiles")
+                                level: 0,
+                                label: TranslationManager.translate("settings.ai.mcp.access.monitor", "Monitor Only"),
+                                detail: TranslationManager.translate("settings.ai.mcp.access.monitorDesc", "Read state, telemetry, shot history, profiles")
                             },
                             {
-                                value: 1,
-                                name: TranslationManager.translate("settings.ai.mcp.access.control", "Control"),
-                                desc: TranslationManager.translate("settings.ai.mcp.access.controlDesc", "Monitor + start/stop operations, wake/sleep")
+                                level: 1,
+                                label: TranslationManager.translate("settings.ai.mcp.access.control", "Control"),
+                                detail: TranslationManager.translate("settings.ai.mcp.access.controlDesc", "Monitor + start/stop operations, wake/sleep")
                             },
                             {
-                                value: 2,
-                                name: TranslationManager.translate("settings.ai.mcp.access.full", "Full Automation"),
-                                desc: TranslationManager.translate("settings.ai.mcp.access.fullDesc", "Control + upload profiles, change settings")
+                                level: 2,
+                                label: TranslationManager.translate("settings.ai.mcp.access.full", "Full Automation"),
+                                detail: TranslationManager.translate("settings.ai.mcp.access.fullDesc", "Control + upload profiles, change settings")
                             }
                         ]
 
@@ -479,8 +479,8 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             height: accessDelegateContent.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcpAccessLevel === modelData.value ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcpAccessLevel === modelData.value ? Theme.primaryColor : Theme.borderColor
+                            color: Settings.mcpAccessLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: Settings.mcpAccessLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -495,9 +495,9 @@ KeyboardAwareContainer {
 
                                 RadioButton {
                                     id: accessRadio
-                                    checked: Settings.mcpAccessLevel === modelData.value
+                                    checked: Settings.mcpAccessLevel === modelData.level
                                     ButtonGroup.group: accessLevelGroup
-                                    onClicked: Settings.mcpAccessLevel = modelData.value
+                                    onClicked: Settings.mcpAccessLevel = modelData.level
                                     Accessible.ignored: true
                                 }
 
@@ -506,14 +506,14 @@ KeyboardAwareContainer {
                                     spacing: Theme.scaled(2)
 
                                     Text {
-                                        text: modelData.name
+                                        text: modelData.label
                                         color: Theme.textColor
                                         font.pixelSize: Theme.scaled(13)
                                         font.bold: true
                                         Accessible.ignored: true
                                     }
                                     Text {
-                                        text: modelData.desc
+                                        text: modelData.detail
                                         color: Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(11)
                                         wrapMode: Text.WordWrap
@@ -525,9 +525,9 @@ KeyboardAwareContainer {
 
                             AccessibleMouseArea {
                                 anchors.fill: parent
-                                accessibleName: modelData.name + ". " + modelData.desc
+                                accessibleName: modelData.label + ". " + modelData.detail
                                 accessibleItem: accessDelegate
-                                onAccessibleClicked: Settings.mcpAccessLevel = modelData.value
+                                onAccessibleClicked: Settings.mcpAccessLevel = modelData.level
                             }
                         }
                     }
@@ -553,19 +553,19 @@ KeyboardAwareContainer {
                     Repeater {
                         model: [
                             {
-                                value: 0,
-                                name: TranslationManager.translate("settings.ai.mcp.confirm.none", "None"),
-                                desc: TranslationManager.translate("settings.ai.mcp.confirm.noneDesc", "Commands execute immediately")
+                                level: 0,
+                                label: TranslationManager.translate("settings.ai.mcp.confirm.none", "None"),
+                                detail: TranslationManager.translate("settings.ai.mcp.confirm.noneDesc", "Commands execute immediately")
                             },
                             {
-                                value: 1,
-                                name: TranslationManager.translate("settings.ai.mcp.confirm.dangerous", "Dangerous Only"),
-                                desc: TranslationManager.translate("settings.ai.mcp.confirm.dangerousDesc", "Confirm start operations, profile uploads, settings changes")
+                                level: 1,
+                                label: TranslationManager.translate("settings.ai.mcp.confirm.dangerous", "Dangerous Only"),
+                                detail: TranslationManager.translate("settings.ai.mcp.confirm.dangerousDesc", "Confirm start operations, profile uploads, settings changes")
                             },
                             {
-                                value: 2,
-                                name: TranslationManager.translate("settings.ai.mcp.confirm.all", "All Control"),
-                                desc: TranslationManager.translate("settings.ai.mcp.confirm.allDesc", "Confirm every machine control and write operation")
+                                level: 2,
+                                label: TranslationManager.translate("settings.ai.mcp.confirm.all", "All Control"),
+                                detail: TranslationManager.translate("settings.ai.mcp.confirm.allDesc", "Confirm every machine control and write operation")
                             }
                         ]
 
@@ -574,8 +574,8 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             height: confirmDelegateContent.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcpConfirmationLevel === modelData.value ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcpConfirmationLevel === modelData.value ? Theme.primaryColor : Theme.borderColor
+                            color: Settings.mcpConfirmationLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: Settings.mcpConfirmationLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -590,9 +590,9 @@ KeyboardAwareContainer {
 
                                 RadioButton {
                                     id: confirmRadio
-                                    checked: Settings.mcpConfirmationLevel === modelData.value
+                                    checked: Settings.mcpConfirmationLevel === modelData.level
                                     ButtonGroup.group: confirmLevelGroup
-                                    onClicked: Settings.mcpConfirmationLevel = modelData.value
+                                    onClicked: Settings.mcpConfirmationLevel = modelData.level
                                     Accessible.ignored: true
                                 }
 
@@ -601,14 +601,14 @@ KeyboardAwareContainer {
                                     spacing: Theme.scaled(2)
 
                                     Text {
-                                        text: modelData.name
+                                        text: modelData.label
                                         color: Theme.textColor
                                         font.pixelSize: Theme.scaled(13)
                                         font.bold: true
                                         Accessible.ignored: true
                                     }
                                     Text {
-                                        text: modelData.desc
+                                        text: modelData.detail
                                         color: Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(11)
                                         wrapMode: Text.WordWrap
@@ -620,9 +620,9 @@ KeyboardAwareContainer {
 
                             AccessibleMouseArea {
                                 anchors.fill: parent
-                                accessibleName: modelData.name + ". " + modelData.desc
+                                accessibleName: modelData.label + ". " + modelData.detail
                                 accessibleItem: confirmDelegate
-                                onAccessibleClicked: Settings.mcpConfirmationLevel = modelData.value
+                                onAccessibleClicked: Settings.mcpConfirmationLevel = modelData.level
                             }
                         }
                     }

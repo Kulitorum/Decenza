@@ -14,7 +14,6 @@ import Decenza
 Dialog {
     id: root
 
-    property string title: ""
     property var options: []        // Array of display strings
     property int currentIndex: -1   // Which option is currently selected
 
@@ -27,6 +26,7 @@ Dialog {
     topPadding: 0
     bottomPadding: 0
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+    header: null  // Suppress Dialog's built-in header — we render title in contentItem
     width: Math.min(parent ? parent.width - Theme.scaled(40) : Theme.scaled(300), Theme.scaled(400))
     height: Math.min(dialogContent.implicitHeight + Theme.scaled(16),
                      parent ? parent.height - Theme.scaled(80) : Theme.scaled(500))
