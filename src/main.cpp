@@ -324,6 +324,13 @@ int main(int argc, char *argv[])
     // CopyEmojiImage crash path. This app renders emoji as SVG images
     // (Theme.emojiToImage), so bitmap emoji glyphs are not needed.
     QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
+    {
+        auto actual = QQuickWindow::textRenderType();
+        qDebug() << "[TextRender] Requested CurveTextRendering, active type:"
+                 << (actual == QQuickWindow::CurveTextRendering ? "Curve" :
+                     actual == QQuickWindow::QtTextRendering ? "QtText" : "Native")
+                 << "(" << static_cast<int>(actual) << ")";
+    }
     // Probe which characters CoreText routes to Apple Color Emoji — diagnostic
     // for the CopyEmojiImage crash. If any non-emoji chars use the emoji font,
     // it explains why Qt fell back to native rendering despite QtTextRendering.
@@ -345,7 +352,14 @@ int main(int argc, char *argv[])
     // Set Qt Quick Controls style (must be before QML engine creation)
     QQuickStyle::setStyle("Material");
 
-    qDebug() << "App started - version" << VERSION_STRING << "build" << versionCode();
+    qDebug() << "App started - version" << VERSION_STRING << "build" << versionCode()
+#ifdef QT_NO_DEBUG
+             << "(release)"
+#else
+             << "(debug)"
+#endif
+             << "built" << __DATE__ << __TIME__
+             << "at" << QDateTime::currentDateTime().toString(Qt::ISODate);
 
     // Startup timing - always on, lightweight. Helps diagnose ANRs on slow devices.
     // Wall clock comes from WebDebugLogger's [LOG HH:mm:ss.zzz] prefix automatically.

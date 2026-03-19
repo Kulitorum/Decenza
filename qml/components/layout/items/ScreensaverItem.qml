@@ -93,14 +93,21 @@ Item {
                 return h * 1.5
             }
 
-            // Flip Clock preview
-            FlipClockScreensaver {
+            // Flip Clock preview — use Loader to destroy text nodes when not visible,
+            // preventing stale QSGDefaultGlyphNode updates on the render thread
+            Loader {
                 anchors.centerIn: parent
                 width: parent.width / 0.756
                 height: parent.width / 1.764
+                active: root.isFlipClock && root.isCompact
                 visible: root.isFlipClock
-                running: visible && compactContent.visible
-                backgroundColor: "transparent"
+                source: "qrc:/qt/qml/Decenza/qml/components/FlipClockScreensaver.qml"
+                onLoaded: {
+                    item.running = Qt.binding(function() {
+                        return visible && compactContent.visible
+                    })
+                    item.backgroundColor = "transparent"
+                }
             }
 
             // Attractor preview
@@ -182,16 +189,23 @@ Item {
             anchors.margins: root.isFlipClock ? 0 : 1
             clip: true
 
-            // Flip Clock — always sized to fill widget width; widget width controlled by clockScale
-            FlipClockScreensaver {
+            // Flip Clock — use Loader to destroy text nodes when not visible,
+            // preventing stale QSGDefaultGlyphNode updates on the render thread
+            Loader {
                 anchors.centerIn: parent
                 // Virtual size makes the clock exactly fill the widget width
                 // cardWidth = parent.width / 5.04; virtual dims ensure that's what min() returns
                 width: parent.width / 0.756
                 height: parent.width / 1.764
+                active: root.isFlipClock && !root.isCompact
                 visible: root.isFlipClock
-                running: visible && fullContent.visible
-                backgroundColor: "transparent"
+                source: "qrc:/qt/qml/Decenza/qml/components/FlipClockScreensaver.qml"
+                onLoaded: {
+                    item.running = Qt.binding(function() {
+                        return visible && fullContent.visible
+                    })
+                    item.backgroundColor = "transparent"
+                }
             }
 
             // Strange Attractor — direct component (always available, no Quick3D)
