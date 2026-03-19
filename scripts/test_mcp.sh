@@ -145,7 +145,7 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame"
 for tool in $EXPECTED_TOOLS; do
     assert_ok "tool '$tool' registered" "$TOOLS_JSON" \
         "'$tool' in d"
@@ -357,8 +357,40 @@ fi
 
 echo
 
-# ─── 8. Session Management ───
-echo -e "${CYAN}8. Session Management${NC}"
+# ─── 8. Machine Control Tools ───
+echo -e "${CYAN}8. Machine Control (discovery only — not executing commands)${NC}"
+
+# Verify control tools are registered
+TOOLS_RESP2=$(rpc 70 "tools/list" '{}')
+TOOLS_JSON2=$(echo "$TOOLS_RESP2" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+tools = d.get('result',{}).get('tools',[])
+print(json.dumps([t['name'] for t in tools]))
+" 2>/dev/null)
+
+CONTROL_TOOLS="machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame"
+for tool in $CONTROL_TOOLS; do
+    assert_ok "control tool '$tool' registered" "$TOOLS_JSON2" \
+        "'$tool' in d"
+done
+
+# Test state validation (machine_stop should fail when not flowing)
+STOP_RAW=$(rpc 71 "tools/call" '{"name":"machine_stop","arguments":{}}')
+STOP=$(echo "$STOP_RAW" | parse_tool_result)
+assert_ok "machine_stop rejects when not flowing" "$STOP" \
+    "'error' in d and 'No operation' in d.get('error','')"
+
+# Test machine_skip_frame fails when not extracting
+SKIP_RAW=$(rpc 72 "tools/call" '{"name":"machine_skip_frame","arguments":{}}')
+SKIP_RESULT=$(echo "$SKIP_RAW" | parse_tool_result)
+assert_ok "machine_skip_frame rejects when not extracting" "$SKIP_RESULT" \
+    "'error' in d"
+
+echo
+
+# ─── 9. Session Management ───
+echo -e "${CYAN}9. Session Management${NC}"
 
 # DELETE session
 DEL_RESP=$(curl -s -X DELETE "$BASE" -H "Mcp-Session: $SESSION")

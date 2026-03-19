@@ -273,6 +273,7 @@ set(SOURCES
     src/mcp/mcptools_profiles.cpp
     src/mcp/mcptools_settings.cpp
     src/mcp/mcptools_dialing.cpp
+    src/mcp/mcptools_control.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
