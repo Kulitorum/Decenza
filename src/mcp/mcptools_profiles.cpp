@@ -23,10 +23,8 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
             for (const QVariant& v : all) {
                 QVariantMap pm = v.toMap();
                 QJsonObject p;
-                p["filename"] = pm["filename"].toString();
+                p["filename"] = pm["name"].toString();  // "name" is the filename key in availableProfiles()
                 p["title"] = pm["title"].toString();
-                if (pm.contains("editorType"))
-                    p["editorType"] = pm["editorType"].toString();
                 profiles.append(p);
             }
             result["profiles"] = profiles;
