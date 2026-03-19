@@ -1542,11 +1542,11 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
             if (db.open()) {
                 QSqlQuery query(db);
                 query.prepare(QStringLiteral(
-                    "SELECT id, created_at, profile_title, bean_weight, drink_weight, "
-                    "duration, espresso_enjoyment, grinder_setting, grinder_model, "
+                    "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
+                    "duration_seconds, enjoyment, grinder_setting, grinder_model, "
                     "espresso_notes, bean_brand, bean_type, profile_kb_id "
                     "FROM shots WHERE profile_kb_id = :kbId "
-                    "ORDER BY created_at DESC LIMIT :limit"));
+                    "ORDER BY timestamp DESC LIMIT :limit"));
                 query.bindValue(":kbId", kbId);
                 query.bindValue(":limit", limit);
 
@@ -1554,12 +1554,12 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
                     while (query.next()) {
                         QVariantMap shot;
                         shot["id"] = query.value("id").toLongLong();
-                        shot["createdAt"] = query.value("created_at").toString();
-                        shot["profileName"] = query.value("profile_title").toString();
-                        shot["dose"] = query.value("bean_weight").toDouble();
-                        shot["yield"] = query.value("drink_weight").toDouble();
-                        shot["duration"] = query.value("duration").toDouble();
-                        shot["enjoyment"] = query.value("espresso_enjoyment").toInt();
+                        shot["timestamp"] = query.value("timestamp").toLongLong();
+                        shot["profileName"] = query.value("profile_name").toString();
+                        shot["dose"] = query.value("dose_weight").toDouble();
+                        shot["yield"] = query.value("final_weight").toDouble();
+                        shot["duration"] = query.value("duration_seconds").toDouble();
+                        shot["enjoyment"] = query.value("enjoyment").toInt();
                         shot["grinderSetting"] = query.value("grinder_setting").toString();
                         shot["grinderModel"] = query.value("grinder_model").toString();
                         shot["notes"] = query.value("espresso_notes").toString();

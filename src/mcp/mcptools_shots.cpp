@@ -8,6 +8,9 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QThread>
+#include <QAtomicInt>
+
+static QAtomicInt s_mcpShotConnCounter{0};
 
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)
 {
@@ -39,8 +42,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             int minEnjoyment = args["minEnjoyment"].toInt(-1);
 
             const QString dbPath = shotHistory->databasePath();
-            const QString connName = QString("mcp_shots_list_%1")
-                .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+            const QString connName = QString("mcp_shots_list_%1").arg(s_mcpShotConnCounter.fetchAndAddRelaxed(1));
 
             QJsonArray shots;
             int totalCount = 0;
@@ -48,50 +50,37 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
                 db.setDatabaseName(dbPath);
                 if (db.open()) {
-                    QString sql = "SELECT id, created_at, profile_title, bean_weight, drink_weight, "
-                                  "duration, espresso_enjoyment, grinder_setting, grinder_model, "
+                    QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
+                                  "duration_seconds, enjoyment, grinder_setting, grinder_model, "
                                   "espresso_notes, bean_brand, bean_type, profile_kb_id "
                                   "FROM shots WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
                     QStringList conditions;
-                    QVariantList bindValues;
 
-                    if (!profileFilter.isEmpty()) {
-                        conditions << "profile_title LIKE ?";
-                        bindValues << ("%" + profileFilter + "%");
-                    }
-                    if (!beanFilter.isEmpty()) {
-                        conditions << "bean_brand LIKE ?";
-                        bindValues << ("%" + beanFilter + "%");
-                    }
-                    if (minEnjoyment >= 0) {
-                        conditions << "espresso_enjoyment >= ?";
-                        bindValues << minEnjoyment;
-                    }
+                    if (!profileFilter.isEmpty())
+                        conditions << "profile_name LIKE '%" + profileFilter + "%'";
+                    if (!beanFilter.isEmpty())
+                        conditions << "bean_brand LIKE '%" + beanFilter + "%'";
+                    if (minEnjoyment >= 0)
+                        conditions << "enjoyment >= " + QString::number(minEnjoyment);
 
                     for (const auto& cond : conditions) {
                         sql += " AND " + cond;
                         countSql += " AND " + cond;
                     }
-                    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+                    sql += " ORDER BY timestamp DESC LIMIT " + QString::number(limit) + " OFFSET " + QString::number(offset);
 
                     QSqlQuery query(db);
-                    query.prepare(sql);
-                    for (qsizetype i = 0; i < bindValues.size(); ++i)
-                        query.bindValue(static_cast<int>(i), bindValues[i]);
-                    query.bindValue(static_cast<int>(bindValues.size()), limit);
-                    query.bindValue(static_cast<int>(bindValues.size() + 1), offset);
-
-                    if (query.exec()) {
+                    if (query.exec(sql)) {
                         while (query.next()) {
                             QJsonObject shot;
                             shot["id"] = query.value("id").toLongLong();
-                            shot["createdAt"] = query.value("created_at").toString();
-                            shot["profileName"] = query.value("profile_title").toString();
-                            shot["dose"] = query.value("bean_weight").toDouble();
-                            shot["yield"] = query.value("drink_weight").toDouble();
-                            shot["duration"] = query.value("duration").toDouble();
-                            shot["enjoyment"] = query.value("espresso_enjoyment").toInt();
+                            shot["timestamp"] = query.value("timestamp").toLongLong();
+                            shot["profileName"] = query.value("profile_name").toString();
+                            shot["dose"] = query.value("dose_weight").toDouble();
+                            shot["yield"] = query.value("final_weight").toDouble();
+                            shot["duration"] = query.value("duration_seconds").toDouble();
+                            shot["enjoyment"] = query.value("enjoyment").toInt();
                             shot["grinderSetting"] = query.value("grinder_setting").toString();
                             shot["grinderModel"] = query.value("grinder_model").toString();
                             shot["notes"] = query.value("espresso_notes").toString();
@@ -102,10 +91,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     }
 
                     QSqlQuery countQuery(db);
-                    countQuery.prepare(countSql);
-                    for (qsizetype i = 0; i < bindValues.size(); ++i)
-                        countQuery.bindValue(static_cast<int>(i), bindValues[i]);
-                    if (countQuery.exec() && countQuery.next())
+                    if (countQuery.exec(countSql) && countQuery.next())
                         totalCount = countQuery.value(0).toInt();
                 }
             }
@@ -144,8 +130,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             }
 
             const QString dbPath = shotHistory->databasePath();
-            const QString connName = QString("mcp_shot_detail_%1")
-                .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+            const QString connName = QString("mcp_shot_detail_%1").arg(s_mcpShotConnCounter.fetchAndAddRelaxed(1));
 
             {
                 QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
@@ -195,8 +180,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             }
 
             const QString dbPath = shotHistory->databasePath();
-            const QString connName = QString("mcp_compare_%1")
-                .arg(reinterpret_cast<quintptr>(QThread::currentThreadId()), 0, 16);
+            const QString connName = QString("mcp_compare_%1").arg(s_mcpShotConnCounter.fetchAndAddRelaxed(1));
 
             QJsonArray shots;
             {

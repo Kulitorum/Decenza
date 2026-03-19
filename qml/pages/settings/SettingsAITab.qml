@@ -453,8 +453,6 @@ KeyboardAwareContainer {
                         font.bold: true
                     }
 
-                    ButtonGroup { id: accessLevelGroup }
-
                     Repeater {
                         model: [
                             {
@@ -477,7 +475,7 @@ KeyboardAwareContainer {
                         delegate: Rectangle {
                             id: accessDelegate
                             Layout.fillWidth: true
-                            height: accessDelegateContent.implicitHeight + Theme.scaled(16)
+                            Layout.preferredHeight: accessDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
                             color: Settings.mcpAccessLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
                             border.color: Settings.mcpAccessLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
@@ -485,41 +483,28 @@ KeyboardAwareContainer {
 
                             Accessible.ignored: true
 
-                            RowLayout {
-                                id: accessDelegateContent
+                            ColumnLayout {
+                                id: accessDelegateCol
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 anchors.margins: Theme.scaled(12)
-                                spacing: Theme.scaled(8)
+                                spacing: Theme.scaled(2)
 
-                                RadioButton {
-                                    id: accessRadio
-                                    checked: Settings.mcpAccessLevel === modelData.level
-                                    ButtonGroup.group: accessLevelGroup
-                                    onClicked: Settings.mcpAccessLevel = modelData.level
+                                Text {
+                                    text: modelData.label
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(13)
+                                    font.bold: true
                                     Accessible.ignored: true
                                 }
-
-                                ColumnLayout {
+                                Text {
+                                    text: modelData.detail
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(11)
+                                    wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
-                                    spacing: Theme.scaled(2)
-
-                                    Text {
-                                        text: modelData.label
-                                        color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
-                                        font.bold: true
-                                        Accessible.ignored: true
-                                    }
-                                    Text {
-                                        text: modelData.detail
-                                        color: Theme.textSecondaryColor
-                                        font.pixelSize: Theme.scaled(11)
-                                        wrapMode: Text.WordWrap
-                                        Layout.fillWidth: true
-                                        Accessible.ignored: true
-                                    }
+                                    Accessible.ignored: true
                                 }
                             }
 
@@ -548,8 +533,6 @@ KeyboardAwareContainer {
                         font.bold: true
                     }
 
-                    ButtonGroup { id: confirmLevelGroup }
-
                     Repeater {
                         model: [
                             {
@@ -572,7 +555,7 @@ KeyboardAwareContainer {
                         delegate: Rectangle {
                             id: confirmDelegate
                             Layout.fillWidth: true
-                            height: confirmDelegateContent.implicitHeight + Theme.scaled(16)
+                            Layout.preferredHeight: confirmDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
                             color: Settings.mcpConfirmationLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
                             border.color: Settings.mcpConfirmationLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
@@ -580,41 +563,28 @@ KeyboardAwareContainer {
 
                             Accessible.ignored: true
 
-                            RowLayout {
-                                id: confirmDelegateContent
+                            ColumnLayout {
+                                id: confirmDelegateCol
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 anchors.margins: Theme.scaled(12)
-                                spacing: Theme.scaled(8)
+                                spacing: Theme.scaled(2)
 
-                                RadioButton {
-                                    id: confirmRadio
-                                    checked: Settings.mcpConfirmationLevel === modelData.level
-                                    ButtonGroup.group: confirmLevelGroup
-                                    onClicked: Settings.mcpConfirmationLevel = modelData.level
+                                Text {
+                                    text: modelData.label
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(13)
+                                    font.bold: true
                                     Accessible.ignored: true
                                 }
-
-                                ColumnLayout {
+                                Text {
+                                    text: modelData.detail
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(11)
+                                    wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
-                                    spacing: Theme.scaled(2)
-
-                                    Text {
-                                        text: modelData.label
-                                        color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
-                                        font.bold: true
-                                        Accessible.ignored: true
-                                    }
-                                    Text {
-                                        text: modelData.detail
-                                        color: Theme.textSecondaryColor
-                                        font.pixelSize: Theme.scaled(11)
-                                        wrapMode: Text.WordWrap
-                                        Layout.fillWidth: true
-                                        Accessible.ignored: true
-                                    }
+                                    Accessible.ignored: true
                                 }
                             }
 
