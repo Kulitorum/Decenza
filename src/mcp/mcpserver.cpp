@@ -21,6 +21,9 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings);
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
                           ShotHistoryStorage* shotHistory, Settings* settings);
 void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineState* machineState);
+void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
+                          MachineState* machineState, MainController* mainController,
+                          ShotHistoryStorage* shotHistory);
 
 McpServer::McpServer(QObject* parent)
     : QObject(parent)
@@ -52,6 +55,66 @@ void McpServer::registerAllTools()
     registerDialingTools(m_toolRegistry, m_mainController, m_shotHistory, m_settings);
     registerControlTools(m_toolRegistry, m_device, m_machineState);
     qDebug() << "McpServer: Registered" << m_toolRegistry->listTools(2).size() << "tools";
+}
+
+void McpServer::registerAllResources()
+{
+    registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_mainController, m_shotHistory);
+    qDebug() << "McpServer: Registered" << m_resourceRegistry->listResources().size() << "resources";
+}
+
+void McpServer::connectSseNotifications()
+{
+    // Phase change → decenza://machine/state
+    if (m_machineState) {
+        connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
+            broadcastSseNotification("decenza://machine/state");
+        });
+    }
+
+    // Profile changed → decenza://profiles/active
+    if (m_mainController) {
+        connect(m_mainController, &MainController::currentProfileChanged, this, [this]() {
+            broadcastSseNotification("decenza://profiles/active");
+        });
+    }
+
+    // Shot saved → decenza://shots/recent
+    if (m_shotHistory) {
+        connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this]() {
+            broadcastSseNotification("decenza://shots/recent");
+        });
+    }
+}
+
+void McpServer::broadcastSseNotification(const QString& resourceUri)
+{
+    if (m_sseClients.isEmpty()) return;
+
+    QJsonObject notification;
+    notification["jsonrpc"] = "2.0";
+    notification["method"] = "notifications/resources/updated";
+    QJsonObject params;
+    params["uri"] = resourceUri;
+    notification["params"] = params;
+
+    QByteArray event;
+    event.append("event: message\n");
+    event.append("data: ");
+    event.append(QJsonDocument(notification).toJson(QJsonDocument::Compact));
+    event.append("\n\n");
+
+    QList<QTcpSocket*> dead;
+    for (QTcpSocket* client : std::as_const(m_sseClients)) {
+        if (client->state() != QAbstractSocket::ConnectedState) {
+            dead.append(client);
+            continue;
+        }
+        client->write(event);
+        client->flush();
+    }
+    for (QTcpSocket* client : dead)
+        m_sseClients.remove(client);
 }
 
 McpServer::~McpServer()
@@ -124,8 +187,29 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         sendJsonRpcResponse(socket, result, request["id"].toVariant(), session->id());
 
     } else if (method == "GET") {
-        // SSE stream — not implemented yet (Phase 8)
-        sendHttpResponse(socket, 501, "SSE not implemented yet", "text/plain");
+        // SSE stream for server-initiated notifications
+        if (static_cast<int>(m_sseClients.size()) >= MaxSseConnections) {
+            sendHttpResponse(socket, 429, "Too many SSE connections", "text/plain");
+            return;
+        }
+
+        // Send SSE headers
+        QByteArray response;
+        response.append("HTTP/1.1 200 OK\r\n");
+        response.append("Content-Type: text/event-stream\r\n");
+        response.append("Cache-Control: no-cache\r\n");
+        response.append("Connection: keep-alive\r\n");
+        response.append("Access-Control-Allow-Origin: *\r\n");
+        response.append("\r\n");
+        socket->write(response);
+        socket->flush();
+
+        m_sseClients.insert(socket);
+        connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
+            m_sseClients.remove(socket);
+            qDebug() << "McpServer: SSE client disconnected, remaining:" << m_sseClients.size();
+        });
+        qDebug() << "McpServer: SSE client connected, total:" << m_sseClients.size();
 
     } else if (method == "DELETE") {
         // Terminate session

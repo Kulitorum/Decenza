@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QTimer>
 #include <QPointer>
+#include <QSet>
 
 class McpSession;
 class McpToolRegistry;
@@ -39,8 +40,10 @@ public:
 
     int activeSessionCount() const { return static_cast<int>(m_sessions.size()); }
 
-    // Register all tools — called after dependencies are set
+    // Register all tools and resources — called after dependencies are set
     void registerAllTools();
+    void registerAllResources();
+    void connectSseNotifications();
 
     // Registries (accessible for tool/resource registration in later phases)
     McpToolRegistry* toolRegistry() const { return m_toolRegistry; }
@@ -94,6 +97,11 @@ private:
 
     // Rate limiting
     QTimer* m_rateLimitTimer;
+
+    // SSE clients
+    QSet<QTcpSocket*> m_sseClients;
+    void broadcastSseNotification(const QString& resourceUri);
+    void sendSseEvent(QTcpSocket* socket, const QByteArray& event);
 
     // Limits
     static constexpr int MaxSessions = 8;

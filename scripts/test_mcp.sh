@@ -389,8 +389,45 @@ assert_ok "machine_skip_frame rejects when not extracting" "$SKIP_RESULT" \
 
 echo
 
-# ─── 9. Input Validation & Edge Cases ───
-echo -e "${CYAN}9. Input Validation & Edge Cases${NC}"
+# ─── 9. Resources ───
+echo -e "${CYAN}9. Resources${NC}"
+
+RES_LIST_RAW=$(rpc 90 "resources/list" '{}')
+assert_ok "resources/list returns array" "$RES_LIST_RAW" \
+    "isinstance(d.get('result',{}).get('resources'), list)"
+
+RES_URIS=$(echo "$RES_LIST_RAW" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+resources = d.get('result',{}).get('resources',[])
+print(json.dumps([r['uri'] for r in resources]))
+" 2>/dev/null)
+
+EXPECTED_RESOURCES="decenza://machine/state decenza://machine/telemetry decenza://profiles/active decenza://shots/recent decenza://profiles/list"
+for uri in $EXPECTED_RESOURCES; do
+    assert_ok "resource '$uri' registered" "$RES_URIS" \
+        "'$uri' in d"
+done
+
+# Read machine state resource
+STATE_RES_RAW=$(rpc 91 "resources/read" '{"uri":"decenza://machine/state"}')
+assert_ok "resources/read machine/state returns contents" "$STATE_RES_RAW" \
+    "isinstance(d.get('result',{}).get('contents'), list)"
+
+# Read recent shots resource
+SHOTS_RES_RAW=$(rpc 92 "resources/read" '{"uri":"decenza://shots/recent"}')
+assert_ok "shots/recent resource returns shots" "$SHOTS_RES_RAW" \
+    "'shots' in json.loads(d.get('result',{}).get('contents',[{}])[0].get('text','{}'))"
+
+# Read unknown resource
+UNK_RES_RAW=$(rpc 93 "resources/read" '{"uri":"decenza://nonexistent"}')
+assert_ok "unknown resource returns error" "$UNK_RES_RAW" \
+    "'error' in d.get('result',{}) or 'error' in d"
+
+echo
+
+# ─── 10. Input Validation & Edge Cases ───
+echo -e "${CYAN}10. Input Validation & Edge Cases${NC}"
 
 # Missing required params
 MISSING_RAW=$(rpc 80 "tools/call" '{"name":"shots_get_detail","arguments":{}}')
@@ -446,8 +483,8 @@ assert_ok "unknown tool returns error" "$UNKNOWN_TOOL_RAW" \
 
 echo
 
-# ─── 10. Rate Limiting ───
-echo -e "${CYAN}10. Rate Limiting${NC}"
+# ─── 11. Rate Limiting ───
+echo -e "${CYAN}11. Rate Limiting${NC}"
 
 # Use a fresh session so previous control calls don't affect the count
 curl -s -X DELETE "$BASE" -H "Mcp-Session: $SESSION" > /dev/null 2>&1
@@ -495,8 +532,8 @@ assert_ok "read calls not rate limited" "$READ12" "'phase' in d"
 
 echo
 
-# ─── 11. Session Limits ───
-echo -e "${CYAN}11. Session Limits${NC}"
+# ─── 12. Session Limits ───
+echo -e "${CYAN}12. Session Limits${NC}"
 
 # Delete current session
 curl -s -X DELETE "$BASE" -H "Mcp-Session: $SESSION" > /dev/null 2>&1
@@ -535,8 +572,8 @@ SESSION=$(grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | awk '{print $2}' 
 
 echo
 
-# ─── 12. Session Management ───
-echo -e "${CYAN}12. Session Management${NC}"
+# ─── 13. Session Management ───
+echo -e "${CYAN}13. Session Management${NC}"
 
 # DELETE session
 DEL_RESP=$(curl -s -X DELETE "$BASE" -H "Mcp-Session: $SESSION")
