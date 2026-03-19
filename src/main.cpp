@@ -732,6 +732,7 @@ int main(int argc, char *argv[])
     mcpServer.setShotHistoryStorage(mainController.shotHistory());
     mcpServer.setSettings(&settings);
     mainController.shotServer()->setMcpServer(&mcpServer);
+    mcpServer.registerAllTools();
 
     // Weather forecast manager (hourly updates, region-aware API selection)
     WeatherManager weatherManager(&sharedNetworkManager);

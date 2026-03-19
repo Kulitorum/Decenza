@@ -3,10 +3,21 @@
 #include "mcptoolregistry.h"
 #include "mcpresourceregistry.h"
 #include "../core/settings.h"
+#include "../ble/de1device.h"
+#include "../machine/machinestate.h"
+#include "../controllers/maincontroller.h"
+#include "../history/shothistorystorage.h"
 
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QDebug>
+
+// Tool registration functions (implemented in mcptools_*.cpp)
+void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
+                          MachineState* machineState, MainController* mainController);
+void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory);
+void registerProfileTools(McpToolRegistry* registry, MainController* mainController);
+void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings);
 
 McpServer::McpServer(QObject* parent)
     : QObject(parent)
@@ -27,6 +38,15 @@ McpServer::McpServer(QObject* parent)
             session->resetControlCalls();
     });
     m_rateLimitTimer->start();
+}
+
+void McpServer::registerAllTools()
+{
+    registerMachineTools(m_toolRegistry, m_device, m_machineState, m_mainController);
+    registerShotTools(m_toolRegistry, m_shotHistory);
+    registerProfileTools(m_toolRegistry, m_mainController);
+    registerSettingsReadTools(m_toolRegistry, m_settings);
+    qDebug() << "McpServer: Registered" << m_toolRegistry->listTools(2).size() << "tools";
 }
 
 McpServer::~McpServer()

@@ -268,6 +268,10 @@ set(SOURCES
     src/network/shotserver_auth.cpp
     src/network/shotserver_ai.cpp
     src/mcp/mcpserver.cpp
+    src/mcp/mcptools_machine.cpp
+    src/mcp/mcptools_shots.cpp
+    src/mcp/mcptools_profiles.cpp
+    src/mcp/mcptools_settings.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp

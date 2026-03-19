@@ -39,6 +39,9 @@ public:
 
     int activeSessionCount() const { return static_cast<int>(m_sessions.size()); }
 
+    // Register all tools — called after dependencies are set
+    void registerAllTools();
+
     // Registries (accessible for tool/resource registration in later phases)
     McpToolRegistry* toolRegistry() const { return m_toolRegistry; }
     McpResourceRegistry* resourceRegistry() const { return m_resourceRegistry; }
