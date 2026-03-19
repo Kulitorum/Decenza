@@ -28,7 +28,7 @@
         "pourPressure": 8.5,
         "pourTemperature": 88,
         "rampTime": 5,
-        "targetVolume": 54,
+        "targetVolume": 0,
         "targetWeight": 50
     },
     "mode": "frame_based",

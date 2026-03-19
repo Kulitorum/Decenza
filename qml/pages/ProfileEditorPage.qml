@@ -624,7 +624,6 @@ Page {
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileEditor.stopAtVolume", "Stop at volume")
-                          + (profile && profile.target_volume <= 0 ? " (" + TranslationManager.translate("profileEditor.off", "off") + ")" : "")
                     font: Theme.captionFont; color: profile && profile.target_volume > 0 ? Theme.flowColor : Theme.textSecondaryColor
                     verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap
                 }
@@ -632,6 +631,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.afterPreinfusionStopAccessible", "After preinfusion, stop the shot at volume")
                     from: 0; to: 500; stepSize: 1; suffix: " mL"
+                    displayText: { stepVersion; return profile && profile.target_volume <= 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { stepVersion; return profile ? (profile.target_volume || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
@@ -650,7 +650,6 @@ Page {
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileEditor.stopAtWeight", "Stop at weight")
-                          + (profile && profile.target_weight <= 0 ? " (" + TranslationManager.translate("profileEditor.off", "off") + ")" : "")
                     font: Theme.captionFont; color: profile && profile.target_weight > 0 ? Theme.weightColor : Theme.textSecondaryColor
                     verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap
                 }
@@ -658,6 +657,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.weightColor
                     accessibleName: TranslationManager.translate("profileEditor.stopAtWeightAccessible", "Stop at weight")
                     from: 0; to: 100; stepSize: 0.1; suffix: " g"
+                    displayText: { stepVersion; return profile && profile.target_weight <= 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { stepVersion; return profile ? (profile.target_weight || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
