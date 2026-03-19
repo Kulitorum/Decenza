@@ -575,7 +575,7 @@ Page {
 
                                 // Weight
                                 Text { text: TranslationManager.translate("simpleProfile.weight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; displayText: val(recipe.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
 
                                 Text {
                                     Layout.fillWidth: true
@@ -619,7 +619,10 @@ Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: val(recipe.targetWeight, 36).toFixed(0) + "g"
+            text: {
+                var w = val(recipe.targetWeight, 36)
+                return w > 0 ? w.toFixed(0) + TranslationManager.translate("units.grams", "g") : TranslationManager.translate("profileEditor.off", "off")
+            }
             color: bottomBar.contentColor
             font: Theme.bodyFont
         }

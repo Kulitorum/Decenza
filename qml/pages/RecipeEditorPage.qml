@@ -534,11 +534,11 @@ Page {
 
                             // Weight stop condition
                             Text { text: TranslationManager.translate("recipeEditor.pourWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; displayText: val(recipe.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
 
                             // Volume stop condition (D-Flow only)
                             Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: recipe.editorType !== "aflow" }
-                            ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 1; suffix: " mL"; value: val(recipe.targetVolume, 0); onValueModified: function(newValue) { updateRecipe("targetVolume", Math.round(newValue)) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: recipe.editorType !== "aflow"; from: 0; to: 200; stepSize: 1; suffix: " mL"; displayText: val(recipe.targetVolume, 0) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetVolume, 0); onValueModified: function(newValue) { updateRecipe("targetVolume", Math.round(newValue)) } }
                         }
 
                         // Spacer
@@ -558,7 +558,7 @@ Page {
 
         // Modified indicator
         Text {
-            text: "\u2022 Modified"
+            text: "\u2022 " + TranslationManager.translate("recipeEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
             visible: recipeModified
@@ -575,7 +575,14 @@ Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: (val(recipe.targetWeight, 36)).toFixed(0) + "g"
+            text: {
+                var parts = []
+                var w = val(recipe.targetWeight, 36)
+                var v = val(recipe.targetVolume, 0)
+                if (w > 0) parts.push(w.toFixed(0) + TranslationManager.translate("units.grams", "g"))
+                if (v > 0) parts.push(v.toFixed(0) + TranslationManager.translate("units.ml", "ml"))
+                return parts.length > 0 ? parts.join(" / ") : TranslationManager.translate("profileEditor.off", "off")
+            }
             color: bottomBar.contentColor
             font: Theme.bodyFont
         }
