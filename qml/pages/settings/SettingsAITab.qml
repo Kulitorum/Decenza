@@ -402,12 +402,8 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                     }
                     AccessibleButton {
-                        text: "?"
-                        accessibleName: TranslationManager.translate("settings.ai.mcp.helpAccessible", "Help: What is MCP and how to set it up")
-                        _customFontSize: Theme.scaled(14)
-                        _customFontWeight: Font.Bold
-                        Layout.preferredWidth: Theme.scaled(32)
-                        Layout.preferredHeight: Theme.scaled(32)
+                        text: TranslationManager.translate("settings.ai.mcp.setupGuide", "Setup Guide")
+                        accessibleName: TranslationManager.translate("settings.ai.mcp.helpAccessible", "What is MCP and how to set it up")
                         onClicked: mcpHelpDialog.open()
                     }
                 }
@@ -642,29 +638,19 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(8)
 
                     AccessibleButton {
-                        text: TranslationManager.translate("settings.ai.mcp.copyConfig", "Copy Claude Desktop Config")
-                        accessibleName: TranslationManager.translate("settings.ai.mcp.copyConfigAccessible", "Copy MCP configuration for Claude Desktop to clipboard")
+                        text: TranslationManager.translate("settings.ai.mcp.copySetupUrl", "Copy Setup URL")
+                        accessibleName: TranslationManager.translate("settings.ai.mcp.copySetupUrlAccessible", "Copy the MCP setup page URL to open on your computer")
                         onClicked: {
                             var serverUrl = MainController.shotServer ? MainController.shotServer.url : "http://localhost:8888"
-                            var config = JSON.stringify({
-                                "mcpServers": {
-                                    "decenza": {
-                                        "url": serverUrl + "/mcp",
-                                        "headers": {
-                                            "Authorization": "Bearer " + Settings.mcpApiKey
-                                        }
-                                    }
-                                }
-                            }, null, 2)
-                            MainController.copyToClipboard(config)
-                            mcpConfigCopiedText.visible = true
+                            MainController.copyToClipboard(serverUrl + "/mcp/setup")
+                            mcpSetupUrlCopiedText.visible = true
                         }
                     }
 
                     Text {
-                        id: mcpConfigCopiedText
+                        id: mcpSetupUrlCopiedText
                         visible: false
-                        text: TranslationManager.translate("settings.ai.mcp.configCopied", "Copied! Paste into ~/Library/Application Support/Claude/claude_desktop_config.json")
+                        text: TranslationManager.translate("settings.ai.mcp.setupUrlCopied", "Copied! Open this URL in a browser on your computer to install.")
                         color: Theme.successColor
                         font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.WordWrap
@@ -831,6 +817,26 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                     }
 
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: Qt.rgba(Theme.warningButtonColor.r, Theme.warningButtonColor.g, Theme.warningButtonColor.b, 0.15)
+                        radius: Theme.scaled(6)
+                        implicitHeight: platformNoteText.implicitHeight + Theme.scaled(12)
+
+                        Text {
+                            id: platformNoteText
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.margins: Theme.scaled(8)
+                            text: TranslationManager.translate("settings.ai.mcp.help.platformNote",
+                                "The MCP server runs on any platform (tablet, phone, desktop). Claude Desktop on your macOS or Windows computer connects to it over your WiFi network.\n\nDoes NOT work with: claude.ai web, Claude iOS/Android apps.\n\nTip: Use the Discuss button on shot review pages to open any AI with shot data on clipboard — works everywhere without MCP.")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.whatCanDo", "What can it do?")
                         color: Theme.textColor
@@ -840,7 +846,7 @@ KeyboardAwareContainer {
 
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.capabilities",
-                            "- Monitor machine state, temperature, water level\n- Browse and analyze your shot history\n- Get AI-powered dial-in advice after each shot\n- Start/stop espresso, steam, hot water, flush\n- Change profiles, grinder settings, brew parameters")
+                            "- Monitor machine state, temperature, water level\n- Browse and analyze your shot history\n- Get AI-powered dial-in advice after each shot\n- Start/stop operations (DE1 v1.0 headless only — most GHC machines require physical button press)\n- Change profiles, grinder settings, brew parameters")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap
@@ -856,7 +862,7 @@ KeyboardAwareContainer {
 
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.steps",
-                            "1. Enable MCP Server (toggle above)\n2. Install Claude Desktop from claude.ai/download\n3. Tap 'Copy Claude Desktop Config' below\n4. Open the Claude Desktop config file and paste:\n   macOS: ~/Library/Application Support/Claude/claude_desktop_config.json\n   Windows: %APPDATA%\\Claude\\claude_desktop_config.json\n5. Restart Claude Desktop\n6. Ask Claude about your espresso!")
+                            "1. Enable MCP Server (toggle above)\n2. On your computer: install Claude Desktop (claude.ai/download) and Python (python.org)\n3. Open the web setup guide (button below) on your computer\n4. Copy and run the install command in your terminal — it downloads the bridge and configures Claude Desktop automatically\n5. Restart Claude Desktop\n6. Ask Claude about your espresso!\n\nBoth devices must be on the same WiFi network.")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap

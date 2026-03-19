@@ -11,6 +11,9 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QDebug>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
 
 // Tool registration functions (implemented in mcptools_*.cpp)
 void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
@@ -163,6 +166,11 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             }
         } else {
             session = findSession(sessionHeader);
+            // Fallback: if no session header provided, use the most recent session.
+            // mcp-remote doesn't always send the Mcp-Session header after initialize.
+            if (!session && sessionHeader.isEmpty() && m_sessions.size() == 1) {
+                session = m_sessions.begin().value();
+            }
             if (!session) {
                 sendJsonRpcError(socket, -32600, "Invalid session",
                                  request["id"].toVariant(), sessionHeader);
@@ -177,12 +185,13 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
 
         session->touch();
 
-        // Notifications (no id, no response expected)
+        // Notifications (no id, no response expected per JSON-RPC)
+        // But HTTP still needs a response — send 204 No Content
         if (!request.contains("id")) {
-            // Handle notifications like "notifications/initialized"
             if (rpcMethod == "notifications/initialized") {
                 // Client acknowledged initialization — nothing to do
             }
+            sendHttpResponse(socket, 204, "", "application/json", session->id());
             return;
         }
 
@@ -190,6 +199,22 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         sendJsonRpcResponse(socket, result, request["id"].toVariant(), session->id());
 
     } else if (method == "GET") {
+        // Check if client wants SSE (Accept: text/event-stream)
+        bool wantsSse = false;
+        for (const QByteArray& line : headers.split('\n')) {
+            if (line.trimmed().toLower().startsWith("accept:") &&
+                line.toLower().contains("text/event-stream")) {
+                wantsSse = true;
+                break;
+            }
+        }
+
+        if (!wantsSse) {
+            // Not an SSE request — return server info (used by mcp-remote for transport discovery)
+            sendHttpResponse(socket, 405, "Method not allowed. Use POST for JSON-RPC.", "text/plain");
+            return;
+        }
+
         // SSE stream for server-initiated notifications
         if (static_cast<int>(m_sseClients.size()) >= MaxSseConnections) {
             sendHttpResponse(socket, 429, "Too many SSE connections", "text/plain");

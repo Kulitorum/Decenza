@@ -50,7 +50,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     // machine_start_espresso
     registry->registerTool(
         "machine_start_espresso",
-        "Start pulling an espresso shot. Machine must be in Ready state.",
+        "Start pulling an espresso shot. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -72,7 +72,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     // machine_start_steam
     registry->registerTool(
         "machine_start_steam",
-        "Start steaming milk. Machine must be in Ready state.",
+        "Start steaming milk. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -94,7 +94,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     // machine_start_hot_water
     registry->registerTool(
         "machine_start_hot_water",
-        "Dispense hot water. Machine must be in Ready state.",
+        "Dispense hot water. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -116,7 +116,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     // machine_start_flush
     registry->registerTool(
         "machine_start_flush",
-        "Flush the group head. Machine must be in Ready state.",
+        "Flush the group head. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
