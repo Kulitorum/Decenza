@@ -174,7 +174,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     // UI settings
     QJsonObject ui;
     ui["skin"] = settings->skin();
-    ui["screenBrightness"] = settings->screenBrightness();
+    // screenBrightness is intentionally NOT exported — it's a device-local
+    // runtime state (e.g. dimmed during screensaver) that would cause the
+    // importing device to inherit an inappropriate brightness level (#495)
     ui["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
 
     // Custom font sizes
@@ -554,7 +556,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     if (json.contains("ui") && !excludeKeys.contains("ui")) {
         QJsonObject ui = json["ui"].toObject();
         if (ui.contains("skin")) settings->setSkin(ui["skin"].toString());
-        if (ui.contains("screenBrightness")) settings->setScreenBrightness(ui["screenBrightness"].toDouble());
+        // screenBrightness intentionally skipped on import — device-local runtime state (#495)
         if (ui.contains("waterLevelDisplayUnit")) settings->setWaterLevelDisplayUnit(ui["waterLevelDisplayUnit"].toString());
 
         if (ui.contains("customFontSizes")) {
