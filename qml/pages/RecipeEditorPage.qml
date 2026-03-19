@@ -558,7 +558,7 @@ Page {
 
         // Modified indicator
         Text {
-            text: "\u2022 Modified"
+            text: "\u2022 " + TranslationManager.translate("recipeEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
             visible: recipeModified
@@ -579,8 +579,8 @@ Page {
                 var parts = []
                 var w = val(recipe.targetWeight, 36)
                 var v = val(recipe.targetVolume, 0)
-                if (w > 0) parts.push(w.toFixed(0) + "g")
-                if (v > 0) parts.push(v.toFixed(0) + "ml")
+                if (w > 0) parts.push(w.toFixed(0) + TranslationManager.translate("units.grams", "g"))
+                if (v > 0) parts.push(v.toFixed(0) + TranslationManager.translate("units.ml", "ml"))
                 return parts.length > 0 ? parts.join(" / ") : TranslationManager.translate("profileEditor.off", "off")
             }
             color: bottomBar.contentColor

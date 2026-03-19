@@ -621,7 +621,7 @@ Page {
         Text {
             text: {
                 var w = val(recipe.targetWeight, 36)
-                return w > 0 ? w.toFixed(0) + "g" : TranslationManager.translate("profileEditor.off", "off")
+                return w > 0 ? w.toFixed(0) + TranslationManager.translate("units.grams", "g") : TranslationManager.translate("profileEditor.off", "off")
             }
             color: bottomBar.contentColor
             font: Theme.bodyFont
