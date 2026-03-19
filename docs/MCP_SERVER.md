@@ -378,11 +378,12 @@ Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscu
 **`discussShotApp`** (int enum):
 | Value | Name | URL / Deep Link | Notes |
 |-------|------|-----------------|-------|
-| 0 | Claude | `https://claude.ai/new` | Best with MCP — Claude Desktop can pull shot data directly via tools |
-| 1 | ChatGPT | `https://chatgpt.com/` | OpenAI's assistant |
-| 2 | Gemini | `https://gemini.google.com/app` | Google's AI |
-| 3 | Grok | `https://grok.com/` | xAI's assistant |
-| 4 | Custom URL | Uses `discussShotCustomUrl` value | For self-hosted models (Ollama web UI, etc.) or any other AI service |
+| 0 | Claude App | `claude://` | Opens Claude Desktop app via URL scheme — best with MCP, can pull shot data directly via tools |
+| 1 | Claude Web | `https://claude.ai/new` | Opens claude.ai in browser — for users without the desktop app |
+| 2 | ChatGPT | `https://chatgpt.com/` | OpenAI's assistant |
+| 3 | Gemini | `https://gemini.google.com/app` | Google's AI |
+| 4 | Grok | `https://grok.com/` | xAI's assistant |
+| 5 | Custom URL | Uses `discussShotCustomUrl` value | For self-hosted models (Ollama web UI, etc.) or any other AI service |
 
 Default: `0` (Claude).
 
@@ -491,16 +492,28 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 
 ## Implementation Phases
 
-1. **Settings + UI**: Add `mcpEnabled`/`mcpAccessLevel`/`mcpConfirmationLevel`/`discussShotApp`/`discussShotCustomUrl` to Settings. Reorganize SettingsAITab.qml into sections with MCP controls and Discuss Shot subsection.
-2. **Discuss Shot feature**: Add Discuss button to PostShotReviewPage and ShotDetailPage. Create DiscussItem layout widget with registration in all 4 places. Implement clipboard summary + `Qt.openUrlExternally()` flow.
-3. **Prerequisites**: Implement `ShotHistoryStorage::getRecentShotsByKbId()` for dial-in history queries.
-4. **Core protocol**: McpServer, McpSession, JSON-RPC dispatch, ShotServer route integration, CMake setup.
-5. **Read-only tools**: machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, settings_get.
-6. **Dial-in read tool**: dialing_get_context — the highest-value tool for AI dial-in conversations. Bundles shot summary, history, profile knowledge, bean metadata, and reference tables.
-7. **Machine control tools**: start/stop operations with access-level gating + McpConfirmDialog (async callback pattern, no QEventLoop).
-8. **Resources + SSE**: Resource registry, subscriptions, notification wiring (especially `decenza://shots/recent` for dial-in flow).
-9. **Write tools**: shots_set_feedback, dialing_suggest_change (shows recommendation toast), dialing_apply_change (adjusts settings/profile/bean metadata), profiles_set_active, profiles_upload, settings_set — all with confirmation where mapped.
-10. **Polish**: Rate limiting, session cleanup, session limits, status display in settings UI.
+### Completed
+
+1. ~~**Settings + UI**: Add `mcpEnabled`/`mcpAccessLevel`/`mcpConfirmationLevel`/`discussShotApp`/`discussShotCustomUrl` to Settings. Reorganize SettingsAITab.qml into sections with MCP controls and Discuss Shot subsection.~~ ✅
+2. ~~**Discuss Shot feature**: Add Discuss button to PostShotReviewPage and ShotDetailPage. Create DiscussItem layout widget with registration in all 5 places. Implement clipboard summary + `Qt.openUrlExternally()` flow.~~ ✅
+3. ~~**Prerequisites**: Implement `ShotHistoryStorage::getRecentShotsByKbId()` for dial-in history queries.~~ ✅
+4. ~~**Core protocol**: McpServer, McpSession, JSON-RPC dispatch, ShotServer route integration, CMake setup.~~ ✅
+5. ~~**Read-only tools**: machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, settings_get.~~ ✅
+6. ~~**Dial-in read tool**: dialing_get_context — the highest-value tool for AI dial-in conversations. Bundles shot summary, history, profile knowledge, bean metadata, and reference tables.~~ ✅
+7. ~~**Machine control tools**: start/stop operations with access-level gating. Note: start commands only work on DE1 v1.0 headless machines — most machines with GHC require physical button press.~~ ✅
+8. ~~**Resources + SSE**: Resource registry, subscriptions, notification wiring (especially `decenza://shots/recent` for dial-in flow).~~ ✅
+9. ~~**Write tools**: shots_set_feedback, dialing_suggest_change, dialing_apply_change, profiles_set_active, settings_set — all with access-level gating.~~ ✅
+10. ~~**Polish**: Rate limiting, session cleanup, session limits, API key auth, setup page with install scripts, Claude Desktop integration, help dialog, bridge script.~~ ✅
+
+### Future Phases
+
+11. **Scale control tools**: `scale_tare` (tare the connected scale), `scale_timer_start`, `scale_timer_stop`, `scale_timer_reset`. Category: control. Useful for AI-guided workflows ("tare your scale, I'll tell you when to start").
+12. **Device management tools**: `devices_list` (list discovered BLE devices), `devices_scan` (trigger BLE scan), `devices_connect` (connect by address), `devices_disconnect`. Category: control. Enables AI-assisted troubleshooting ("I can't find my scale" → AI triggers scan and connects).
+13. **Profile create/edit tools**: `profiles_create` (create new profile from JSON), `profiles_update` (modify existing profile frames/parameters), `profiles_delete` (remove user/downloaded profile). Category: settings. Allows AI to generate or tweak profiles programmatically (e.g., "make a slower blooming profile" → AI creates one).
+14. **Shot management tools**: `shots_delete` (delete a shot by ID), `shots_update` (update arbitrary metadata fields beyond enjoyment/notes). Category: settings. Data cleanup and richer metadata editing.
+15. **Confirmation dialog**: McpConfirmDialog QML component for dangerous operations (start espresso, profile uploads, settings changes). Async callback pattern with 15-second auto-dismiss timer. Maps to `mcpConfirmationLevel` setting (None/Dangerous Only/All Control).
+16. **Bean inventory system**: Full CRUD for beans and batches — track individual purchases, roast dates, remaining weight, frozen status, cost per bag. Enables AI to suggest when beans are past prime, calculate cost-per-shot, recommend reorders. Requires new DB tables and significant UI work — large feature.
+17. **Real-time streaming**: Subscribe/read pattern for live sensor data during shots. An AI could provide real-time coaching during extraction ("pressure is dropping, channeling detected"). Requires WebSocket or enhanced SSE support.
 
 ## Verification
 

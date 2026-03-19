@@ -267,6 +267,17 @@ set(SOURCES
     src/network/shotserver_settings.cpp
     src/network/shotserver_auth.cpp
     src/network/shotserver_ai.cpp
+    src/mcp/mcpserver.cpp
+    src/mcp/mcptools_machine.cpp
+    src/mcp/mcptools_shots.cpp
+    src/mcp/mcptools_profiles.cpp
+    src/mcp/mcptools_settings.cpp
+    src/mcp/mcptools_dialing.cpp
+    src/mcp/mcptools_control.cpp
+    src/mcp/mcpresources.cpp
+    src/mcp/mcptools_scale.cpp
+    src/mcp/mcptools_devices.cpp
+    src/mcp/mcptools_write.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
@@ -387,6 +398,10 @@ set(HEADERS
     src/network/shotreporter.h
     src/network/crashreporter.h
     src/network/librarysharing.h
+    src/mcp/mcpserver.h
+    src/mcp/mcpsession.h
+    src/mcp/mcptoolregistry.h
+    src/mcp/mcpresourceregistry.h
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h
@@ -611,6 +626,7 @@ set(QML_FILES
     qml/components/ExtractionViewSelector.qml
     qml/components/StyledSwitch.qml
     qml/components/StyledComboBox.qml
+    qml/components/SelectionDialog.qml
     qml/components/StyledIconButton.qml
     qml/components/StyledTabButton.qml
     qml/components/FlipClockScreensaver.qml
@@ -635,6 +651,7 @@ set(QML_FILES
     qml/components/layout/items/FlushItem.qml
     qml/components/layout/items/BeansItem.qml
     qml/components/layout/items/HistoryItem.qml
+    qml/components/layout/items/DiscussItem.qml
     qml/components/layout/items/AutoFavoritesItem.qml
     qml/components/layout/items/SleepItem.qml
     qml/components/layout/items/SettingsItem.qml

@@ -229,6 +229,16 @@ class Settings : public QObject {
     // Layout configuration (dynamic IdlePage layout)
     Q_PROPERTY(QString layoutConfiguration READ layoutConfiguration WRITE setLayoutConfiguration NOTIFY layoutConfigurationChanged)
 
+    // MCP Server settings
+    Q_PROPERTY(bool mcpEnabled READ mcpEnabled WRITE setMcpEnabled NOTIFY mcpEnabledChanged)
+    Q_PROPERTY(int mcpAccessLevel READ mcpAccessLevel WRITE setMcpAccessLevel NOTIFY mcpAccessLevelChanged)
+    Q_PROPERTY(int mcpConfirmationLevel READ mcpConfirmationLevel WRITE setMcpConfirmationLevel NOTIFY mcpConfirmationLevelChanged)
+    Q_PROPERTY(QString mcpApiKey READ mcpApiKey NOTIFY mcpApiKeyChanged)
+
+    // Discuss Shot settings
+    Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged)
+    Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscussShotCustomUrl NOTIFY discussShotCustomUrlChanged)
+
     // MQTT settings (Home Automation)
     Q_PROPERTY(bool mqttEnabled READ mqttEnabled WRITE setMqttEnabled NOTIFY mqttEnabledChanged)
     Q_PROPERTY(QString mqttBrokerHost READ mqttBrokerHost WRITE setMqttBrokerHost NOTIFY mqttBrokerHostChanged)
@@ -713,6 +723,23 @@ public:
     int autoWakeStayAwakeMinutes() const;
     void setAutoWakeStayAwakeMinutes(int minutes);
 
+    // MCP Server settings
+    bool mcpEnabled() const;
+    void setMcpEnabled(bool enabled);
+    int mcpAccessLevel() const;
+    void setMcpAccessLevel(int level);
+    int mcpConfirmationLevel() const;
+    void setMcpConfirmationLevel(int level);
+    QString mcpApiKey() const;
+    Q_INVOKABLE void regenerateMcpApiKey();
+
+    // Discuss Shot settings
+    int discussShotApp() const;
+    void setDiscussShotApp(int app);
+    QString discussShotCustomUrl() const;
+    void setDiscussShotCustomUrl(const QString& url);
+    Q_INVOKABLE QString discussShotUrl() const;
+
     // MQTT settings (Home Automation)
     bool mqttEnabled() const;
     void setMqttEnabled(bool enabled);
@@ -907,6 +934,12 @@ signals:
     void autoWakeScheduleChanged();
     void autoWakeStayAwakeEnabledChanged();
     void autoWakeStayAwakeMinutesChanged();
+    void mcpEnabledChanged();
+    void mcpAccessLevelChanged();
+    void mcpConfirmationLevelChanged();
+    void mcpApiKeyChanged();
+    void discussShotAppChanged();
+    void discussShotCustomUrlChanged();
     void mqttEnabledChanged();
     void mqttBrokerHostChanged();
     void mqttBrokerPortChanged();

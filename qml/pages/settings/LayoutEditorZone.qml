@@ -410,6 +410,7 @@ Rectangle {
                             { type: "batteryLevel", label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
                             { type: "scaleBattery", label: TranslationManager.translate("layoutEditor.widgetScaleBattery", "Scale Battery") },
                             { type: "ghcSimulator", label: TranslationManager.translate("layoutEditor.widgetGHCSimulator", "GHC Simulator") },
+                            { type: "discuss", label: TranslationManager.translate("layoutEditor.widgetDiscuss", "Discuss") },
                             { type: "waterLevel", label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
                             // Utility (orange)
                             { type: "custom", label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
@@ -552,7 +553,8 @@ Rectangle {
             "screensaverPipes": TranslationManager.translate("layoutEditor.chipPipes", "Pipes"),
             "screensaverAttractor": TranslationManager.translate("layoutEditor.chipAttractor", "Attractor"),
             "screensaverShotMap": TranslationManager.translate("layoutEditor.chipMap", "Map"),
-            "quit": TranslationManager.translate("layoutEditor.chipQuit", "Quit")
+            "quit": TranslationManager.translate("layoutEditor.chipQuit", "Quit"),
+            "discuss": TranslationManager.translate("layoutEditor.chipDiscuss", "Discuss")
         }
         return names[type] || type
     }

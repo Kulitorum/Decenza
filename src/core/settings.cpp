@@ -240,6 +240,11 @@ Settings::Settings(QObject* parent)
     if (m_hasBrewYieldOverride) {
         m_brewYieldOverride = m_settings.value("brew/brewYieldOverride", 0.0).toDouble();
     }
+
+    // Generate MCP API key on first run (avoids const_cast in the getter)
+    if (m_settings.value("mcp/apiKey", "").toString().isEmpty()) {
+        m_settings.setValue("mcp/apiKey", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    }
 }
 
 // Machine settings
@@ -3427,6 +3432,86 @@ void Settings::setAutoWakeStayAwakeMinutes(int minutes) {
         m_settings.setValue("autoWake/stayAwakeMinutes", minutes);
         emit autoWakeStayAwakeMinutesChanged();
     }
+}
+
+// MCP Server settings
+bool Settings::mcpEnabled() const {
+    return m_settings.value("mcp/enabled", false).toBool();
+}
+
+void Settings::setMcpEnabled(bool enabled) {
+    if (mcpEnabled() != enabled) {
+        m_settings.setValue("mcp/enabled", enabled);
+        emit mcpEnabledChanged();
+    }
+}
+
+int Settings::mcpAccessLevel() const {
+    return m_settings.value("mcp/accessLevel", 1).toInt();
+}
+
+void Settings::setMcpAccessLevel(int level) {
+    if (mcpAccessLevel() != level) {
+        m_settings.setValue("mcp/accessLevel", level);
+        emit mcpAccessLevelChanged();
+    }
+}
+
+int Settings::mcpConfirmationLevel() const {
+    return m_settings.value("mcp/confirmationLevel", 1).toInt();
+}
+
+void Settings::setMcpConfirmationLevel(int level) {
+    if (mcpConfirmationLevel() != level) {
+        m_settings.setValue("mcp/confirmationLevel", level);
+        emit mcpConfirmationLevelChanged();
+    }
+}
+
+QString Settings::mcpApiKey() const {
+    return m_settings.value("mcp/apiKey", "").toString();
+}
+
+void Settings::regenerateMcpApiKey() {
+    m_settings.setValue("mcp/apiKey", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    emit mcpApiKeyChanged();
+}
+
+// Discuss Shot settings
+int Settings::discussShotApp() const {
+    return m_settings.value("ai/discussShotApp", 0).toInt();
+}
+
+void Settings::setDiscussShotApp(int app) {
+    if (discussShotApp() != app) {
+        m_settings.setValue("ai/discussShotApp", app);
+        emit discussShotAppChanged();
+    }
+}
+
+QString Settings::discussShotCustomUrl() const {
+    return m_settings.value("ai/discussShotCustomUrl", "").toString();
+}
+
+void Settings::setDiscussShotCustomUrl(const QString& url) {
+    if (discussShotCustomUrl() != url) {
+        m_settings.setValue("ai/discussShotCustomUrl", url);
+        emit discussShotCustomUrlChanged();
+    }
+}
+
+QString Settings::discussShotUrl() const {
+    static const QStringList urls = {
+        "claude://",
+        "https://claude.ai/new",
+        "https://chatgpt.com/",
+        "https://gemini.google.com/app",
+        "https://grok.com/"
+    };
+    int app = discussShotApp();
+    if (app == 5) return discussShotCustomUrl();
+    if (app >= 0 && app < urls.size()) return urls[app];
+    return urls[0];
 }
 
 // MQTT settings (Home Automation)

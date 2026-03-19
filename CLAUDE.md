@@ -214,7 +214,7 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 - `ActionButton` dims icon (50% opacity) and text (secondary color) when disabled
 - `native` is a reserved JavaScript keyword - use `nativeName` instead
 - **Never use Unicode symbols as icons in text** (e.g., `"\u270E"`, `"\u2717"`, `"\u2630"`). These render as tofu squares on devices without the right font glyphs. Use SVG icons from `qrc:/icons/` with `Image` instead. For buttons/menu items, use a `Row { Image {} Text {} }` contentItem. Safe Unicode characters (°, ·, —, →, ×) that are in standard fonts are OK.
-- **Never override FINAL properties on Qt types.** Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`).
+- **Never override FINAL properties on Qt types.** Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`, `title`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`), or use the inherited property directly if it already exists on the base type.
 
 ### QML Gotchas
 
@@ -233,6 +233,25 @@ Text {
     font.bold: true
 }
 ```
+
+**Reserved property names in JS model data**: `name` is a reserved QML property (`QObject::objectName`). When a JS array of objects is used as a Repeater model, `modelData.name` resolves to the QML object name (empty string), not the JS property. Use a different key like `label`.
+```qml
+// BAD - modelData.name resolves to empty string
+readonly property var items: [{ name: "Foo" }]
+Repeater {
+    model: items
+    delegate: Text { text: modelData.name }  // Shows nothing!
+}
+
+// GOOD - use a non-reserved key
+readonly property var items: [{ label: "Foo" }]
+Repeater {
+    model: items
+    delegate: Text { text: modelData.label }  // Works correctly
+}
+```
+
+Other reserved names to avoid in model data: `parent`, `children`, `data`, `state`, `enabled`, `visible`, `width`, `height`, `x`, `y`, `z`, `focus`, `clip`.
 
 **Keyboard handling for text inputs**: Always wrap pages with text input fields in `KeyboardAwareContainer` to shift content above the keyboard on mobile:
 ```qml

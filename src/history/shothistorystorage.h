@@ -204,6 +204,10 @@ public:
     // Async: runs on background thread, emits shotReady()
     Q_INVOKABLE void requestShot(qint64 shotId);
 
+    // Async: runs on background thread, emits recentShotsByKbIdReady()
+    // Returns summary data (not full time-series) for dial-in history queries.
+    Q_INVOKABLE void requestRecentShotsByKbId(const QString& kbId, int limit = 10);
+
     // Static version for background-thread use — caller provides their own connection.
     static ShotRecord loadShotRecordStatic(QSqlDatabase& db, qint64 shotId);
 
@@ -314,6 +318,7 @@ signals:
     void shotsFilteredReady(const QVariantList& results, bool isAppend, int totalCount);
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const QVariantMap& shot);
+    void recentShotsByKbIdReady(const QString& kbId, const QVariantList& shots);
     void importDatabaseFinished(bool success);
     void shotMetadataUpdated(qint64 shotId, bool success);
     void autoFavoritesReady(const QVariantList& results);

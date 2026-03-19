@@ -71,6 +71,7 @@
 #endif
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
+#include "mcp/mcpserver.h"
 #include "network/librarysharing.h"
 #include "core/documentformatter.h"
 #include "weather/weathermanager.h"
@@ -723,6 +724,19 @@ int main(int argc, char *argv[])
     mainController.shotServer()->setWidgetLibrary(&widgetLibrary);
     mainController.shotServer()->setLibrarySharing(&librarySharing);
 
+    // MCP Server for AI remote control
+    McpServer mcpServer;
+    mcpServer.setDE1Device(&de1Device);
+    mcpServer.setMachineState(&machineState);
+    mcpServer.setMainController(&mainController);
+    mcpServer.setShotHistoryStorage(mainController.shotHistory());
+    mcpServer.setBLEManager(&bleManager);
+    mcpServer.setSettings(&settings);
+    mainController.shotServer()->setMcpServer(&mcpServer);
+    mcpServer.registerAllTools();
+    mcpServer.registerAllResources();
+    mcpServer.connectSseNotifications();
+
     // Weather forecast manager (hourly updates, region-aware API selection)
     WeatherManager weatherManager(&sharedNetworkManager);
     weatherManager.setLocationProvider(mainController.locationProvider());
@@ -1183,6 +1197,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("WeatherManager", &weatherManager);
     context->setContextProperty("CrashReporter", &crashReporter);
     context->setContextProperty("WidgetLibrary", &widgetLibrary);
+    context->setContextProperty("McpServer", &mcpServer);
     context->setContextProperty("LibrarySharing", &librarySharing);
 #ifndef Q_OS_IOS
     context->setContextProperty("USBManager", &usbManager);

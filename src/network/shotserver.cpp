@@ -13,6 +13,8 @@
 #include "../ai/aimanager.h"
 #include "../core/batterymanager.h"
 #include "../core/memorymonitor.h"
+#include "../mcp/mcpserver.h"
+#include "../mcp/mcptoolregistry.h"
 #include "version.h"
 
 #include <QThread>
@@ -938,6 +940,23 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         bool isAuthRoute = path.startsWith("/auth/") || path.startsWith("/api/auth/");
         bool exempt = isAuthRoute || path == "/favicon.ico";
 
+        // MCP routes can authenticate via API key (Bearer token) instead of TOTP
+        if (!exempt && (path == "/mcp" || path.startsWith("/mcp/")) && m_settings) {
+            QString authHeader;
+            for (const auto& line : requestStr.split("\r\n")) {
+                if (line.startsWith("Authorization:", Qt::CaseInsensitive)) {
+                    authHeader = line.mid(line.indexOf(':') + 1).trimmed();
+                    break;
+                }
+            }
+            if (authHeader.startsWith("Bearer ", Qt::CaseInsensitive)) {
+                QString token = authHeader.mid(7).trimmed();
+                if (!token.isEmpty() && token == m_settings->mcpApiKey()) {
+                    exempt = true;  // Valid API key — skip TOTP check
+                }
+            }
+        }
+
         if (!exempt && !checkSession(request)) {
             if (hasStoredTotpSecret()) {
                 sendResponse(socket, 401, "text/html; charset=utf-8", QByteArray(WEB_AUTH_LOGIN_PAGE));
@@ -960,6 +979,324 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             handleAuthRoute(socket, method, path, body);
             return;
         }
+    }
+
+    // MCP Server routes
+    if (path == "/mcp" || path.startsWith("/mcp/")) {
+        // Install scripts (platform-specific, auto-configure everything)
+        if (path == "/mcp/install.sh") {
+            QString serverUrl = url();
+            QString mcpUrl = serverUrl + "/mcp";
+            QString script = QString(R"BASH(#!/bin/bash
+set -e
+echo "Installing Decenza MCP bridge..."
+
+# Create directory
+BRIDGE_DIR="$HOME/Library/Application Support/Decenza"
+if [ ! -d "$HOME/Library" ]; then
+    BRIDGE_DIR="$HOME/.local/share/Decenza"
+fi
+mkdir -p "$BRIDGE_DIR"
+
+# Download bridge script
+BRIDGE_PATH="$BRIDGE_DIR/mcp_bridge.py"
+curl -fsSL "%1/mcp/bridge.py" -o "$BRIDGE_PATH"
+chmod +x "$BRIDGE_PATH"
+echo "Bridge script installed: $BRIDGE_PATH"
+
+# Check for Python
+if ! command -v python3 &>/dev/null; then
+    echo "WARNING: python3 not found. Install Python from python.org"
+    exit 1
+fi
+
+# Configure Claude Desktop
+CONFIG_DIR="$HOME/Library/Application Support/Claude"
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "Claude Desktop config directory not found."
+    echo "Install Claude Desktop from claude.ai/download, then re-run this script."
+    exit 1
+fi
+CONFIG="$CONFIG_DIR/claude_desktop_config.json"
+
+# Read existing config or create new
+if [ -f "$CONFIG" ]; then
+    # Merge: add decenza server to existing config
+    python3 -c "
+import json, sys
+with open('$CONFIG') as f:
+    config = json.load(f)
+config.setdefault('mcpServers', {})
+config['mcpServers']['decenza'] = {
+    'command': '/usr/bin/python3',
+    'args': ['$BRIDGE_PATH', '%2']
+}
+with open('$CONFIG', 'w') as f:
+    json.dump(config, f, indent=2)
+print('Updated:', '$CONFIG')
+"
+else
+    cat > "$CONFIG" << 'ENDJSON'
+{
+  "mcpServers": {
+    "decenza": {
+      "command": "/usr/bin/python3",
+      "args": ["BRIDGE_PATH_PLACEHOLDER", "%2"]
+    }
+  }
+}
+ENDJSON
+    sed -i '' "s|BRIDGE_PATH_PLACEHOLDER|$BRIDGE_PATH|g" "$CONFIG"
+    echo "Created: $CONFIG"
+fi
+
+echo ""
+echo "Done! Restart Claude Desktop and ask:"
+echo '  "What is the state of my espresso machine?"'
+)BASH").arg(serverUrl, mcpUrl);
+
+            sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
+            return;
+        }
+
+        if (path == "/mcp/install.ps1") {
+            QString serverUrl = url();
+            QString mcpUrl = serverUrl + "/mcp";
+            QString script = QString(R"PS1(
+Write-Host "Installing Decenza MCP bridge..."
+
+$bridgeDir = "$env:APPDATA\Decenza"
+New-Item -ItemType Directory -Force -Path $bridgeDir | Out-Null
+
+$bridgePath = "$bridgeDir\mcp_bridge.py"
+Invoke-WebRequest -Uri "%1/mcp/bridge.py" -OutFile $bridgePath
+Write-Host "Bridge script installed: $bridgePath"
+
+# Check for Python
+$py = Get-Command python -ErrorAction SilentlyContinue
+if (-not $py) {
+    Write-Host "WARNING: Python not found. Install from python.org" -ForegroundColor Yellow
+    exit 1
+}
+
+$configDir = "$env:APPDATA\Claude"
+if (-not (Test-Path $configDir)) {
+    Write-Host "Claude Desktop config directory not found."
+    Write-Host "Install Claude Desktop from claude.ai/download, then re-run."
+    exit 1
+}
+$configPath = "$configDir\claude_desktop_config.json"
+
+if (Test-Path $configPath) {
+    $config = Get-Content $configPath | ConvertFrom-Json
+} else {
+    $config = @{}
+}
+if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue @{} }
+$config.mcpServers.decenza = @{
+    command = "python"
+    args = @($bridgePath, "%2")
+}
+$config | ConvertTo-Json -Depth 10 | Set-Content $configPath
+Write-Host "Config updated: $configPath"
+Write-Host ""
+Write-Host "Done! Restart Claude Desktop and ask:"
+Write-Host '  "What is the state of my espresso machine?"'
+)PS1").arg(serverUrl, mcpUrl);
+
+            sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
+            return;
+        }
+
+        // Serve bridge script inline
+        if (path == "/mcp/bridge.py") {
+            QByteArray script = R"PY(#!/usr/bin/env python3
+"""Decenza MCP Bridge - connects Claude Desktop (stdio) to Decenza's HTTP MCP server."""
+import sys, json, urllib.request, urllib.error
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: mcp_bridge.py <server-url> [api-key]", file=sys.stderr)
+        sys.exit(1)
+    server_url = sys.argv[1]
+    api_key = sys.argv[2] if len(sys.argv) > 2 else None
+    session = [None]
+
+    def make_headers():
+        h = {"Content-Type": "application/json"}
+        if session[0]: h["Mcp-Session"] = session[0]
+        if api_key: h["Authorization"] = f"Bearer {api_key}"
+        return h
+
+    while True:
+        try:
+            line = sys.stdin.readline()
+        except EOFError:
+            break
+        if not line: break
+        line = line.strip()
+        if not line: continue
+        try:
+            request = json.loads(line)
+        except json.JSONDecodeError as e:
+            print(json.dumps({"jsonrpc":"2.0","id":None,"error":{"code":-32700,"message":f"Parse error: {e}"}}), flush=True)
+            continue
+        is_notification = "id" not in request
+        try:
+            data = json.dumps(request).encode("utf-8")
+            req = urllib.request.Request(server_url, data=data, headers=make_headers(), method="POST")
+            if is_notification:
+                try:
+                    with urllib.request.urlopen(req, timeout=2) as resp: resp.read()
+                except Exception: pass
+                continue
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                new_session = resp.headers.get("Mcp-Session")
+                if new_session: session[0] = new_session
+                body = resp.read().decode("utf-8")
+                if body.strip(): print(body, flush=True)
+        except urllib.error.URLError as e:
+            msg = str(e.reason) if hasattr(e,'reason') else str(e)
+            rid = request.get("id")
+            if rid is not None:
+                print(json.dumps({"jsonrpc":"2.0","id":rid,"error":{"code":-32000,"message":f"Server error: {msg}"}}), flush=True)
+        except Exception as e:
+            rid = request.get("id")
+            if rid is not None:
+                print(json.dumps({"jsonrpc":"2.0","id":rid,"error":{"code":-32000,"message":f"Bridge error: {e}"}}), flush=True)
+
+if __name__ == "__main__":
+    main()
+)PY";
+            sendResponse(socket, 200, "text/plain; charset=utf-8", script,
+                "Content-Disposition: attachment; filename=\"decenza_mcp_bridge.py\"\r\n");
+            return;
+        }
+
+        // Setup guide page (available even when MCP is disabled)
+        if (path == "/mcp/setup") {
+            QString serverUrl = url();
+            QString mcpUrl = serverUrl + "/mcp";
+            QString html = QString::fromUtf8(R"HTML(<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Decenza MCP Setup</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;
+background:#1a1a2e;color:#e0e0e0;line-height:1.6}
+h1{color:#6c8cff}h2{color:#8ca0ff;margin-top:32px}
+pre{background:#0d0d1a;padding:16px;border-radius:8px;overflow-x:auto;border:1px solid #333;
+font-size:14px;position:relative}
+code{color:#a0cfff}
+.copy-btn{position:absolute;top:8px;right:8px;background:#6c8cff;color:white;border:none;
+padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px}
+.copy-btn:hover{background:#8ca0ff}
+.step{background:#0d0d1a;padding:16px;border-radius:8px;margin:12px 0;border-left:3px solid #6c8cff}
+.step-num{color:#6c8cff;font-weight:bold;font-size:18px}
+.status{padding:12px;border-radius:8px;margin:16px 0;font-weight:bold}
+.enabled{background:rgba(46,125,50,0.2);border:1px solid #2e7d32;color:#81c784}
+.disabled{background:rgba(198,40,40,0.2);border:1px solid #c62828;color:#ef9a9a}
+a{color:#6c8cff}
+</style></head><body>
+<h1>Decenza MCP Server Setup</h1>
+<div class="status %1">MCP Server: %2</div>
+<p>Connect Claude Desktop to your DE1 espresso machine for AI-powered shot analysis, dial-in advice, and remote control.</p>
+
+<h2>How It Works</h2>
+<p>The MCP server runs inside Decenza on <strong>any platform</strong> (Android tablet, iOS, Windows, macOS, Linux). Claude Desktop on your computer connects to it over your local WiFi network.</p>
+
+<h2>Platform Compatibility</h2>
+<table style="width:100%%;border-collapse:collapse;margin:12px 0">
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Decenza runs on</strong></td><td style="padding:8px">Any platform &mdash; tablet, phone, or desktop</td></tr>
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Claude Desktop connects from</strong></td><td style="padding:8px">macOS or Windows (same WiFi network)</td></tr>
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Does NOT work with</strong></td><td style="padding:8px">claude.ai web, Claude iOS/Android apps</td></tr>
+</table>
+<p><strong>Tip:</strong> You can also use the <em>Discuss</em> button on any shot review page to open any AI (Claude Web, ChatGPT, Gemini, Grok) with your shot data copied to clipboard &mdash; this works on all platforms without MCP.</p>
+
+<h2>Available Tools (%4)</h2>
+<p>At <strong>Full Automation</strong> access level, Claude can:</p>
+<ul>
+<li>Read machine state, telemetry, water level</li>
+<li>Browse and analyze shot history</li>
+<li>Get dial-in context and suggest improvements</li>
+<li>Start/stop espresso, steam, hot water, flush (DE1 v1.0 headless machines only &mdash; most machines with GHC require physical button press)</li>
+<li>Change profiles, settings, and grinder parameters</li>
+</ul>
+
+<h2>Access Levels</h2>
+<ul>
+<li><strong>Monitor Only</strong> &mdash; read state, history, profiles (no control)</li>
+<li><strong>Control</strong> &mdash; + start/stop operations, wake/sleep</li>
+<li><strong>Full Automation</strong> &mdash; + change profiles, settings, parameters</li>
+</ul>
+
+<h2>Setup Steps</h2>
+<div class="step"><span class="step-num">1.</span> Enable MCP in Decenza: Settings &gt; AI &gt; MCP Server &gt; toggle ON</div>
+<div class="step"><span class="step-num">2.</span> On your computer, install <a href="https://claude.ai/download">Claude Desktop</a></div>
+<div class="step"><span class="step-num">3.</span> Run this command in your terminal to install the MCP bridge:
+<pre id="installCmd"><code id="installCmdText">Loading...</code><button class="copy-btn" onclick="copyInstallCmd(this)">Copy</button></pre></div>
+<div class="step"><span class="step-num">4.</span> Restart Claude Desktop (Quit &amp; reopen)</div>
+<div class="step"><span class="step-num">5.</span> Ask Claude: <em>"What's the current state of my espresso machine?"</em></div>
+
+<script>
+(function(){
+var url='%3';
+var p=navigator.platform||navigator.userAgent||'';
+var isMac=p.indexOf('Mac')>=0;
+var isWin=p.indexOf('Win')>=0;
+
+if(isMac){
+document.getElementById('installCmdText').textContent=
+'curl -fsSL '+location.origin+'/mcp/install.sh | bash';
+}else if(isWin){
+document.getElementById('installCmdText').textContent=
+'powershell -c "irm '+location.origin+'/mcp/install.ps1 | iex"';
+}else{
+document.getElementById('installCmdText').textContent=
+'curl -fsSL '+location.origin+'/mcp/install.sh | bash';
+}
+})();
+</script>
+
+<script>
+function copyInstallCmd(btn){
+var text=document.getElementById('installCmdText').textContent;
+if(navigator.clipboard&&window.isSecureContext){
+navigator.clipboard.writeText(text).then(function(){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)});
+}else{
+var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
+}
+}
+</script>
+</body></html>)HTML");
+
+            bool mcpOn = m_settings && m_settings->mcpEnabled();
+            // %3 is used in the JS install script URL (the MCP endpoint URL)
+            QString configJson = mcpUrl;
+            int toolCount = m_mcpServer ? m_mcpServer->toolRegistry()->listTools(2).size() : 0;
+
+            html = html.arg(mcpOn ? "enabled" : "disabled",
+                           mcpOn ? "Enabled" : "Disabled",
+                           configJson,
+                           QString::number(toolCount));
+
+            sendHtml(socket, html);
+            return;
+        }
+
+        if (!m_mcpServer || !m_settings || !m_settings->mcpEnabled()) {
+            sendResponse(socket, 404, "text/plain", "Not Found");
+            return;
+        }
+        // Extract headers from the raw request
+        int headerEnd = request.indexOf("\r\n\r\n");
+        QByteArray headers = (headerEnd > 0) ? request.left(headerEnd) : QByteArray();
+        QByteArray body;
+        if (headerEnd > 0 && headerEnd + 4 < request.size())
+            body = request.mid(headerEnd + 4);
+        m_mcpServer->handleHttpRequest(socket, method, path, headers, body);
+        return;
     }
 
     // Route requests
