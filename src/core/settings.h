@@ -21,6 +21,10 @@ class Settings : public QObject {
     Q_PROPERTY(QString scaleType READ scaleType WRITE setScaleType NOTIFY scaleTypeChanged)
     Q_PROPERTY(QString scaleName READ scaleName WRITE setScaleName NOTIFY scaleNameChanged)
 
+    // Multi-scale management
+    Q_PROPERTY(QVariantList knownScales READ knownScales NOTIFY knownScalesChanged)
+    Q_PROPERTY(QString primaryScaleAddress READ primaryScaleAddress NOTIFY knownScalesChanged)
+
     // FlowScale (virtual scale from flow data)
     Q_PROPERTY(bool useFlowScale READ useFlowScale WRITE setUseFlowScale NOTIFY useFlowScaleChanged)
 
@@ -97,8 +101,16 @@ class Settings : public QObject {
     Q_PROPERTY(QVariantMap customThemeColors READ customThemeColors WRITE setCustomThemeColors NOTIFY customThemeColorsChanged)
     Q_PROPERTY(QVariantList colorGroups READ colorGroups WRITE setColorGroups NOTIFY colorGroupsChanged)
     Q_PROPERTY(QString activeThemeName READ activeThemeName WRITE setActiveThemeName NOTIFY activeThemeNameChanged)
+    Q_PROPERTY(QString darkThemeName READ darkThemeName WRITE setDarkThemeName NOTIFY darkThemeNameChanged)
+    Q_PROPERTY(QString lightThemeName READ lightThemeName WRITE setLightThemeName NOTIFY lightThemeNameChanged)
+    Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
     Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
     Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
+
+    // Theme mode (light/dark/system)
+    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
+    Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged)
+    Q_PROPERTY(QString editingPalette READ editingPalette WRITE setEditingPalette NOTIFY editingPaletteChanged)
 
     // Screen shaders
     Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
@@ -217,6 +229,16 @@ class Settings : public QObject {
     // Layout configuration (dynamic IdlePage layout)
     Q_PROPERTY(QString layoutConfiguration READ layoutConfiguration WRITE setLayoutConfiguration NOTIFY layoutConfigurationChanged)
 
+    // MCP Server settings
+    Q_PROPERTY(bool mcpEnabled READ mcpEnabled WRITE setMcpEnabled NOTIFY mcpEnabledChanged)
+    Q_PROPERTY(int mcpAccessLevel READ mcpAccessLevel WRITE setMcpAccessLevel NOTIFY mcpAccessLevelChanged)
+    Q_PROPERTY(int mcpConfirmationLevel READ mcpConfirmationLevel WRITE setMcpConfirmationLevel NOTIFY mcpConfirmationLevelChanged)
+    Q_PROPERTY(QString mcpApiKey READ mcpApiKey NOTIFY mcpApiKeyChanged)
+
+    // Discuss Shot settings
+    Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged)
+    Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscussShotCustomUrl NOTIFY discussShotCustomUrlChanged)
+
     // MQTT settings (Home Automation)
     Q_PROPERTY(bool mqttEnabled READ mqttEnabled WRITE setMqttEnabled NOTIFY mqttEnabledChanged)
     Q_PROPERTY(QString mqttBrokerHost READ mqttBrokerHost WRITE setMqttBrokerHost NOTIFY mqttBrokerHostChanged)
@@ -255,6 +277,14 @@ public:
 
     QString scaleName() const;
     void setScaleName(const QString& name);
+
+    // Multi-scale management
+    Q_INVOKABLE QVariantList knownScales() const;
+    Q_INVOKABLE void addKnownScale(const QString& address, const QString& type, const QString& name);
+    Q_INVOKABLE void removeKnownScale(const QString& address);
+    Q_INVOKABLE void setPrimaryScale(const QString& address);
+    Q_INVOKABLE QString primaryScaleAddress() const;
+    Q_INVOKABLE bool isKnownScale(const QString& address) const;
 
     // FlowScale
     bool useFlowScale() const;
@@ -430,6 +460,31 @@ public:
 
     QString activeThemeName() const;
     void setActiveThemeName(const QString& name);
+
+    // Per-mode theme selection
+    QString darkThemeName() const;
+    void setDarkThemeName(const QString& name);
+    QString lightThemeName() const;
+    void setLightThemeName(const QString& name);
+    QStringList themeNames() const;
+    Q_INVOKABLE void applyDarkTheme(const QString& name);
+    Q_INVOKABLE void applyLightTheme(const QString& name);
+
+    // Theme mode (light/dark/system)
+    QString themeMode() const;
+    void setThemeMode(const QString& mode);
+    bool isDarkMode() const { return m_isDarkMode; }
+    void initSystemThemeDetection();
+
+    // Editing palette (which palette the color editor targets)
+    QString editingPalette() const { return m_editingPalette; }
+    void setEditingPalette(const QString& palette);
+    Q_INVOKABLE QVariantMap editingPaletteColors() const;
+    Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
+
+    // Light/dark default palettes
+    static const QVariantMap& darkDefaults();
+    static const QVariantMap& lightDefaults();
 
     // Screen effects (empty string = none, "crt" = CRT/Pip-Boy, extensible for future effects)
     QString activeShader() const;
@@ -668,6 +723,23 @@ public:
     int autoWakeStayAwakeMinutes() const;
     void setAutoWakeStayAwakeMinutes(int minutes);
 
+    // MCP Server settings
+    bool mcpEnabled() const;
+    void setMcpEnabled(bool enabled);
+    int mcpAccessLevel() const;
+    void setMcpAccessLevel(int level);
+    int mcpConfirmationLevel() const;
+    void setMcpConfirmationLevel(int level);
+    QString mcpApiKey() const;
+    Q_INVOKABLE void regenerateMcpApiKey();
+
+    // Discuss Shot settings
+    int discussShotApp() const;
+    void setDiscussShotApp(int app);
+    QString discussShotCustomUrl() const;
+    void setDiscussShotCustomUrl(const QString& url);
+    Q_INVOKABLE QString discussShotUrl() const;
+
     // MQTT settings (Home Automation)
     bool mqttEnabled() const;
     void setMqttEnabled(bool enabled);
@@ -749,6 +821,7 @@ signals:
     void scaleAddressChanged();
     void scaleTypeChanged();
     void scaleNameChanged();
+    void knownScalesChanged();
     void useFlowScaleChanged();
     void showScaleDialogsChanged();
     void usbSerialEnabledChanged();
@@ -788,6 +861,12 @@ signals:
     void customThemeColorsChanged();
     void colorGroupsChanged();
     void activeThemeNameChanged();
+    void darkThemeNameChanged();
+    void lightThemeNameChanged();
+    void themeNamesChanged();
+    void themeModeChanged();
+    void isDarkModeChanged();
+    void editingPaletteChanged();
     void activeShaderChanged();
     void shaderParamsChanged();
     void customFontSizesChanged();
@@ -855,6 +934,12 @@ signals:
     void autoWakeScheduleChanged();
     void autoWakeStayAwakeEnabledChanged();
     void autoWakeStayAwakeMinutesChanged();
+    void mcpEnabledChanged();
+    void mcpAccessLevelChanged();
+    void mcpConfirmationLevelChanged();
+    void mcpApiKeyChanged();
+    void discussShotAppChanged();
+    void discussShotCustomUrlChanged();
     void mqttEnabledChanged();
     void mqttBrokerHostChanged();
     void mqttBrokerPortChanged();
@@ -883,8 +968,9 @@ private:
     QString generateItemId(const QString& type) const;
 
     void ensureSawCacheLoaded() const;
+    void writeKnownScales(const QVariantList& scales);
 
-    QSettings m_settings;
+    mutable QSettings m_settings;
     bool m_use12HourTime = false;
 
     // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)
@@ -896,6 +982,11 @@ private:
     int m_flashPhase = 0;
     QTimer* m_flashTimer = nullptr;
     QStringList m_currentPageColors;
+
+    // Theme mode
+    bool m_isDarkMode = true;
+    QString m_editingPalette = "dark";
+    void updateResolvedMode();
     mutable QJsonObject m_layoutCache;
     mutable QString m_layoutJsonCache;
     mutable bool m_layoutCacheValid = false;

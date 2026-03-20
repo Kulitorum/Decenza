@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
@@ -56,6 +57,12 @@ Item {
                 fillMode: Image.PreserveAspectFit
                 opacity: DE1Device.guiEnabled ? 1.0 : 0.5
                 Accessible.ignored: true
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
             Tr {
                 key: "idle.button.flush"
@@ -72,6 +79,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.flush", "Flush")
+            accessibleDescription: TranslationManager.translate("idle.accessible.flush.hint", "Tap to toggle presets. Double-tap or long-press to configure flush.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToFlush()
             onAccessibleLongPressed: root.goToFlush()
@@ -97,7 +105,7 @@ Item {
             onPressAndHold: root.goToFlush()
             onDoubleClicked: root.goToFlush()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.flush.description", "Flush the group head. Long-press to configure.")
+            Accessible.description: TranslationManager.translate("idle.accessible.flush.description", "Flush the group head. Double-tap or long-press to configure.")
         }
     }
 

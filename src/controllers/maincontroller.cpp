@@ -21,6 +21,8 @@
 #include "../ble/blemanager.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/flowscale.h"
+#include <QGuiApplication>
+#include <QClipboard>
 #include <cmath>
 #include <QDir>
 #include <QFile>
@@ -165,10 +167,22 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 uploadCurrentProfile();
             }
         });
+
+        // Clear temporary steam disable when machine goes to sleep or disconnects
+        // so it resets to normal behavior on next wake/reconnect
+        connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
+            auto phase = m_machineState->phase();
+            if ((phase == MachineState::Phase::Sleep || phase == MachineState::Phase::Disconnected)
+                && m_settings && m_settings->steamDisabled()) {
+                qDebug() << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
+                m_settings->setSteamDisabled(false);
+            }
+        });
     }
 
     // Create visualizer uploader and importer
     m_visualizer = new VisualizerUploader(m_networkManager, m_settings, this);
+    m_visualizer->setDevice(m_device);
     m_visualizerImporter = new VisualizerImporter(m_networkManager, this, m_settings, this);
 
     // Create shot history storage and comparison model
@@ -413,20 +427,25 @@ bool MainController::isCurrentProfileRecipe() const {
 }
 
 QString MainController::currentEditorType() const {
-    if (m_currentProfile.isRecipeMode()) {
-        return editorTypeToString(m_currentProfile.recipeParams().editorType);
-    }
-    // Detect by profile type for non-recipe-mode profiles
-    QString profileType = m_currentProfile.profileType();
-    if (profileType == "settings_2a") {
-        return QStringLiteral("pressure");
-    }
-    if (profileType == "settings_2b") {
-        return QStringLiteral("flow");
-    }
-    // Detect by title prefix
+    // Title is the authority for D-Flow/A-Flow selection
     if (isDFlowTitle(m_currentProfile.title())) return QStringLiteral("dflow");
     if (isAFlowTitle(m_currentProfile.title())) return QStringLiteral("aflow");
+
+    // Simple profile types (from profileType field)
+    QString profileType = m_currentProfile.profileType();
+    if (profileType == "settings_2a") return QStringLiteral("pressure");
+    if (profileType == "settings_2b") return QStringLiteral("flow");
+
+    // Recipe-mode profiles: use stored editor type for Pressure/Flow.
+    // D-Flow/A-Flow already handled by title check above, so this won't
+    // re-introduce the #421 bug where non-D-Flow profiles got the D-Flow editor.
+    if (m_currentProfile.isRecipeMode()) {
+        EditorType et = m_currentProfile.recipeParams().editorType;
+        if (et == EditorType::Pressure) return QStringLiteral("pressure");
+        if (et == EditorType::Flow) return QStringLiteral("flow");
+    }
+
+    // Everything else → Advanced (never default to D-Flow for unknown profiles)
     return QStringLiteral("advanced");
 }
 
@@ -749,7 +768,6 @@ QVariantMap MainController::getCurrentProfile() const {
     profile["profile_notes"] = m_currentProfile.profileNotes();
     profile["target_weight"] = m_currentProfile.targetWeight();
     profile["target_volume"] = m_currentProfile.targetVolume();
-    profile["stop_at_type"] = m_currentProfile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
     profile["espresso_temperature"] = m_currentProfile.espressoTemperature();
     profile["mode"] = m_currentProfile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
     profile["has_recommended_dose"] = m_currentProfile.hasRecommendedDose();
@@ -852,7 +870,6 @@ QVariantMap MainController::getProfileByFilename(const QString& filename) const 
     result["profile_notes"] = profile.profileNotes();
     result["target_weight"] = profile.targetWeight();
     result["target_volume"] = profile.targetVolume();
-    result["stop_at_type"] = profile.stopAtType() == Profile::StopAtType::Volume ? "volume" : "weight";
     result["espresso_temperature"] = profile.espressoTemperature();
     result["mode"] = profile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
     result["has_recommended_dose"] = profile.hasRecommendedDose();
@@ -1016,10 +1033,6 @@ void MainController::loadProfile(const QString& profileName) {
     if (m_machineState) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setStopAtType(
-            m_currentProfile.stopAtType() == Profile::StopAtType::Volume
-                ? MachineState::StopAtType::Volume
-                : MachineState::StopAtType::Weight);
     }
 
     // Upload to machine if connected (for frame-based mode)
@@ -1068,10 +1081,6 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
     if (m_machineState) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
-        m_machineState->setStopAtType(
-            m_currentProfile.stopAtType() == Profile::StopAtType::Volume
-                ? MachineState::StopAtType::Volume
-                : MachineState::StopAtType::Weight);
     }
 
     // Upload to machine if connected (for frame-based mode)
@@ -1497,15 +1506,6 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
             m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         }
     }
-    if (profileData.contains("stop_at_type")) {
-        QString typeStr = profileData["stop_at_type"].toString();
-        Profile::StopAtType type = (typeStr == "volume") ? Profile::StopAtType::Volume : Profile::StopAtType::Weight;
-        m_currentProfile.setStopAtType(type);
-        if (m_machineState) {
-            m_machineState->setStopAtType(type == Profile::StopAtType::Volume ? MachineState::StopAtType::Volume : MachineState::StopAtType::Weight);
-        }
-    }
-
     if (profileData.contains("has_recommended_dose")) {
         m_currentProfile.setHasRecommendedDose(profileData["has_recommended_dose"].toBool());
     }
@@ -1658,16 +1658,38 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     }
     recipe.clamp();  // Ensure values are within hardware limits
 
-    // Update current profile's recipe params and regenerate frames
+    // Check if frame-affecting params actually changed. When only metadata changes
+    // (targetWeight, targetVolume, dose), skip frame regeneration to preserve
+    // hand-tuned frame values. Matches de1app behavior where changing weight
+    // doesn't recompute frames through the D-Flow editor.
+    RecipeParams oldRecipe = m_currentProfile.recipeParams();
+    bool needFrameRegen = !m_currentProfile.isRecipeMode()
+                       || m_currentProfile.steps().isEmpty()
+                       || !oldRecipe.frameAffectingFieldsEqual(recipe);
+
+    // Update current profile's recipe params
     m_currentProfile.setRecipeMode(true);
     m_currentProfile.setRecipeParams(recipe);
-    m_currentProfile.regenerateFromRecipe();
+
+    if (needFrameRegen) {
+        m_currentProfile.regenerateFromRecipe();
+    } else {
+        // Only metadata changed — update target weight/volume without touching frames
+        m_currentProfile.setTargetWeight(recipe.targetWeight);
+        m_currentProfile.setTargetVolume(recipe.targetVolume);
+    }
 
     // Sync overrides so uploadCurrentProfile doesn't apply wrong delta
     // and shot plan text shows correct values (not stale overrides)
     if (m_settings) {
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
+    }
+
+    // Sync stop targets to MachineState so SAW/volume checks use current values
+    if (m_machineState) {
+        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
     }
 
     // Mark as modified
@@ -1732,6 +1754,7 @@ void MainController::createNewFlowProfile(const QString& title) {
 void MainController::createNewProfileWithEditorType(EditorType type, const QString& title) {
     RecipeParams recipe;
     recipe.editorType = type;
+    recipe.applyEditorDefaults();
     recipe.clamp();  // Ensure values are within hardware limits
 
     m_currentProfile = RecipeGenerator::createProfile(recipe, title);
@@ -1743,6 +1766,10 @@ void MainController::createNewProfileWithEditorType(EditorType type, const QStri
         m_settings->setSelectedFavoriteProfile(-1);
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
+    if (m_machineState) {
+        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
     }
 
     emit currentProfileChanged();
@@ -2034,7 +2061,7 @@ void MainController::createNewProfile(const QString& title) {
     m_currentProfile.setBeverageType("espresso");
     m_currentProfile.setProfileType("settings_2c");
     m_currentProfile.setTargetWeight(36.0);
-    m_currentProfile.setTargetVolume(36.0);
+    m_currentProfile.setTargetVolume(0.0);
     m_currentProfile.setEspressoTemperature(93.0);
     m_currentProfile.setRecipeMode(false);
 
@@ -2061,6 +2088,10 @@ void MainController::createNewProfile(const QString& title) {
         m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
+    if (m_machineState) {
+        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
     }
 
     emit currentProfileChanged();
@@ -2128,6 +2159,22 @@ bool MainController::saveProfileAs(const QString& filename, const QString& title
         emit currentProfileChanged();
     }
     return success;
+}
+
+void MainController::copyToClipboard(const QString& text) {
+    auto* cb = QGuiApplication::clipboard();
+    if (cb) {
+        cb->setText(text, QClipboard::Clipboard);
+        qDebug() << "Copied to clipboard:" << text;
+    }
+}
+
+QString MainController::pasteFromClipboard() const {
+    auto* cb = QGuiApplication::clipboard();
+    if (!cb) return {};
+    QString text = cb->text(QClipboard::Clipboard);
+    qDebug() << "Paste from clipboard:" << text;
+    return text;
 }
 
 QString MainController::titleToFilename(const QString& title) const {
@@ -2243,6 +2290,8 @@ void MainController::applySteamSettings() {
 
 void MainController::applyHotWaterSettings() {
     sendMachineSettings();
+    if (m_device && m_device->isConnected())
+        m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, m_settings->hotWaterFlowRate());
 }
 
 void MainController::applyFlushSettings() {
@@ -2353,12 +2402,16 @@ void MainController::computeAutoFlowCalibration() {
     constexpr double kMinWeightFlow = 0.5;           // g/s - excludes dripping/dead time
     constexpr double kMinMachineFlow = 0.1;          // ml/s - excludes stalled flow
     constexpr double kMaxScaleDataGap = 1.0;         // seconds - max distance to nearest weight flow point
-    constexpr double kMinWindowDuration = 4.0;       // seconds (4s is enough for ~20 samples at 5Hz)
-    constexpr int    kMinWindowSamples = 5;
+    constexpr double kMinWindowDuration = 1.5;       // seconds — shorter profiles (e.g. Adaptive v2) have brief steady phases
+    constexpr int    kMinWindowSamples = 7;          // ~1.5s at 5Hz pressure sampling
     constexpr double kWaterDensity93C = 0.963;       // g/ml - density correction for water at ~93°C
     constexpr double kCalibrationMin = 0.5;          // sanity lower bound
     constexpr double kCalibrationMax = 1.8;          // sanity upper bound
     constexpr double kChangeThreshold = 0.02;        // 2% relative change required to update
+    constexpr double kMaxSampleRatio = 2.5;          // per-sample machine/weight ratio — break window on extreme outliers
+    constexpr double kMinSampleRatio = 0.4;          // (generous bounds: window-level check is tighter)
+    constexpr double kMaxWindowRatio = 1.35;         // window-mean machine/weight ratio — reject if scale data is suspect
+    constexpr double kMinWindowRatio = 0.75;         // (de1app GFC users get ~0.9-1.1 ratios on good data)
 
     // Find the best steady-pour window: stable pressure above minimum + meaningful weight flow.
     // We track the best (longest) qualifying window found across the entire shot.
@@ -2449,6 +2502,17 @@ void MainController::computeAutoFlowCalibration() {
             continue;
         }
 
+        // Per-sample ratio guard: reject samples where machine/weight flow diverge
+        // wildly, which indicates scale data hasn't caught up (smoothing delay) or
+        // weight flow is from a stale/interpolated reading. Uses generous bounds
+        // since individual samples are noisy; the tighter window-level check below
+        // catches systematic issues.
+        double sampleRatio = mf / wf;
+        if (sampleRatio > kMaxSampleRatio || sampleRatio < kMinSampleRatio) {
+            finishWindow();
+            continue;
+        }
+
         // Extend or start window
         if (winStart < 0) {
             winStart = t;
@@ -2472,12 +2536,14 @@ void MainController::computeAutoFlowCalibration() {
 
     double meanMachineFlow = bestSumMF / bestCount;
     double meanWeightFlow = bestSumWF / bestCount;
+    double windowRatio = meanMachineFlow / meanWeightFlow;
 
     qDebug() << "Auto flow cal: steady window found"
              << "t=" << bestStart << "-" << bestEnd << "(" << windowDuration << "s,"
              << bestCount << "samples)"
              << "meanMachineFlow=" << meanMachineFlow
-             << "meanWeightFlow=" << meanWeightFlow;
+             << "meanWeightFlow=" << meanWeightFlow
+             << "ratio=" << windowRatio;
 
     // Guard against division by zero. Should be impossible since every sample
     // in the window passed the kMinWeightFlow (0.5 g/s) check.
@@ -2487,28 +2553,52 @@ void MainController::computeAutoFlowCalibration() {
         return;
     }
 
+    // Window-level ratio sanity check. Reject windows where machine flow and
+    // scale-derived weight flow diverge too much. A healthy ratio is ~0.9-1.1
+    // (matching what de1app GFC users see when the curves overlap). Ratios
+    // outside [0.75, 1.35] indicate scale data quality problems: smoothing
+    // lag, stale weight readings, or the scale capturing a non-representative
+    // period. Without this check, bad windows drag the per-profile calibration
+    // down to ~0.6 when the correct value is ~0.9.
+    if (windowRatio > kMaxWindowRatio || windowRatio < kMinWindowRatio) {
+        qDebug() << "Auto flow cal: window ratio" << windowRatio
+                 << "outside bounds [" << kMinWindowRatio << "," << kMaxWindowRatio << "]"
+                 << "- skipping (scale data suspect)";
+        return;
+    }
+
     // The machine's reported flow includes the active calibration multiplier.
     // To find the ideal multiplier: ideal = weight_flow / (raw_flow * density).
     // Since raw = reported / current_multiplier, this simplifies to:
     // ideal = current_multiplier * weight_flow / (reported_flow * density)
     double currentEffective = m_settings->effectiveFlowCalibration(m_baseProfileName);
-    double computed = currentEffective * meanWeightFlow / (meanMachineFlow * kWaterDensity93C);
+    double ideal = currentEffective * meanWeightFlow / (meanMachineFlow * kWaterDensity93C);
 
-    if (!std::isfinite(computed)) {
-        qWarning() << "Auto flow cal: computed non-finite value" << computed
+    if (!std::isfinite(ideal)) {
+        qWarning() << "Auto flow cal: computed non-finite value" << ideal
                    << "(meanMachineFlow:" << meanMachineFlow
                    << "meanWeightFlow:" << meanWeightFlow << ")";
         return;
     }
 
-    computed = qBound(kCalibrationMin, computed, kCalibrationMax);
+    ideal = qBound(kCalibrationMin, ideal, kCalibrationMax);
 
-    // Only update if relative change > 2%. The > 0.01 guard avoids division by zero
-    // on first use (before any calibration is set).
-    if (currentEffective > 0.01 && qAbs(computed - currentEffective) / currentEffective < kChangeThreshold) {
-        qDebug() << "Auto flow cal: computed" << computed << "≈ current" << currentEffective << "(< 2% change, skipping)";
+    // Only update if the ideal itself differs enough from current. Checking ideal (not the
+    // EMA output) preserves the original 2% deadband regardless of alpha. The > 0.01 guard
+    // avoids division by zero on first use (before any calibration is set).
+    if (currentEffective > 0.01 && qAbs(ideal - currentEffective) / currentEffective < kChangeThreshold) {
+        qDebug() << "Auto flow cal: ideal" << ideal << "≈ current" << currentEffective << "(< 2% change, skipping)";
         return;
     }
+
+    // EMA smoothing: blend current toward ideal to dampen shot-to-shot oscillation.
+    // alpha=0.3 moves 30% toward the ideal each shot, converging in ~5-7 shots while
+    // preventing a single noisy shot from dominating (vs. jumping straight to ideal).
+    // Skip EMA on the first shot for this profile — no oscillation history to dampen yet.
+    constexpr double kEmaAlpha = 0.3;
+    double computed = m_settings->hasProfileFlowCalibration(m_baseProfileName)
+        ? kEmaAlpha * ideal + (1.0 - kEmaAlpha) * currentEffective
+        : ideal;
 
     double oldValue = currentEffective;
     if (!m_settings->setProfileFlowCalibration(m_baseProfileName, computed)) {
@@ -2520,7 +2610,8 @@ void MainController::computeAutoFlowCalibration() {
 
     qDebug() << "Auto flow cal: updated" << m_baseProfileName
              << "from" << oldValue << "to" << computed
-             << "(window:" << windowDuration << "s," << bestCount << "samples)";
+             << "(ideal:" << ideal << "EMA alpha:" << kEmaAlpha
+             << "window:" << windowDuration << "s," << bestCount << "samples)";
 
     emit flowCalibrationAutoUpdated(m_currentProfile.title(), oldValue, computed);
 
@@ -2542,7 +2633,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
         }
     }
 
-    if (values.size() < 2) return;  // Need at least 2 espresso profiles
+    if (values.isEmpty()) return;
 
     std::sort(values.begin(), values.end());
 
@@ -2561,7 +2652,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
         if (filtered.size() >= 2) {
             values = filtered;
         }
-        // If filtering leaves <2, use all values (outlier detection unreliable with tiny sets)
+        // If filtering leaves <2, keep unfiltered values (IQR unreliable with few data points)
     }
 
     qsizetype n = values.size();
@@ -2727,6 +2818,16 @@ void MainController::turnOffSteamHeater() {
     qDebug() << "Turned off steam heater (steamDisabled=true)";
 }
 
+void MainController::setHotWaterFlowRateImmediate(int flow) {
+    if (!m_device || !m_device->isConnected() || !m_settings) return;
+
+    m_settings->setHotWaterFlowRate(flow);
+
+    m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, flow);
+
+    qDebug() << "Hot water flow rate set to:" << flow;
+}
+
 void MainController::setSteamFlowImmediate(int flow) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
@@ -2791,7 +2892,7 @@ void MainController::onEspressoCycleStarted() {
                             && activeScale->type() != QStringLiteral("flow");
         if (!hasRealScale) {
             // Check if the profile actually needs a scale
-            bool profileNeedsScale = (m_currentProfile.stopAtType() == Profile::StopAtType::Weight);
+            bool profileNeedsScale = (m_currentProfile.targetWeight() > 0);
             if (!profileNeedsScale) {
                 // Also check per-frame exit weights
                 for (const auto& step : m_currentProfile.steps()) {
@@ -2905,25 +3006,29 @@ void MainController::onShotEnded() {
         return;
     }
 
-    double duration = m_shotDataModel->rawTime();  // Use rawTime, not maxTime (which is for graph axis)
+    // Use extraction end time (excludes SAW settling phase) for accurate duration.
+    // extractionDuration() is set for all shots (SAW and non-SAW) in endShot().
+    // Falls back to rawTime only if timing controller is unavailable.
+    double duration = (m_timingController && m_timingController->extractionDuration() > 0)
+        ? m_timingController->extractionDuration()
+        : m_shotDataModel->rawTime();
 
     double doseWeight = m_settings->dyeBeanWeight();
 
-    // Get final weight from shot data (cumulative weight, not flow rate)
-    // In volume mode, estimate weight from ml: ml - 5 - dose*0.5
-    // (5g waste tray loss + 50% of dose retained in wet puck)
+    // Get final weight — use actual scale data if available, estimate from volume only
+    // when no scale data was recorded at all (no scale connected)
     double finalWeight = 0;
-    if (m_machineState && m_machineState->stopAtType() == MachineState::StopAtType::Volume) {
+    const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
+    if (!cumulativeWeight.isEmpty()) {
+        finalWeight = cumulativeWeight.last().y();
+    } else if (m_machineState) {
+        // No scale data at all — estimate weight from volume: ml - 5 - dose*0.5
+        // (5g waste tray loss + 50% of dose retained in wet puck)
         double cumulativeVolume = m_machineState->cumulativeVolume();
         double puckRetention = doseWeight > 0 ? doseWeight * 0.5 : 9.0;  // fallback 9g if no dose
         finalWeight = cumulativeVolume - 5.0 - puckRetention;
         if (finalWeight < 0) finalWeight = 0;
-        qDebug() << "Volume mode: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
-    } else {
-        const auto& cumulativeWeight = m_shotDataModel->cumulativeWeightData();
-        if (!cumulativeWeight.isEmpty()) {
-            finalWeight = cumulativeWeight.last().y();
-        }
+        qDebug() << "No scale: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
     }
 
     // Smooth weight flow rate before saving (centered moving average over 7 points ≈ 1.4s at 5Hz).

@@ -179,6 +179,24 @@ Page {
                 }
             }
 
+            // Live flow rate control
+            ValueInput {
+                id: liveFlowRateInput
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: Theme.scaled(180)
+                value: Settings.hotWaterFlowRate
+                from: 5
+                to: 100
+                stepSize: 5
+                displayText: (value / 10).toFixed(1) + " mL/s"
+                valueColor: Theme.flowColor
+                accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
+
+                onValueModified: function(newValue) {
+                    MainController.setHotWaterFlowRateImmediate(Math.round(newValue))
+                }
+            }
+
             Item { Layout.fillHeight: true }
 
             // Stop button for headless machines
@@ -585,7 +603,7 @@ Page {
                             Layout.preferredWidth: Theme.scaled(180)
                             value: getCurrentVesselFlowRate()
                             from: 5
-                            to: 80
+                            to: 100
                             stepSize: 5
                             displayText: (value / 10).toFixed(1) + " mL/s"
                             valueColor: Theme.flowColor
@@ -610,6 +628,7 @@ Page {
 
     // Bottom bar
     BottomBar {
+        id: hotWaterBottomBar
         visible: !isDispensing
         title: getCurrentVesselName() || noVesselText.text
         onBackClicked: {
@@ -619,19 +638,19 @@ Page {
 
         Text {
             text: volumeInput.value.toFixed(0) + (isVolumeMode ? " ml" : " g")
-            color: "white"
+            color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: hotWaterBottomBar.contentColor; opacity: 0.3 }
         Text {
             text: temperatureInput.value.toFixed(0) + "°C"
-            color: "white"
+            color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: hotWaterBottomBar.contentColor; opacity: 0.3 }
         Text {
             text: (flowRateInput.value / 10).toFixed(1) + " mL/s"
-            color: "white"
+            color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }
     }

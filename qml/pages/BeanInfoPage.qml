@@ -635,7 +635,12 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.roaster", "Roaster")
                     text: isEditMode ? editBeanBrand : Settings.dyeBeanBrand
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                        var current = isEditMode ? editBeanBrand : Settings.dyeBeanBrand
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else Settings.dyeBeanBrand = t; }
                     onSuggestionSelected: function(t) {
                         if (isEditMode) { editBeanType = ""; editRoastDate = ""; }
@@ -654,8 +659,13 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.coffee", "Coffee")
                     text: isEditMode ? editBeanType : Settings.dyeBeanType
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
-                        isEditMode ? editBeanBrand : Settings.dyeBeanBrand) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
+                            isEditMode ? editBeanBrand : Settings.dyeBeanBrand) : []
+                        var current = isEditMode ? editBeanType : Settings.dyeBeanType
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editBeanType = t; else Settings.dyeBeanType = t; }
                     onSuggestionSelected: function(t) {
                         if (isEditMode) editRoastDate = ""; else Settings.dyeRoastDate = "";
@@ -663,13 +673,44 @@ Page {
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
 
-                LabeledField {
+                Item {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("shotmetadata.label.roastdate.format", "Roast date (yyyy-mm-dd)")
-                    text: isEditMode ? editRoastDate : Settings.dyeRoastDate
-                    inputHints: Qt.ImhDate
-                    inputMask: "9999-99-99"
-                    onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else Settings.dyeRoastDate = t; }
+                    implicitHeight: beanRoastDateField.implicitHeight
+
+                    LabeledField {
+                        id: beanRoastDateField
+                        anchors.left: parent.left
+                        anchors.right: beanCalendarBtn.left
+                        anchors.rightMargin: Theme.scaled(4)
+                        label: TranslationManager.translate("shotmetadata.label.roastdate.format", "Roast date (yyyy-mm-dd)")
+                        text: isEditMode ? editRoastDate : Settings.dyeRoastDate
+                        inputHints: Qt.ImhDate
+                        inputMask: "9999-99-99"
+                        onTextEdited: function(t) { if (isEditMode) editRoastDate = t; else Settings.dyeRoastDate = t; }
+                    }
+
+                    AccessibleButton {
+                        id: beanCalendarBtn
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: Theme.scaled(44)
+                        height: Theme.scaled(44)
+                        accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                        leftPadding: Theme.scaled(8)
+                        rightPadding: Theme.scaled(8)
+                        icon.source: "qrc:/emoji/1f4c5.svg"
+                        icon.width: Theme.scaled(20)
+                        icon.height: Theme.scaled(20)
+                        text: ""
+                        onClicked: beanDatePicker.openWithDate(isEditMode ? editRoastDate : Settings.dyeRoastDate)
+                    }
+
+                    DatePickerDialog {
+                        id: beanDatePicker
+                        onDateSelected: function(dateString) {
+                            if (isEditMode) editRoastDate = dateString; else Settings.dyeRoastDate = dateString;
+                        }
+                    }
                 }
 
                 // === ROW 2: Grinder brand, Model, Burrs ===
@@ -774,8 +815,13 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.setting", "Setting")
                     text: isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
-                        isEditMode ? editGrinderModel : Settings.dyeGrinderModel) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
+                            isEditMode ? editGrinderModel : Settings.dyeGrinderModel) : []
+                        var current = isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else Settings.dyeGrinderSetting = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -784,7 +830,12 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.barista", "Barista")
                     text: isEditMode ? editBarista : Settings.dyeBarista
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        var current = isEditMode ? editBarista : Settings.dyeBarista
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editBarista = t; else Settings.dyeBarista = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -794,10 +845,10 @@ Page {
         }
     }
 
-    // Hide keyboard button - appears below status bar when a field has focus
+    // Hide keyboard button - only on mobile (Qt.inputMethod.visible is unreliable on Android)
     Rectangle {
         id: hideKeyboardButton
-        visible: focusedField !== null
+        visible: focusedField !== null && (Qt.platform.os === "android" || Qt.platform.os === "ios")
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.standardMargin
@@ -1190,28 +1241,12 @@ Page {
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
-                    id: deleteBeanBtn
                     text: TranslationManager.translate("common.delete", "Delete")
                     accessibleName: TranslationManager.translate("beanInfo.deletePreset", "Delete this bean preset")
+                    destructive: true
                     onClicked: {
                         Settings.removeBeanPreset(editPresetIndex)
                         editPresetDialog.close()
-                    }
-                    background: Rectangle {
-                        implicitWidth: Theme.scaled(100)
-                        implicitHeight: Theme.scaled(36)
-                        radius: Theme.scaled(6)
-                        color: deleteBeanBtn.down ? Qt.darker(Theme.errorColor, 1.1) : Theme.errorColor
-                    }
-                    contentItem: Text {
-                        text: deleteBeanBtn.text
-                        font.pixelSize: Theme.scaled(14)
-                        font.family: Theme.bodyFont.family
-                        color: "white"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: Theme.scaled(16)
-                        rightPadding: Theme.scaled(16)
                     }
                 }
 
@@ -1255,7 +1290,7 @@ Page {
         width: Theme.scaled(360)
         modal: true
         padding: 0
-        Accessible.name: TranslationManager.translate("beaninfo.unsaved.title", "Unsaved Changes")
+        title: TranslationManager.translate("beaninfo.unsaved.title", "Unsaved Changes")
 
         background: Rectangle {
             color: Theme.surfaceColor

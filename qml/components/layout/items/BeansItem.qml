@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
@@ -56,6 +57,12 @@ Item {
                 fillMode: Image.PreserveAspectFit
                 opacity: DE1Device.guiEnabled ? 1.0 : 0.5
                 Accessible.ignored: true
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
             Tr {
                 key: "idle.button.beaninfo"
@@ -72,6 +79,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.beaninfo", "Beans")
+            accessibleDescription: TranslationManager.translate("idle.accessible.beaninfo.hint", "Tap to toggle presets. Double-tap or long-press for bean info.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToBeanInfo()
             onAccessibleLongPressed: root.goToBeanInfo()
@@ -99,7 +107,7 @@ Item {
             onPressAndHold: root.goToBeanInfo()
             onDoubleClicked: root.goToBeanInfo()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.beaninfo.description", "Set up bean and grinder info for your shots. Long-press for settings.")
+            Accessible.description: TranslationManager.translate("idle.accessible.beaninfo.description", "Set up bean and grinder info for your shots. Double-tap or long-press for bean info.")
         }
     }
 

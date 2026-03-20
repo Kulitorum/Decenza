@@ -69,4 +69,10 @@ private:
     QHash<QString, int> m_prevClassCounts;       // Previous snapshot (for per-tick delta log)
     QHash<QString, int> m_baselineClassCounts;   // First snapshot after engine set (for growth-since-startup)
     bool m_baselineCaptured = false;
+
+#ifndef QT_NO_DEBUG
+    // Scan visible QML Text items for emoji codepoints that trigger CopyEmojiImage crash on macOS
+    void scanForEmojiText();
+    QSet<QString> m_reportedEmojiTexts;  // Avoid duplicate warnings
+#endif
 };

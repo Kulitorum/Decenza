@@ -88,6 +88,7 @@ private:
     QJsonObject buildDeviceInfo() const;
     void publishDiscoveryConfig(const QString& component, const QString& objectId,
                                 const QJsonObject& config);
+    void connectWithHost(const QString& host);
     void publish(const QString& topic, const QString& payload, bool retain = true);
     void publishAvailability(bool online);
     QString generateClientId();

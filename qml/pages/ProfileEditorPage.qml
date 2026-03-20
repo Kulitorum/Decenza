@@ -371,9 +371,10 @@ Page {
                             text: {
                                 stepVersion
                                 if (!profile) return TranslationManager.translate("profileEditor.limits", "Limits")
-                                var stopAtValue = profile.stop_at_type === "volume"
-                                    ? (profile.target_volume || 36).toFixed(0) + "ml"
-                                    : (profile.target_weight || 36).toFixed(0) + "g"
+                                var parts = []
+                                if (profile.target_weight > 0) parts.push(profile.target_weight.toFixed(0) + "g")
+                                if (profile.target_volume > 0) parts.push(profile.target_volume.toFixed(0) + "ml")
+                                var stopAtValue = parts.length > 0 ? parts.join(" / ") : TranslationManager.translate("profileEditor.off", "off")
                                 return TranslationManager.translate("profileEditor.limits", "Limits") + " (" + stopAtValue + ")"
                             }
                             accessibleName: TranslationManager.translate("profileEditor.openLimits", "Open limits settings")
@@ -620,18 +621,21 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtVolume", "Stop at volume"); font: Theme.captionFont; color: Theme.flowColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("profileEditor.stopAtVolume", "Stop at volume")
+                    font: Theme.captionFont; color: profile && profile.target_volume > 0 ? Theme.flowColor : Theme.textSecondaryColor
+                    verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap
+                }
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.flowColor
                     accessibleName: TranslationManager.translate("profileEditor.afterPreinfusionStopAccessible", "After preinfusion, stop the shot at volume")
                     from: 0; to: 500; stepSize: 1; suffix: " mL"
+                    displayText: { stepVersion; return profile && profile.target_volume <= 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { stepVersion; return profile ? (profile.target_volume || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.target_volume = Math.round(newValue)
-                            if (newValue > 0) {
-                                profile.stop_at_type = "volume"
-                            }
                             stepVersion++
                             uploadProfile()
                         }
@@ -643,18 +647,21 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                Text { Layout.fillWidth: true; text: TranslationManager.translate("profileEditor.stopAtWeight", "Stop at weight"); font: Theme.captionFont; color: Theme.weightColor; verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("profileEditor.stopAtWeight", "Stop at weight")
+                    font: Theme.captionFont; color: profile && profile.target_weight > 0 ? Theme.weightColor : Theme.textSecondaryColor
+                    verticalAlignment: Text.AlignVCenter; wrapMode: Text.WordWrap
+                }
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.weightColor
                     accessibleName: TranslationManager.translate("profileEditor.stopAtWeightAccessible", "Stop at weight")
                     from: 0; to: 100; stepSize: 0.1; suffix: " g"
+                    displayText: { stepVersion; return profile && profile.target_weight <= 0 ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: { stepVersion; return profile ? (profile.target_weight || 0) : 0 }
                     onValueModified: function(newValue) {
                         if (profile) {
                             profile.target_weight = Math.round(newValue * 10) / 10
-                            if (newValue > 0) {
-                                profile.stop_at_type = "weight"
-                            }
                             stepVersion++
                             uploadProfile()
                         }
@@ -730,23 +737,29 @@ Page {
             font: Theme.bodyFont
             visible: profileModified
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3; visible: profile }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3; visible: profile }
         Text {
             text: profile ? profile.steps.length + " " + TranslationManager.translate("profileEditor.frames", "frames") : ""
-            color: "white"
+            color: bottomBar.contentColor
             font: Theme.bodyFont
         }
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3; visible: profile }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3; visible: profile }
         Text {
             text: {
                 if (!profile) return ""
-                if (profile.stop_at_type === "volume") {
-                    return (profile.target_volume || 36).toFixed(0) + "ml"
-                } else {
-                    return (profile.target_weight || 36).toFixed(0) + "g"
-                }
+                var parts = []
+                if (profile.target_weight > 0) parts.push(profile.target_weight.toFixed(0) + "g")
+                if (profile.target_volume > 0) parts.push(profile.target_volume.toFixed(0) + "ml")
+                return parts.length > 0 ? parts.join(" / ") : TranslationManager.translate("profileEditor.off", "off")
             }
-            color: profile && profile.stop_at_type === "volume" ? Theme.flowColor : Theme.weightColor
+            color: {
+                if (!profile) return bottomBar.contentColor
+                var hasWeight = profile.target_weight > 0
+                var hasVolume = profile.target_volume > 0
+                if (hasWeight && !hasVolume) return Theme.weightColor
+                if (hasVolume && !hasWeight) return Theme.flowColor
+                return bottomBar.contentColor  // both set — neutral color
+            }
             font: Theme.bodyFont
         }
         AccessibleButton {
@@ -866,6 +879,7 @@ Page {
                 AccessibleButton {
                     text: TranslationManager.translate("profileEditor.save", "Save")
                     accessibleName: TranslationManager.translate("profileEditor.saveProfile", "Save profile")
+                    primary: true
                     Layout.fillWidth: true
                     onClicked: saveAsDialog.doSave()
                 }
@@ -1578,8 +1592,7 @@ Page {
                 title: MainController.currentProfileName || "New Profile",
                 steps: [],
                 target_weight: MainController.targetWeight || 36,
-                target_volume: 36,
-                stop_at_type: "weight",
+                target_volume: 0,
                 espresso_temperature: 93,
                 mode: "frame_based",
                 tank_desired_water_temperature: 0,

@@ -11,7 +11,7 @@
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
     "target_weight": 36.0,
-    "target_volume": 30,
+    "target_volume": 0,
     "mode": "frame_based",
     "is_recipe_mode": false,
     "temperature_presets": [
@@ -30,11 +30,7 @@
             "pressure": 1.0,
             "flow": 7.5,
             "seconds": 2.0,
-            "volume": 0.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 0.0
         },
         {
             "name": "preinfusion",
@@ -50,10 +46,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 3.8
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -65,11 +57,7 @@
             "pressure": 7.8,
             "flow": 0.0,
             "seconds": 4.0,
-            "volume": 0.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 0.0
         },
         {
             "name": "decline",
@@ -80,11 +68,25 @@
             "pressure": 5.0,
             "flow": 0.0,
             "seconds": 50.0,
-            "volume": 0.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 0.0
         }
-    ]
+    ],
+    "espresso_temperature": 82.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.9,
+    "maximum_flow_range_advanced": 1.0,
+    "espresso_pressure": 7.8,
+    "espresso_decline_time": 47.0,
+    "espresso_hold_time": 1.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 3.8,
+    "preinfusion_flow_rate": 7.5,
+    "pressure_end": 5.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0
 }

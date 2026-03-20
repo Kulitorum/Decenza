@@ -99,6 +99,14 @@ void FastLineRenderer::itemChange(ItemChange change, const ItemChangeData& data)
 static constexpr int MAX_VERTICES = FastLineRenderer::MAX_POINTS * 2;
 
 QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) {
+    // Guard against zero-dimension rendering (e.g., during Loader creation before
+    // ChartView has laid out plotArea). Creating QSGGeometry with zero dimensions
+    // can crash the Metal scene graph on iOS.
+    if (width() <= 0 || height() <= 0) {
+        delete node;
+        return nullptr;
+    }
+
     auto* gnode = static_cast<QSGGeometryNode*>(node);
 
     if (!gnode) {

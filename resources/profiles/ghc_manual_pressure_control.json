@@ -1,7 +1,7 @@
 {
     "title": "GHC/manual pressure control",
     "author": "Decent",
-    "beverage_type": "manual",
+    "beverage_type": "{manual}",
     "notes": "For use with machines that have a group head controller (GHC).  Hold your finger on the GHC for the pressure you want.",
     "legacy_profile_type": "settings_2a",
     "version": "2",
@@ -29,11 +29,7 @@
             "pressure": 0.0,
             "flow": 4.0,
             "seconds": 5.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "preinfusion",
@@ -49,10 +45,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 4.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -64,11 +56,7 @@
             "pressure": 8.6,
             "flow": 0.0,
             "seconds": 4.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "decline",
@@ -79,11 +67,25 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 35.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         }
-    ]
+    ],
+    "espresso_temperature": 88.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 0.0,
+    "espresso_decline_time": 60.0,
+    "espresso_hold_time": 60.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 0.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

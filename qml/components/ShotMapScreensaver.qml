@@ -13,6 +13,7 @@ Item {
     property string mapTexture: ScreensaverManager.shotMapTexture  // "dark", "bright", "satellite"
     property bool showClock: widgetMode ? false : ScreensaverManager.shotMapShowClock
     property bool showProfiles: widgetMode ? false : ScreensaverManager.shotMapShowProfiles
+    property bool showTerminator: widgetMode ? false : ScreensaverManager.shotMapShowTerminator
 
     // Test mode - show user's location with a marker
     property bool testMode: false
@@ -39,15 +40,6 @@ Item {
     Component.onCompleted: {
         console.log("[ShotMapScreensaver] Started, shape:", mapShape, "texture:", mapTexture)
         fetchShots()
-    }
-
-    // Poll API every 30 seconds
-    Timer {
-        id: pollTimer
-        interval: 30000
-        running: root.running && root.visible
-        repeat: true
-        onTriggered: fetchShots()
     }
 
     // Globe rotation animation
@@ -185,6 +177,91 @@ Item {
             visible: mapImage.status === Image.Ready
         }
 
+        // Day-night terminator overlay
+        Canvas {
+            id: terminatorCanvas
+            anchors.fill: parent
+            visible: root.showTerminator
+            opacity: mapTexture === "bright" ? 0.35 : 0.45
+
+            property date currentTime: new Date()
+
+            Timer {
+                interval: 60000
+                running: root.running && root.visible && mapShape === "flat"
+                repeat: true
+                onTriggered: {
+                    terminatorCanvas.currentTime = new Date()
+                    terminatorCanvas.requestPaint()
+                }
+            }
+
+            onCurrentTimeChanged: requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.reset()
+
+                // Solar position calculation (J2000.0 epoch)
+                var jd = currentTime.getTime() / 86400000 + 2440587.5
+                var n = jd - 2451545.0
+
+                var L = (280.460 + 0.9856474 * n) % 360
+                var g = ((357.528 + 0.9856003 * n) % 360) * Math.PI / 180
+                var lambda = L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)
+                var epsilon = 23.439 - 0.0000004 * n
+
+                var declination = Math.asin(
+                    Math.sin(epsilon * Math.PI / 180) * Math.sin(lambda * Math.PI / 180)
+                ) * 180 / Math.PI
+
+                var gmst = (18.697374558 + 24.06570982441908 * n) % 24
+                var ra = Math.atan2(
+                    Math.cos(epsilon * Math.PI / 180) * Math.sin(lambda * Math.PI / 180),
+                    Math.cos(lambda * Math.PI / 180)
+                ) * 180 / Math.PI / 15
+                var hourAngle = (gmst - ra) * 15
+
+                var decRad = declination * Math.PI / 180
+
+                // Generate terminator points using our Mercator projection
+                ctx.beginPath()
+
+                var firstPoint = true
+                for (var lon = -180; lon <= 180; lon += 2) {
+                    var ha = (hourAngle + lon) * Math.PI / 180
+                    var lat
+                    if (Math.abs(declination) < 0.001) {
+                        lat = Math.atan(-Math.cos(ha) / 0.001) * 180 / Math.PI
+                    } else {
+                        lat = Math.atan(-Math.cos(ha) / Math.tan(decRad)) * 180 / Math.PI
+                    }
+                    lat = Math.max(-85, Math.min(85, lat))
+
+                    var pos = latLonToXY(lat, lon)
+                    if (firstPoint) {
+                        ctx.moveTo(pos.x, pos.y)
+                        firstPoint = false
+                    } else {
+                        ctx.lineTo(pos.x, pos.y)
+                    }
+                }
+
+                // Close polygon via polar night pole
+                var polarNightLat = declination >= 0 ? -85 : 85
+                var bottomRight = latLonToXY(polarNightLat, 180)
+                var bottomLeft = latLonToXY(polarNightLat, -180)
+                ctx.lineTo(bottomRight.x, bottomRight.y)
+                ctx.lineTo(bottomLeft.x, bottomLeft.y)
+                ctx.closePath()
+
+                ctx.fillStyle = "#000022"
+                ctx.fill()
+            }
+        }
+
         // Shot markers (flat map)
         Repeater {
             model: shots
@@ -194,28 +271,29 @@ Item {
                 property var pos: latLonToXY(modelData.lat, modelData.lon)
                 property real ageHours: modelData.age || 0
                 property real shotOpacity: getOpacityFromAge(ageHours)
-                property bool isNew: ageHours < (1/60)
+                property bool isNew: ageHours < 1
+                property real newness: isNew ? (1 - ageHours) : 0
 
                 x: pos.x - width / 2
                 y: pos.y - height / 2
-                width: root.widgetMode ? 6 : 20
+                width: (root.widgetMode ? 3 : 8) * 2.5
                 height: width
                 visible: pos.visible
                 opacity: shotOpacity
 
                 Rectangle {
                     anchors.centerIn: parent
-                    width: parent.width * 2
+                    width: parent.width
                     height: width
                     radius: width / 2
                     color: mapTexture === "bright" ? "#ff6b35" : "#4a9eff"
-                    opacity: 0.3
+                    opacity: 0.3 + 0.4 * flatShotMarker.newness
 
                     SequentialAnimation on scale {
                         running: flatShotMarker.isNew && !root.widgetMode
-                        loops: 3
-                        NumberAnimation { from: 1; to: 2; duration: 500; easing.type: Easing.OutQuad }
-                        NumberAnimation { from: 2; to: 1; duration: 500; easing.type: Easing.InQuad }
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1; to: 1 + flatShotMarker.newness; duration: 500; easing.type: Easing.OutQuad }
+                        NumberAnimation { from: 1 + flatShotMarker.newness; to: 1; duration: 500; easing.type: Easing.InQuad }
                     }
                 }
 

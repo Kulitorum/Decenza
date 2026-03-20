@@ -68,9 +68,13 @@ QString ProfileImporter::detectDE1AppPath() const
                 parent.cdUp();
                 return parent.absolutePath();
             }
+            qDebug() << "ProfileImporter: Directory exists but no .tcl/.json files:" << path;
+        } else {
+            qDebug() << "ProfileImporter: Directory not found:" << path;
         }
     }
 
+    qWarning() << "ProfileImporter: Could not find DE1 app profiles in any known location";
     return QString();
 }
 
@@ -78,7 +82,18 @@ void ProfileImporter::scanProfiles()
 {
     QString de1plusPath = detectDE1AppPath();
     if (de1plusPath.isEmpty()) {
-        setStatus("DE1 app not found");
+        // Distinguish "no de1plus folder at all" from "folder exists but no profiles"
+        bool de1plusExists = false;
+#ifdef Q_OS_ANDROID
+        de1plusExists = QDir("/sdcard/de1plus").exists() ||
+                        QDir("/storage/emulated/0/de1plus").exists() ||
+                        QDir("/sdcard/Android/data/tk.tcl.wish/files/de1plus").exists();
+#endif
+        if (de1plusExists) {
+            setStatus(tr("DE1 app found but no profiles directory — use Import File to import individual profiles"));
+        } else {
+            setStatus(tr("DE1 app not found"));
+        }
         m_detectedPath.clear();
         emit detectedPathChanged();
         m_availableProfiles.clear();

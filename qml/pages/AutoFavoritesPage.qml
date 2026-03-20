@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../components"
 
@@ -143,6 +144,13 @@ Page {
                     sourceSize.width: Theme.scaled(20)
                     sourceSize.height: Theme.scaled(20)
                     Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
 
                 AccessibleMouseArea {
@@ -220,6 +228,8 @@ Page {
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.textColor
                                 visible: favoriteDelegate._hasBean
+                                width: Math.min(implicitWidth, parent.width)
+                                elide: Text.ElideRight
                                 Accessible.ignored: true
                             }
 
@@ -238,6 +248,8 @@ Page {
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.primaryColor
                                 visible: favoriteDelegate._hasProfile
+                                width: Math.min(implicitWidth, parent.width)
+                                elide: Text.ElideRight
                                 Accessible.ignored: true
                             }
 
@@ -256,6 +268,8 @@ Page {
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.textSecondaryColor
                                 visible: favoriteDelegate._hasGrinder
+                                width: Math.min(implicitWidth, parent.width)
+                                elide: Text.ElideRight
                                 Accessible.ignored: true
                             }
                         }

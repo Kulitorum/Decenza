@@ -83,9 +83,10 @@ private:
     // Write retry logic (like de1app)
     std::function<void()> m_lastCommand;
     int m_writeRetryCount = 0;
-    static constexpr int MAX_WRITE_RETRIES = 3;
+    static constexpr int MAX_WRITE_RETRIES = 10;
     QTimer m_writeTimeoutTimer;
     static constexpr int WRITE_TIMEOUT_MS = 5000;
+    static constexpr int WRITE_RETRY_DELAY_MS = 500;
     QString m_lastWriteUuid;
     QByteArray m_lastWriteData;
 

@@ -10,13 +10,14 @@ on:
         default: 'false'
         type: boolean
 
-  # Or trigger on version tags
+  # Trigger on version tags (pre-release and release)
   push:
     tags:
       - 'v*'
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -60,7 +61,7 @@ jobs:
           cache-key-prefix: 'qt-macos-v2'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1
+        uses: hendrikmuhs/ccache-action@v1.2.21
         with:
           key: macos-universal
           max-size: 500M
@@ -109,9 +110,26 @@ jobs:
           echo "Installed certificates:"
           security find-identity -v -p codesigning $KEYCHAIN_PATH
 
-      - name: Build universal OpenSSL
+      - name: Resolve latest OpenSSL 3.x
+        id: openssl-version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          OPENSSL_VERSION="3.5.0"
+          VERSION=$(gh api repos/openssl/openssl/releases --jq '[.[] | select(.tag_name | startswith("openssl-3.")) | .tag_name][0]' | sed 's/openssl-//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Using OpenSSL $VERSION"
+
+      - name: Cache universal OpenSSL
+        uses: actions/cache@v4
+        id: openssl-cache
+        with:
+          path: ${{ runner.temp }}/openssl-universal
+          key: openssl-${{ steps.openssl-version.outputs.version }}-universal-macos
+
+      - name: Build universal OpenSSL
+        if: steps.openssl-cache.outputs.cache-hit != 'true'
+        run: |
+          OPENSSL_VERSION="${{ steps.openssl-version.outputs.version }}"
           OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
           INSTALL_PREFIX="${RUNNER_TEMP}/openssl-universal"
 
@@ -301,3 +319,16 @@ jobs:
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+      - name: Warm main branch cache for next release
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          IS_PRERELEASE=$(gh release view "$TAG" --json isPrerelease --jq '.isPrerelease')
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "Skipping cache warm for pre-release $TAG"
+          else
+            gh workflow run "$GITHUB_WORKFLOW" --ref main || echo "Cache warm dispatch failed (non-fatal)"
+          fi

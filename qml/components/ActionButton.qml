@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 
 Button {
@@ -74,26 +75,36 @@ Button {
                 opacity: control.enabled ? 1.0 : 0.5
                 // Decorative - accessibility handled by Button itself
                 Accessible.ignored: true
+
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: control._contentColor
+                }
             }
         }
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: control.text
-            color: control.enabled ? Theme.textColor : Theme.textSecondaryColor
+            color: control.enabled ? control._contentColor : Theme.textSecondaryColor
             font: Theme.bodyFont
             // Decorative - accessibility handled by Button itself
             Accessible.ignored: true
         }
     }
 
+    readonly property color _effectiveBackground: control.backgroundColor
+    readonly property color _contentColor: Theme.actionButtonContentColor
+
     background: Rectangle {
         radius: Theme.buttonRadius
         color: {
             if (!control.enabled) return Theme.buttonDisabled
-            if (control._isPressed) return Qt.darker(control.backgroundColor, 1.2)
-            if (control.hovered || control.activeFocus) return Qt.lighter(control.backgroundColor, 1.1)
-            return control.backgroundColor
+            if (control._isPressed) return Qt.darker(control._effectiveBackground, 1.2)
+            if (control.hovered || control.activeFocus) return Qt.lighter(control._effectiveBackground, 1.1)
+            return control._effectiveBackground
         }
 
         // Focus indicator

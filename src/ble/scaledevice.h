@@ -39,7 +39,7 @@ public slots:
     virtual void startTimer() {}
     virtual void stopTimer() {}
     virtual void resetTimer() {}
-    virtual void sleep() {}  // Put scale to sleep (battery power saving - full power off)
+    virtual void sleep() { emit sleepCompleted(); }  // Put scale to sleep (battery power saving - full power off)
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
     virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)
     virtual void sendKeepAlive() {}  // Override to send BLE keepalive (e.g., re-enable notifications)
@@ -58,6 +58,7 @@ signals:
     void buttonPressed(int button);
     void errorOccurred(const QString& error);
     void simulationModeChanged();
+    void sleepCompleted();  // Emitted when the sleep BLE write completes (or immediately if no confirmation possible)
     void logMessage(const QString& message);  // For debug logging to UI/file
 
 protected:
@@ -74,6 +75,6 @@ private:
     bool m_simulationMode = false;
     double m_weight = 0.0;
     double m_flowRate = 0.0;
-    int m_batteryLevel = 100;
+    int m_batteryLevel = -1;  // -1 = not reported by this scale
     QTimer m_keepAliveTimer;
 };

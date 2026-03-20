@@ -21,11 +21,15 @@ KeyboardAwareContainer {
             { name: "backgroundColor", display: "Background" },
             { name: "surfaceColor", display: "Surface" },
             { name: "primaryColor", display: "Primary" },
+            { name: "primaryContrastColor", display: "Primary Contrast" },
             { name: "secondaryColor", display: "Secondary" },
             { name: "textColor", display: "Text" },
             { name: "textSecondaryColor", display: "Text Secondary" },
             { name: "accentColor", display: "Accent" },
-            { name: "borderColor", display: "Border" }
+            { name: "borderColor", display: "Border" },
+            { name: "iconColor", display: "Icon" },
+            { name: "bottomBarColor", display: "Bottom Bar" },
+            { name: "actionButtonContentColor", display: "Action Button Content" }
         ]},
         { category: "Status", colors: [
             { name: "successColor", display: "Success" },
@@ -41,27 +45,64 @@ KeyboardAwareContainer {
             { name: "temperatureGoalColor", display: "Temp Goal" },
             { name: "weightColor", display: "Weight" },
             { name: "weightFlowColor", display: "Weight Flow" },
-            { name: "resistanceColor", display: "Resistance" }
+            { name: "resistanceColor", display: "Resistance" },
+            { name: "waterLevelColor", display: "Water Level" }
         ]}
     ]
 
-    function getColorValue(colorName) {
-        return Theme[colorName] || "#ffffff"
+    // Bumped when editing palette changes, to force swatch re-evaluation
+    property int _paletteVersion: 0
+
+    function colorToHex(c) {
+        var r = Math.round(c.r * 255).toString(16).padStart(2, '0')
+        var g = Math.round(c.g * 255).toString(16).padStart(2, '0')
+        var b = Math.round(c.b * 255).toString(16).padStart(2, '0')
+        return "#" + r + g + b
     }
 
+    function getColorValue(colorName) {
+        var _v = _paletteVersion  // reactive dependency
+        var editColors = Settings.editingPaletteColors()
+        return editColors[colorName] || Theme[colorName] || "#ffffff"
+    }
+
+    // Guard to prevent intermediate color changes during selection
+    property bool _selecting: false
+
     function selectColor(colorName) {
+        _selecting = true
         selectedColorName = colorName
         selectedColorValue = getColorValue(colorName)
         colorEditor.setColor(selectedColorValue)
-        hexField.text = selectedColorValue.toString().substring(0, 7)
+        hexField.text = themesTab.colorToHex(selectedColorValue)
+        _selecting = false
     }
 
     // Guard to prevent hex / colorEditor feedback loop
     property bool _updatingFromHex: false
 
     function applyColorChange(newColor) {
-        Settings.setThemeColor(selectedColorName, newColor.toString())
+        Settings.setEditingPaletteColor(selectedColorName, colorToHex(newColor))
         selectedColorValue = newColor
+    }
+
+    // Sync editing palette with active theme mode
+    Component.onCompleted: Settings.editingPalette = Settings.isDarkMode ? "dark" : "light"
+
+    // Refresh all swatches and selected color when editing palette changes
+    Connections {
+        target: Settings
+        function onEditingPaletteChanged() {
+            themesTab._paletteVersion++
+            themesTab.selectColor(themesTab.selectedColorName)
+        }
+        function onCustomThemeColorsChanged() {
+            themesTab._paletteVersion++
+            themesTab.selectColor(themesTab.selectedColorName)
+        }
+        function onIsDarkModeChanged() {
+            Settings.editingPalette = Settings.isDarkMode ? "dark" : "light"
+        }
     }
 
     ColumnLayout {
@@ -87,7 +128,7 @@ KeyboardAwareContainer {
                     "For CRT shaders, live preview, and more — use the web version (enable web server, then visit /themes)")
                 color: Theme.textColor
                 font: Theme.captionFont
-                wrapMode: Text.Wrap
+                wrapMode: Text.WordWrap
                 lineHeight: 1.3
             }
         }
@@ -212,7 +253,7 @@ KeyboardAwareContainer {
                             StyledTextField {
                                 id: hexField
                                 Layout.preferredWidth: Theme.scaled(120)
-                                text: themesTab.selectedColorValue.toString().substring(0, 7)
+                                text: themesTab.colorToHex(selectedColorValue)
                                 font.family: "monospace"
                                 font.pixelSize: Theme.bodyFont.pixelSize
                                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
@@ -220,10 +261,46 @@ KeyboardAwareContainer {
                                 onTextEdited: {
                                     var hex = text.trim()
                                     if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                                        themesTab._updatingFromHex = true
+                                        themesTab._selecting = true
                                         colorEditor.setColor(hex)
+                                        themesTab._selecting = false
                                         themesTab.applyColorChange(colorEditor.color)
-                                        themesTab._updatingFromHex = false
+                                    }
+                                }
+                            }
+
+                            AccessibleButton {
+                                id: copyBtn
+                                text: TranslationManager.translate("colorEditor.copy", "Copy")
+                                accessibleName: TranslationManager.translate("colorEditor.copyAccessible", "Copy color hex to clipboard")
+                                implicitWidth: Theme.scaled(50)
+                                onClicked: {
+                                    MainController.copyToClipboard(hexField.text)
+                                    copyBtn.text = "OK"
+                                    copyResetTimer.restart()
+                                }
+                                Timer {
+                                    id: copyResetTimer
+                                    interval: 1000
+                                    onTriggered: copyBtn.text = TranslationManager.translate("colorEditor.copy", "Copy")
+                                }
+                            }
+
+                            AccessibleButton {
+                                text: TranslationManager.translate("colorEditor.paste", "Paste")
+                                accessibleName: TranslationManager.translate("colorEditor.pasteAccessible", "Paste color hex from clipboard")
+                                implicitWidth: Theme.scaled(50)
+                                onClicked: {
+                                    var raw = MainController.pasteFromClipboard().trim()
+                                    // Accept with or without #
+                                    var hex = raw
+                                    if (/^[0-9a-fA-F]{6}$/.test(hex)) hex = "#" + hex
+                                    if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+                                        hexField.text = hex
+                                        themesTab._selecting = true
+                                        colorEditor.setColor(hex)
+                                        themesTab._selecting = false
+                                        themesTab.applyColorChange(colorEditor.color)
                                     }
                                 }
                             }
@@ -243,11 +320,11 @@ KeyboardAwareContainer {
                             }
 
                             onColorChanged: {
-                                if (initialized) {
+                                if (initialized && !themesTab._selecting) {
                                     themesTab.applyColorChange(colorEditor.color)
                                 }
-                                if (!themesTab._updatingFromHex) {
-                                    hexField.text = colorEditor.color.toString().substring(0, 7)
+                                if (!themesTab._updatingFromHex && !themesTab._selecting) {
+                                    hexField.text = themesTab.colorToHex(colorEditor.color)
                                 }
                             }
                         }
@@ -371,7 +448,7 @@ KeyboardAwareContainer {
                                 var randomLight = 50 + Math.random() * 10  // 50-60%
                                 var palette = Settings.generatePalette(randomHue, randomSat, randomLight)
                                 Settings.customThemeColors = palette
-                                Settings.setActiveThemeName("Custom")
+                                Settings.activeThemeName = "Custom"
                             }
                             background: Rectangle {
                                 gradient: Gradient {

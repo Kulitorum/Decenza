@@ -7,6 +7,7 @@ import "../../components"
 KeyboardAwareContainer {
     id: homeAutomationTab
     textFields: [hostField, portField, usernameField, passwordField, baseTopicField]
+    targetFlickable: mqttFlickable
 
     RowLayout {
         anchors.fill: parent
@@ -20,6 +21,7 @@ KeyboardAwareContainer {
             radius: Theme.cardRadius
 
             Flickable {
+                id: mqttFlickable
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(15)
                 contentHeight: leftColumn.height

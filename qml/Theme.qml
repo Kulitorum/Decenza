@@ -37,6 +37,124 @@ QtObject {
         return "qrc:/emoji/" + cps.join("-") + ".svg"
     }
 
+    // Check if a Unicode code point is an emoji that would trigger Apple Color Emoji
+    // font rendering (sbix PNG decoding on macOS, CBDT/CBLC on Android).
+    // Returns true for characters that need to be rendered as images, not text glyphs.
+    function _isEmoji(cp) {
+        // Emoticons
+        if (cp >= 0x1F600 && cp <= 0x1F64F) return true
+        // Misc Symbols & Pictographs
+        if (cp >= 0x1F300 && cp <= 0x1F5FF) return true
+        // Transport & Map Symbols
+        if (cp >= 0x1F680 && cp <= 0x1F6FF) return true
+        // Supplemental Symbols & Pictographs
+        if (cp >= 0x1F900 && cp <= 0x1F9FF) return true
+        // Symbols & Pictographs Extended-A
+        if (cp >= 0x1FA00 && cp <= 0x1FA6F) return true
+        // Symbols & Pictographs Extended-B
+        if (cp >= 0x1FA70 && cp <= 0x1FAFF) return true
+        // Dingbats (✂✈✉✌ etc. — many rendered as color emoji by macOS)
+        if (cp >= 0x2702 && cp <= 0x27B0) return true
+        // Misc Symbols (☀☁☂☃☄★☎☮☯ etc.)
+        if (cp >= 0x2600 && cp <= 0x26FF) return true
+        // CJK/enclosed ideographic supplement (🈁🈚🉐 etc.)
+        if (cp >= 0x1F200 && cp <= 0x1F2FF) return true
+        // Enclosed alphanumeric supplement (Ⓜ🅰🅱 etc.)
+        if (cp >= 0x1F100 && cp <= 0x1F1FF) return true
+        // Skin tone modifiers (not standalone but may appear)
+        if (cp >= 0x1F3FB && cp <= 0x1F3FF) return true
+        // Variation selector 16 (emoji presentation) — skip, handled separately
+        // ZWJ (U+200D) — skip, only a joiner
+        return false
+    }
+
+    // Replace emoji Unicode characters in a string with RichText <img> tags
+    // pointing to pre-rendered SVGs. This prevents CoreText/ImageIO crashes
+    // caused by Apple Color Emoji font PNG decoding on the render thread.
+    // Only use on strings bound to Text elements with textFormat: Text.RichText.
+    function replaceEmojiWithImg(text, pixelSize) {
+        if (!text) return ""
+        var size = pixelSize || 16
+        var result = ""
+        var i = 0
+        while (i < text.length) {
+            var cp = text.codePointAt(i)
+            var charLen = cp > 0xFFFF ? 2 : 1
+            if (_isEmoji(cp)) {
+                // Collect full emoji sequence (multi-codepoint with ZWJ, modifiers)
+                var emojiCps = [cp]
+                var j = i + charLen
+                while (j < text.length) {
+                    var next = text.codePointAt(j)
+                    var nextLen = next > 0xFFFF ? 2 : 1
+                    if (next === 0xFE0F) {
+                        // Variation selector 16 — skip (emojiToImage strips it)
+                        j += nextLen
+                        continue
+                    }
+                    if (next === 0x200D) {
+                        // ZWJ — consume it only if followed by an emoji
+                        var zjPos = j + nextLen
+                        if (zjPos < text.length) {
+                            var after = text.codePointAt(zjPos)
+                            if (_isEmoji(after)) {
+                                j = zjPos
+                                emojiCps.push(0x200D)
+                                emojiCps.push(after)
+                                j += after > 0xFFFF ? 2 : 1
+                                continue
+                            }
+                        }
+                        break  // ZWJ not followed by emoji — end sequence
+                    }
+                    if (_isEmoji(next) || (next >= 0x1F3FB && next <= 0x1F3FF)) {
+                        // Skin tone modifier or continuation
+                        emojiCps.push(next)
+                        j += nextLen
+                        continue
+                    }
+                    break
+                }
+                var src = "qrc:/emoji/" + emojiCps.map(function(c) { return c.toString(16) }).join("-") + ".svg"
+                result += "<img src=\"" + src + "\" width=\"" + size + "\" height=\"" + size
+                    + "\" style=\"vertical-align: middle\">"
+                i = j
+            } else if (cp === 0xFE0F) {
+                // Stray variation selector — skip
+                i += charLen
+            } else {
+                result += text.substring(i, i + charLen)
+                i += charLen
+            }
+        }
+        return result
+    }
+
+    // Strip emoji Unicode characters from a string entirely.
+    // Use for plain-text Text elements where <img> tags aren't supported.
+    function stripEmoji(text) {
+        if (!text) return ""
+        var result = ""
+        var i = 0
+        while (i < text.length) {
+            var cp = text.codePointAt(i)
+            var charLen = cp > 0xFFFF ? 2 : 1
+            if (!_isEmoji(cp) && cp !== 0xFE0F && cp !== 0x200D) {
+                result += text.substring(i, i + charLen)
+            }
+            i += charLen
+        }
+        return result
+    }
+
+    // Strip HTML tags and emoji from a string for accessible names.
+    // Use on text that has been through replaceEmojiWithImg() to get
+    // a clean plain-text string for TalkBack/VoiceOver.
+    function toAccessibleText(html) {
+        if (!html) return ""
+        return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
+    }
+
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }
 
@@ -70,6 +188,10 @@ QtObject {
     property color highlightColor: _c("highlightColor", Settings.customThemeColors.highlightColor || "#ffaa00")
     property color errorColor: _c("errorColor", Settings.customThemeColors.errorColor || "#ff4444")
     property color borderColor: _c("borderColor", Settings.customThemeColors.borderColor || "#3a3a4e")
+    property color primaryContrastColor: _c("primaryContrastColor", Settings.customThemeColors.primaryContrastColor || "#ffffff")
+    property color iconColor: _c("iconColor", Settings.customThemeColors.iconColor || "#ffffff")
+    property color bottomBarColor: _c("bottomBarColor", Settings.customThemeColors.bottomBarColor || "#4e85f4")
+    property color actionButtonContentColor: _c("actionButtonContentColor", Settings.customThemeColors.actionButtonContentColor || "#ffffff")
 
     // Chart line colors
     property color pressureColor: _c("pressureColor", Settings.customThemeColors.pressureColor || "#18c37e")
@@ -81,6 +203,7 @@ QtObject {
     property color weightColor: _c("weightColor", Settings.customThemeColors.weightColor || "#a2693d")
     property color weightFlowColor: _c("weightFlowColor", Settings.customThemeColors.weightFlowColor || "#d4a574")
     property color resistanceColor: _c("resistanceColor", Settings.customThemeColors.resistanceColor || "#eae83d")
+    property color waterLevelColor: _c("waterLevelColor", Settings.customThemeColors.waterLevelColor || "#4e85f4")
 
     // Tracking status colors (profile goal vs actual)
     property color trackOnTargetColor: _c("trackOnTargetColor", Settings.customThemeColors.trackOnTargetColor || "#00cc6d")
@@ -98,6 +221,12 @@ QtObject {
         if (delta < threshGood) return trackOnTargetColor
         if (delta < threshWarn) return trackDriftingColor
         return trackOffTargetColor
+    }
+
+    // Translucent, pastel-tinted overlay text color derived from a tracking color.
+    // Lightens toward white for readability over dark backgrounds.
+    function tintedOverlayColor(baseColor, alpha) {
+        return Qt.rgba(0.7 + baseColor.r * 0.3, 0.7 + baseColor.g * 0.3, 0.7 + baseColor.b * 0.3, alpha)
     }
 
     // DYE measurement colors (Shot Info page)

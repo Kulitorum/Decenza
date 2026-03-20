@@ -7,6 +7,7 @@ import "../../components"
 KeyboardAwareContainer {
     id: preferencesTab
     textFields: [manualCityField]
+    targetFlickable: contentFlickable
 
     // Local properties
     property int autoSleepMinutes: Settings.value("autoSleepMinutes", 60)
@@ -32,14 +33,114 @@ KeyboardAwareContainer {
                 Layout.alignment: Qt.AlignTop
                 spacing: Theme.scaled(15)
 
-                // Auto-sleep settings
+                // Theme mode preferences card
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(160)
+                    implicitHeight: themeModeColumn.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
+                        id: themeModeColumn
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.themeMode", "Theme Mode")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        // Follow system theme toggle
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                id: followSystemSwitch
+                                checked: Settings.themeMode === "system"
+                                accessibleName: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
+                                onCheckedChanged: {
+                                    if (checked) {
+                                        Settings.themeMode = "system"
+                                    } else {
+                                        Settings.themeMode = Settings.isDarkMode ? "dark" : "light"
+                                    }
+                                }
+                            }
+                        }
+
+                        // Dark theme selector
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledComboBox {
+                                id: darkThemeCombo
+                                Layout.preferredWidth: Theme.scaled(180)
+                                accessibleLabel: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
+                                model: Settings.themeNames
+                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.darkThemeName))
+                                onActivated: Settings.applyDarkTheme(Settings.themeNames[currentIndex])
+                            }
+                        }
+
+                        // Light theme selector
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledComboBox {
+                                id: lightThemeCombo
+                                Layout.preferredWidth: Theme.scaled(180)
+                                accessibleLabel: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
+                                model: Settings.themeNames
+                                currentIndex: Math.max(0, Settings.themeNames.indexOf(Settings.lightThemeName))
+                                onActivated: Settings.applyLightTheme(Settings.themeNames[currentIndex])
+                            }
+                        }
+                    }
+                }
+
+                // Auto-sleep settings
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: autoSleepContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: autoSleepContent
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
@@ -53,10 +154,12 @@ KeyboardAwareContainer {
                         }
 
                         Text {
+                            Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.autoSleepDesc", "Put the machine to sleep after inactivity")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
 
                         Item { Layout.fillHeight: true }
@@ -85,11 +188,12 @@ KeyboardAwareContainer {
                 // Post-shot review auto-close
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(160)
+                    implicitHeight: postShotContent.implicitHeight + Theme.scaled(30)
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
+                        id: postShotContent
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
@@ -103,10 +207,12 @@ KeyboardAwareContainer {
                         }
 
                         Text {
+                            Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.postShotReviewCloseDesc", "Return to idle after reviewing shot")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
 
                         Item { Layout.fillHeight: true }
@@ -482,9 +588,14 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             visible: MainController.shotReporter && MainController.shotReporter.enabled
                                  && !MainController.shotReporter.hasLocation
-                            text: Qt.platform.os === "android"
-                                  ? TranslationManager.translate("settings.preferences.gpsDisabled", "GPS disabled - tap to open Settings")
-                                  : TranslationManager.translate("settings.preferences.noLocation", "No location - tap to enable")
+                            text: {
+                                if (Qt.platform.os === "android") {
+                                    if (MainController.shotReporter.isGpsEnabled())
+                                        return TranslationManager.translate("settings.preferences.gpsAcquiring", "Acquiring location…")
+                                    return TranslationManager.translate("settings.preferences.gpsDisabled", "GPS disabled - tap to open Settings")
+                                }
+                                return TranslationManager.translate("settings.preferences.noLocation", "No location - tap to enable")
+                            }
                             color: Theme.primaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -499,7 +610,7 @@ KeyboardAwareContainer {
                                     // refreshLocation() handles the permission prompt on macOS/iOS;
                                     // openLocationSettings() is for Android (GPS system toggle)
                                     MainController.shotReporter.refreshLocation()
-                                    if (Qt.platform.os === "android")
+                                    if (Qt.platform.os === "android" && !MainController.shotReporter.isGpsEnabled())
                                         MainController.shotReporter.openLocationSettings()
                                 }
                             }
@@ -1196,10 +1307,12 @@ KeyboardAwareContainer {
                         }
 
                         Text {
+                            Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.extractionViewDesc", "Visualization during espresso extraction")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
 
                         Repeater {
@@ -1211,7 +1324,7 @@ KeyboardAwareContainer {
                             delegate: Rectangle {
                                 id: viewOptionCard
                                 Layout.fillWidth: true
-                                height: Theme.scaled(44)
+                                Layout.preferredHeight: Theme.scaled(44)
                                 radius: Theme.scaled(8)
                                 color: extractionViewContent.currentMode === model.mode
                                     ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
@@ -1305,10 +1418,12 @@ KeyboardAwareContainer {
                         }
 
                         Text {
+                            Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
 
                         Text {
@@ -1732,10 +1847,12 @@ KeyboardAwareContainer {
                         }
 
                         Text {
+                            Layout.fillWidth: true
                             text: TranslationManager.translate("settings.calibration.description", "Idle temp, warmup flow rates, timeout")
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
                     }
                 }
@@ -1868,6 +1985,7 @@ KeyboardAwareContainer {
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(12)
                 horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
             }
         }
     }

@@ -65,6 +65,10 @@ public:
     const QVector<QPointF>& weightData() const { return m_weightPoints; }  // Cumulative weight (g) for graph
     const QVector<QPointF>& cumulativeWeightData() const { return m_cumulativeWeightPoints; }  // Cumulative weight for export
     const QVector<QPointF>& weightFlowRateData() const { return m_weightFlowRatePoints; }  // Flow rate from scale (g/s) for export
+    const QVector<QPointF>& weightFlowRateRawData() const { return m_weightFlowRateRawPoints; }  // Raw (pre-smoothing) flow rate
+
+    // Phase markers for state_change export
+    const QList<PhaseMarker>& phaseMarkersList() const { return m_phaseMarkers; }
 
 public slots:
     void clear();
@@ -109,6 +113,7 @@ private:
     QVector<QPointF> m_weightPoints;  // Cumulative weight (g) - for graphing
     QVector<QPointF> m_cumulativeWeightPoints;  // Cumulative weight (g) - for export
     QVector<QPointF> m_weightFlowRatePoints;  // Flow rate from scale (g/s) - for visualizer export
+    QVector<QPointF> m_weightFlowRateRawPoints;  // Raw (pre-smoothing) copy for by_weight_raw export
 
     // Fast renderers for live data series (QSGGeometryNode, pre-allocated VBO)
     QPointer<FastLineRenderer> m_fastPressure;

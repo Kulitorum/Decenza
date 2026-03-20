@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
@@ -56,6 +57,12 @@ Item {
                 fillMode: Image.PreserveAspectFit
                 opacity: DE1Device.guiEnabled ? 1.0 : 0.5
                 Accessible.ignored: true
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
             Tr {
                 key: "idle.button.steam"
@@ -72,6 +79,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.steam", "Steam")
+            accessibleDescription: TranslationManager.translate("idle.accessible.steam.hint", "Tap to toggle presets. Double-tap or long-press to configure steam.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToSteam()
             onAccessibleLongPressed: root.goToSteam()
@@ -97,7 +105,7 @@ Item {
             onPressAndHold: root.goToSteam()
             onDoubleClicked: root.goToSteam()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.steam.description", "Start steaming milk. Long-press to configure.")
+            Accessible.description: TranslationManager.translate("idle.accessible.steam.description", "Start steaming milk. Double-tap or long-press to configure.")
         }
     }
 

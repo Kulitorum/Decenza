@@ -257,17 +257,17 @@ Item {
 
                     // Port info
                     Text {
-                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + USBManager.portName
+                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (typeof USBManager !== "undefined" ? USBManager.portName : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                     }
 
                     // Serial number
                     Text {
-                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + USBManager.serialNumber
+                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (typeof USBManager !== "undefined" ? USBManager.serialNumber : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
-                        visible: USBManager.serialNumber !== ""
+                        visible: typeof USBManager !== "undefined" && USBManager.serialNumber !== ""
                     }
 
                     // Firmware version
@@ -471,10 +471,11 @@ Item {
                             Accessible.ignored: true
                         }
                         Text {
+                            Layout.fillWidth: true
                             text: "Poll for USB-connected DE1. Disable to save battery."
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.Wrap
+                            wrapMode: Text.WordWrap
                             Accessible.ignored: true
                         }
                     }
@@ -497,16 +498,23 @@ Item {
             Layout.fillHeight: true
             color: Theme.surfaceColor
             radius: Theme.cardRadius
+            clip: true
 
-            ColumnLayout {
+            Flickable {
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(15)
+                contentHeight: scaleColumn.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            ColumnLayout {
+                id: scaleColumn
+                width: parent.width
                 spacing: Theme.scaled(10)
 
                 // === USB Scale view (shown when USB scale connected, not available on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     visible: usbAvailable && UsbScaleManager.scaleConnected
                     spacing: Theme.scaled(10)
 
@@ -570,7 +578,7 @@ Item {
                     // USB scale log
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        Layout.preferredHeight: Theme.scaled(150)
                         color: Qt.darker(Theme.surfaceColor, 1.2)
                         radius: Theme.scaled(4)
 
@@ -634,7 +642,6 @@ Item {
                 // === BLE Scale view (shown when no USB scale, or always on iOS) ===
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     visible: !usbAvailable || !UsbScaleManager.scaleConnected
                     spacing: Theme.scaled(10)
 
@@ -694,7 +701,7 @@ Item {
                         }
                     }
 
-                    // Connected BLE scale name
+                    // Connected BLE scale name + battery
                     RowLayout {
                         Layout.fillWidth: true
                         visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
@@ -708,6 +715,40 @@ Item {
                         Text {
                             text: ScaleDevice ? ScaleDevice.name : ""
                             color: Theme.textColor
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Row {
+                            spacing: Theme.scaled(4)
+                            visible: ScaleDevice && ScaleDevice.batteryLevel >= 0 && ScaleDevice.batteryLevel <= 100
+
+                            Image {
+                                anchors.verticalCenter: parent.verticalCenter
+                                source: {
+                                    var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
+                                    if (level <= 10) return "qrc:/icons/battery-0.svg"
+                                    if (level <= 37) return "qrc:/icons/battery-25.svg"
+                                    if (level <= 62) return "qrc:/icons/battery-50.svg"
+                                    if (level <= 87) return "qrc:/icons/battery-75.svg"
+                                    return "qrc:/icons/battery-100.svg"
+                                }
+                                sourceSize.width: Theme.scaled(14)
+                                sourceSize.height: Theme.scaled(14)
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: (ScaleDevice ? ScaleDevice.batteryLevel : 0) + "%"
+                                color: {
+                                    var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
+                                    if (level > 50) return Theme.successColor
+                                    if (level > 20) return Theme.warningColor
+                                    return Theme.errorColor
+                                }
+                                font.pixelSize: Theme.scaled(13)
+                                Accessible.ignored: true
+                            }
                         }
                     }
 
@@ -756,31 +797,122 @@ Item {
                         }
                     }
 
-                    // Saved scale info
-                    RowLayout {
+                    // Known Scales picker
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        visible: BLEManager.hasSavedScale
+                        visible: Settings.knownScales.length > 0
+                        spacing: Theme.scaled(4)
 
                         Tr {
-                            key: "settings.bluetooth.savedScale"
-                            fallback: "Saved scale:"
+                            key: "settings.bluetooth.knownScales"
+                            fallback: "Known Scales"
                             color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(13)
                         }
 
-                        Text {
-                            text: Settings.scaleType || "Unknown"
-                            color: Theme.textColor
-                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
 
-                        Item { Layout.fillWidth: true }
+                            // Primary scale display / picker button
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: Theme.scaled(36)
+                                radius: Theme.scaled(6)
+                                color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.12)
+                                border.color: Theme.accentColor
+                                border.width: 1
 
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
-                            accessibleName: TranslationManager.translate("connections.forgetSavedScale", "Forget saved scale")
-                            onClicked: {
-                                Settings.scaleAddress = ""
-                                Settings.scaleType = ""
-                                BLEManager.clearSavedScale()
+                                Accessible.role: Accessible.Button
+                                Accessible.name: {
+                                    var scales = Settings.knownScales
+                                    for (var i = 0; i < scales.length; i++) {
+                                        if (scales[i].isPrimary) {
+                                            var label = scales[i].name || scales[i].type
+                                            if (scales.length > 1)
+                                                return label + ". " + TranslationManager.translate("settings.bluetooth.tapToChange", "Tap to change")
+                                            return label
+                                        }
+                                    }
+                                    return TranslationManager.translate("settings.bluetooth.selectScale", "Select scale")
+                                }
+                                Accessible.focusable: true
+                                Accessible.onPressAction: scalePickerArea.clicked(null)
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.scaled(10)
+                                    anchors.rightMargin: Theme.scaled(10)
+                                    spacing: Theme.scaled(6)
+
+                                    Image {
+                                        source: "qrc:/icons/star.svg"
+                                        sourceSize.width: Theme.scaled(14)
+                                        sourceSize.height: Theme.scaled(14)
+                                        Accessible.ignored: true
+                                    }
+
+                                    Text {
+                                        text: {
+                                            var scales = Settings.knownScales
+                                            for (var i = 0; i < scales.length; i++) {
+                                                if (scales[i].isPrimary) {
+                                                    var label = scales[i].name || scales[i].type
+                                                    if (scales[i].name && scales[i].name !== scales[i].type)
+                                                        label += " (" + scales[i].type + ")"
+                                                    return label
+                                                }
+                                            }
+                                            return TranslationManager.translate("settings.bluetooth.noScale", "No scale selected")
+                                        }
+                                        color: Theme.textColor
+                                        font.pixelSize: Theme.scaled(13)
+                                        font.bold: true
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                        Accessible.ignored: true
+                                    }
+
+                                    Text {
+                                        text: "\u25BC"
+                                        font.pixelSize: Theme.scaled(10)
+                                        color: Theme.textSecondaryColor
+                                        visible: Settings.knownScales.length > 1
+                                        Accessible.ignored: true
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: scalePickerArea
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        if (Settings.knownScales.length > 1)
+                                            knownScaleDialog.open()
+                                    }
+                                }
+                            }
+
+                            // Forget button — forgets the currently selected (primary) scale
+                            AccessibleButton {
+                                text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
+                                accessibleName: {
+                                    var scales = Settings.knownScales
+                                    for (var i = 0; i < scales.length; i++) {
+                                        if (scales[i].isPrimary)
+                                            return TranslationManager.translate("connections.forgetScale", "Forget scale") + " " + scales[i].name
+                                    }
+                                    return TranslationManager.translate("settings.bluetooth.forget", "Forget")
+                                }
+                                onClicked: {
+                                    var scales = Settings.knownScales
+                                    for (var i = 0; i < scales.length; i++) {
+                                        if (scales[i].isPrimary) {
+                                            BLEManager.clearSavedScale()
+                                            Settings.removeKnownScale(scales[i].address)
+                                            return
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -788,7 +920,7 @@ Item {
                     // Scale connection alert toggle
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: BLEManager.hasSavedScale
+                        visible: Settings.knownScales.length > 0
                         spacing: Theme.scaled(15)
 
                         ColumnLayout {
@@ -802,10 +934,12 @@ Item {
                                 Accessible.ignored: true
                             }
                             Tr {
+                                Layout.fillWidth: true
                                 key: "settings.bluetooth.scaleDialogsDesc"
                                 fallback: "Show popup when scale disconnects or is not found"
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WordWrap
                                 Accessible.ignored: true
                             }
                         }
@@ -889,7 +1023,7 @@ Item {
                     // Scale scan log
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        Layout.preferredHeight: Theme.scaled(150)
                         color: Qt.darker(Theme.surfaceColor, 1.2)
                         radius: Theme.scaled(4)
 
@@ -949,6 +1083,39 @@ Item {
                     }
                 }
 
+            }
+            }
+        }
+    }
+
+    // Known scales picker dialog
+    SelectionDialog {
+        id: knownScaleDialog
+        title: TranslationManager.translate("settings.bluetooth.knownScales", "Known Scales")
+        options: {
+            var scales = Settings.knownScales
+            var labels = []
+            for (var i = 0; i < scales.length; i++) {
+                var label = scales[i].name || scales[i].type
+                if (scales[i].name && scales[i].name !== scales[i].type)
+                    label += " (" + scales[i].type + ")"
+                labels.push(label)
+            }
+            return labels
+        }
+        currentIndex: {
+            var scales = Settings.knownScales
+            for (var i = 0; i < scales.length; i++) {
+                if (scales[i].isPrimary) return i
+            }
+            return -1
+        }
+        onSelected: function(index, value) {
+            var scales = Settings.knownScales
+            if (index >= 0 && index < scales.length) {
+                var scale = scales[index]
+                Settings.setPrimaryScale(scale.address)
+                BLEManager.setSavedScaleAddress(scale.address, scale.type, scale.name)
             }
         }
     }

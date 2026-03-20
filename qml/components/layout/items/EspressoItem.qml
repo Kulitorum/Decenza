@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
@@ -57,6 +58,12 @@ Item {
                 fillMode: Image.PreserveAspectFit
                 opacity: DE1Device.guiEnabled ? 1.0 : 0.5
                 Accessible.ignored: true
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
             Tr {
                 key: "idle.button.espresso"
@@ -73,6 +80,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.espresso", "Espresso")
+            accessibleDescription: TranslationManager.translate("idle.accessible.espresso.hint", "Tap to toggle presets. Double-tap or long-press to select profile.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToProfileSelector()
             onAccessibleLongPressed: root.goToProfileSelector()

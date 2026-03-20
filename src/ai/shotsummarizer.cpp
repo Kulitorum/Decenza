@@ -599,7 +599,7 @@ QString ShotSummarizer::buildUserPrompt(const ShotSummary& summary) const
         if (summary.channelingDetected)
             out << "- **Flow instability**: Sudden flow spike during flow-controlled extraction phase — verify against profile intent before diagnosing channeling\n";
         if (summary.temperatureUnstable)
-            out << "- **Temperature unstable**: Average deviation from target exceeds 2\u00B0C\n";
+            out << "- **Temperature deviation**: Average temperature deviates from target by more than 2\u00B0C — some profiles intentionally use large temperature steps (check profile notes and profile knowledge for guidance before flagging this as a problem)\n";
         out << "\n";
     }
 
@@ -912,7 +912,7 @@ QString ShotSummarizer::espressoSystemPrompt()
 
 **Taste is King.** Numbers are tools to understand taste, not goals in themselves. A shot that tastes great with "wrong" numbers is a great shot. A shot with "perfect" numbers that tastes bad needs fixing.
 
-**Profile Intent is the Reference Frame.** Every profile was designed with specific goals. The profile's targets ARE the baseline, not generic espresso norms. A Blooming Espresso at 2 bar is not "low pressure" — it's doing exactly what it should. A turbo shot finishing in 15 seconds is not "too fast." Evaluate actual vs. intended, not actual vs. generic.
+**Profile Intent is the Reference Frame.** Every profile was designed with specific goals. The profile's targets ARE the baseline, not generic espresso norms. A Blooming Espresso at 2 bar is not "low pressure" — it's doing exactly what it should. A turbo shot finishing in 15 seconds is not "too fast." Evaluate actual vs. intended, not actual vs. generic. When a profile description is shown as "Profile intent", this is the author's own words — always read and respect it. If the profile intent conflicts with other guidance, trust the author.
 
 ## The DE1 Machine
 
@@ -943,6 +943,18 @@ The data shows actual values with targets in parentheses. Here's how to interpre
 **Declining pressure during flow phases is normal.** As the coffee puck erodes during extraction, resistance drops, so pressure naturally declines even at constant flow. This is especially pronounced in lever-style and D-Flow profiles that transition from pressure control to flow control (shown as "from PRESSURE X bar" in the recipe). A pressure curve that peaks early and gradually declines is the expected signature of these profiles — do NOT flag it as a problem.
 
 **Flow variation during pressure-controlled phases is normal.** When the machine controls PRESSURE, flow is just a passive result of puck resistance. As the puck saturates, compresses, and erodes, flow will naturally spike and settle. This is NOT channeling — channeling can only be diagnosed during FLOW-CONTROLLED phases where the machine is actively targeting stable flow. High flow during a pressure ramp-up (e.g., Filling at 6 bar) is simply water pushing through a dry puck.
+
+## Reading the Recipe for Expected Behavior
+
+The profile recipe is included with each shot. Use it to set expectations BEFORE looking at actual data:
+
+**Temperature stepping**: If frames use different temperatures (e.g., 84°C fill → 94°C pour), actual temperature will ALWAYS lag behind the target. The heater pumps hot water that mixes with cooler water above the puck — a 5-8°C gap between target and actual during transitions is normal physics. Only flag temperature issues if actual temp deviates from target during a STABLE phase (same temperature across consecutive frames).
+
+**Flow-controlled pour with pressure limiter**: When a pour frame controls FLOW (e.g., 1.8 ml/s) with a high pressure limiter (e.g., 10 bar), pressure will peak based on puck resistance and decline as the puck erodes. The limiter is a safety ceiling, not a goal. Pressure anywhere from 4 bar to the limiter is normal. The peak depends on grind — do not assume a specific peak unless the profile notes state one.
+
+**Pressure → Flow transition**: When a profile switches from pressure-controlled fill/infuse to flow-controlled pour, pressure becomes passive after the switch. A declining pressure curve is the expected signature of this pattern, not a problem. This is the lever/flow hybrid pattern used by D-Flow, Londinium, and similar profiles.
+
+**Exit conditions**: Frames with exit conditions (e.g., "exit:p>3.0") advance when the condition is met. Short phase durations (1-2s) after exit conditions are normal — the machine transitions quickly.
 
 ## Grinder & Burr Geometry
 

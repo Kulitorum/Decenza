@@ -119,10 +119,19 @@ Page {
                     text: TranslationManager.translate("profileimport.button.browse", "Browse...")
                     accessibleName: TranslationManager.translate("profileImport.browseFolder", "Browse for de1plus folder")
                     // Android FolderDialog returns SAF content:// URIs which QDir can't iterate;
-                    // folder browsing only works on desktop platforms.
+                    // folder browsing only works on desktop platforms. On Android, the
+                    // "Import File..." button below offers single-file import instead.
                     visible: Qt.platform.os !== "android"
                     enabled: !MainController.profileImporter.isScanning
                     onClicked: folderPickerDialog.open()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileimport.button.import_file", "Import File...")
+                    accessibleName: TranslationManager.translate("profileImport.importFileAndroid", "Open file picker to import a profile file")
+                    visible: Qt.platform.os === "android"
+                    enabled: !MainController.profileImporter.isImporting
+                    onClicked: profileFileDialog.open()
                 }
 
                 AccessibleButton {
@@ -322,10 +331,13 @@ Page {
                     visible: profileList.count === 0 && !MainController.profileImporter.isScanning
                     text: MainController.profileImporter.detectedPath ?
                           TranslationManager.translate("profileimport.empty", "No profiles found in DE1 app folders") :
-                          TranslationManager.translate("profileimport.not_installed", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Browse to select the folder manually.")
+                          (Qt.platform.os === "android"
+                           ? TranslationManager.translate("profileimport.not_installed_android", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Import File to select profiles individually.")
+                           : TranslationManager.translate("profileimport.not_installed", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Browse to select the folder manually."))
                     color: Theme.textSecondaryColor
                     font: Theme.bodyFont
                     horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
                 }
 
                 // Loading indicator

@@ -258,9 +258,14 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         visible: MainController.shotReporter && MainController.shotReporter.enabled
                              && !MainController.shotReporter.hasLocation
-                        text: Qt.platform.os === "android"
-                              ? "GPS disabled - tap to open Settings"
-                              : "No location - tap to enable"
+                        text: {
+                            if (Qt.platform.os === "android") {
+                                if (MainController.shotReporter.isGpsEnabled())
+                                    return TranslationManager.translate("settings.preferences.gpsAcquiring", "Acquiring location…")
+                                return TranslationManager.translate("settings.preferences.gpsDisabled", "GPS disabled - tap to open Settings")
+                            }
+                            return TranslationManager.translate("settings.preferences.noLocation", "No location - tap to enable")
+                        }
                         color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(12)
                         font.underline: true
@@ -274,7 +279,7 @@ KeyboardAwareContainer {
                                 // refreshLocation() handles the permission prompt on macOS/iOS;
                                 // openLocationSettings() is for Android (GPS system toggle)
                                 MainController.shotReporter.refreshLocation()
-                                if (Qt.platform.os === "android")
+                                if (Qt.platform.os === "android" && !MainController.shotReporter.isGpsEnabled())
                                     MainController.shotReporter.openLocationSettings()
                             }
                         }
@@ -398,6 +403,7 @@ KeyboardAwareContainer {
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
                     }
                 }
             }
@@ -970,9 +976,11 @@ KeyboardAwareContainer {
                     }
 
                     Text {
+                        Layout.fillWidth: true
                         text: TranslationManager.translate("settings.calibration.description", "Idle temp, warmup flow rates, timeout")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
                     }
                 }
             }

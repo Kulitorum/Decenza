@@ -11,6 +11,14 @@
 #include <QHostInfo>
 #include <QUuid>
 #include <QMutexLocker>
+#ifdef Q_OS_ANDROID
+#include <QElapsedTimer>
+#include <QThread>
+#include <QPointer>
+#define MDNS_IMPLEMENTATION
+#include <mdns.h>
+#include <QHostAddress>
+#endif
 
 MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
                        Settings* settings, QObject* parent)
@@ -164,6 +172,112 @@ void MqttClient::onSubscribeFailure(void* context, MQTTAsync_failureData* respon
     qWarning() << "MqttClient: Subscription failed -" << error;
 }
 
+#ifdef Q_OS_ANDROID
+
+struct MdnsResolveContext {
+    QByteArray hostname;
+    QString resolvedIp;
+};
+
+static int mdnsResolveCallback(int sock, const struct sockaddr* from, size_t addrlen,
+                                mdns_entry_type_t entry, uint16_t query_id,
+                                uint16_t rtype, uint16_t rclass, uint32_t ttl,
+                                const void* data, size_t size,
+                                size_t name_offset, size_t name_length,
+                                size_t record_offset, size_t record_length,
+                                void* user_data)
+{
+    Q_UNUSED(sock); Q_UNUSED(from); Q_UNUSED(addrlen);
+    Q_UNUSED(query_id); Q_UNUSED(rclass); Q_UNUSED(ttl);
+    Q_UNUSED(name_length);
+
+    auto* ctx = static_cast<MdnsResolveContext*>(user_data);
+    if (!ctx->resolvedIp.isEmpty())
+        return 0; // Already found
+
+    if (entry != MDNS_ENTRYTYPE_ANSWER || rtype != MDNS_RECORDTYPE_A)
+        return 0;
+
+    // Extract record name (handles DNS compression pointers)
+    char namebuf[256];
+    size_t nameOffset = name_offset;
+    mdns_string_t name = mdns_string_extract(data, size, &nameOffset, namebuf, sizeof(namebuf));
+
+    QByteArray recordName = QByteArray(name.str, static_cast<qsizetype>(name.length));
+    if (recordName.endsWith('.'))
+        recordName.chop(1);
+
+    if (recordName.toLower() != ctx->hostname.toLower())
+        return 0;
+
+    // Parse the A record
+    struct sockaddr_in addr;
+    mdns_record_parse_a(data, size, record_offset, record_length, &addr);
+    ctx->resolvedIp = QHostAddress(ntohl(addr.sin_addr.s_addr)).toString();
+
+    return 0;
+}
+
+// Resolve a .local hostname via mDNS using mjansson/mdns library.
+// Called on a background thread — safe to block.
+static QString resolveMdns(const QString& hostname, int timeoutMs = 2000)
+{
+    // Open mDNS socket (binds to ephemeral port, joins multicast group)
+    struct sockaddr_in bindAddr;
+    memset(&bindAddr, 0, sizeof(bindAddr));
+    bindAddr.sin_family = AF_INET;
+    bindAddr.sin_addr.s_addr = INADDR_ANY;
+    int sock = mdns_socket_open_ipv4(&bindAddr);
+    if (sock < 0)
+        return {};
+
+    // Send A record query
+    char buffer[2048];
+    QByteArray hostBytes = hostname.toUtf8();
+    if (mdns_query_send(sock, MDNS_RECORDTYPE_A, hostBytes.constData(),
+                        static_cast<size_t>(hostBytes.size()),
+                        buffer, sizeof(buffer), 0) < 0) {
+        mdns_socket_close(sock);
+        return {};
+    }
+
+    MdnsResolveContext ctx;
+    ctx.hostname = hostBytes;
+    if (ctx.hostname.endsWith('.'))
+        ctx.hostname.chop(1);
+
+    // Poll for responses with deadline tracking
+    QElapsedTimer deadline;
+    deadline.start();
+
+    while (deadline.elapsed() < timeoutMs && ctx.resolvedIp.isEmpty()) {
+        int remaining = static_cast<int>(timeoutMs - deadline.elapsed());
+        if (remaining <= 0) break;
+
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(sock, &readfds);
+        struct timeval tv;
+        tv.tv_sec = remaining / 1000;
+        tv.tv_usec = (remaining % 1000) * 1000;
+
+        int ret = select(sock + 1, &readfds, nullptr, nullptr, &tv);
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (ret == 0) break;
+
+        mdns_query_recv(sock, buffer, sizeof(buffer),
+                        mdnsResolveCallback, &ctx, 0);
+    }
+
+    mdns_socket_close(sock);
+    return ctx.resolvedIp;
+}
+
+#endif // Q_OS_ANDROID
+
 void MqttClient::connectToBroker()
 {
     if (!m_settings) {
@@ -172,13 +286,46 @@ void MqttClient::connectToBroker()
         return;
     }
 
-    QString host = m_settings->mqttBrokerHost();
+    QString host = m_settings->mqttBrokerHost().trimmed();
     if (host.isEmpty()) {
         m_status = "Error: No broker host configured";
         emit statusChanged();
         return;
     }
 
+#ifdef Q_OS_ANDROID
+    // Android's getaddrinfo() doesn't reliably resolve .local mDNS hostnames.
+    // Resolve on a background thread to avoid blocking the UI.
+    if (host.endsWith(".local", Qt::CaseInsensitive)) {
+        m_status = "Resolving...";
+        emit statusChanged();
+
+        QPointer<MqttClient> guard(this);
+        QThread* thread = QThread::create([guard, host]() {
+            QString resolved = resolveMdns(host);
+            QMetaObject::invokeMethod(guard.data(), [guard, resolved, host]() {
+                if (!guard) return;
+                if (!resolved.isEmpty()) {
+                    qDebug() << "MqttClient: Resolved" << host << "to" << resolved << "via mDNS";
+                    guard->connectWithHost(resolved);
+                } else {
+                    qWarning() << "MqttClient: mDNS resolution failed for" << host
+                               << "- trying direct connection";
+                    guard->connectWithHost(host);
+                }
+            }, Qt::QueuedConnection);
+        });
+        connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+        thread->start();
+        return;
+    }
+#endif
+
+    connectWithHost(host);
+}
+
+void MqttClient::connectWithHost(const QString& host)
+{
     // Clean up old client if exists
     if (m_client) {
         if (m_connected) {
@@ -192,9 +339,10 @@ void MqttClient::connectToBroker()
         m_reconnectAttempts = 0;
         emit reconnectAttemptsChanged();
     }
+    m_isReconnecting = false;
 
     // Build server URI
-    int port = m_settings->mqttBrokerPort();
+    int port = m_settings ? m_settings->mqttBrokerPort() : 1883;
     QString serverUri = QString("tcp://%1:%2").arg(host).arg(port);
     QByteArray serverUriBytes = serverUri.toUtf8();
 
@@ -502,10 +650,9 @@ void MqttClient::onReconnectTimerTick()
 
     qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts << "of" << MAX_RECONNECT_ATTEMPTS;
 
-    // Call connectToBroker with flag to preserve reconnect state
+    // Flag preserved until connectWithHost() checks it (may be async on Android)
     m_isReconnecting = true;
     connectToBroker();
-    m_isReconnecting = false;
 }
 
 void MqttClient::onSettingsChanged()
@@ -982,13 +1129,14 @@ void MqttClient::publishHomeAssistantDiscovery()
     }
 
     // Espresso count sensor
-    // No state_class — count can decrease when shots are deleted from history,
-    // which is incompatible with "total_increasing" (HA would treat decreases as resets)
+    // total_increasing: HA treats value decreases (e.g. history cleared) as meter resets
+    // and continues accumulating from the new value — no inflation.
     {
         QJsonObject config;
         config["name"] = "DE1 Espresso Count";
         config["state_topic"] = baseTopic + "/espresso_count";
         config["icon"] = "mdi:counter";
+        config["state_class"] = "total_increasing";
         config["unique_id"] = QString("de1_%1_espresso_count").arg(m_clientId);
         config["availability_topic"] = baseTopic + "/availability";
         config["device"] = device;

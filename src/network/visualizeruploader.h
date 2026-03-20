@@ -9,6 +9,7 @@
 class ShotDataModel;
 class Settings;
 class Profile;
+class DE1Device;
 
 // DYE (Describe Your Espresso) metadata for shot uploads
 struct ShotMetadata {
@@ -42,6 +43,8 @@ public:
     bool isUploading() const { return m_uploading; }
     QString lastUploadStatus() const { return m_lastUploadStatus; }
     QString lastShotUrl() const { return m_lastShotUrl; }
+
+    void setDevice(DE1Device* device) { m_device = device; }
 
     // Upload shot data to visualizer.coffee
     Q_INVOKABLE void uploadShot(ShotDataModel* shotData,
@@ -86,12 +89,14 @@ private:
     QString authHeader() const;
 
     static QJsonObject buildAppInfoJson();
+    static QJsonObject buildProfileSettings(const Profile* profile);
     bool validateUpload(const QString& beverageType, double duration);
     void sendUpload(const QByteArray& jsonData);
     QByteArray buildHistoryShotJson(const QVariantMap& shotData);
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
+    DE1Device* m_device = nullptr;
     bool m_uploading = false;
     QString m_lastUploadStatus;
     QString m_lastShotUrl;

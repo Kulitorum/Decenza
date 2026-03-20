@@ -48,6 +48,8 @@ public slots:
     void startSteam();
     void startHotWater();
     void startFlush();
+    void startDescale();
+    void startClean();
     void stop();
     void goToSleep();
     void wakeUp();
@@ -140,6 +142,10 @@ private:
 
     // Ending phase tracking
     double m_endingStartTime = 0.0;   // When ending phase began
+
+    // Descale/clean simulation
+    int m_descaleStep = 0;            // Current descale substate (8-12)
+    double m_descaleStepStart = 0.0;  // When current step started
 
     // Noise permutation table (for Perlin noise)
     std::array<int, 512> m_perm;

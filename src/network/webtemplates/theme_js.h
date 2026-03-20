@@ -10,11 +10,15 @@ const COLOR_DEFS = [
         { name: "backgroundColor", display: "Background" },
         { name: "surfaceColor", display: "Surface" },
         { name: "primaryColor", display: "Primary" },
+        { name: "primaryContrastColor", display: "Primary Contrast" },
         { name: "secondaryColor", display: "Secondary" },
         { name: "textColor", display: "Text" },
         { name: "textSecondaryColor", display: "Text Secondary" },
         { name: "accentColor", display: "Accent" },
-        { name: "borderColor", display: "Border" }
+        { name: "borderColor", display: "Border" },
+        { name: "iconColor", display: "Icon" },
+        { name: "bottomBarColor", display: "Bottom Bar" },
+        { name: "actionButtonContentColor", display: "Action Button Content" }
     ]},
     { category: "Status", colors: [
         { name: "successColor", display: "Success" },
@@ -30,7 +34,8 @@ const COLOR_DEFS = [
         { name: "temperatureColor", display: "Temperature" },
         { name: "temperatureGoalColor", display: "Temp Goal" },
         { name: "weightColor", display: "Weight" },
-        { name: "weightFlowColor", display: "Weight Flow" }
+        { name: "weightFlowColor", display: "Weight Flow" },
+        { name: "waterLevelColor", display: "Water Level" }
     ]},
     { category: "DYE Metadata", colors: [
         { name: "dyeDoseColor", display: "Dose" },
@@ -73,6 +78,70 @@ let debounceTimers = {};
 
 // -- Rendering --
 
+// -- Color conversion utilities --
+
+function hexToRgb(hex) {
+    var r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
+    return { r: r, g: g, b: b };
+}
+
+function rgbToHex(r, g, b) {
+    return '#' + [r,g,b].map(function(v) { return Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2,'0'); }).join('');
+}
+
+function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+    var h = 0, s = 0, l = (max + min) / 2;
+    if (d > 0) {
+        s = l > 0.5 ? d / (2 - max - min) : d / (max - min);
+        if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        else if (max === g) h = ((b - r) / d + 2) / 6;
+        else h = ((r - g) / d + 4) / 6;
+    }
+    return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+function hslToRgb(h, s, l) {
+    h /= 360; s /= 100; l /= 100;
+    if (s === 0) { var v = Math.round(l * 255); return { r: v, g: v, b: v }; }
+    function hue2rgb(p, q, t) {
+        if (t < 0) t += 1; if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+    }
+    var q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    return {
+        r: Math.round(hue2rgb(p, q, h + 1/3) * 255),
+        g: Math.round(hue2rgb(p, q, h) * 255),
+        b: Math.round(hue2rgb(p, q, h - 1/3) * 255)
+    };
+}
+
+function sliderGradient(mode, channel, channels) {
+    var stops = [];
+    for (var i = 0; i <= 4; i++) {
+        var t = i / 4;
+        var ch = channels.slice();
+        if (mode === 'rgb') {
+            ch[channel] = Math.round(t * 255);
+            stops.push(rgbToHex(ch[0], ch[1], ch[2]));
+        } else {
+            var maxes = [360, 100, 100];
+            ch[channel] = Math.round(t * maxes[channel]);
+            var rgb = hslToRgb(ch[0], ch[2], ch[1]);  // channels are [H,L,S], hslToRgb wants (h,s,l)
+            stops.push(rgbToHex(rgb.r, rgb.g, rgb.b));
+        }
+    }
+    return 'linear-gradient(to right, ' + stops.join(', ') + ')';
+}
+
+// -- Active editor state --
+var activeEditorName = null;
+var activeEditorMode = 'hls';
+
 function renderColors(colors, pageColors) {
     const panel = document.getElementById('colorPanel');
     panel.innerHTML = '';
@@ -89,16 +158,208 @@ function renderColors(colors, pageColors) {
             const isOnPage = onPage.has(c.name);
             const row = document.createElement('div');
             row.className = 'color-row' + (isOnPage ? ' on-page' : '');
+            row.dataset.name = c.name;
             row.innerHTML =
-                '<div class="page-dot" title="Used on current page"></div>' +
-                '<div class="color-swatch" style="background:' + val + '">' +
-                    '<input type="color" value="' + val + '" data-name="' + c.name + '" ' +
-                           'oninput="onColorInput(this)" onchange="onColorChange(this)">' +
-                '</div>' +
-                '<span class="color-label" onclick="flashColor(\'' + c.name + '\')" title="Click to flash on device">' + c.display + '</span>' +
-                '<input type="text" class="color-hex" value="' + val + '" data-name="' + c.name + '" ' +
-                       'oninput="onHexInput(this)">';
+                '<div class="color-row-header">' +
+                    '<div class="page-dot" title="Used on current page"></div>' +
+                    '<div class="color-swatch" style="background:' + val + '"></div>' +
+                    '<span class="color-label" onclick="flashColor(\'' + c.name + '\')" title="Click to flash on device">' + c.display + '</span>' +
+                    '<input type="text" class="color-hex" value="' + val + '" data-name="' + c.name + '" oninput="onHexInput(this)">' +
+                    '<button class="copy-btn" title="Copy" onclick="copyColor(\'' + c.name + '\')">Copy</button>' +
+                    '<button class="copy-btn" title="Paste" onclick="pasteColor(\'' + c.name + '\')">Paste</button>' +
+                '</div>';
             panel.appendChild(row);
+
+            // Click swatch to toggle editor
+            row.querySelector('.color-swatch').onclick = function() { toggleEditor(c.name, val); };
+
+            // If this is the active editor, re-open it
+            if (activeEditorName === c.name) {
+                openEditor(row, c.name, val);
+            }
+        }
+    }
+}
+)JS";
+
+inline constexpr const char* WEB_JS_THEME_EDITOR2 = R"JS(
+function copyColor(name) {
+    var row = document.querySelector('.color-row[data-name="' + name + '"]');
+    var hex = row.querySelector('.color-hex').value;
+    copiedColor = hex;
+    fallbackCopy(hex);
+    showCopyFeedback(row);
+}
+
+function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+}
+
+function showCopyFeedback(row) {
+    var btn = row.querySelector('.copy-btn');
+    if (btn) { var o = btn.textContent; btn.textContent = 'OK'; setTimeout(function() { btn.textContent = o; }, 1000); }
+}
+
+var copiedColor = null;
+
+function pasteColor(name) {
+    if (!copiedColor) return;
+    var row = document.querySelector('.color-row[data-name="' + name + '"]');
+    row.querySelector('.color-hex').value = copiedColor;
+    row.querySelector('.color-swatch').style.background = copiedColor;
+    postJson('/api/theme/color', { name: name, value: copiedColor });
+    if (activeEditorName === name) {
+        var editor = row.querySelector('.color-editor');
+        if (editor) updateEditorSliders(editor, copiedColor);
+    }
+}
+
+function toggleEditor(name, hex) {
+    if (activeEditorName === name) {
+        closeEditor();
+        return;
+    }
+    closeEditor();
+    activeEditorName = name;
+    var row = document.querySelector('.color-row[data-name="' + name + '"]');
+    if (row) openEditor(row, name, hex);
+}
+
+function closeEditor() {
+    var existing = document.querySelector('.color-editor');
+    if (existing) existing.remove();
+    activeEditorName = null;
+}
+
+function openEditor(row, name, hex) {
+    var editor = document.createElement('div');
+    editor.className = 'color-editor';
+
+    var rgb = hexToRgb(hex);
+    var hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+
+    var mode = activeEditorMode;
+    var channels, labels, maxes;
+    if (mode === 'rgb') {
+        channels = [rgb.r, rgb.g, rgb.b];
+        labels = ['R', 'G', 'B'];
+        maxes = [255, 255, 255];
+    } else {
+        channels = [hsl.h, hsl.l, hsl.s];
+        labels = ['H', 'L', 'S'];
+        maxes = [360, 100, 100];
+    }
+
+    var html = '<div class="editor-toggle">';
+    html += '<button class="mode-btn' + (mode === 'rgb' ? ' active' : '') + '" onclick="switchEditorMode(\'rgb\')">RGB</button>';
+    html += '<button class="mode-btn' + (mode === 'hls' ? ' active' : '') + '" onclick="switchEditorMode(\'hls\')">HLS</button>';
+    html += '</div>';
+
+    for (var i = 0; i < 3; i++) {
+        var pct = channels[i] / maxes[i] * 100;
+        var grad = sliderGradient(mode, i, channels);
+        html += '<div class="editor-slider-row">' +
+            '<span class="slider-label">' + labels[i] + '</span>' +
+            '<div class="slider-track" data-channel="' + i + '" data-name="' + name + '" style="background:' + grad + '">' +
+                '<div class="slider-thumb" style="left:' + pct + '%"></div>' +
+            '</div>' +
+            '<span class="slider-value">' + channels[i] + '</span>' +
+        '</div>';
+    }
+
+    editor.innerHTML = html;
+    row.appendChild(editor);
+
+    // Attach drag handlers
+    editor.querySelectorAll('.slider-track').forEach(function(track) {
+        function onMove(e) {
+            var rect = track.getBoundingClientRect();
+            var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            var ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+            var ch = parseInt(track.dataset.channel);
+            var max = maxes[ch];
+            var val = Math.round(ratio * max);
+            channels[ch] = val;
+
+            track.querySelector('.slider-thumb').style.left = (ratio * 100) + '%';
+            track.closest('.editor-slider-row').querySelector('.slider-value').textContent = val;
+
+            // Recompute hex
+            var newHex;
+            if (activeEditorMode === 'rgb') {
+                newHex = rgbToHex(channels[0], channels[1], channels[2]);
+            } else {
+                var c = hslToRgb(channels[0], channels[2], channels[1]);  // [H,L,S] → (h,s,l)
+                newHex = rgbToHex(c.r, c.g, c.b);
+            }
+
+            // Update all gradients
+            for (var j = 0; j < 3; j++) {
+                var t = editor.querySelectorAll('.slider-track')[j];
+                t.style.background = sliderGradient(activeEditorMode, j, channels);
+            }
+
+            // Update row
+            var rowEl = track.closest('.color-row');
+            rowEl.querySelector('.color-swatch').style.background = newHex;
+            rowEl.querySelector('.color-hex').value = newHex;
+
+            clearTimeout(debounceTimers[name]);
+            debounceTimers[name] = setTimeout(function() {
+                postJson('/api/theme/color', { name: name, value: newHex });
+            }, 50);
+        }
+
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onUp);
+        }
+
+        track.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            onMove(e);
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+        track.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            onMove(e);
+            document.addEventListener('touchmove', onMove);
+            document.addEventListener('touchend', onUp);
+        });
+    });
+}
+
+function updateEditorSliders(editor, hex) {
+    var rgb = hexToRgb(hex);
+    var hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    var channels = activeEditorMode === 'rgb' ? [rgb.r, rgb.g, rgb.b] : [hsl.h, hsl.l, hsl.s];
+    var maxes = activeEditorMode === 'rgb' ? [255, 255, 255] : [360, 100, 100];
+    var tracks = editor.querySelectorAll('.slider-track');
+    for (var i = 0; i < 3; i++) {
+        tracks[i].querySelector('.slider-thumb').style.left = (channels[i] / maxes[i] * 100) + '%';
+        tracks[i].closest('.editor-slider-row').querySelector('.slider-value').textContent = channels[i];
+        tracks[i].style.background = sliderGradient(activeEditorMode, i, channels);
+    }
+}
+
+function switchEditorMode(mode) {
+    activeEditorMode = mode;
+    if (activeEditorName) {
+        var row = document.querySelector('.color-row[data-name="' + activeEditorName + '"]');
+        if (row) {
+            var hex = row.querySelector('.color-hex').value || '#000000';
+            row.querySelector('.color-editor').remove();
+            openEditor(row, activeEditorName, hex);
         }
     }
 }
@@ -151,7 +412,7 @@ function renderPresets(presets, activeName) {
 
 function renderAll(data) {
     currentTheme = data;
-    renderColors(data.colors, data.pageColors);
+    renderColors(data.editingColors || data.colors, data.pageColors);
     renderFonts(data.fonts);
     renderPresets(data.presets, data.activeThemeName);
     if (typeof initShaderState === 'function') initShaderState(data);
@@ -182,35 +443,16 @@ function flashColor(name) {
     });
 }
 
-function onColorInput(el) {
-    // Live preview: update swatch and hex immediately
-    const name = el.dataset.name;
-    const val = el.value;
-    el.parentElement.style.background = val;
-    const hexInput = el.closest('.color-row').querySelector('.color-hex');
-    if (hexInput) hexInput.value = val;
-
-    // Debounced POST
-    clearTimeout(debounceTimers[name]);
-    debounceTimers[name] = setTimeout(function() {
-        postJson('/api/theme/color', { name: name, value: val });
-    }, 50);
-}
-
-function onColorChange(el) {
-    // Final value on picker close
-    const name = el.dataset.name;
-    clearTimeout(debounceTimers[name]);
-    postJson('/api/theme/color', { name: name, value: el.value });
-}
-
 function onHexInput(el) {
     const hex = el.value.trim();
     if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
         const name = el.dataset.name;
-        const swatch = el.closest('.color-row').querySelector('.color-swatch');
-        swatch.style.background = hex;
-        swatch.querySelector('input[type="color"]').value = hex;
+        const row = el.closest('.color-row');
+        row.querySelector('.color-swatch').style.background = hex;
+        if (activeEditorName === name) {
+            var editor = row.querySelector('.color-editor');
+            if (editor) updateEditorSliders(editor, hex);
+        }
         clearTimeout(debounceTimers[name]);
         debounceTimers[name] = setTimeout(function() {
             postJson('/api/theme/color', { name: name, value: hex });

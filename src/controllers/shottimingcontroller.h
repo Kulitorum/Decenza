@@ -45,6 +45,7 @@ public:
 
     // Properties
     double shotTime() const;
+    double extractionDuration() const { return m_extractionEndTime; }
     bool isTareComplete() const { return m_tareState == TareState::Complete; }
     double currentWeight() const { return m_weight; }
     TareState tareState() const { return m_tareState; }
@@ -117,7 +118,8 @@ private:
     const Profile* m_currentProfile = nullptr;
 
     // Timing state (wall clock based - simple and reliable)
-    double m_currentTime = 0;      // Current shot time in seconds
+    double m_currentTime = 0;      // Current shot time in seconds (advances during settling for graph)
+    double m_extractionEndTime = 0; // Frozen at extraction end (for timer display and saved duration)
     bool m_shotActive = false;
 
     // Weight state

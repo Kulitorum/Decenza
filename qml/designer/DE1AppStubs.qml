@@ -48,6 +48,7 @@ QtObject {
         ]
         function loadProfile(name) {}
         function applySteamSettings() {}
+        function setHotWaterFlowRateImmediate(flow) {}
         function setSteamFlowImmediate(flow) {}
         function setSteamTemperatureImmediate(temp) {}
         function uploadCurrentProfile() {}

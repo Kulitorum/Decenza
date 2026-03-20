@@ -259,6 +259,40 @@ ProfileFrame ProfileFrame::fromTclList(const QString& tclList) {
     return frame;
 }
 
+QString ProfileFrame::toTclList() const {
+    // Inverse of fromTclList() — produces de1app Tcl list format
+    // Values with spaces go in braces; empty strings use {}
+    auto tclVal = [](const QString& s) -> QString {
+        if (s.isEmpty()) return QStringLiteral("{}");
+        if (s.contains(' ') || s.contains('{') || s.contains('}'))
+            return QStringLiteral("{%1}").arg(s);
+        return s;
+    };
+
+    QStringList parts;
+    parts << QStringLiteral("name") << tclVal(name);
+    parts << QStringLiteral("temperature") << QString::number(temperature, 'f', 2);
+    parts << QStringLiteral("sensor") << sensor;
+    parts << QStringLiteral("pump") << pump;
+    parts << QStringLiteral("transition") << transition;
+    parts << QStringLiteral("pressure") << QString::number(pressure, 'f', 2);
+    parts << QStringLiteral("flow") << QString::number(flow, 'f', 2);
+    parts << QStringLiteral("seconds") << QString::number(seconds, 'f', 2);
+    parts << QStringLiteral("volume") << QString::number(volume, 'f', 1);
+    parts << QStringLiteral("exit_if") << (exitIf ? QStringLiteral("1") : QStringLiteral("0"));
+    parts << QStringLiteral("exit_type") << tclVal(exitType);
+    parts << QStringLiteral("exit_pressure_over") << QString::number(exitPressureOver, 'f', 2);
+    parts << QStringLiteral("exit_pressure_under") << QString::number(exitPressureUnder, 'f', 2);
+    parts << QStringLiteral("exit_flow_over") << QString::number(exitFlowOver, 'f', 2);
+    parts << QStringLiteral("exit_flow_under") << QString::number(exitFlowUnder, 'f', 2);
+    parts << QStringLiteral("max_flow_or_pressure") << QString::number(maxFlowOrPressure, 'f', 2);
+    parts << QStringLiteral("max_flow_or_pressure_range") << QString::number(maxFlowOrPressureRange, 'f', 2);
+    parts << QStringLiteral("weight") << QString::number(exitWeight, 'f', 1);
+    parts << QStringLiteral("popup") << tclVal(popup);
+
+    return QStringLiteral("{%1}").arg(parts.join(' '));
+}
+
 ProfileFrame ProfileFrame::withSetpoint(double pressureOrFlow, double temp) const {
     ProfileFrame copy = *this;
     if (copy.pump == "flow") {

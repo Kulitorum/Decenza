@@ -25,7 +25,7 @@ Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE co
 
 - **ADB path**: `/c/Users/Micro/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 - **Uninstall app**: `adb uninstall io.github.kulitorum.decenza_de1`
-- **WiFi debugging**: `192.168.1.212:5555` (reconnect: `adb connect 192.168.1.212:5555`)
+- **WiFi debugging**: `192.168.1.208:5555` (reconnect: `adb connect 192.168.1.208:5555`)
 - **Qt version**: 6.10.2
 - **Qt path**: `C:/Qt/6.10.2/msvc2022_64`
 - **C++ standard**: C++17
@@ -151,9 +151,19 @@ qml/
 └── Theme.qml               # Singleton styling (+ emojiToImage())
 
 resources/
+├── CoffeeCup/              # 3D-rendered cup images for CupFillView
+│   ├── BackGround.png      # Cup back, interior, handle (701x432)
+│   ├── Mask.png            # Black = coffee area, white = no coffee
+│   ├── Overlay.png         # Rim, front highlights (lighten blend)
+│   └── FullRes.7z          # Source PSD archive
 ├── emoji/                  # ~750 Twemoji SVGs (CC-BY 4.0)
 ├── emoji.qrc               # Qt resource file for emoji SVGs
 └── resources.qrc           # Icons, fonts, other assets
+
+shaders/
+├── crt.frag                # CRT/retro display effect
+├── cup_mask.frag           # Masks coffee to cup interior (inverts Mask.png)
+└── cup_lighten.frag        # Lighten (MAX) blend + brightness-to-alpha
 
 scripts/
 └── download_emoji.py       # Download emoji SVGs from various sources
@@ -183,7 +193,7 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 ## Conventions
 
 ### Design Principles
-- **Never use timers as guards/workarounds.** Timers are fragile heuristics that break on slow devices and hide the real problem. Use event-based flags and conditions instead. For example, "suppress X until Y has happened" should be a boolean cleared by the Y event, not a timer. Only use timers for genuinely periodic tasks (polling, animation, heartbeats).
+- **Never use timers as guards/workarounds.** Timers are fragile heuristics that break on slow devices and hide the real problem. Use event-based flags and conditions instead. For example, "suppress X until Y has happened" should be a boolean cleared by the Y event, not a timer. Only use timers for genuinely periodic tasks (polling, animation, heartbeats) and **UI auto-dismiss** (toasts/banners that hide after N seconds). Everything else — including debounce — should use event-based flags.
 - **Never run database or disk I/O on the main thread.** Use `QThread::create()` with a `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` callback to run queries on a background thread and deliver results back to the main thread. See `ShotHistoryStorage::requestShot()` for the canonical pattern.
 
 ### C++
@@ -195,7 +205,8 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 - Use `qsizetype` (not `int`) for container sizes — `QVector::size()`, `QList::size()`, `QString::size()` etc. return `qsizetype` (64-bit on iOS/macOS). Assigning to `int` causes `-Wshorten-64-to-32` warnings.
 
 ### QML
-- Files: `PascalCase.qml`
+- Files: `PascalCase.qml` — new QML files **must** be added to `CMakeLists.txt` (in the `qt_add_qml_module` file list) to be included in the Qt resource system. Without this, the file won't be found at runtime.
+- **New layout widgets** require registration in 4 places: (1) `CMakeLists.txt` file list, (2) `LayoutItemDelegate.qml` switch, (3) `LayoutEditorZone.qml` widget palette + chip label map, (4) `shotserver_layout.cpp` web editor widget list. Optionally add to `LayoutCenterZone.qml` if the widget should be allowed in center/idle zones.
 - IDs/properties: `camelCase`
 - Use `Theme.qml` singleton for all styling — never hardcode colors, font sizes, spacing, or radii. Use `Theme.textColor`, `Theme.bodyFont`, `Theme.subtitleFont`, `Theme.spacingMedium`, `Theme.cardRadius`, etc.
 - All user-visible text must be internationalized. Use `TranslationManager.translate("section.key", "Fallback text")` for property bindings and inline expressions. Use the `Tr` component for standalone visible text (`Tr { key: "section.name"; fallback: "English text" }`). For text used in properties via `Tr`, use a hidden instance: `Tr { id: trMyLabel; key: "my.key"; fallback: "Label"; visible: false }` then `text: trMyLabel.text`. Reuse existing keys like `common.button.ok` and `common.accessibility.dismissDialog` where applicable.
@@ -203,7 +214,7 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 - `ActionButton` dims icon (50% opacity) and text (secondary color) when disabled
 - `native` is a reserved JavaScript keyword - use `nativeName` instead
 - **Never use Unicode symbols as icons in text** (e.g., `"\u270E"`, `"\u2717"`, `"\u2630"`). These render as tofu squares on devices without the right font glyphs. Use SVG icons from `qrc:/icons/` with `Image` instead. For buttons/menu items, use a `Row { Image {} Text {} }` contentItem. Safe Unicode characters (°, ·, —, →, ×) that are in standard fonts are OK.
-- **Never override FINAL properties on Qt types.** Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`).
+- **Never override FINAL properties on Qt types.** Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`, `title`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`), or use the inherited property directly if it already exists on the base type.
 
 ### QML Gotchas
 
@@ -222,6 +233,25 @@ Text {
     font.bold: true
 }
 ```
+
+**Reserved property names in JS model data**: `name` is a reserved QML property (`QObject::objectName`). When a JS array of objects is used as a Repeater model, `modelData.name` resolves to the QML object name (empty string), not the JS property. Use a different key like `label`.
+```qml
+// BAD - modelData.name resolves to empty string
+readonly property var items: [{ name: "Foo" }]
+Repeater {
+    model: items
+    delegate: Text { text: modelData.name }  // Shows nothing!
+}
+
+// GOOD - use a non-reserved key
+readonly property var items: [{ label: "Foo" }]
+Repeater {
+    model: items
+    delegate: Text { text: modelData.label }  // Works correctly
+}
+```
+
+Other reserved names to avoid in model data: `parent`, `children`, `data`, `state`, `enabled`, `visible`, `width`, `height`, `x`, `y`, `z`, `focus`, `clip`.
 
 **Keyboard handling for text inputs**: Always wrap pages with text input fields in `KeyboardAwareContainer` to shift content above the keyboard on mobile:
 ```qml
@@ -250,6 +280,7 @@ KeyboardAwareContainer {
 | List delegate | — | `Accessible.role: Accessible.Button` + `name` (summarize row content) + `focusable` + `onPressAction` |
 
 Common mistakes:
+- **Multi-action element missing `Accessible.description` hint**: Any interactive element with secondary actions (long-press, double-tap) **must** set `Accessible.description` (or `accessibleDescription` on `AccessibleTapHandler`) to announce those actions. TalkBack/VoiceOver reads this as a hint after the element name. Without it, blind users cannot discover secondary actions. Format: `"Double-tap or long-press to <action>."` For `AccessibleTapHandler` use the `accessibleDescription` property; for `ActionButton` and raw `Rectangle` use `Accessible.description` directly.
 - **Rectangle+MouseArea without accessibility**: TalkBack cannot see it. Use `AccessibleButton`, `AccessibleMouseArea`, or add all four properties (`role`, `name`, `focusable`, `onPressAction`).
 - **Accessibility on raw MouseArea instead of Rectangle**: Never put `Accessible.role`/`name`/`focusable` on a raw `MouseArea` child — put them on the parent Rectangle. MouseArea should only have an `id` so the Rectangle's `Accessible.onPressAction` can route to it. This does **not** apply to `AccessibleMouseArea`, which is a project component designed to handle accessibility on behalf of the parent via `accessibleItem`.
 - **Missing `Accessible.onPressAction`**: Every raw Rectangle+MouseArea button **must** have `Accessible.onPressAction: mouseAreaId.clicked(null)` (or `.tapped()` for TapHandler). Without it, TalkBack/VoiceOver double-tap does nothing. This applies even when the other three properties (`role`, `name`, `focusable`) are present. Not needed when using `AccessibleMouseArea` or `AccessibleButton`.
@@ -339,12 +370,47 @@ python scripts/download_emoji.py openmoji
 ### Attribution
 Twemoji by Twitter/X (CC-BY 4.0): https://github.com/twitter/twemoji
 
+## Cup Fill View
+
+The espresso extraction cup visualization (`qml/components/CupFillView.qml`) uses a hybrid image+procedural approach:
+
+### Layer Stack
+```
+1. BackGround.png (Image)     — cup back, interior, handle
+2. Coffee Canvas (masked)     — liquid fill, crema, waves, ripples
+3. Effects Canvas (unmasked)  — stream, steam wisps, completion glow
+4. Overlay.png (lighten blend) — rim, front wall highlights
+5. Weight text overlay
+```
+
+### GPU Shaders (require Qt6 ShaderTools)
+- **cup_mask.frag**: Masks coffee to cup interior using Mask.png (black = coffee visible, inverted in shader)
+- **cup_lighten.frag**: MAX blend per channel with brightness-to-alpha (black areas become transparent)
+- Compiled via `qt_add_shaders()` in CMakeLists.txt to `.qsb` format
+
+### Updating Cup Images
+1. Edit `resources/CoffeeCup/FullRes.7z` (contains source PSD)
+2. Export three layers as 701x432 RGBA PNGs:
+   - `BackGround.png` — everything behind the coffee (on transparent/black)
+   - `Mask.png` — black silhouette of cup interior, white elsewhere
+   - `Overlay.png` — everything in front of coffee (on black, for lighten blend)
+3. Rebuild (images are in `resources.qrc`)
+
+### Coffee Geometry
+The procedural coffee rendering uses proportional coordinates relative to the cup image dimensions. Key geometry is defined in `cupGeometry()`: cup center at 44% width, rim at 6% height, bottom at 92% height. Adjust these if the cup shape changes.
+
 ## Profile System
+
+See `docs/CLAUDE_MD/RECIPE_PROFILES.md` for the Recipe Editor, D-Flow/A-Flow/Pressure/Flow editor types, frame generation details, and recipe parameters.
 
 - **FrameBased mode**: Upload to machine, executes autonomously
 - **DirectControl mode**: App sends setpoints frame-by-frame
 - Formats: JSON (unified with de1app v2), TCL (de1app import)
 - Tare happens when frame 0 starts (after machine preheat)
+- **Stop limits**: Both `target_weight` and `target_volume` are checked independently during espresso — whichever target is reached first stops the shot (matching de1app). A value of 0 means that limit is disabled. There is no `stop_at_type` selector.
+- **Profile comparison**: Run `python scripts/compare_profiles.py [de1app_profiles_dir]` to compare built-in profiles against de1app TCL sources. Checks frame data, exit conditions, and classifies differences by severity.
+- **Profile sync**: Run `python scripts/sync_profiles.py [de1app_profiles_dir]` to update built-in profile JSON files to match de1app TCL sources. **Modifies `resources/profiles/` in-place** — review changes before committing.
+- **Profile import test**: Run `python scripts/test_profile_import.py [de1app_profiles_dir]` to build a C++ test app that loads all profiles through `Profile::fromJson()` and `Profile::loadFromTclString()` and verifies parsed weight/volume values match de1app.
 
 ### JSON Format (unified with de1app)
 
@@ -352,37 +418,8 @@ Decenza and de1app share the same JSON profile format. The writer (`toJson()`) o
 
 - **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
 - **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots
-- **Decenza extensions**: `is_recipe_mode`, `recipe`, `mode`, `stop_at_type`, `has_recommended_dose`, `temperature_presets`, simple profile params — de1app ignores these
+- **Decenza extensions**: `is_recipe_mode`, `recipe`, `mode`, `has_recommended_dose`, `temperature_presets`, simple profile params — de1app ignores these
 - **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
-
-### Exit Conditions
-
-There are two types of exit conditions:
-
-1. **Machine-side exits** (pressure/flow): Controlled by `exit_if` flag and `exit_type`
-   - Encoded in BLE frame flags (DoCompare, DC_GT, DC_CompF)
-   - Machine autonomously checks and advances frames
-   - Types: `pressure_over`, `pressure_under`, `flow_over`, `flow_under`
-
-2. **App-side exits** (weight): Controlled by `weight` field INDEPENDENTLY (legacy `exit_weight` also accepted when reading)
-   - App monitors scale weight and sends `SkipToNext` (0x0E) command
-   - **CRITICAL**: Weight exit is independent of `exit_if` flag!
-   - A frame can have no `exit` object (no machine exit) with `"weight": 3.6` (app exit)
-   - Both can coexist: machine checks pressure/flow, app checks weight
-
-### Weight Exit Implementation
-
-```cpp
-// CORRECT - weight is independent of exitIf
-if (frame.exitWeight > 0) {
-    if (weight >= frame.exitWeight) {
-        m_device->skipToNextFrame();
-    }
-}
-
-// WRONG - don't require exitIf for weight!
-if (frame.exitIf && frame.exitType == "weight" ...) // BUG!
-```
 
 ## Data Migration (Device-to-Device Transfer)
 
@@ -478,9 +515,14 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 ### Rules for New Components
 
 1. Every interactive element must have `Accessible.role`, `Accessible.name`, `Accessible.focusable`, `Accessible.onPressAction` **on itself** (not on a child). Exception: `AccessibleMouseArea` with `accessibleItem` carries accessibility for its parent — see anti-pattern #1 exception above.
-2. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates
-3. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
-4. Test with TalkBack: double-tap to activate, swipe to navigate
+2. Every interactive element with secondary actions (long-press, double-tap) **must** also set `Accessible.description` (or `accessibleDescription` on `AccessibleTapHandler`) describing those actions. Format: `"Double-tap or long-press to <action>."` This is how TalkBack/VoiceOver announces hints — without it, blind users cannot discover secondary workflows.
+3. Never use `Popup` for selection lists — use `Dialog` with `AccessibleButton` delegates
+4. Never overlap accessible elements — separate bounds or use conditional layout (`_accessibilityMode` pattern)
+5. Test with TalkBack: double-tap to activate, swipe to navigate
+
+### Rules for Modifying Existing Components
+
+When touching existing code, **fix pre-existing accessibility violations on the lines you modify** — do not dismiss them as "pre-existing". If you add properties to a Text element inside an `Accessible.name`-bearing parent and that Text is missing `Accessible.ignored: true`, add it. Accessibility issues compound over time and each modification is an opportunity to fix them.
 
 ### TODO: Focus Order Improvements
 

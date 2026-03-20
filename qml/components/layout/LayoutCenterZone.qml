@@ -22,8 +22,10 @@ Item {
             case "machineStatus":
             case "steamTemperature":
             case "batteryLevel":
+            case "scaleBattery":
             case "scaleWeight":
             case "weather":
+            case "ghcSimulator":
                 return true
             default:
                 return false

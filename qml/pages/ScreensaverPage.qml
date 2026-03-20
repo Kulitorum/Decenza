@@ -114,6 +114,8 @@ Page {
     }
 
     property int videoSkipCount: 0  // Guard against deep recursion when skipping broken videos
+    property int videoTransitionCount: 0  // Track transitions for memory leak monitoring
+    property string pendingVideoSource: ""  // Source queued for next video after decoder teardown
 
     function playNextMedia() {
         if (!ScreensaverManager.enabled) {
@@ -126,7 +128,8 @@ Page {
 
             if (isCurrentItemImage) {
                 // Display image with cross-fade transition
-                mediaPlayer.stop()
+                // Destroy video decoder while showing images to free memory
+                mediaPlayerLoader.active = false
                 mediaPlaying = true
                 videoSkipCount = 0
 
@@ -154,7 +157,15 @@ Page {
                 playNextMedia()
                 return
             } else {
-                // Play video - reset image state
+                // Play video — destroy and recreate MediaPlayer to fully release
+                // FFmpeg decoder resources. Without this, ~2-3 MB leaks per transition
+                // because FFmpeg/VideoToolbox doesn't fully tear down the old decoder
+                // when source changes within the same MediaPlayer instance.
+                videoTransitionCount++
+                console.log("[Screensaver] Video transition #" + videoTransitionCount +
+                            " RSS:" + MemoryMonitor.currentRssMB.toFixed(1) + " MB")
+
+                // Reset image state
                 imageDisplayTimer.stop()
                 currentImageSource = ""
                 useFirstImage = true
@@ -162,8 +173,16 @@ Page {
                 imageDisplay2.source = ""
                 mediaPlaying = true
                 videoSkipCount = 0
-                mediaPlayer.source = source
-                mediaPlayer.play()
+
+                // Destroy old decoder, then create fresh one with new source.
+                // Setting active=false destroys the MediaPlayer; onItemChanged
+                // fires when item becomes null, then re-activates the Loader.
+                pendingVideoSource = source
+                mediaPlayerLoader.active = false
+                // If no previous item existed (first play), activate directly
+                if (!mediaPlayerLoader.item) {
+                    mediaPlayerLoader.active = true
+                }
             }
         } else {
             mediaPlaying = false
@@ -176,17 +195,20 @@ Page {
     }
 
     function handleVideoFailure() {
+        // Ignore stale signals from a destroyed MediaPlayer
+        if (!mediaPlayerLoader.item) return
+
         // Prevent handling the same failure twice
-        var currentSource = mediaPlayer.source.toString()
-        if (currentSource === lastFailedSource) return
-        lastFailedSource = currentSource
+        var playerSource = mediaPlayerLoader.item.source.toString()
+        if (playerSource === lastFailedSource) return
+        lastFailedSource = playerSource
 
         videoFailCount++
-        console.warn("[Screensaver] Media failed (" + videoFailCount + "/5):", currentSource)
+        console.warn("[Screensaver] Media failed (" + videoFailCount + "/5):", playerSource)
 
         if (videoFailCount >= 5) {
             mediaPlaying = false
-            mediaPlayer.stop()
+            mediaPlayerLoader.active = false
             videoFailCount = 0  // Reset for when new media downloads
             return
         }
@@ -213,34 +235,51 @@ Page {
         }
     }
 
-    MediaPlayer {
-        id: mediaPlayer
-        videoOutput: videoOutput
+    // MediaPlayer wrapped in Loader — destroyed and recreated between videos
+    // to fully release FFmpeg decoder resources and prevent memory leaks
+    Loader {
+        id: mediaPlayerLoader
+        active: false
 
-        onMediaStatusChanged: {
-            if (mediaStatus === MediaPlayer.EndOfMedia) {
-                // Mark current video as played for LRU tracking
-                ScreensaverManager.markVideoPlayed(source.toString())
-                // Play next media (reset fail count on success)
-                videoFailCount = 0
-                lastFailedSource = ""
-                playNextMedia()
-            } else if (mediaStatus === MediaPlayer.InvalidMedia ||
-                       mediaStatus === MediaPlayer.NoMedia) {
+        // Event-driven recreation: when the old MediaPlayer is destroyed (item
+        // becomes null), re-activate the Loader to create a fresh decoder.
+        onItemChanged: {
+            if (item === null && pendingVideoSource.length > 0) {
+                mediaPlayerLoader.active = true
+            }
+        }
+
+        sourceComponent: MediaPlayer {
+            onMediaStatusChanged: {
+                if (mediaStatus === MediaPlayer.EndOfMedia) {
+                    // Mark current video as played for LRU tracking
+                    ScreensaverManager.markVideoPlayed(source.toString())
+                    // Play next media (reset fail count on success)
+                    videoFailCount = 0
+                    lastFailedSource = ""
+                    playNextMedia()
+                } else if (mediaStatus === MediaPlayer.InvalidMedia) {
+                    handleVideoFailure()
+                }
+            }
+
+            onErrorOccurred: function(error, errorString) {
+                console.warn("[Screensaver] MediaPlayer error:", error, errorString)
                 handleVideoFailure()
             }
-        }
 
-        onErrorOccurred: function(error, errorString) {
-            console.warn("[Screensaver] MediaPlayer error:", error, errorString)
-            handleVideoFailure()
-        }
-
-        onPlaybackStateChanged: {
-            if (playbackState === MediaPlayer.PlayingState) {
-                videoFailCount = 0
-                lastFailedSource = ""
+            onPlaybackStateChanged: {
+                if (playbackState === MediaPlayer.PlayingState) {
+                    videoFailCount = 0
+                    lastFailedSource = ""
+                }
             }
+        }
+
+        onLoaded: {
+            item.videoOutput = videoOutput
+            item.source = pendingVideoSource
+            item.play()
         }
     }
 
@@ -346,7 +385,7 @@ Page {
     Rectangle {
         id: fallbackBackground
         anchors.fill: parent
-        visible: isVideosMode && (!mediaPlaying || (!isCurrentItemImage && mediaPlayer.playbackState !== MediaPlayer.PlayingState))
+        visible: isVideosMode && (!mediaPlaying || (!isCurrentItemImage && (!mediaPlayerLoader.item || mediaPlayerLoader.item.playbackState !== MediaPlayer.PlayingState)))
         z: 1
 
         Rectangle {
@@ -391,7 +430,7 @@ Page {
 
         visible: isVideosMode &&
                  (showDate || ScreensaverManager.currentVideoAuthor.length > 0) &&
-                 (mediaPlayer.playbackState === MediaPlayer.PlayingState ||
+                 ((mediaPlayerLoader.item && mediaPlayerLoader.item.playbackState === MediaPlayer.PlayingState) ||
                   (isCurrentItemImage && mediaPlaying))
 
         Text {
@@ -523,8 +562,8 @@ Page {
     Keys.onPressed: wake()
 
     function wake() {
-        mediaPlayer.stop()
-        mediaPlayer.source = ""
+        pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating
+        mediaPlayerLoader.active = false
         mediaPlaying = false
 
         // Wake up the DE1, or try to reconnect if disconnected
@@ -551,8 +590,8 @@ Page {
     // Clean up media when page is being removed
     StackView.onRemoved: {
         console.log("[Screensaver] Waking: restoring brightness and cleaning up")
-        mediaPlayer.stop()
-        mediaPlayer.source = ""
+        pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating
+        mediaPlayerLoader.active = false
         mediaPlaying = false
         imageDisplayTimer.stop()
         dimTimer.stop()

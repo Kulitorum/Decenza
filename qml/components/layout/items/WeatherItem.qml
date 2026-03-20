@@ -135,7 +135,7 @@ Item {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: formatHour(modelData.hour || "")
-                        color: index === 0 ? Theme.primaryColor : Theme.textSecondaryColor
+                        color: index === 0 ? Theme.textColor : Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
                     Image {
@@ -285,7 +285,7 @@ Item {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: formatHour(modelData.hour || "")
-                            color: index === 0 ? Theme.primaryColor : Theme.textSecondaryColor
+                            color: index === 0 ? Theme.textColor : Theme.textSecondaryColor
                             font: Theme.captionFont
                         }
 
@@ -313,7 +313,7 @@ Item {
                             text: (modelData.precipitationProbability || 0) > 0
                                   ? (modelData.precipitationProbability + "%")
                                   : ""
-                            color: Theme.primaryColor
+                            color: Theme.textColor
                             font.family: Theme.captionFont.family
                             font.pixelSize: Theme.scaled(10)
                             visible: (modelData.precipitationProbability || 0) > 0

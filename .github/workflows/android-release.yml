@@ -10,13 +10,14 @@ on:
         default: 'false'
         type: boolean
 
-  # Or trigger on version tags
+  # Trigger on version tags (pre-release and release)
   push:
     tags:
       - 'v*'
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -55,6 +56,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Install minimal host dependencies
+        run: sudo apt-get install -y --no-install-recommends libegl1 libgl1
+
       - name: Install Qt for Android
         uses: jurplel/install-qt-action@v4
         with:
@@ -62,6 +66,7 @@ jobs:
           target: 'android'
           arch: 'android_arm64_v8a'
           modules: 'qtquick3d qtshadertools qtcharts qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets'
+          install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
           cache: true
           cache-key-prefix: 'qt-android-v1'
 
@@ -94,7 +99,7 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/$QT_NDK_VERSION" >> $GITHUB_ENV
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1
+        uses: hendrikmuhs/ccache-action@v1.2.21
         with:
           key: android-arm64
           max-size: 500M
@@ -303,8 +308,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
+          # Preserve .ccache before stash (stash --include-untracked would wipe it)
+          [ -d .ccache ] && mv .ccache /tmp/.ccache-preserve
           git stash --include-untracked
           git checkout origin/main
+          [ -d /tmp/.ccache-preserve ] && mv /tmp/.ccache-preserve .ccache
           echo "$BUILD_CODE" > versioncode.txt
           git add versioncode.txt
           # Only commit if there are changes
@@ -333,3 +341,17 @@ jobs:
         if: always()
         run: |
           rm -f $RUNNER_TEMP/keystore.jks || true
+
+      - name: Warm main branch cache for next release
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          IS_PRERELEASE=$(gh release view "$TAG" --json isPrerelease --jq '.isPrerelease')
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "Skipping cache warm for pre-release $TAG"
+          else
+            gh workflow run "$GITHUB_WORKFLOW" --ref main || echo "Cache warm dispatch failed (non-fatal)"
+          fi

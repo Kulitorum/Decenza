@@ -12,7 +12,7 @@ class Profile;
  * Supports four editor types:
  *
  * D-Flow (Damian Brakel):
- *   Filling -> [Bloom] -> [Infusing] -> Pouring -> [Decline]
+ *   Filling -> [Infusing] -> Pouring
  *   Pressure preinfusion, flow-driven extraction with pressure limiter.
  *   Always 3 core frames matching de1app's update_D-Flow.
  *
@@ -38,10 +38,8 @@ public:
 private:
     // D-Flow frame generators
     static ProfileFrame createFillFrame(const RecipeParams& recipe);
-    static ProfileFrame createBloomFrame(const RecipeParams& recipe);
     static ProfileFrame createInfuseFrame(const RecipeParams& recipe);
     static ProfileFrame createPourFrame(const RecipeParams& recipe);
-    static ProfileFrame createDeclineFrame(const RecipeParams& recipe);
 
     // A-Flow frame generation
     static QList<ProfileFrame> generateAFlowFrames(const RecipeParams& recipe);

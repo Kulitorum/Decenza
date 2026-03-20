@@ -34,10 +34,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 0.5
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -49,11 +45,7 @@
             "pressure": 0.5,
             "flow": 8.0,
             "seconds": 127.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "rise to 0.5 bar and hold",
@@ -64,11 +56,7 @@
             "pressure": 0.5,
             "flow": 8.0,
             "seconds": 127.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "rise to 0.5 bar and hold",
@@ -79,11 +67,7 @@
             "pressure": 0.5,
             "flow": 8.0,
             "seconds": 127.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "rise to 0.5 bar and hold",
@@ -94,11 +78,7 @@
             "pressure": 0.5,
             "flow": 8.0,
             "seconds": 127.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "rise to 0.5 bar and hold",
@@ -109,11 +89,7 @@
             "pressure": 0.5,
             "flow": 8.0,
             "seconds": 127.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "rise to 0.5 bar and hold",
@@ -124,11 +100,7 @@
             "pressure": 0.5,
             "flow": 8.0,
             "seconds": 127.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "rise to 0.5 bar and hold",
@@ -139,11 +111,25 @@
             "pressure": 0.5,
             "flow": 8.0,
             "seconds": 127.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         }
-    ]
+    ],
+    "espresso_temperature": 0.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6,
+    "espresso_pressure": 10.0,
+    "espresso_decline_time": 60.0,
+    "espresso_hold_time": 60.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 10.0,
+    "preinfusion_flow_rate": 8.0,
+    "pressure_end": 10.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0
 }

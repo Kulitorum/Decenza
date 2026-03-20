@@ -13,17 +13,11 @@
     "target_weight": 36.0,
     "target_volume": 100.0,
     "recipe": {
-        "bloomEnabled": false,
-        "bloomTime": 10,
-        "declineEnabled": false,
-        "declineTime": 30,
-        "declineTo": 6,
         "dose": 18,
         "fillFlow": 8,
         "fillPressure": 3,
         "fillTemperature": 93,
         "fillTimeout": 15,
-        "infuseByWeight": false,
         "infuseEnabled": true,
         "infusePressure": 3,
         "infuseTime": 60,
@@ -99,10 +93,6 @@
                 "condition": "over",
                 "value": 2.0
             },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            },
             "popup": "$weight"
         },
         {
@@ -120,10 +110,6 @@
                 "condition": "under",
                 "value": 2.1
             },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            },
             "popup": "$weight"
         },
         {
@@ -140,10 +126,6 @@
                 "type": "flow",
                 "condition": "over",
                 "value": 1.9
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             },
             "popup": "Flow Start"
         },
@@ -163,5 +145,23 @@
             },
             "popup": "$weight"
         }
-    ]
+    ],
+    "espresso_temperature": 92.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6,
+    "espresso_pressure": 6.0,
+    "espresso_decline_time": 30.0,
+    "espresso_hold_time": 15.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 4.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0
 }

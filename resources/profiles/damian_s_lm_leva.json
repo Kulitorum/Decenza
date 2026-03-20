@@ -11,20 +11,14 @@
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
     "target_weight": 42.0,
-    "target_volume": 36,
+    "target_volume": 0,
     "recipe": {
-        "bloomEnabled": false,
-        "bloomTime": 10,
-        "declineEnabled": true,
-        "declineTime": 58,
-        "declineTo": 2.2,
         "dose": 18,
         "fillFlow": 11,
         "fillPressure": 1.8,
         "fillTemperature": 89,
         "fillTimeout": 2,
         "flowLimit": 0,
-        "infuseByWeight": false,
         "infuseEnabled": true,
         "infusePressure": 2.2,
         "infuseTime": 10,
@@ -35,7 +29,6 @@
         "pourStyle": "pressure",
         "pourTemperature": 88,
         "pressureLimit": 6,
-        "rampEnabled": true,
         "rampTime": 5,
         "targetWeight": 42
     },
@@ -57,11 +50,7 @@
             "pressure": 1.8,
             "flow": 11.0,
             "seconds": 2.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "fill",
@@ -77,10 +66,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 1.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -97,10 +82,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 4.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -117,10 +98,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 8.0
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -137,10 +114,6 @@
                 "type": "flow",
                 "condition": "over",
                 "value": 1.5
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -152,11 +125,25 @@
             "pressure": 2.2,
             "flow": 0.0,
             "seconds": 58.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         }
-    ]
+    ],
+    "espresso_temperature": 89.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6,
+    "espresso_pressure": 8.6,
+    "espresso_decline_time": 35.0,
+    "espresso_hold_time": 4.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0
 }

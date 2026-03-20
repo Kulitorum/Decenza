@@ -81,7 +81,7 @@ Item {
                 Text {
                     anchors.baseline: parent.children[0].baseline
                     text: "/ " + root.effectiveTargetTemp.toFixed(1) + "\u00B0C"
-                    color: root.isRealOverride ? Theme.primaryColor : Theme.textSecondaryColor
+                    color: root.isRealOverride ? Theme.accentColor : Theme.textSecondaryColor
                     font.family: Theme.valueFont.family
                     font.pixelSize: Theme.valueFont.pixelSize / 2
                     Accessible.ignored: true
@@ -101,7 +101,7 @@ Item {
                 Text {
                     visible: root.isRealOverride
                     text: "(override)"
-                    color: Theme.primaryColor
+                    color: Theme.accentColor
                     font: Theme.labelFont
                     Accessible.ignored: true
                 }

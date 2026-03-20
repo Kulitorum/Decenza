@@ -117,6 +117,7 @@ Item {
                     spacing: Theme.scaled(8)
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(1)
 
                         Tr {
@@ -127,10 +128,12 @@ Item {
                         }
 
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.update.checkeveryhour"
                             fallback: "Check every hour"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.WordWrap
                         }
                     }
 
@@ -149,6 +152,7 @@ Item {
                     spacing: Theme.scaled(8)
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(1)
 
                         Tr {
@@ -159,10 +163,12 @@ Item {
                         }
 
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.update.betadesc"
                             fallback: "Get early access to new features"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.WordWrap
                         }
                     }
 

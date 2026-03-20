@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
@@ -21,6 +22,26 @@ Item {
     readonly property bool hideBackground: modelData.hideBackground === true
     readonly property bool hasEmoji: emoji !== ""
     readonly property bool emojiIsSvg: hasEmoji && emoji.indexOf("qrc:") === 0
+
+    // Accessibility hint describing configured secondary actions (for TalkBack/VoiceOver)
+    // Action labels are intentionally generic because action strings (e.g. "navigate:settings") have no associated human-readable label.
+    readonly property string _accessibleHint: {
+        var _ = TranslationManager.translationVersion  // re-evaluate on language change
+        var hasLP = root.longPressAction !== ""
+        var hasDC = root.doubleclickAction !== ""
+        if (hasLP && hasDC)
+            return TranslationManager.translate("customitem.accessible.hint.both", "Long-press or double-tap for additional actions.")
+        if (hasLP)
+            return TranslationManager.translate("customitem.accessible.hint.longpress", "Long-press for additional action.")
+        if (hasDC)
+            return TranslationManager.translate("customitem.accessible.hint.doubletap", "Double-tap for additional action.")
+        return ""
+    }
+
+    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
+    readonly property color _effectiveBackground: _parsedBgColor
+    // Content color for text and icon tinting on the button background
+    readonly property color _contentColor: Theme.primaryContrastColor
 
     readonly property int qtAlignment: {
         switch (textAlign) {
@@ -198,7 +219,9 @@ Item {
         var now = new Date()
         result = result.replace(/%TIME%/g, Qt.formatTime(now, Settings.use12HourTime ? "h:mmap" : "hh:mm"))
         result = result.replace(/%DATE%/g, Qt.formatDate(now, "yyyy-MM-dd"))
-        return result
+        // Convert any emoji Unicode in the result to <img> tags to avoid
+        // CoreText/ImageIO crash from Apple Color Emoji PNG decoding on render thread
+        return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize)
     }
 
     function executeActionString(actionStr) {
@@ -308,6 +331,14 @@ Item {
                     if (typeof BatteryManager !== "undefined")
                         BatteryManager.chargingMode = (BatteryManager.chargingMode + 1) % 3
                     break
+                case "tempToggleSteam":
+                    if (typeof Settings !== "undefined" && typeof MainController !== "undefined") {
+                        if (Settings.steamDisabled)
+                            MainController.startSteamHeating()
+                        else
+                            MainController.turnOffSteamHeater()
+                    }
+                    break
                 case "uploadVisualizer":
                     var lastId = MainController.lastSavedShotId
                     if (lastId > 0) {
@@ -395,7 +426,8 @@ Item {
         AccessibleTapHandler {
             id: compactTap
             anchors.fill: parent
-            accessibleName: root.resolvedText
+            accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
             onAccessibleClicked: root.executeActionString(root.action)
@@ -415,10 +447,7 @@ Item {
         Rectangle {
             visible: !root.hideBackground && (root.hasAction || root.hasEmoji)
             anchors.fill: parent
-            color: {
-                var base = root.bgColor || (root.hasAction ? "#555555" : Theme.surfaceColor)
-                return fullTap.isPressed ? Qt.darker(base, 1.2) : base
-            }
+            color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
         }
@@ -437,13 +466,20 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
                 Accessible.ignored: true
+                // Tint SVG icons to match text color in both modes
+                layer.enabled: root.emojiIsSvg
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: root._contentColor
+                }
             }
 
             Text {
                 id: emojiText
                 text: root.resolvedText
                 textFormat: Text.RichText
-                color: Theme.textColor
+                color: root._contentColor
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -469,7 +505,8 @@ Item {
         AccessibleTapHandler {
             id: fullTap
             anchors.fill: parent
-            accessibleName: root.resolvedText
+            accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
             onAccessibleClicked: root.executeActionString(root.action)

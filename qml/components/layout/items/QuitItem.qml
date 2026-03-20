@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 import "../.."
@@ -37,6 +38,12 @@ Item {
                 sourceSize.height: Theme.scaled(28)
                 Layout.alignment: Qt.AlignVCenter
                 Accessible.ignored: true
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.textColor
+                }
             }
             Tr {
                 key: "idle.button.quit"

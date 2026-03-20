@@ -10,6 +10,11 @@ MouseArea {
     // REQUIRED: The text to announce when tapped in accessibility mode
     required property string accessibleName
 
+    // Optional hint text describing secondary actions (double-tap, long-press)
+    // TalkBack/VoiceOver reads this after the name. Format: "Double-tap or long-press to <action>."
+    // e.g. "Tap to toggle presets. Double-tap or long-press to select profile."
+    property string accessibleDescription: ""
+
     // The item to track for "tap again to activate" (defaults to parent)
     property var accessibleItem: parent
 
@@ -43,6 +48,7 @@ MouseArea {
     // Accessibility: Make this a proper button for screen readers
     Accessible.role: Accessible.Button
     Accessible.name: root.accessibleName
+    Accessible.description: root.accessibleDescription
     Accessible.focusable: true
 
     // Handle TalkBack/VoiceOver activation via accessibility press action

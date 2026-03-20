@@ -70,6 +70,194 @@ This prevents the AI from flagging intentional profile behaviors as problems (e.
 
 ---
 
+## Lessons Learned: Profile Knowledge Doesn't Scale (March 2026)
+
+### The Problem
+
+A user's D-Flow / Q conversation exposed three failures where the AI gave bad advice despite having relevant information:
+
+1. **Wrong pressure range in knowledge base**: We hand-wrote "Pressure peaks ~8-9 bar" in profile_knowledge.md. The profile author (Damian) specifies "between 6 and 9 bar" in the de1app. The AI flagged a 7.7 bar peak as too low and recommended grinding finer — wrong advice.
+
+2. **Temperature misdiagnosis**: D-Flow deliberately uses a low fill temperature (84°C) stepping to 94°C. The actual basket temperature reaches ~88°C by design — the 94°C setpoint just drives the heater to push hot water that mixes with the cooler pool. The AI saw a 6-8°C gap between target and actual and diagnosed "heat soak the machine longer" — completely wrong.
+
+3. **Misleading observation from the summarizer**: The app's own `temperatureUnstable` flag fired on every D-Flow shot (average deviation from target > 2°C is guaranteed by the profile's temperature stepping design). This actively pointed the AI at the wrong problem.
+
+The AI had to be corrected **twice** by the user before giving useful advice. The profile knowledge base entry, which was supposed to prevent exactly this, had the wrong numbers.
+
+### Why Hand-Curated Knowledge Doesn't Scale
+
+Fixing D-Flow required:
+- Finding the profile description in the de1app editor code (it was hardcoded in UI, not in the `profile_notes` field)
+- Finding Damian's forum posts explaining the temperature stepping design
+- Checking Damian's website (coffee.brakel.com.au) for the correct pressure range
+- Understanding how the DE1's heater/mixing behavior creates the temperature gap
+
+This level of research per profile is not sustainable for 18+ profiles, especially for profiles by community authors who may not have published detailed explanations.
+
+### What We Fixed
+
+1. **Profile notes populated**: Added Damian's descriptions to `d_flow_q.json` and `d_flow_la_pavoni.json` — these flow into the AI prompt as "Profile intent" lines automatically.
+2. **Corrected pressure range**: `profile_knowledge.md` now says "between 6 and 9 bar" matching the author.
+3. **Added temperature explanation**: Knowledge base now explains the intentional temperature stepping and why the gap is by design.
+4. **Grind-dependent curve shape**: Added that finer grinds produce flat pressure (boiler-like) while coarser grinds produce declining pressure (lever-like) — both valid.
+5. **Softened temperature observation**: Changed from "Temperature unstable" (which sounds like a problem) to "Temperature deviation" with guidance to check profile notes before flagging.
+
+### The Path Forward: Three Scalable Improvements
+
+Rather than trying to deeply research every profile, we should make the AI better at interpreting what it already has.
+
+#### 1. Profile Notes as Primary Authority (cost: 0 tokens)
+
+The profile author's own description is the most reliable source of truth. The `notes` field in the profile JSON already flows into the prompt as "**Profile intent**". We need to:
+
+- **Audit all shipped profiles** for empty or sparse notes. The de1app has notes for most profiles — verify they've been copied over (done March 2026: only D-Flow/Q and La Pavoni were missing, now fixed).
+- **Check de1app editor code** for profiles whose descriptions are hardcoded in the UI rather than in `profile_notes` (D-Flow was the only case found).
+- **Instruct the AI to trust profile notes over knowledge base** when they conflict. The filter system prompt already does this ("Always read and respect" the profile intent), but the espresso prompt is weaker — it says "Profile Intent is the Reference Frame" but doesn't explicitly prioritize notes over knowledge base entries.
+
+#### 2. Recipe-Aware System Prompt (cost: ~200-300 tokens, cacheable)
+
+The profile recipe is already in every prompt. A shot using D-Flow / Q includes:
+
+```
+1. Filling (25s) PRESSURE 6.0bar 84°C exit:p>3.0
+2. Infusing (1s) PRESSURE 6.0bar 94°C
+3. Pouring (127s) FLOW 1.8ml/s 94°C lim:10.0bar
+```
+
+An AI that understands DE1 physics can derive expected behavior from this recipe alone:
+- Frame 1 at 84°C, Frame 2 at 94°C → intentional temperature stepping, expect actual temp to lag
+- Frame 3 is FLOW-controlled → pressure is passive, will decline as puck erodes
+- Frame 3 has 10 bar limiter → pressure "target" of 10 bar is a ceiling, not a goal
+
+But the AI repeatedly failed to make these inferences. We should add explicit recipe-interpretation rules to the system prompt:
+
+```
+## Reading the Recipe for Expected Behavior
+
+The profile recipe tells you what SHOULD happen. Use it to set expectations
+before looking at actual data:
+
+**Temperature stepping**: If frames use different temperatures (e.g., 84°C fill
+→ 94°C pour), the actual temperature will ALWAYS lag behind the target. This is
+physics — the heater pumps hot water that mixes with the cooler pool above the
+puck. A 5-8°C gap between target and actual during temperature transitions is
+normal and expected. Only flag temperature issues if actual temp deviates from
+target during a STABLE phase (same temperature across consecutive frames).
+
+**Flow-controlled pour with pressure limiter**: When a pour frame controls FLOW
+(e.g., 1.8 ml/s) with a high pressure limiter (e.g., 10 bar), pressure will
+peak based on puck resistance and then decline as the puck erodes. The limiter
+is a safety ceiling. Pressure anywhere from 4 to the limiter value is normal.
+The peak depends on grind — do not assume a specific peak value unless the
+profile notes or knowledge base states one.
+
+**Pressure-controlled fill/infuse → Flow-controlled pour**: This is the
+lever/flow hybrid pattern (D-Flow, Londinium family). Pressure builds during
+fill/infuse, then the switch to flow control means pressure becomes passive.
+A declining pressure curve after the switch is the expected signature, not a
+problem.
+
+**Exit conditions**: Frames with exit conditions like "exit:p>3.0" advance to
+the next frame when the condition is met. Short phase durations (1-2s) after
+exit conditions are normal — the machine transitions quickly.
+```
+
+This is profile-independent guidance that improves advice quality across ALL profiles, including custom ones with no knowledge base entry. It's fully cacheable and costs ~250 tokens.
+
+Community sources confirm these interpretation principles:
+- Scott Rao (scottrao.com): Pressure curve volatility indicates channeling from clumped grounds and poor puck prep, not profile issues. The slope of pressure dropoff is characteristic of the grinder/burrs.
+- Decent "5 profiles for medium" blog: D-Flow adapts behavior by grind — mimics 8.5 bar for fine grinds, Londinium for optimal, Gentle & Sweet for coarse.
+- Decent "4 mothers" theory: Each mother category (lever, blooming, allongé, flat-9-bar) has fundamentally different expected curves. Roast level is the most important factor in choosing a recipe.
+- home-barista.com community: DE1 set-point temperatures are generally lower than conventional machines, with 80s°C being common. Preference for shots where flow stabilizes immediately after preinfusion.
+
+#### 3. Smarter Observations from the Summarizer (cost: 0 tokens — less noise)
+
+The summarizer currently generates dumb flags based on simple thresholds. These should be recipe-aware:
+
+**Temperature deviation** (partially fixed March 2026):
+- Current: Flags when average deviation from target > 2°C.
+- Problem: Always fires for profiles with temperature stepping (D-Flow, 80s Espresso, any profile with different fill/pour temps).
+- Better: Check if the profile recipe has different temperatures across frames. If so, only check deviation during frames with stable temperature (same temp as previous frame). Or suppress the flag entirely and let the AI interpret using the recipe.
+
+**Channeling detection**:
+- Current: Flags sudden flow spikes during flow-controlled phases.
+- Better: Also note the pressure curve slope — Scott Rao's observation that pressure curve volatility during extraction correlates with channeling and puck prep quality is a useful diagnostic. The slope of pressure decline is characteristic of the grinder/burrs, so erratic slopes (not smooth decline) are more indicative of channeling than a specific peak value.
+
+**Pressure behavior** (not currently flagged, but could help):
+- If the profile is flow-controlled and pressure peaks well below typical levels (< 4 bar), note this as potentially too coarse — but only as an observation, not a diagnosis.
+
+### Refocusing the Knowledge Base
+
+With recipe-aware interpretation handling expected curves and temperature behavior, the profile knowledge base (`profile_knowledge.md`) should shift focus to things that **cannot be derived from the recipe**:
+
+| Keep in KB (not derivable) | Remove from KB (derivable from recipe) |
+|---|---|
+| Roast suitability per profile | Expected pressure curve shape |
+| Flavor character and what profiles emphasize | Temperature behavior during stepping |
+| Community dial-in tips (e.g., "stop at pressure elbow") | Which variable is controlled vs passive |
+| Grind sensitivity and range | What the limiter means |
+| Profile author's design philosophy | Phase transition behavior |
+| Cross-profile comparisons ("more body than X, less clarity than Y") | |
+| Known pitfalls ("if pressure hits max, grind is too fine") | |
+
+This makes the KB smaller, more accurate (less room for wrong numbers like "~8-9 bar"), and focused on genuinely curated wisdom that adds value beyond what the recipe encodes.
+
+### What Information We Still Need
+
+The D-Flow fix was possible because Damian published detailed explanations. Most profile authors haven't. Here's what's missing:
+
+#### Profile-specific gaps in the knowledge base
+
+| Profile | Quality | What's missing |
+|---------|---------|----------------|
+| **D-Flow** | Strong | Fixed March 2026. Author-sourced. |
+| **A-Flow** | Medium | No author (Janek) design philosophy. Does A-Flow use temperature stepping? Are the 9-10 bar pressure numbers from Janek or our guess? No expected pressure range from author. |
+| **Adaptive v2** | Good | Has Gagné's Coffee ad Astra post. |
+| **Blooming Espresso** | Good | Has Rao's guidance. |
+| **Blooming Allongé** | Medium | Who designed it? No dial-in tips beyond grind and pressure. |
+| **Allongé / Rao Allongé** | Good | — |
+| **Default** | Thin | Only 6 lines. No DO NOT flag instructions. When to use vs Best Overall or other lever profiles? |
+| **Londinium/LRv3** | Good | — |
+| **Turbo Shot** | Medium | Who designed it? No author-sourced dial-in guidance. |
+| **Filter 2.0/2.1** | Good | — |
+| **Sprover** | Medium | Sparse on dial-in tips. |
+| **Gentle & Sweet** | Good | — |
+| **Extractamundo Dos** | Medium | No author attribution. Why is it a community favorite? |
+| **Flow Profile** | Thin | Only 6 lines. No author, no dial-in tips. |
+| **Cremina** | Good | — |
+| **80s Espresso** | Good | — |
+| **Best Overall** | Medium | Sparse on dial-in tips. |
+| **E61** | Good | — |
+
+#### Systematic gaps (not profile-specific)
+
+1. **No AI advice validation method.** We found the D-Flow problem because a user exported a bad conversation. We have no systematic way to test whether advice improved. Need: a set of test conversations (real or synthetic) that can be replayed against updated prompts.
+
+2. **No user feedback loop for bad advice.** The enjoyment score rates the shot, not the advice. If the AI gives wrong recommendations, we only learn about it anecdotally. Could add: a simple "was this advice helpful?" signal after each AI response.
+
+3. **Dial-in reference tables are collected but unused.** [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md) has structured multi-variable relationships (roast→temp→flavor, flow→clarity/body, pressure sweet spot, flavor correction). This is high-impact data that should be in the system prompt — it's Phase 1 item 5 but arguably should be Phase 0 given it directly improves advice quality.
+
+4. **Espresso system prompt doesn't prioritize profile notes.** The filter prompt says "Always read and respect" the profile intent, but the espresso prompt only says "Profile Intent is the Reference Frame" — it doesn't explicitly tell the AI to trust profile notes over the knowledge base when they conflict. One sentence fix.
+
+5. **Profile notes quality varies.** All shipped profiles have notes populated, but quality ranges from detailed (`blooming_espresso.json` — full paragraph explaining the technique) to minimal (`damian_s_q.json` — "A very popular profile made with D-Flow, spun out as its own profile"). The minimal ones don't help the AI much.
+
+6. **Temperature stepping profiles beyond D-Flow.** We deeply researched D-Flow's temperature behavior. Other profiles also use temperature stepping (80s Espresso: 80→70°C, Filter 2.0: 90→85°C, many custom user profiles). The recipe-aware system prompt rules (proposed above) would cover all of these generically, but they're not implemented yet.
+
+7. **A-Flow author knowledge.** A-Flow is the second most popular profile editor (after D-Flow) and the only other custom editor. Janek's design intent, expected ranges, and guidance are not well-documented in our KB. Source: check if Janek has published anything similar to Damian's coffee.brakel.com.au site.
+
+### Priority (revised)
+
+These improvements should be implemented before the other ideas in this doc (profile catalog, bean enrichment, cross-profile recommendations) because they improve advice quality for every shot at near-zero cost:
+
+1. **Recipe-aware system prompt** — highest impact, addresses the root cause of the D-Flow failures. ~250 cacheable tokens. Should be implemented next.
+2. **Espresso prompt: trust profile notes** — one sentence addition to espresso system prompt, matching what the filter prompt already does. 0 cost.
+3. **Dial-in reference tables in system prompt** — move from Phase 1 to Phase 0. Data is already collected in ESPRESSO_DIAL_IN_REFERENCE.md. ~800-1000 cacheable tokens.
+4. **Smarter summarizer observations** — reduces noise that actively misleads the AI. Code change only, no token cost.
+5. **KB refocus** — lower priority, do incrementally. Start with A-Flow (seek author guidance) and thin entries (Default, Flow Profile).
+6. **Test conversations** — collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
+
+---
+
 ## Ideas for Improvement
 
 ### 1. Profile Catalog in System Prompt
@@ -380,6 +568,7 @@ Summary of the layered context approach:
 | Layer | Content | Size | Changes | Caching | Status |
 |-------|---------|------|---------|---------|--------|
 | Static knowledge | System prompt + curated profile knowledge base | ~2-2.5K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) | **Done** |
+| Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | Proposed (see Lessons Learned) |
 | Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~0.8-1K tokens | Per app release | System prompt caching | Data collected ([`ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md)), not yet in prompt |
 | Profile catalog | Compact one-liner per profile for cross-profile awareness | ~2-3K tokens | Per app release | System prompt caching | Not implemented |
 | Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt | Not implemented |
@@ -392,6 +581,15 @@ Total context today: ~5-7K tokens. With all layers: ~12-16K tokens, with ~50-70%
 ---
 
 ## Implementation Priority
+
+### Phase 0: Fix interpretation quality (highest ROI, near-zero cost)
+1. **Recipe-aware system prompt** — Add ~250 tokens of recipe-interpretation rules teaching the AI to derive expected behavior from the profile recipe (temperature stepping, flow-controlled pressure decline, limiter meaning, phase transitions). Addresses the root cause of the D-Flow failures. Improves advice for ALL profiles including custom ones with no knowledge base entry. Fully cacheable. See "Lessons Learned" section above.
+2. **Espresso prompt: trust profile notes** — Add one sentence to espresso system prompt telling the AI to prioritize profile notes ("Profile intent") over knowledge base when they conflict, matching the filter prompt's existing "Always read and respect" language.
+3. **Dial-in reference tables in system prompt** — Data already collected in [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md). Add ~800-1000 cacheable tokens covering roast→temp→flavor, flow→clarity/body, pressure sweet spot, preinfusion tuning, flavor correction guide. Moved up from Phase 1 — directly improves advice quality.
+4. **Smarter summarizer observations** — Make `temperatureUnstable` flag recipe-aware: suppress or contextualize for profiles with temperature stepping across frames. Add pressure-slope analysis for channeling diagnosis. Code-only change, 0 token cost.
+5. ~~**Profile notes audit**~~ — **Done** (March 2026). D-Flow/Q and La Pavoni were the only empty ones; now fixed. All other profiles confirmed populated.
+6. **Refocus knowledge base** — Shift KB entries away from derivable curve behavior toward non-derivable wisdom: roast suitability, flavor character, community tips, cross-profile comparisons. Start with thin entries (Default, Flow Profile) and seek A-Flow author guidance.
+7. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.
 
 ### Phase 1: Quick wins (no external dependencies)
 1. **System prompt bean guidance** (idea #4 fallback B) — Add two sentences to system prompt telling the AI to share what it knows about recognized roasters/beans. Zero cost, immediate value.
@@ -425,3 +623,30 @@ Total context today: ~5-7K tokens. With all layers: ~12-16K tokens, with ~50-70%
 - **AI Profile Knowledge Resource**: [`resources/ai/profile_knowledge.md`](../resources/ai/profile_knowledge.md) — AI-optimized extract loaded as Qt resource. Injected into system prompt per-profile via `ShotSummarizer::shotAnalysisSystemPrompt()`.
 - **Grinder Database**: [`docs/GRINDER_DATABASE.md`](GRINDER_DATABASE.md) — ~150 grinders across premium, mid-range, budget, commercial, and hand grinder categories with burr specs, plus aftermarket burr sets and grind-setting guidance
 - **Espresso Dial-In Reference Tables**: [`docs/ESPRESSO_DIAL_IN_REFERENCE.md`](ESPRESSO_DIAL_IN_REFERENCE.md) — Structured multi-variable reference from Åbn Coffee mapping roast level, temperature, grind size, infusion, peak pressure, flow rate, and ratio to their effects on taste, texture, and extraction. Includes flavor targeting tables ("how to get more acidity/sweetness/body/clarity"), flavor correction tables ("how to fix sourness/bitterness/thin taste"), TDS vs EY% taste relationships, Gagné's ratio-flow formula, flow rate recommendations by roast level, and preinfusion tuning guidance. Source: Åbn Coffee "Espresso tabel oversigt" (work in progress community reference).
+## Related Internal Documentation
+
+These docs in this repo contain information relevant to the AI advisor. Reference them when working on AI features:
+
+### Machine & Profile Mechanics (inform what the AI should understand)
+- [`docs/AUTO_FLOW_CALIBRATION.md`](AUTO_FLOW_CALIBRATION.md) — Flow sensor calibration algorithm using scale data as ground truth. Explains why flow readings can be ~20% off (D-Flow/Q conversation revealed this), the auto-correction mechanism, density correction (water at 93°C = 0.963 g/ml), and safety bounds [0.5, 1.8]. Relevant to AI advice about flow discrepancies between target and actual.
+- [`docs/SIMPLE_PROFILE_EDITOR.md`](SIMPLE_PROFILE_EDITOR.md) — Three-step simple profile model (Preinfuse/Rise&Hold/Decline) vs frame-based advanced profiles. Explains `settings_2a` (pressure) and `settings_2b` (flow) profile types, time-based vs weight-based termination, and how simple profiles are converted to frames. Relevant for understanding profile structure differences.
+- [`docs/profile-porting-guide.md`](profile-porting-guide.md) — Tcl-to-JSON profile conversion reference. Frame structure, exit conditions (`exit_if`, `exit_type`, `exit_pressure_over/under`, `exit_flow_over/under`), pump modes, sensor types. Essential reference for understanding how profile recipes map to machine behavior.
+- [`docs/CLAUDE_MD/BLE_PROTOCOL.md`](CLAUDE_MD/BLE_PROTOCOL.md) — Shot sample rate (~5Hz), profile upload format, BLE command queue, retry mechanism. Explains data resolution limits (200ms between samples) that affect phase transition detection and curve smoothness.
+- **Video transcripts**: [`docs/light_roast_profiles_transcript.txt`](light_roast_profiles_transcript.txt), [`docs/medium_roast_profiles_transcript.txt`](medium_roast_profiles_transcript.txt), [`docs/dark_roast_profiles_transcript.txt`](dark_roast_profiles_transcript.txt) — Full transcripts of three Decent video tutorials covering profile selection and dial-in by roast level. Primary source for profile-specific knowledge in PROFILE_KNOWLEDGE_BASE.md. Consult these when adding or updating profile knowledge entries.
+
+### Data & Integration (inform what data the AI receives)
+- [`docs/CLAUDE_MD/VISUALIZER.md`](CLAUDE_MD/VISUALIZER.md) — DYE metadata fields (`bean_brand`, `bean_type`, `roast_level`, `grinder_model`, `grinder_setting`, `drink_tds`, `drink_ey`, `espresso_enjoyment`), shot upload JSON structure, and Visualizer API integration. Defines the metadata fields available for AI analysis and the format of shot data uploads.
+
+### Not AI-relevant (do not reference for AI work)
+The following docs are about app infrastructure and are not relevant to AI advice quality: `ACCESSIBILITY.md`, `ANDROID_MEMORY_GC_PRESSURE.md`, `CPP_COMPLIANCE_AUDIT.md`, `DE1_BLE_PROTOCOL.md` (low-level UUIDs — use `CLAUDE_MD/BLE_PROTOCOL.md` instead), `headless-mode-investigation.md`, `HOME_AUTOMATION.md`, `IOS_CI_*.md`, `ISSUE_TRIAGE.md`, `layout.md`, `layout-server.md`, `MMR_WRITES_COMPARISON.md`, `simulation.md`, `text-widget.md`, `UI_COMPLIANCE_*.md`, `CLAUDE_MD/DATA_MIGRATION.md`, `CLAUDE_MD/PLATFORM_BUILD.md`, `accessibility/phase*.md`, `plans/`.
+
+## External Sources (for future knowledge base updates)
+
+These sources contain profile-specific advice that could inform future knowledge base or system prompt updates:
+
+- **Damian Brakel's D-Flow site**: https://coffee.brakel.com.au/d-flow/ — D-Flow editor documentation, pour phase mechanics (flow goal + pressure limit interaction), grind-dependent behavior explanation
+- **Scott Rao on DE1 pressure profiling**: https://www.scottrao.com/blog/2018/6/3/introduction-to-the-decent-espresso-machine — Pressure curve volatility = channeling (clumped grounds + poor puck prep). Better burrs = smoother curves. Prefers shots where flow stabilizes immediately after preinfusion.
+- **Decent blog "5 profiles for medium"**: https://decentespresso.com/blog/5_profiles_for_medium_roasted_beans — Comparison of Default, Flow, Londinium, Adaptive, D-Flow for medium roasts. D-Flow adapts by grind (8.5 bar boiler-like for fine, Londinium-like for optimal, G&S-like for coarse).
+- **Decent "4 mothers" theory**: https://decentespresso.com/docs/the_4_mothers_a_unified_theory_of_espresso_making_recipes — Unified framework: lever, blooming, allongé, flat-9-bar. Roast level is the most important factor in recipe choice.
+- **Coffee ad Astra (Gagné) Adaptive profile**: https://coffeeadastra.com/2020/12/31/an-espresso-profile-that-adapts-to-your-grind-size/ — Adaptive v2 design rationale and expected behavior.
+- **home-barista.com DE1 threads**: Temperature profiling discussion (t59650), DE1 extraction recipes (t57755), pressure/temperature findings (t62508) — community experiences with DE1 profiling. Note: forum requires JavaScript rendering, not directly scrapable.

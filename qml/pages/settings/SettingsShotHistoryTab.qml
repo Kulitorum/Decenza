@@ -390,6 +390,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(15)
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(2)
 
                         Tr {
@@ -400,10 +401,12 @@ KeyboardAwareContainer {
                         }
 
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.history.starthttpserver"
                             fallback: "Start HTTP server on this device"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
                     }
 

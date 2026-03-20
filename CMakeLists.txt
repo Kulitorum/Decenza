@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza VERSION 1.5.7 LANGUAGES CXX)
+project(Decenza VERSION 1.5.8 LANGUAGES CXX)
 
 message(STATUS "Developer note: executable target is now 'Decenza'. If Qt Creator shows 'No executable specified', re-run CMake and select the 'Decenza' Run configuration.")
 
@@ -31,6 +31,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+
+# Address Sanitizer — catches use-after-free, heap overflow, etc.
+# Enable in Qt Creator: Projects → Build → CMake → add ENABLE_ASAN=ON
+# Or configure from CLI: cmake ... -DENABLE_ASAN=ON
+# Applied to the Decenza target only (after qt_add_executable) via the existing
+# ASan block further down in this file, which handles MSVC vs GCC/Clang flags.
+option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
 
 # Optional features (Quick3D not available on all platforms, e.g. Raspberry Pi)
 option(ENABLE_QUICK3D "Enable Qt Quick3D for 3D screensavers" ON)
@@ -114,10 +121,12 @@ if(IOS)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
+
 endif()
 
 # OpenSSL for HTTPS/TLS and self-signed certificate generation
-# Android uses KDAB android_openssl (fetched above), iOS doesn't need it (no web server)
+# Android uses KDAB android_openssl (fetched above)
+# iOS uses Apple Security.framework instead (no OpenSSL needed)
 if(NOT ANDROID AND NOT IOS)
     find_package(OpenSSL REQUIRED)
 endif()
@@ -131,7 +140,7 @@ include(FetchContent)
 FetchContent_Declare(
     paho_mqtt_c
     GIT_REPOSITORY https://github.com/eclipse/paho.mqtt.c.git
-    GIT_TAG        v1.3.13
+    GIT_TAG        v1.3.16
 )
 set(PAHO_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(PAHO_BUILD_SHARED OFF CACHE BOOL "" FORCE)
@@ -140,17 +149,30 @@ if(NOT ANDROID AND NOT IOS)
     # Desktop: use OpenSSL's SHA1 to avoid duplicate symbols with libcrypto.a
     set(PAHO_WITH_SSL ON CACHE BOOL "" FORCE)
 else()
-    # Android: KDAB provides OpenSSL separately; iOS: no OpenSSL at all
+    # Android/iOS: no OpenSSL linked with Paho (Android uses KDAB separately,
+    # iOS uses Apple Security.framework for TLS cert generation)
     set(PAHO_WITH_SSL OFF CACHE BOOL "" FORCE)
 endif()
 set(PAHO_HIGH_PERFORMANCE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(paho_mqtt_c)
 
-# Address Sanitizer - enabled for single-config Debug builds (Makefiles, Ninja).
-# Multi-config generators (Visual Studio, Xcode) don't set CMAKE_BUILD_TYPE at
-# configure time, so flags would leak into Release builds. Android requires special
-# ASan packaging (wrap.sh + shared lib in APK) that isn't handled here.
-if(NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT APPLE)
+# mjansson/mdns: header-only mDNS library for resolving .local hostnames on Android
+# (Android's getaddrinfo doesn't reliably handle mDNS)
+if(ANDROID)
+    FetchContent_Declare(
+        mdns_lib
+        GIT_REPOSITORY https://github.com/mjansson/mdns.git
+        GIT_TAG        1.4.3
+    )
+    FetchContent_Populate(mdns_lib)
+endif()
+
+# Address Sanitizer - auto-enabled for single-config Debug builds (Makefiles, Ninja),
+# or manually via -DENABLE_ASAN=ON. Multi-config generators (Visual Studio, Xcode)
+# don't set CMAKE_BUILD_TYPE at configure time, so auto-enable is skipped to avoid
+# leaking flags into Release builds. Android requires special ASan packaging
+# (wrap.sh + shared lib in APK) that isn't handled here.
+if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT APPLE))
     if(MSVC)
         message(STATUS ">>> ASan ENABLED for debug build (MSVC) <<<")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /fsanitize=address")
@@ -204,6 +226,7 @@ set(SOURCES
     src/ble/scales/solobaristascale.cpp
     src/ble/scales/atomhearteclairscale.cpp
     src/ble/scales/variaakuscale.cpp
+    src/ble/scales/timemorescale.cpp
     src/ble/scales/flowscale.cpp
     src/ble/transport/qtscalebletransport.cpp
     src/core/asynclogger.cpp
@@ -245,6 +268,17 @@ set(SOURCES
     src/network/shotserver_settings.cpp
     src/network/shotserver_auth.cpp
     src/network/shotserver_ai.cpp
+    src/mcp/mcpserver.cpp
+    src/mcp/mcptools_machine.cpp
+    src/mcp/mcptools_shots.cpp
+    src/mcp/mcptools_profiles.cpp
+    src/mcp/mcptools_settings.cpp
+    src/mcp/mcptools_dialing.cpp
+    src/mcp/mcptools_control.cpp
+    src/mcp/mcpresources.cpp
+    src/mcp/mcptools_scale.cpp
+    src/mcp/mcptools_devices.cpp
+    src/mcp/mcptools_write.cpp
     src/network/mqttclient.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
@@ -270,12 +304,18 @@ if(NOT IOS)
     )
 endif()
 
-# Simulator files - Windows Debug or macOS
-if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Simulator engine - always included for multi-config generators (Xcode, Visual Studio)
+# CMAKE_BUILD_TYPE is empty at configure time, so conditional inclusion won't work.
+# The simulator code is small and has no extra dependencies, so it's safe to always link.
+list(APPEND SOURCES
+    src/simulator/de1simulator.cpp
+    src/simulator/simulatedscale.cpp
+)
+
+# GHC simulator window - desktop only (uses QWidget window)
+if(WIN32 OR APPLE)
     list(APPEND SOURCES
         src/simulator/ghcsimulator.cpp
-        src/simulator/de1simulator.cpp
-        src/simulator/simulatedscale.cpp
     )
 endif()
 
@@ -319,6 +359,7 @@ set(HEADERS
     src/ble/scales/solobaristascale.h
     src/ble/scales/atomhearteclairscale.h
     src/ble/scales/variaakuscale.h
+    src/ble/scales/timemorescale.h
     src/ble/scales/flowscale.h
     src/ble/transport/scalebletransport.h
     src/ble/transport/qtscalebletransport.h
@@ -359,6 +400,10 @@ set(HEADERS
     src/network/shotreporter.h
     src/network/crashreporter.h
     src/network/librarysharing.h
+    src/mcp/mcpserver.h
+    src/mcp/mcpsession.h
+    src/mcp/mcptoolregistry.h
+    src/mcp/mcpresourceregistry.h
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h
@@ -378,12 +423,16 @@ if(NOT IOS)
     )
 endif()
 
-# Simulator headers - Windows Debug or macOS
-if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Simulator engine headers - always included (see source section comment)
+list(APPEND HEADERS
+    src/simulator/de1simulator.h
+    src/simulator/simulatedscale.h
+)
+
+# GHC simulator window header - desktop only
+if(WIN32 OR APPLE)
     list(APPEND HEADERS
         src/simulator/ghcsimulator.h
-        src/simulator/de1simulator.h
-        src/simulator/simulatedscale.h
     )
 endif()
 
@@ -432,14 +481,15 @@ if(NOT ANDROID AND NOT IOS)
 endif()
 
 # Link Paho MQTT - use SSL variant (paho-mqtt3as) on desktop where OpenSSL is
-# statically linked (avoids duplicate SHA1 symbols), non-SSL on mobile
+# statically linked (avoids duplicate SHA1 symbols), non-SSL on Android/iOS
 if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE paho-mqtt3as-static)
 else()
     target_link_libraries(Decenza PRIVATE paho-mqtt3a-static)
 endif()
 
-# Link OpenSSL (non-Android, non-iOS; Android uses add_android_openssl_libraries below)
+# Link OpenSSL on desktop only (Android uses KDAB add_android_openssl_libraries,
+# iOS uses Apple Security.framework for cert generation)
 if(NOT ANDROID AND NOT IOS)
     target_link_libraries(Decenza PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif()
@@ -472,6 +522,9 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}  # For version.h
 )
+if(ANDROID)
+    target_include_directories(Decenza PRIVATE ${mdns_lib_SOURCE_DIR})
+endif()
 
 # QML module - mark Theme.qml as singleton
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -543,9 +596,11 @@ set(QML_FILES
     qml/components/ProfileInfoButton.qml
     qml/components/ProfileDisplayButton.qml
     qml/components/BottomBar.qml
+    qml/components/ThemedIcon.qml
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml
     qml/components/AccessibleButton.qml
+    qml/components/HideKeyboardButton.qml
     qml/components/ExpandableTextArea.qml
     qml/components/FocusIndicator.qml
     qml/components/ColorWheel.qml
@@ -573,12 +628,14 @@ set(QML_FILES
     qml/components/ExtractionViewSelector.qml
     qml/components/StyledSwitch.qml
     qml/components/StyledComboBox.qml
+    qml/components/SelectionDialog.qml
     qml/components/StyledIconButton.qml
     qml/components/StyledTabButton.qml
     qml/components/FlipClockScreensaver.qml
     qml/components/StrangeAttractorScreensaver.qml
     qml/components/ShotMapScreensaver.qml
     qml/components/UnsavedChangesDialog.qml
+    qml/components/DatePickerDialog.qml
     qml/components/SwipeableArea.qml
     qml/components/CrashReportDialog.qml
     qml/components/ColoredIcon.qml
@@ -596,6 +653,7 @@ set(QML_FILES
     qml/components/layout/items/FlushItem.qml
     qml/components/layout/items/BeansItem.qml
     qml/components/layout/items/HistoryItem.qml
+    qml/components/layout/items/DiscussItem.qml
     qml/components/layout/items/AutoFavoritesItem.qml
     qml/components/layout/items/SleepItem.qml
     qml/components/layout/items/SettingsItem.qml
@@ -615,6 +673,8 @@ set(QML_FILES
     qml/components/layout/items/LastShotItem.qml
     qml/components/layout/items/MachineStatusItem.qml
     qml/components/layout/items/BatteryLevelItem.qml
+    qml/components/layout/items/ScaleBatteryItem.qml
+    qml/components/layout/items/GHCSimulatorItem.qml
     qml/components/layout/CustomEditorPopup.qml
     qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/EmojiPicker.qml
@@ -624,8 +684,8 @@ set(QML_FILES
     qml/pages/CommunityBrowserPage.qml
 )
 
-# Simulator QML - Windows Debug or macOS
-if((WIN32 OR APPLE) AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Simulator QML - desktop only (GHC window uses QWidget)
+if(WIN32 OR APPLE)
     list(APPEND QML_FILES
         qml/simulator/GHCSimulatorWindow.qml
     )
@@ -653,6 +713,13 @@ if(Qt6ShaderTools_FOUND)
         PREFIX "/"
         FILES
             shaders/crt.frag
+    )
+    qt_add_shaders(Decenza "cup_shaders"
+        BATCHABLE
+        PREFIX "/"
+        FILES
+            shaders/cup_mask.frag
+            shaders/cup_lighten.frag
     )
 endif()
 
@@ -714,23 +781,34 @@ endif()
 
 # iOS deployment
 if(IOS)
+    # Bundle ID and team can be overridden for local dev builds:
+    #   cmake ... -DIOS_BUNDLE_ID=com.yourname.decenza -DIOS_DEVELOPMENT_TEAM=YOURTEAMID
+    if(NOT IOS_BUNDLE_ID)
+        set(IOS_BUNDLE_ID "io.github.kulitorum.decenza")
+    endif()
     set_target_properties(Decenza PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${CMAKE_PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "${CURRENT_VERSION_CODE}"
-        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "io.github.kulitorum.decenza"
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${IOS_BUNDLE_ID}"
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${CMAKE_PROJECT_VERSION}"
         XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "${CURRENT_VERSION_CODE}"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym"
-        XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Debug] "dwarf-with-dsym"
+        XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Debug] "dwarf"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=MinSizeRel] "dwarf-with-dsym"
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=RelWithDebInfo] "dwarf-with-dsym"
         XCODE_ATTRIBUTE_DWARF_DSYM_FOLDER_PATH "$(CONFIGURATION_BUILD_DIR)"
         XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/ios/Decenza.entitlements"
     )
+    # Only override Xcode's signing team when explicitly provided
+    if(IOS_DEVELOPMENT_TEAM)
+        set_target_properties(Decenza PROPERTIES
+            XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${IOS_DEVELOPMENT_TEAM}"
+        )
+    endif()
     # Add iOS asset catalog for app icon
     target_sources(Decenza PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets"
@@ -758,6 +836,10 @@ if(IOS)
     # Link CoreBluetooth for native scale BLE transport
     target_link_libraries(Decenza PRIVATE
         "-framework CoreBluetooth"
+    )
+    # Link Security.framework for self-signed TLS certificate generation
+    target_link_libraries(Decenza PRIVATE
+        "-framework Security"
     )
 endif()
 

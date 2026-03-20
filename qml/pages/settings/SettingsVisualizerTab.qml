@@ -106,25 +106,11 @@ KeyboardAwareContainer {
                     AccessibleButton {
                         text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
                         accessibleName: TranslationManager.translate("visualizer.testConnection", "Test Visualizer connection")
+                        primary: true
                         enabled: usernameField.text.length > 0 && passwordField.text.length > 0
                         onClicked: {
                             visualizerTab.testResultMessage = TranslationManager.translate("settings.visualizer.testing", "Testing...")
                             MainController.visualizer.testConnection()
-                        }
-                        background: Rectangle {
-                            implicitWidth: Theme.scaled(140)
-                            implicitHeight: Theme.scaled(40)
-                            radius: Theme.scaled(6)
-                            color: parent.enabled ? Theme.primaryColor : Theme.backgroundColor
-                            border.color: parent.enabled ? Theme.primaryColor : Theme.textSecondaryColor
-                            border.width: 1
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: parent.enabled ? "white" : Theme.textSecondaryColor
-                            font: Theme.bodyFont
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
                         }
                     }
 
@@ -192,6 +178,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(15)
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(2)
 
                         Tr {
@@ -202,10 +189,12 @@ KeyboardAwareContainer {
                         }
 
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.visualizer.autoUploadDesc"
                             fallback: "Automatically upload espresso shots after completion"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
                     }
 
@@ -224,6 +213,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(15)
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(2)
 
                         Tr {
@@ -234,10 +224,12 @@ KeyboardAwareContainer {
                         }
 
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.visualizer.minDurationDesc"
                             fallback: "Only upload shots longer than this (skip aborted shots)"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
                     }
 
@@ -266,6 +258,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(15)
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(2)
 
                         Tr {
@@ -276,10 +269,12 @@ KeyboardAwareContainer {
                         }
 
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.visualizer.editAfterShotDesc"
                             fallback: "Open Shot Info page after each espresso extraction"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
                     }
 
@@ -298,6 +293,7 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(15)
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(2)
 
                         Tr {
@@ -308,10 +304,12 @@ KeyboardAwareContainer {
                         }
 
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.visualizer.clearNotesOnStartDesc"
                             fallback: "Clear shot notes when starting a new shot"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
                         }
                     }
 

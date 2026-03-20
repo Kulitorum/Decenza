@@ -11,7 +11,7 @@
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
     "target_weight": 36.0,
-    "target_volume": 95,
+    "target_volume": 0,
     "mode": "frame_based",
     "is_recipe_mode": false,
     "temperature_presets": [
@@ -30,11 +30,7 @@
             "pressure": 2.0,
             "flow": 8.0,
             "seconds": 2.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "Fill",
@@ -50,10 +46,6 @@
                 "type": "pressure",
                 "condition": "over",
                 "value": 1.5
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -65,11 +57,7 @@
             "pressure": 3.0,
             "flow": 8.0,
             "seconds": 12.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "Pressure Up",
@@ -80,11 +68,7 @@
             "pressure": 9.0,
             "flow": 0.0,
             "seconds": 4.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "9 Bar Hold",
@@ -100,10 +84,6 @@
                 "type": "flow",
                 "condition": "over",
                 "value": 1.9
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -120,10 +100,6 @@
                 "type": "flow",
                 "condition": "over",
                 "value": 2.8
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -140,10 +116,6 @@
                 "type": "flow",
                 "condition": "over",
                 "value": 2.8
-            },
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
             }
         },
         {
@@ -155,11 +127,25 @@
             "pressure": 3.0,
             "flow": 2.2,
             "seconds": 127.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         }
-    ]
+    ],
+    "espresso_temperature": 90.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6,
+    "espresso_pressure": 6.0,
+    "espresso_decline_time": 30.0,
+    "espresso_hold_time": 15.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 4.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0
 }

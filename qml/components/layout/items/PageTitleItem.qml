@@ -67,9 +67,11 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
+                Layout.maximumWidth: root.width
                 text: root.pageTitle
                 color: DE1Device.simulationMode ? Theme.simulationIndicatorColor : Theme.textColor
                 font: Theme.valueFont
+                elide: Text.ElideRight
             }
 
             Text {

@@ -29,11 +29,7 @@
             "pressure": 6.0,
             "flow": 6.0,
             "seconds": 4.0,
-            "volume": 70.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 70.0
         },
         {
             "name": "Pause",
@@ -44,11 +40,7 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 40.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 100.0
         },
         {
             "name": "Main water #1",
@@ -59,11 +51,7 @@
             "pressure": 6.0,
             "flow": 6.0,
             "seconds": 14.0,
-            "volume": 250.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 250.0
         },
         {
             "name": "Pause",
@@ -74,11 +62,7 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 20.0,
-            "volume": 250.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 250.0
         },
         {
             "name": "Main water #2",
@@ -89,11 +73,7 @@
             "pressure": 6.0,
             "flow": 5.0,
             "seconds": 25.0,
-            "volume": 200.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 200.0
         },
         {
             "name": "Drain",
@@ -104,11 +84,25 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 20.0,
-            "volume": 175.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 175.0
         }
-    ]
+    ],
+    "espresso_temperature": 92.0,
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6,
+    "espresso_pressure": 6.0,
+    "espresso_decline_time": 0.0,
+    "espresso_hold_time": 35.0,
+    "preinfusion_time": 6.0,
+    "preinfusion_stop_pressure": 4.0,
+    "preinfusion_flow_rate": 8.0,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.2,
+    "flow_profile_preinfusion_time": 6.0,
+    "flow_profile_hold": 2.3,
+    "flow_profile_hold_time": 2.0,
+    "flow_profile_decline": 1.0,
+    "flow_profile_decline_time": 23.0,
+    "flow_profile_minimum_pressure": 6.0
 }

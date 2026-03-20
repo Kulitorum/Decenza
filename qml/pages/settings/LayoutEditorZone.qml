@@ -408,6 +408,9 @@ Rectangle {
                             { type: "steamTemperature", label: TranslationManager.translate("layoutEditor.widgetSteamTemp", "Steam Temp") },
                             { type: "temperature", label: TranslationManager.translate("layoutEditor.widgetTemperature", "Temperature") },
                             { type: "batteryLevel", label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
+                            { type: "scaleBattery", label: TranslationManager.translate("layoutEditor.widgetScaleBattery", "Scale Battery") },
+                            { type: "ghcSimulator", label: TranslationManager.translate("layoutEditor.widgetGHCSimulator", "GHC Simulator") },
+                            { type: "discuss", label: TranslationManager.translate("layoutEditor.widgetDiscuss", "Discuss") },
                             { type: "waterLevel", label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
                             // Utility (orange)
                             { type: "custom", label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
@@ -537,6 +540,8 @@ Rectangle {
             "connectionStatus": TranslationManager.translate("layoutEditor.chipConnection", "Connection"),
             "machineStatus": TranslationManager.translate("layoutEditor.chipStatus", "Status"),
             "scaleWeight": TranslationManager.translate("layoutEditor.chipScale", "Scale"),
+            "scaleBattery": TranslationManager.translate("layoutEditor.chipScaleBat", "Scale Bat"),
+            "ghcSimulator": TranslationManager.translate("layoutEditor.chipGHCSim", "GHC Sim"),
             "shotPlan": TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan"),
             "pageTitle": TranslationManager.translate("layoutEditor.chipPageTitle", "Page Title"),
             "spacer": TranslationManager.translate("layoutEditor.chipSpacer", "Spacer"),
@@ -548,7 +553,8 @@ Rectangle {
             "screensaverPipes": TranslationManager.translate("layoutEditor.chipPipes", "Pipes"),
             "screensaverAttractor": TranslationManager.translate("layoutEditor.chipAttractor", "Attractor"),
             "screensaverShotMap": TranslationManager.translate("layoutEditor.chipMap", "Map"),
-            "quit": TranslationManager.translate("layoutEditor.chipQuit", "Quit")
+            "quit": TranslationManager.translate("layoutEditor.chipQuit", "Quit"),
+            "discuss": TranslationManager.translate("layoutEditor.chipDiscuss", "Discuss")
         }
         return names[type] || type
     }

@@ -15,15 +15,31 @@ Item {
     // Scale warning: saved BLE scale not connected or connection failed
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
     property bool showScaleWarning: !root.scaleConnected
-        && (BLEManager.scaleConnectionFailed || BLEManager.hasSavedScale)
+        && (BLEManager.scaleConnectionFailed || Settings.primaryScaleAddress !== "")
         && (Qt.platform.os === "ios" || !UsbScaleManager.scaleConnected)
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     // Accessibility: expose weight/status to screen readers
+    // Reactive computed property so TalkBack re-announces when scale state or weight changes.
+    readonly property string _accessibleName: {
+        if (root.showScaleWarning && !root.scaleConnected)
+            return BLEManager.scaleConnectionFailed
+                ? TranslationManager.translate("statusbar.scale_not_found_tap", "Scale not found. Tap to scan")
+                : TranslationManager.translate("statusbar.scale_connecting", "Scale connecting")
+        if (root.scaleConnected)
+            return TranslationManager.translate("idle.accessible.scale.weight", "Scale weight:") + " " + root.weightText() + ". " + TranslationManager.translate("idle.accessible.scale.tare", "Tap to tare")
+        return TranslationManager.translate("idle.accessible.scale.none", "No scale connected")
+    }
+
     Accessible.role: Accessible.Button
-    Accessible.name: root.accessibleDescription()
+    Accessible.name: root._accessibleName
+    // Long-press for brew settings is only available in compact mode (fullContent has no MouseArea).
+    // Long-press is also gated on accessibilityEnabled — safe to advertise to screen reader users.
+    Accessible.description: root.isCompact && root.scaleConnected
+        ? TranslationManager.translate("idle.accessible.scale.hint", "Long-press for brew settings.")
+        : ""
     Accessible.focusable: true
     Accessible.onPressAction: {
         if (root.scaleConnected)
@@ -32,18 +48,10 @@ Item {
             BLEManager.scanForScales()
     }
 
-    function accessibleDescription() {
-        if (root.showScaleWarning && !root.scaleConnected)
-            return BLEManager.scaleConnectionFailed ? "Scale not found. Tap to scan" : "Scale connecting"
-        if (root.scaleConnected)
-            return "Scale weight: " + root.weightText() + ". Tap to tare"
-        return "No scale connected"
-    }
-
     // Shared color logic
     function scaleColor(pressed) {
         if (pressed) return Theme.accentColor
-        if (MainController.brewByRatioActive) return Theme.primaryColor
+        if (MainController.brewByRatioActive) return Theme.weightColor
         if (root.isFlowScale) return Theme.textSecondaryColor
         return Theme.weightColor
     }

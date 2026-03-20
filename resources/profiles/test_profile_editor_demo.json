@@ -8,21 +8,15 @@
     "number_of_preinfuse_frames": 0,
     "maximum_pressure": 0.0,
     "maximum_flow": 0.0,
-    "target_weight": 36,
-    "target_volume": 36,
+    "target_weight": 0.0,
+    "target_volume": 0.0,
     "recipe": {
-        "bloomEnabled": false,
-        "bloomTime": 10,
-        "declineEnabled": false,
-        "declineTime": 30,
-        "declineTo": 6,
         "dose": 18,
         "fillFlow": 8,
         "fillPressure": 6,
         "fillTemperature": 84,
         "fillTimeout": 25,
         "flowLimit": 0,
-        "infuseByWeight": false,
         "infuseEnabled": true,
         "infusePressure": 6,
         "infuseTime": 1,
@@ -33,7 +27,6 @@
         "pourStyle": "flow",
         "pourTemperature": 94,
         "pressureLimit": 10,
-        "rampEnabled": true,
         "rampTime": 5,
         "targetWeight": 36
     },
@@ -96,5 +89,8 @@
                 "range": 0.2
             }
         }
-    ]
+    ],
+    "tank_desired_water_temperature": 0.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

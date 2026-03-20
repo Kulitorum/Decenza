@@ -105,6 +105,7 @@ Item {
                     opacity: AccessibilityManager.enabled ? 1.0 : 0.5
 
                     ColumnLayout {
+                        Layout.fillWidth: true
                         spacing: Theme.scaled(2)
                         Tr {
                             key: "settings.accessibility.frameTick"
@@ -113,10 +114,12 @@ Item {
                             font.pixelSize: Theme.scaled(14)
                         }
                         Tr {
+                            Layout.fillWidth: true
                             key: "settings.accessibility.frameTickDesc"
                             fallback: "Play a tick when extraction frames change"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.WordWrap
                         }
                     }
 

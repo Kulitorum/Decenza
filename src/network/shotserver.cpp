@@ -13,6 +13,8 @@
 #include "../ai/aimanager.h"
 #include "../core/batterymanager.h"
 #include "../core/memorymonitor.h"
+#include "../mcp/mcpserver.h"
+#include "../mcp/mcptoolregistry.h"
 #include "version.h"
 
 #include <QThread>
@@ -38,9 +40,6 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QPainter>
-#ifndef Q_OS_IOS
-#include <QProcess>
-#endif
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <QRandomGenerator>
@@ -55,7 +54,10 @@
 #include <cerrno>
 #endif
 
-#ifndef Q_OS_IOS
+#ifdef Q_OS_IOS
+#include <Security/Security.h>
+#import <Foundation/Foundation.h>
+#else
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/pem.h>
@@ -338,6 +340,10 @@ void ShotServer::setSettings(Settings* settings)
                 this, &ShotServer::onThemeChanged);
         connect(m_settings, &Settings::currentPageColorsChanged,
                 this, &ShotServer::onThemeChanged);
+        connect(m_settings, &Settings::themeModeChanged,
+                this, &ShotServer::onThemeChanged);
+        connect(m_settings, &Settings::editingPaletteChanged,
+                this, &ShotServer::onThemeChanged);
     }
 }
 
@@ -527,6 +533,12 @@ void ShotServer::onReadyRead()
 {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
+
+    // After sleep/wake or network changes, readyRead can fire for sockets that
+    // are closing or already disconnected. Processing such a socket would create
+    // a new keep-alive timer (via sendResponse → resetKeepAliveTimer) whose map
+    // entry becomes dangling once deleteLater destroys the socket and its child timer.
+    if (socket->state() != QAbstractSocket::ConnectedState) return;
 
     // SSE clients keep connections open — ignore further data from them
     if (m_sseLayoutClients.contains(socket)) return;
@@ -928,6 +940,23 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         bool isAuthRoute = path.startsWith("/auth/") || path.startsWith("/api/auth/");
         bool exempt = isAuthRoute || path == "/favicon.ico";
 
+        // MCP routes can authenticate via API key (Bearer token) instead of TOTP
+        if (!exempt && (path == "/mcp" || path.startsWith("/mcp/")) && m_settings) {
+            QString authHeader;
+            for (const auto& line : requestStr.split("\r\n")) {
+                if (line.startsWith("Authorization:", Qt::CaseInsensitive)) {
+                    authHeader = line.mid(line.indexOf(':') + 1).trimmed();
+                    break;
+                }
+            }
+            if (authHeader.startsWith("Bearer ", Qt::CaseInsensitive)) {
+                QString token = authHeader.mid(7).trimmed();
+                if (!token.isEmpty() && token == m_settings->mcpApiKey()) {
+                    exempt = true;  // Valid API key — skip TOTP check
+                }
+            }
+        }
+
         if (!exempt && !checkSession(request)) {
             if (hasStoredTotpSecret()) {
                 sendResponse(socket, 401, "text/html; charset=utf-8", QByteArray(WEB_AUTH_LOGIN_PAGE));
@@ -950,6 +979,309 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             handleAuthRoute(socket, method, path, body);
             return;
         }
+    }
+
+    // MCP Server routes
+    if (path == "/mcp" || path.startsWith("/mcp/")) {
+        // Install scripts (platform-specific, auto-configure everything)
+        if (path == "/mcp/install.sh") {
+            QString serverUrl = url();
+            QString mcpUrl = serverUrl + "/mcp";
+            QString script = QString(R"BASH(#!/bin/bash
+set -e
+echo "Configuring Claude Desktop for Decenza MCP..."
+
+# Check for Node.js (needed for npx/mcp-remote)
+if ! command -v npx &>/dev/null; then
+    echo "ERROR: npx not found. Install Node.js from https://nodejs.org"
+    exit 1
+fi
+
+# Configure Claude Desktop
+CONFIG_DIR="$HOME/Library/Application Support/Claude"
+if [ ! -d "$CONFIG_DIR" ]; then
+    echo "Claude Desktop config directory not found."
+    echo "Install Claude Desktop from claude.ai/download, then re-run this script."
+    exit 1
+fi
+CONFIG="$CONFIG_DIR/claude_desktop_config.json"
+
+# Read existing config or create new
+if [ -f "$CONFIG" ]; then
+    python3 -c "
+import json
+with open('$CONFIG') as f:
+    config = json.load(f)
+config.setdefault('mcpServers', {})
+config['mcpServers']['decenza'] = {
+    'command': 'npx',
+    'args': ['-y', 'mcp-remote', '%1', '--allow-http']
+}
+with open('$CONFIG', 'w') as f:
+    json.dump(config, f, indent=2)
+print('Updated:', '$CONFIG')
+"
+else
+    cat > "$CONFIG" << ENDJSON
+{
+  "mcpServers": {
+    "decenza": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "%1", "--allow-http"]
+    }
+  }
+}
+ENDJSON
+    echo "Created: $CONFIG"
+fi
+
+echo ""
+echo "Done! Restart Claude Desktop and ask:"
+echo '  "What is the state of my espresso machine?"'
+)BASH").arg(mcpUrl);
+
+            sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
+            return;
+        }
+
+        if (path == "/mcp/install.ps1") {
+            QString serverUrl = url();
+            QString mcpUrl = serverUrl + "/mcp";
+            QString script = QString(R"PS1(
+Write-Host "Configuring Claude Desktop for Decenza MCP..."
+
+# Check for Node.js (needed for npx/mcp-remote)
+if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: npx not found. Install Node.js from https://nodejs.org" -ForegroundColor Red
+    exit 1
+}
+
+$configDir = "$env:APPDATA\Claude"
+if (-not (Test-Path $configDir)) {
+    Write-Host "Claude Desktop config directory not found."
+    Write-Host "Install Claude Desktop from claude.ai/download, then re-run."
+    exit 1
+}
+$configPath = "$configDir\claude_desktop_config.json"
+
+if (Test-Path $configPath) {
+    $config = Get-Content $configPath | ConvertFrom-Json
+} else {
+    $config = @{}
+}
+if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue @{} }
+$config.mcpServers.decenza = @{
+    command = "npx"
+    args = @("-y", "mcp-remote", "%1", "--allow-http")
+}
+$config | ConvertTo-Json -Depth 10 | Set-Content $configPath
+Write-Host "Config updated: $configPath"
+Write-Host ""
+Write-Host "Done! Restart Claude Desktop and ask:"
+Write-Host '  "What is the state of my espresso machine?"'
+)PS1").arg(mcpUrl);
+
+            sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
+            return;
+        }
+
+        if (path == "/mcp/uninstall.sh") {
+            QString script = R"BASH(#!/bin/bash
+set -e
+echo "Removing Decenza MCP from Claude Desktop..."
+
+CONFIG_DIR="$HOME/Library/Application Support/Claude"
+CONFIG="$CONFIG_DIR/claude_desktop_config.json"
+
+if [ ! -f "$CONFIG" ]; then
+    echo "Claude Desktop config not found — nothing to remove."
+    exit 0
+fi
+
+python3 -c "
+import json
+with open('$CONFIG') as f:
+    config = json.load(f)
+if 'mcpServers' in config and 'decenza' in config['mcpServers']:
+    del config['mcpServers']['decenza']
+    if not config['mcpServers']:
+        del config['mcpServers']
+    with open('$CONFIG', 'w') as f:
+        json.dump(config, f, indent=2)
+    print('Removed decenza from:', '$CONFIG')
+else:
+    print('Decenza not found in config — nothing to remove.')
+"
+
+echo ""
+echo "Done! Restart Claude Desktop to apply."
+)BASH";
+            sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
+            return;
+        }
+
+        if (path == "/mcp/uninstall.ps1") {
+            QString script = R"PS1(
+Write-Host "Removing Decenza MCP from Claude Desktop..."
+
+$configPath = "$env:APPDATA\Claude\claude_desktop_config.json"
+if (-not (Test-Path $configPath)) {
+    Write-Host "Claude Desktop config not found - nothing to remove."
+    exit 0
+}
+
+$config = Get-Content $configPath | ConvertFrom-Json
+if ($config.mcpServers -and $config.mcpServers.decenza) {
+    $config.mcpServers.PSObject.Properties.Remove('decenza')
+    if (($config.mcpServers.PSObject.Properties | Measure-Object).Count -eq 0) {
+        $config.PSObject.Properties.Remove('mcpServers')
+    }
+    $config | ConvertTo-Json -Depth 10 | Set-Content $configPath
+    Write-Host "Removed decenza from: $configPath"
+} else {
+    Write-Host "Decenza not found in config - nothing to remove."
+}
+
+Write-Host ""
+Write-Host "Done! Restart Claude Desktop to apply."
+)PS1";
+            sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
+            return;
+        }
+
+        // Setup guide page (available even when MCP is disabled)
+        if (path == "/mcp/setup") {
+            QString serverUrl = url();
+            QString mcpUrl = serverUrl + "/mcp";
+            QString html = QString::fromUtf8(R"HTML(<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Decenza MCP Setup</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;
+background:#1a1a2e;color:#e0e0e0;line-height:1.6}
+h1{color:#6c8cff}h2{color:#8ca0ff;margin-top:32px}
+pre{background:#0d0d1a;padding:16px;border-radius:8px;overflow-x:auto;border:1px solid #333;
+font-size:14px;position:relative}
+code{color:#a0cfff}
+.copy-btn{position:absolute;top:8px;right:8px;background:#6c8cff;color:white;border:none;
+padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px}
+.copy-btn:hover{background:#8ca0ff}
+.step{background:#0d0d1a;padding:16px;border-radius:8px;margin:12px 0;border-left:3px solid #6c8cff}
+.step-num{color:#6c8cff;font-weight:bold;font-size:18px}
+.status{padding:12px;border-radius:8px;margin:16px 0;font-weight:bold}
+.enabled{background:rgba(46,125,50,0.2);border:1px solid #2e7d32;color:#81c784}
+.disabled{background:rgba(198,40,40,0.2);border:1px solid #c62828;color:#ef9a9a}
+a{color:#6c8cff}
+</style></head><body>
+<h1>Decenza MCP Server Setup</h1>
+<div class="status %1">MCP Server: %2</div>
+<p>Connect Claude Desktop to your DE1 espresso machine for AI-powered shot analysis, dial-in advice, and remote control.</p>
+
+<h2>How It Works</h2>
+<p>The MCP server runs inside Decenza on <strong>any platform</strong> (Android tablet, iOS, Windows, macOS, Linux). Claude Desktop on your computer connects to it over your local WiFi network.</p>
+
+<h2>Platform Compatibility</h2>
+<table style="width:100%%;border-collapse:collapse;margin:12px 0">
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Decenza runs on</strong></td><td style="padding:8px">Any platform &mdash; tablet, phone, or desktop</td></tr>
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Claude Desktop connects from</strong></td><td style="padding:8px">macOS or Windows (same WiFi network)</td></tr>
+<tr style="border-bottom:1px solid #333"><td style="padding:8px"><strong>Does NOT work with</strong></td><td style="padding:8px">claude.ai web, Claude iOS/Android apps</td></tr>
+</table>
+<p><strong>Tip:</strong> You can also use the <em>Discuss</em> button on any shot review page to open any AI (Claude Web, ChatGPT, Gemini, Grok) with your shot data copied to clipboard &mdash; this works on all platforms without MCP.</p>
+
+<h2>Available Tools (%4)</h2>
+<p>At <strong>Full Automation</strong> access level, Claude can:</p>
+<ul>
+<li>Read machine state, telemetry, water level</li>
+<li>Browse and analyze shot history</li>
+<li>Get dial-in context and suggest improvements</li>
+<li>Start/stop espresso, steam, hot water, flush (DE1 v1.0 headless machines only &mdash; most machines with GHC require physical button press)</li>
+<li>Change profiles, settings, and grinder parameters</li>
+</ul>
+
+<h2>Access Levels</h2>
+<ul>
+<li><strong>Monitor Only</strong> &mdash; read state, history, profiles (no control)</li>
+<li><strong>Control</strong> &mdash; + start/stop operations, wake/sleep</li>
+<li><strong>Full Automation</strong> &mdash; + change profiles, settings, parameters</li>
+</ul>
+
+<h2>Prerequisites</h2>
+<div class="step"><a href="https://nodejs.org">Node.js</a> must be installed on your computer (provides <code>npx</code> used by the connector).</div>
+
+<h2>Setup Steps</h2>
+<div class="step"><span class="step-num">1.</span> Enable MCP in Decenza: Settings &gt; AI &gt; MCP Server &gt; toggle ON</div>
+<div class="step"><span class="step-num">2.</span> On your computer, install <a href="https://claude.ai/download">Claude Desktop</a></div>
+<div class="step"><span class="step-num">3.</span> Run this command in your terminal to configure Claude Desktop:
+<pre id="installCmd"><code id="installCmdText">Loading...</code><button class="copy-btn" onclick="copyCmd('installCmdText',this)">Copy</button></pre></div>
+<div class="step"><span class="step-num">4.</span> Restart Claude Desktop (Quit &amp; reopen)</div>
+<div class="step"><span class="step-num">5.</span> Ask Claude: <em>"What's the current state of my espresso machine?"</em></div>
+
+<h2>Uninstall</h2>
+<p>To remove the Decenza MCP server from Claude Desktop:</p>
+<pre id="uninstallCmd"><code id="uninstallCmdText">Loading...</code><button class="copy-btn" onclick="copyCmd('uninstallCmdText',this)">Copy</button></pre>
+<p style="color:#999;font-size:13px">Then restart Claude Desktop.</p>
+
+<script>
+(function(){
+var p=navigator.platform||navigator.userAgent||'';
+var isMac=p.indexOf('Mac')>=0;
+var isWin=p.indexOf('Win')>=0;
+var o=location.origin;
+
+if(isWin){
+document.getElementById('installCmdText').textContent=
+'powershell -c "irm '+o+'/mcp/install.ps1 | iex"';
+document.getElementById('uninstallCmdText').textContent=
+'powershell -c "irm '+o+'/mcp/uninstall.ps1 | iex"';
+}else{
+document.getElementById('installCmdText').textContent=
+'curl -fsSL '+o+'/mcp/install.sh | bash';
+document.getElementById('uninstallCmdText').textContent=
+'curl -fsSL '+o+'/mcp/uninstall.sh | bash';
+}
+})();
+</script>
+
+<script>
+function copyCmd(id,btn){
+var text=document.getElementById(id).textContent;
+if(navigator.clipboard&&window.isSecureContext){
+navigator.clipboard.writeText(text).then(function(){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)});
+}else{
+var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
+}
+}
+</script>
+</body></html>)HTML");
+
+            bool mcpOn = m_settings && m_settings->mcpEnabled();
+            // %3 is used in the JS install script URL (the MCP endpoint URL)
+            QString configJson = mcpUrl;
+            int toolCount = m_mcpServer ? m_mcpServer->toolRegistry()->listTools(2).size() : 0;
+
+            html = html.arg(mcpOn ? "enabled" : "disabled",
+                           mcpOn ? "Enabled" : "Disabled",
+                           configJson,
+                           QString::number(toolCount));
+
+            sendHtml(socket, html);
+            return;
+        }
+
+        if (!m_mcpServer || !m_settings || !m_settings->mcpEnabled()) {
+            sendResponse(socket, 404, "text/plain", "Not Found");
+            return;
+        }
+        // Extract headers from the raw request
+        int headerEnd = request.indexOf("\r\n\r\n");
+        QByteArray headers = (headerEnd > 0) ? request.left(headerEnd) : QByteArray();
+        QByteArray body;
+        if (headerEnd > 0 && headerEnd + 4 < request.size())
+            body = request.mid(headerEnd + 4);
+        m_mcpServer->handleHttpRequest(socket, method, path, headers, body);
+        return;
     }
 
     // Route requests
@@ -1899,6 +2231,11 @@ void ShotServer::sendResponse(QTcpSocket* socket, int statusCode, const QString&
 
 void ShotServer::resetKeepAliveTimer(QTcpSocket* socket)
 {
+    // Don't create timers for sockets that are already disconnecting/closed —
+    // the timer (parented to the socket) would be destroyed by deleteLater()
+    // while the pointer remains in m_keepAliveTimers, causing a dangling access.
+    if (socket->state() != QAbstractSocket::ConnectedState) return;
+
     QTimer* timer = m_keepAliveTimers.value(socket);
     if (!timer) {
         timer = new QTimer(socket);
@@ -2002,18 +2339,6 @@ void ShotServer::sendRedirect(QTcpSocket* socket, const QString& location, const
     resetKeepAliveTimer(socket);
 }
 
-#ifdef Q_OS_IOS
-bool ShotServer::setupTls()
-{
-    qWarning() << "ShotServer: TLS not available on iOS (OpenSSL not linked)";
-    return false;
-}
-
-bool ShotServer::generateSelfSignedCert(const QString&, const QString&)
-{
-    return false;
-}
-#else
 bool ShotServer::setupTls()
 {
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -2021,13 +2346,20 @@ bool ShotServer::setupTls()
     QString certPath = dataDir + "/server.crt";
     QString keyPath = dataDir + "/server.key";
 
+    // iOS uses RSA keys (SecureTransport requires RSA/DSA for PKCS12), other platforms use EC
+#ifdef Q_OS_IOS
+    const auto keyAlgo = QSsl::Rsa;
+#else
+    const auto keyAlgo = QSsl::Ec;
+#endif
+
     // Check if cert/key already exist
     if (QFile::exists(certPath) && QFile::exists(keyPath)) {
         QFile certFile(certPath);
         QFile keyFile(keyPath);
         if (certFile.open(QIODevice::ReadOnly) && keyFile.open(QIODevice::ReadOnly)) {
             m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
-            m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
+            m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
             if (!m_sslCert.isNull() && !m_sslKey.isNull()) {
                 if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
                     qDebug() << "ShotServer: TLS certificate expired, regenerating";
@@ -2037,6 +2369,8 @@ bool ShotServer::setupTls()
                     qDebug() << "ShotServer: Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
                     return true;
                 }
+            } else {
+                qDebug() << "ShotServer: Existing cert/key invalid or wrong type, regenerating";
             }
         }
     }
@@ -2056,7 +2390,7 @@ bool ShotServer::setupTls()
     }
 
     m_sslCert = QSslCertificate(certFile.readAll(), QSsl::Pem);
-    m_sslKey = QSslKey(keyFile.readAll(), QSsl::Ec, QSsl::Pem);
+    m_sslKey = QSslKey(keyFile.readAll(), keyAlgo, QSsl::Pem);
 
     if (m_sslCert.isNull() || m_sslKey.isNull()) {
         qWarning() << "ShotServer: Generated certificate or key is invalid";
@@ -2066,6 +2400,271 @@ bool ShotServer::setupTls()
     qDebug() << "ShotServer: Generated new TLS certificate, expires" << m_sslCert.expiryDate().toString();
     return true;
 }
+
+#ifdef Q_OS_IOS
+// ---------------------------------------------------------------------------
+// iOS: Self-signed certificate generation using Apple Security.framework
+// Uses SecKeyCreateRandomKey for RSA-2048 and manual DER/ASN.1 encoding
+// for X509v3 with Subject Alternative Names. No OpenSSL dependency.
+// ---------------------------------------------------------------------------
+
+// ASN.1 DER encoding helpers
+static QByteArray derLength(int len)
+{
+    QByteArray out;
+    if (len < 128) {
+        out.append(static_cast<char>(len));
+    } else if (len < 256) {
+        out.append(static_cast<char>(0x81));
+        out.append(static_cast<char>(len));
+    } else {
+        out.append(static_cast<char>(0x82));
+        out.append(static_cast<char>((len >> 8) & 0xFF));
+        out.append(static_cast<char>(len & 0xFF));
+    }
+    return out;
+}
+
+static QByteArray derTag(unsigned char tag, const QByteArray& content)
+{
+    QByteArray out;
+    out.append(static_cast<char>(tag));
+    out.append(derLength(content.size()));
+    out.append(content);
+    return out;
+}
+
+static QByteArray derSequence(const QByteArray& content) { return derTag(0x30, content); }
+static QByteArray derSet(const QByteArray& content) { return derTag(0x31, content); }
+static QByteArray derOctetString(const QByteArray& content) { return derTag(0x04, content); }
+
+static QByteArray derInteger(const QByteArray& val)
+{
+    QByteArray v = val;
+    // Ensure positive by prepending 0x00 if high bit is set
+    if (!v.isEmpty() && (static_cast<unsigned char>(v[0]) & 0x80))
+        v.prepend(static_cast<char>(0x00));
+    return derTag(0x02, v);
+}
+
+static QByteArray derBitString(const QByteArray& content)
+{
+    QByteArray v;
+    v.append(static_cast<char>(0x00)); // no unused bits
+    v.append(content);
+    return derTag(0x03, v);
+}
+
+static QByteArray derOid(const char* bytes, int len)
+{
+    return derTag(0x06, QByteArray(bytes, len));
+}
+
+static QByteArray derUtf8String(const QByteArray& s) { return derTag(0x0C, s); }
+
+static QByteArray derTime(const QDateTime& dt)
+{
+    // RFC 5280 §4.1.2.5: UTCTime for years through 2049, GeneralizedTime for 2050+
+    QDateTime utc = dt.toUTC();
+    if (utc.date().year() >= 2050) {
+        // GeneralizedTime format: YYYYMMDDHHMMSSZ
+        QByteArray s = utc.toString("yyyyMMddHHmmss").toLatin1() + "Z";
+        return derTag(0x18, s);
+    }
+    // UTCTime format: YYMMDDHHMMSSZ
+    QByteArray s = utc.toString("yyMMddHHmmss").toLatin1() + "Z";
+    return derTag(0x17, s);
+}
+
+static QByteArray derExplicitTag(int tagNum, const QByteArray& content)
+{
+    return derTag(static_cast<unsigned char>(0xA0 | tagNum), content);
+}
+
+// OID constants
+static const char OID_SHA256_RSA[] = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x0b"; // 1.2.840.113549.1.1.11
+static const char OID_RSA[]        = "\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01"; // 1.2.840.113549.1.1.1
+static const char OID_CN[]         = "\x55\x04\x03";                           // 2.5.4.3
+static const char OID_SAN[]        = "\x55\x1d\x11";                           // 2.5.29.17
+
+static QByteArray sha256RsaAlgorithm()
+{
+    return derSequence(derOid(OID_SHA256_RSA, 9) + derTag(0x05, QByteArray())); // AlgorithmIdentifier { sha256WithRSA, NULL }
+}
+
+static QByteArray buildSanExtension(const QStringList& sanEntries)
+{
+    QByteArray generalNames;
+    for (const QString& entry : sanEntries) {
+        if (entry.startsWith("DNS:")) {
+            QByteArray dns = entry.mid(4).toLatin1();
+            generalNames.append(derTag(0x82, dns)); // [2] dNSName
+        } else if (entry.startsWith("IP:")) {
+            QHostAddress addr(entry.mid(3));
+            quint32 ip4 = addr.toIPv4Address();
+            QByteArray ipBytes;
+            ipBytes.append(static_cast<char>((ip4 >> 24) & 0xFF));
+            ipBytes.append(static_cast<char>((ip4 >> 16) & 0xFF));
+            ipBytes.append(static_cast<char>((ip4 >> 8) & 0xFF));
+            ipBytes.append(static_cast<char>(ip4 & 0xFF));
+            generalNames.append(derTag(0x87, ipBytes)); // [7] iPAddress
+        }
+    }
+    // Extension: OID + critical=false + OCTET STRING wrapping the GeneralNames SEQUENCE
+    return derSequence(derOid(OID_SAN, 3) + derOctetString(derSequence(generalNames)));
+}
+
+bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
+{
+    // Generate RSA-2048 key pair using Security.framework
+    NSDictionary* keyAttrs = @{
+        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeRSA,
+        (id)kSecAttrKeySizeInBits: @2048,
+    };
+    CFErrorRef error = nullptr;
+    SecKeyRef privateKey = SecKeyCreateRandomKey((__bridge CFDictionaryRef)keyAttrs, &error);
+    if (!privateKey) {
+        if (error) {
+            qWarning() << "ShotServer: SecKeyCreateRandomKey failed:" << CFBridgingRelease(error);
+        }
+        return false;
+    }
+
+    SecKeyRef publicKey = SecKeyCopyPublicKey(privateKey);
+    if (!publicKey) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: Failed to extract public key";
+        return false;
+    }
+
+    // Export public key (PKCS#1 DER format)
+    CFDataRef pubKeyData = SecKeyCopyExternalRepresentation(publicKey, &error);
+    CFRelease(publicKey);
+    if (!pubKeyData) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: Failed to export public key:" << CFBridgingRelease(error);
+        return false;
+    }
+    QByteArray pubKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(pubKeyData)),
+                          static_cast<int>(CFDataGetLength(pubKeyData)));
+    CFRelease(pubKeyData);
+
+    // Export private key (PKCS#1 DER format)
+    CFDataRef privKeyData = SecKeyCopyExternalRepresentation(privateKey, &error);
+    if (!privKeyData) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: Failed to export private key:" << CFBridgingRelease(error);
+        return false;
+    }
+    QByteArray privKeyDer(reinterpret_cast<const char*>(CFDataGetBytePtr(privKeyData)),
+                           static_cast<int>(CFDataGetLength(privKeyData)));
+    CFRelease(privKeyData);
+
+    // Build SubjectPublicKeyInfo: SEQUENCE { AlgorithmIdentifier, BIT STRING { pubkey } }
+    QByteArray spki = derSequence(
+        derSequence(derOid(OID_RSA, 9) + derTag(0x05, QByteArray())) +
+        derBitString(pubKeyDer)
+    );
+
+    // Build issuer/subject: RDNSequence with CN=Decenza
+    QByteArray rdnSeq = derSequence(
+        derSet(derSequence(derOid(OID_CN, 3) + derUtf8String("Decenza")))
+    );
+
+    // Serial number (16 random bytes)
+    QByteArray serialBytes(16, Qt::Uninitialized);
+    SecRandomCopyBytes(kSecRandomDefault, serialBytes.size(),
+                        reinterpret_cast<uint8_t*>(serialBytes.data()));
+    // Ensure positive
+    serialBytes[0] = serialBytes[0] & 0x7F;
+
+    // Validity: now to 10 years
+    QDateTime notBefore = QDateTime::currentDateTimeUtc();
+    QDateTime notAfter = notBefore.addYears(10);
+
+    // Subject Alternative Names
+    QStringList sanEntries;
+    sanEntries << "IP:127.0.0.1" << "DNS:localhost";
+    for (const QHostAddress& addr : QNetworkInterface::allAddresses()) {
+        if (!addr.isLoopback() && addr.protocol() == QAbstractSocket::IPv4Protocol) {
+            sanEntries << QString("IP:%1").arg(addr.toString());
+        }
+    }
+
+    // Extensions: SAN only
+    QByteArray extensions = derSequence(buildSanExtension(sanEntries));
+
+    // Build TBSCertificate
+    QByteArray tbs = derSequence(
+        derExplicitTag(0, derInteger(QByteArray(1, 0x02))) +  // version v3
+        derInteger(serialBytes) +
+        sha256RsaAlgorithm() +
+        rdnSeq +                                               // issuer
+        derSequence(derTime(notBefore) + derTime(notAfter)) +
+        rdnSeq +                                               // subject (self-signed)
+        spki +
+        derExplicitTag(3, extensions)
+    );
+
+    // Sign TBSCertificate with private key
+    CFDataRef tbsData = CFDataCreate(kCFAllocatorDefault,
+                                      reinterpret_cast<const UInt8*>(tbs.constData()),
+                                      tbs.size());
+    CFDataRef signature = SecKeyCreateSignature(privateKey,
+                                                 kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256,
+                                                 tbsData, &error);
+    CFRelease(tbsData);
+    CFRelease(privateKey);
+
+    if (!signature) {
+        qWarning() << "ShotServer: SecKeyCreateSignature failed:" << CFBridgingRelease(error);
+        return false;
+    }
+
+    QByteArray sigBytes(reinterpret_cast<const char*>(CFDataGetBytePtr(signature)),
+                         static_cast<int>(CFDataGetLength(signature)));
+    CFRelease(signature);
+
+    // Build final Certificate DER
+    QByteArray certDer = derSequence(tbs + sha256RsaAlgorithm() + derBitString(sigBytes));
+
+    // Write certificate as PEM (RFC 7468 requires 64-char line wrapping)
+    auto base64Wrapped = [](const QByteArray& der) {
+        QByteArray b64 = der.toBase64(QByteArray::Base64Encoding);
+        QByteArray wrapped;
+        for (qsizetype i = 0; i < b64.size(); i += 64) {
+            wrapped.append(b64.mid(i, 64));
+            wrapped.append('\n');
+        }
+        return wrapped;
+    };
+    QByteArray certPem = "-----BEGIN CERTIFICATE-----\n" +
+                          base64Wrapped(certDer) +
+                          "-----END CERTIFICATE-----\n";
+
+    // Write private key as PEM (PKCS#1 RSA format)
+    QByteArray keyPem = "-----BEGIN RSA PRIVATE KEY-----\n" +
+                         base64Wrapped(privKeyDer) +
+                         "-----END RSA PRIVATE KEY-----\n";
+
+    QFile certFile(certPath);
+    if (!certFile.open(QIODevice::WriteOnly)) return false;
+    certFile.write(certPem);
+    certFile.close();
+
+    QFile keyFile(keyPath);
+    if (!keyFile.open(QIODevice::WriteOnly)) return false;
+    keyFile.write(keyPem);
+    keyFile.close();
+
+    QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    return true;
+}
+
+#else // !Q_OS_IOS
+// ---------------------------------------------------------------------------
+// Desktop/Android: Self-signed certificate generation using OpenSSL
+// ---------------------------------------------------------------------------
 
 bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& keyPath)
 {

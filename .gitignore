@@ -1,3 +1,6 @@
+# MCP config (machine-specific URLs)
+.mcp.json
+
 # Signing keys - NEVER commit
 *.jks
 *.keystore

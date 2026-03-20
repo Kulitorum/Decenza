@@ -496,7 +496,7 @@ Page {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: Theme.bottomBarHeight
-        color: Theme.surfaceColor
+        color: Theme.bottomBarColor
 
         RowLayout {
             anchors.fill: parent

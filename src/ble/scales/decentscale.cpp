@@ -170,6 +170,16 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         int16_t weightRaw = (static_cast<int16_t>(d[2]) << 8) | d[3];
         double weight = weightRaw / 10.0;  // Weight in grams
         setWeight(weight);
+    } else if (command == 0x0A && d[0] == 0x03) {
+        // LED response packet (openscale/HDS format):
+        // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5-6]=firmware version
+        // Battery: 0-100 = percentage, 0xFF = charging
+        uint8_t battByte = d[4];
+        if (battByte <= 100) {
+            setBatteryLevel(battByte);
+        } else if (battByte == 0xFF) {
+            setBatteryLevel(100);  // Charging — report as full
+        }
     } else if (command == 0xAA) {
         // Button pressed
         int button = d[2];
@@ -252,6 +262,14 @@ void DecentScale::resetTimer() {
 }
 
 void DecentScale::sleep() {
+    stopHeartbeat();
+    if (!m_transport || !m_characteristicsReady) {
+        emit sleepCompleted();
+        return;
+    }
+    connect(m_transport, &ScaleBleTransport::characteristicWritten,
+            this, [this]() { emit sleepCompleted(); },
+            Qt::SingleShotConnection);
     // Command 0A 02 00 disables LCD and puts scale to sleep
     sendCommand(QByteArray::fromHex("0A0200"));
 }

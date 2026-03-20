@@ -62,6 +62,9 @@ struct ProfileFrame {
     // Parse from de1app Tcl list format: {key value key value ...}
     static ProfileFrame fromTclList(const QString& tclList);
 
+    // Serialize to de1app Tcl list format: {key value key value ...}
+    QString toTclList() const;
+
     // Compute frame flags for BLE
     uint8_t computeFlags() const;
 

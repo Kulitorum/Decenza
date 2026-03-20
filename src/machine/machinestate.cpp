@@ -41,6 +41,10 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
         connect(m_device, &DE1Device::stateChanged, this, &MachineState::onDE1StateChanged);
         connect(m_device, &DE1Device::subStateChanged, this, &MachineState::onDE1SubStateChanged);
         connect(m_device, &DE1Device::connectedChanged, this, &MachineState::updatePhase);
+
+        // Sync initial phase from device (handles case where device was already
+        // connected before MachineState was constructed, e.g. simulator mode)
+        updatePhase();
     }
 }
 
@@ -170,13 +174,6 @@ void MachineState::setTargetVolume(double volume) {
     }
 }
 
-void MachineState::setStopAtType(StopAtType type) {
-    if (m_stopAtType != type) {
-        m_stopAtType = type;
-        emit stopAtTypeChanged();
-    }
-}
-
 void MachineState::onDE1StateChanged() {
     updatePhase();
 }
@@ -301,6 +298,8 @@ void MachineState::updatePhase() {
                 m_stopAtWeightTriggered = false;
                 m_stopAtVolumeTriggered = false;
                 m_stopAtTimeTriggered = false;
+                m_hotWaterTareBaseline = 0.0;
+                m_hotWaterTareTimeMs = 0;
                 m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
@@ -326,19 +325,32 @@ void MachineState::updatePhase() {
                 }
 
                 // Auto-tare for Hot Water (espresso tares at cycle start via MainController)
+                // Delay 200ms after resetTimer/startTimer to avoid BLE command contention —
+                // WriteWithoutResponse can silently drop packets when sent in rapid succession.
                 if (m_phase == Phase::HotWater) {
-                    QMetaObject::invokeMethod(this, [this]() {
+                    QTimer::singleShot(200, this, [this]() {
+                        if (m_phase != Phase::HotWater) return;  // Operation ended before timer fired
                         tareScale();
-                        qDebug() << "=== TARE: Hot Water started ===";
-                    }, Qt::QueuedConnection);
+                        qDebug() << "=== TARE: Hot Water started (200ms after timer cmds) ===";
+                    });
                 }
             } else {
                 // Mid-espresso: either starting extraction (from preheating) or glitch recovery
                 bool startingExtraction = (oldPhase == Phase::EspressoPreheating);
 
                 if (startingExtraction) {
-                    // Extraction starting from preheating - properly start the shot timer
+                    // EspressoPreheating is wasInEspresso=true, so the outer !wasInEspresso
+                    // reset block does not fire. Reset counters here for a fresh extraction.
                     startShotTimer();
+                    m_stopAtWeightTriggered = false;
+                    m_stopAtVolumeTriggered = false;
+                    m_stopAtTimeTriggered = false;
+                    m_preinfusionVolume = 0.0;
+                    m_pourVolume = 0.0;
+                    m_cumulativeVolume = 0.0;
+                    m_lastEmittedCumulativeVolumeMl = -1;
+                    m_lastEmittedPreinfusionVolumeMl = -1;
+                    m_lastEmittedPourVolumeMl = -1;
 
                     // Reset and start scale timer (like de1app)
                     if (m_scale) {
@@ -432,34 +444,28 @@ void MachineState::onScaleWeightChanged(double weight) {
         emit tareCompleted();
     }
 
-    // Auto-tare when cup is removed (significant weight drop while idle)
-    // BUT: don't trigger during SAW settling (scale readings are unstable)
-    if (m_phase == Phase::Ready || m_phase == Phase::Idle) {
-        // Skip auto-tare if SAW settling is in progress (prevents false triggers from scale glitches)
-        bool isSettling = m_timingController && m_timingController->isSawSettling();
-        if (isSettling) {
-            // Update tracking variables but don't auto-tare
-            m_lastIdleWeight = weight;
-            m_lastWeightTime = QDateTime::currentMSecsSinceEpoch();
-            return;
-        }
-
-        qint64 now = QDateTime::currentMSecsSinceEpoch();
-
-        // Detect cup removal: weight was >50g and dropped to <10g within 2 seconds
-        if (m_lastIdleWeight > 50.0 && weight < 10.0) {
-            qint64 elapsed = now - m_lastWeightTime;
-            if (elapsed < 2000) {  // Drop happened within 2 seconds
-                qDebug() << "=== AUTO-TARE: Cup removed (weight dropped from"
-                         << m_lastIdleWeight << "to" << weight << ") ===";
-                tareScale();
-            }
-        }
-
-        m_lastIdleWeight = weight;
-        m_lastWeightTime = now;
-        return;
+    // Hot water fire-and-forget: if the BLE tare actually worked (scale zeroed),
+    // clear the baseline so SAW uses absolute weight from now on.
+    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0 && m_hotWaterTareTimeMs > 0 && qAbs(weight) < 1.0) {
+        qDebug() << "=== TARE: Scale zeroed, clearing hot water baseline ===";
+        m_hotWaterTareBaseline = 0.0;
     }
+
+    // Burst-log every weight sample for 2s after hot water tare (debugging BLE tare reliability)
+    if (m_phase == Phase::HotWater && m_hotWaterTareTimeMs > 0) {
+        qint64 sinceMs = QDateTime::currentMSecsSinceEpoch() - m_hotWaterTareTimeMs;
+        if (sinceMs < 2000) {
+            qDebug() << "[HW-Tare+" << sinceMs << "ms] scale=" << weight
+                     << "effective=" << (weight - m_hotWaterTareBaseline)
+                     << "baseline=" << m_hotWaterTareBaseline;
+        } else {
+            // First sample past 2s — log whether tare succeeded
+            qDebug() << "[HW-Tare] 2s summary: baseline="
+                     << (m_hotWaterTareBaseline == 0.0 ? "cleared (tare OK)" : QString::number(m_hotWaterTareBaseline, 'f', 1) + "g (tare FAILED, using baseline)");
+            m_hotWaterTareTimeMs = 0;  // Stop burst logging
+        }
+    }
+
 
     // Auto-tare during "flow before" phase (like de1app: heating substates before water flows)
     // Handles forgotten-cup scenario for both Espresso and HotWater
@@ -489,18 +495,24 @@ void MachineState::onScaleWeightChanged(double weight) {
         }
     }
 
-    // Reset tracking when not idle (so we detect removal after next shot)
-    m_lastIdleWeight = 0.0;
-
+    if (!m_device) return;
     DE1::State state = m_device->state();
 
     // Throttled weight logging during SAW-relevant phases (~every 2s)
     if (state == DE1::State::Espresso || state == DE1::State::HotWater) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
         if (now - m_lastWeightLogMs >= 2000) {
-            qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
-                     << "phase=" << phaseString()
-                     << "tare=" << m_tareCompleted;
+            if (state == DE1::State::HotWater && m_hotWaterTareBaseline != 0.0) {
+                qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
+                         << "effective=" << QString::number(weight - m_hotWaterTareBaseline, 'f', 1)
+                         << "baseline=" << QString::number(m_hotWaterTareBaseline, 'f', 1)
+                         << "phase=" << phaseString()
+                         << "tare=" << m_tareCompleted;
+            } else {
+                qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
+                         << "phase=" << phaseString()
+                         << "tare=" << m_tareCompleted;
+            }
             m_lastWeightLogMs = now;
         }
     }
@@ -530,12 +542,19 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
     double target = m_settings ? m_settings->waterVolume() : 0;  // ml ≈ g for water
     if (target <= 0) return;
 
+    // Use weight relative to the baseline recorded at tare time.
+    // If the BLE tare command succeeded, baseline was cleared to 0 (absolute weight).
+    // If the BLE tare was lost/ignored, baseline holds the pre-tare weight so we
+    // measure only the water added since the tare was requested.
+    double effectiveWeight = weight - m_hotWaterTareBaseline;
+
     // Hot water: use fixed 5g offset (predictable, avoids scale-dependent issues)
     double stopThreshold = target - 5.0;
 
-    if (weight >= stopThreshold) {
+    if (effectiveWeight >= stopThreshold) {
         m_stopAtWeightTriggered = true;
-        qDebug() << "[SAW-HotWater] STOP triggered: weight=" << weight
+        qDebug() << "[SAW-HotWater] STOP triggered: effectiveWeight=" << effectiveWeight
+                 << "scaleWeight=" << weight << "baseline=" << m_hotWaterTareBaseline
                  << "threshold=" << stopThreshold << "target=" << target;
         emit targetWeightReached();
 
@@ -619,7 +638,9 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
         }
 
         // Check if we should stop at volume (only during espresso)
-        if (state == DE1::State::Espresso && m_stopAtType == StopAtType::Volume) {
+        // Like de1app, both weight and volume are checked independently —
+        // whichever target is reached first stops the shot.
+        if (state == DE1::State::Espresso) {
             checkStopAtVolume();
         }
     }
@@ -705,38 +726,51 @@ void MachineState::updateCachedFlowRates(double flowRate, double flowRateShort) 
 
 void MachineState::tareScale() {
     // Delegate to timing controller if available (new centralized timing)
-    // Exception: Hot water uses legacy tare that waits for scale response.
-    // ShotTimingController::tare() is fire-and-forget (sets m_tareCompleted immediately),
-    // which is fine for espresso (preheat phase absorbs the delay), but hot water
-    // starts flowing immediately — stale pre-tare weight samples would trigger
-    // checkStopAtWeightHotWater() and stop the operation instantly.
     if (m_timingController && m_phase != Phase::HotWater) {
         m_timingController->tare();
         return;
     }
 
-    // Fallback to legacy implementation
+    // Hot water: fire-and-forget tare (matches de1app behavior).
+    // Record baseline weight so SAW can use (scale_weight - baseline) regardless
+    // of whether the BLE tare command is actually executed by the scale.
+    // When the scale does tare, onScaleWeightChanged detects the drop and clears
+    // the baseline so SAW switches to using absolute weight.
+    if (m_phase == Phase::HotWater && m_scale && m_scale->isConnected()) {
+        m_hotWaterTareBaseline = m_scale->weight();
+        m_hotWaterTareTimeMs = QDateTime::currentMSecsSinceEpoch();
+        m_scale->tare();
+        m_scale->resetFlowCalculation();
+        m_tareCompleted = true;
+        m_waitingForTare = false;
+        if (m_tareTimeoutTimer)
+            m_tareTimeoutTimer->stop();
+        qDebug() << "=== TARE: Hot Water fire-and-forget, baseline=" << m_hotWaterTareBaseline << "g ===";
+        emit tareCompleted();
+        return;
+    }
+
+    // Fallback: legacy wait-for-zero tare (used when no timing controller)
     if (m_scale && m_scale->isConnected()) {
-        // Immediately disable stop-at-weight until tare completes
-        // This prevents early stop if m_tareCompleted was true from a previous operation
+        // Skip if a tare is already in progress — sending another BLE tare command
+        // while waiting for the scale to respond confuses the scale and can cause it
+        // to never report ~0g, eventually triggering a 6s timeout (issue #430).
+        if (m_waitingForTare) {
+            qDebug() << "=== TARE: Skipped (already waiting for scale response) ===";
+            return;
+        }
+
         m_tareCompleted = false;
         m_waitingForTare = true;
 
         m_scale->tare();
-        m_scale->resetFlowCalculation();  // Avoid flow rate spikes after tare
+        m_scale->resetFlowCalculation();
 
-        // Fallback timeout in case scale never reports near-zero
-        // (e.g., scale disconnects, or tare fails). Forcing tareCompleted=true
-        // on timeout is an intentional trade-off: proceeding with potentially
-        // untared weight is less harmful than permanently blocking SAW for the shot.
-        // Created once and reused — start() auto-cancels any pending timeout.
         if (!m_tareTimeoutTimer) {
             m_tareTimeoutTimer = new QTimer(this);
             m_tareTimeoutTimer->setSingleShot(true);
             m_tareTimeoutTimer->setInterval(6000);
             connect(m_tareTimeoutTimer, &QTimer::timeout, this, [this]() {
-                // m_waitingForTare is cleared by onScaleWeightChanged() when tare
-                // succeeds before timeout — this guard prevents spurious tareCompleted().
                 if (m_waitingForTare) {
                     qWarning() << "Tare timeout: scale didn't report ~0g within 6s";
                     m_waitingForTare = false;
@@ -744,8 +778,6 @@ void MachineState::tareScale() {
                     emit tareCompleted();
                 }
             });
-        } else {
-            qDebug() << "=== TARE: Cancelling previous tare timeout (re-tare requested) ===";
         }
         m_tareTimeoutTimer->start();
     }

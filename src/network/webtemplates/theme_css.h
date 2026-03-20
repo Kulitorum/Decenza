@@ -37,16 +37,18 @@ inline constexpr const char* WEB_CSS_THEME_EDITOR = R"CSS(
 .category-title:first-child { margin-top: 0; }
 
 .color-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 0;
+    padding: 4px 0;
 }
 .color-row.on-page {
     background: rgba(255, 255, 255, 0.05);
     border-radius: 4px;
-    padding: 6px 6px;
+    padding: 4px 6px;
     margin: 0 -6px;
+}
+.color-row-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 .page-dot {
     width: 8px;
@@ -66,24 +68,12 @@ inline constexpr const char* WEB_CSS_THEME_EDITOR = R"CSS(
     border-radius: 6px;
     border: 2px solid var(--border);
     cursor: pointer;
-    position: relative;
-    overflow: hidden;
     flex-shrink: 0;
-}
-.color-swatch input[type="color"] {
-    position: absolute;
-    top: -4px;
-    left: -4px;
-    width: 40px;
-    height: 40px;
-    border: none;
-    cursor: pointer;
-    opacity: 0;
 }
 .color-label {
     flex: 1;
     font-size: 14px;
-    min-width: 100px;
+    min-width: 80px;
     cursor: pointer;
     user-select: none;
 }
@@ -99,12 +89,90 @@ inline constexpr const char* WEB_CSS_THEME_EDITOR = R"CSS(
     border-radius: 4px;
     padding: 4px 8px;
     color: var(--text);
-    width: 90px;
+    width: 80px;
     text-align: center;
 }
 .color-hex:focus {
     outline: none;
     border-color: var(--accent);
+}
+.copy-btn {
+    background: var(--surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--text-secondary); }
+
+/* Inline color editor (expands below a color row) */
+.color-editor {
+    padding: 8px 0 8px 50px;
+}
+.editor-toggle {
+    display: flex;
+    gap: 0;
+    margin-bottom: 8px;
+    width: fit-content;
+}
+.editor-toggle .mode-btn {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 3px 14px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.editor-toggle .mode-btn:first-child { border-radius: 4px 0 0 4px; }
+.editor-toggle .mode-btn:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.editor-toggle .mode-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+.editor-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.slider-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    width: 14px;
+    text-align: right;
+    flex-shrink: 0;
+}
+.slider-track {
+    flex: 1;
+    height: 18px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    position: relative;
+    cursor: pointer;
+    touch-action: none;
+}
+.slider-thumb {
+    position: absolute;
+    top: 50%;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid rgba(0,0,0,0.3);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.slider-value {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    color: var(--text);
+    width: 30px;
+    text-align: right;
+    flex-shrink: 0;
 }
 
 /* Right panel - fonts + presets */

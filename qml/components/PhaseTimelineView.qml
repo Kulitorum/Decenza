@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 
 // Horizontal phase journey visualization for espresso extraction.
@@ -390,6 +391,13 @@ Item {
                 sourceSize.width: Theme.scaled(48)
                 sourceSize.height: Theme.scaled(48)
                 opacity: 0
+
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: Theme.successColor
+                }
 
                 NumberAnimation on opacity {
                     running: root.activeIndex === 3

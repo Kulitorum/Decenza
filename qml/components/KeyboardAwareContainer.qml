@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 import Decenza
 
 // Container that shifts content up when a text field has focus.
@@ -18,6 +19,9 @@ Item {
 
     // List of text fields to track
     property var textFields: []
+
+    // Optional Flickable to scroll on Android (adjustPan can't scroll inside Flickables)
+    property Flickable targetFlickable: null
 
     // Current shift amount
     property real keyboardOffset: 0
@@ -51,6 +55,16 @@ Item {
             return
         }
 
+        // Android uses adjustPan which handles keyboard avoidance at the OS level.
+        // Skip container shift to avoid double-shifting, but scroll the Flickable
+        // since adjustPan can't scroll inside Qt Flickables.
+        if (Qt.platform.os === "android") {
+            if (targetFlickable)
+                ensureFieldVisibleInFlickable(focusedField)
+            keyboardOffset = 0
+            return
+        }
+
         // Use real keyboard height if available; estimate only on mobile
         var kbHeight = Qt.inputMethod.keyboardRectangle.height
         if (kbHeight <= 0) {
@@ -73,6 +87,31 @@ Item {
         var margin = root.height * 0.05
 
         keyboardOffset = Math.max(0, fieldBottomOriginal - visibleBottom + margin)
+    }
+
+    function ensureFieldVisibleInFlickable(field) {
+        if (!targetFlickable) return
+
+        var fieldPos = field.mapToItem(targetFlickable.contentItem, 0, 0)
+        var fieldBottom = fieldPos.y + field.height
+
+        // This function is only called on Android where adjustPan handles
+        // keyboard avoidance at the OS level (shifts the window up).
+        // Only scroll the Flickable when the field is outside its normal
+        // viewport — don't subtract keyboard height since adjustPan handles that.
+        var visibleHeight = targetFlickable.height
+        var margin = 20
+        var maxContentY = Math.max(0, targetFlickable.contentHeight - targetFlickable.height)
+
+        // Scroll up if field is above visible area
+        if (fieldPos.y < targetFlickable.contentY + margin) {
+            targetFlickable.contentY = Math.max(0, fieldPos.y - margin)
+        }
+        // Scroll down if field is below visible area
+        else if (fieldBottom + margin > targetFlickable.contentY + visibleHeight) {
+            targetFlickable.contentY = Math.min(
+                fieldBottom + margin - visibleHeight, maxContentY)
+        }
     }
 
     // Connect to each text field's focus signal

@@ -15,9 +15,16 @@ MouseArea {
     // The item to track for "tap again to activate" (defaults to parent)
     property var accessibleItem: parent
 
-    // Accessibility: Make this a proper button for screen readers
-    Accessible.role: Accessible.Button
+    // Optional: override accessible role (default Button, set to Accessible.CheckBox for toggles)
+    property int accessibleRole: Accessible.Button
+
+    // Optional: checked state for CheckBox role
+    property bool accessibleChecked: false
+
+    // Accessibility: Make this a proper interactive element for screen readers
+    Accessible.role: root.accessibleRole
     Accessible.name: root.accessibleName
+    Accessible.checked: root.accessibleChecked
     Accessible.focusable: true
 
     // Handle TalkBack/VoiceOver activation via accessibility press action

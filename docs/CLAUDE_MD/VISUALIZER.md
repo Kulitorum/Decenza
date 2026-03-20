@@ -13,6 +13,100 @@ Supported metadata fields:
 - `drink_tds`, `drink_ey`, `espresso_enjoyment`
 - `dyeShotNotes`, `barista`
 
+### Shot Upload (VisualizerUploader)
+
+- **Location**: `src/network/visualizeruploader.h/.cpp`
+- **Endpoint**: `POST https://visualizer.coffee/api/shots/upload` (multipart form-data)
+- **Auth**: HTTP Basic Auth (username:password base64)
+- **Update**: `PATCH https://visualizer.coffee/api/shots/{id}` (JSON body)
+- **Two paths**: `buildShotJson()` for live shots, `buildHistoryShotJson()` for history re-uploads
+
+#### Upload JSON Structure
+
+The upload JSON matches de1app v2 format:
+
+```
+{
+  "version": 2,
+  "clock": <unix_timestamp>,
+  "date": "<ISO 8601>",
+  "timestamp": <unix_timestamp>,
+  "elapsed": [<seconds>...],
+  "pressure": { "pressure": [...], "goal": [...] },
+  "flow": { "flow": [...], "goal": [...], "by_weight": [...], "by_weight_raw": [...] },
+  "temperature": { "basket": [...], "mix": [...], "goal": [...] },
+  "totals": { "weight": [...], "water_dispensed": [...] },
+  "resistance": { "resistance": [...] },
+  "state_change": [...],
+  "meta": { "bean": {...}, "shot": {...}, "grinder": {...}, "in": N, "out": N, "time": N },
+  "profile": { <full profile JSON> },
+  "app": {
+    "app_name": "Decenza",
+    "app_version": "<version>",
+    "data": {
+      "settings": { <DYE metadata + profile TCL fields> },
+      "machine_state": { "firmware_version": "...", "state": "...", ... }
+    }
+  }
+}
+```
+
+#### app.data.settings — Critical for Visualizer Profile Extraction
+
+The Visualizer's server-side `DecentJson` parser extracts profile fields from `app.data.settings` using a fixed list of TCL field names (`PROFILE_FIELDS`). De1app dumps its entire `::settings` array (hundreds of keys); Decenza sends a curated subset via `buildProfileSettings()`.
+
+**DYE metadata fields**: `bean_brand`, `bean_type`, `roast_date`, `roast_level`, `grinder_model`, `grinder_setting`, `grinder_dose_weight`, `drink_weight`, `drink_tds`, `drink_ey`, `espresso_enjoyment`, `espresso_notes`, `barista`, `profile_title`
+
+**Profile fields** (for Visualizer TCL reconstruction):
+- `settings_profile_type` — `settings_2a`/`settings_2b`/`settings_2c`
+- `espresso_temperature`, `espresso_temperature_0..3` — temperature presets (as strings)
+- `maximum_pressure`, `maximum_flow`, `flow_profile_minimum_pressure`
+- `tank_desired_water_temperature`, `maximum_flow_range_advanced`, `maximum_pressure_range_advanced`
+- `final_desired_shot_weight`, `final_desired_shot_weight_advanced`
+- `final_desired_shot_volume`, `final_desired_shot_volume_advanced`
+- `final_desired_shot_volume_advanced_count_start` — preinfuse frame count
+- `advanced_shot` — TCL list of all frames via `ProfileFrame::toTclList()`
+
+**Simple profile params** (for settings_2a/2b reconstruction):
+- `preinfusion_time`, `preinfusion_flow_rate`, `preinfusion_stop_pressure`
+- `espresso_pressure`, `espresso_hold_time`, `espresso_decline_time`, `pressure_end`
+- `flow_profile_hold`, `flow_profile_decline`
+- `maximum_flow_range_default`, `maximum_pressure_range_default`
+
+#### ProfileFrame::toTclList()
+
+Inverse of `fromTclList()`. Serializes a frame to de1app TCL list format:
+```
+{name {preinfusion} temperature 93.00 sensor coffee pump pressure transition fast pressure 3.50 flow 2.00 seconds 5.00 volume 0.0 exit_if 1 exit_type {pressure_over} exit_pressure_over 9.00 ...}
+```
+
+#### state_change Array
+
+Matches de1app format: a per-sample array where the value alternates between `10000000` and `-10000000` at each frame transition. Generated from `ShotDataModel::phaseMarkersList()` (live) or history phase markers. Used by Visualizer to draw vertical frame marker lines.
+
+#### flow.by_weight_raw
+
+Raw (pre-smoothing) weight flow rate from scale. `ShotDataModel::smoothWeightFlowRate()` saves a copy of the raw data before applying the centered moving average.
+
+#### app.data.machine_state
+
+Includes `firmware_version`, `state`, `substate`, and `headless` flag from `DE1Device`. De1app dumps its entire `::DE1` array; Decenza sends key fields only.
+
+### Feature Parity with de1app
+
+Decenza's upload is at feature parity with de1app for Visualizer's purposes. Key differences:
+
+| Aspect | de1app | Decenza |
+|--------|--------|---------|
+| `app.data.settings` | Entire `::settings` array (hundreds of keys) | Curated subset (~40 keys) |
+| `app.data.machine_state` | Entire `::DE1` array | Key fields only (firmware, state, headless) |
+| `flow.by_weight_raw` | Raw scale flow rate | Raw scale flow rate |
+| `state_change` | Per-sample alternating sign | Per-sample alternating sign (from phase markers) |
+| `resistance.by_weight` | Resistance from weight flow | Not sent (minimal Visualizer impact) |
+| `timers` | Timer reference points | Not sent (not used by Visualizer) |
+| `scale` | Raw scale data (timestamps, raw weight) | Not sent (not used by Visualizer) |
+| `meta.bean.notes` | Bean notes field | Not sent (Decenza doesn't store bean notes separately) |
+
 ### Profile Import (VisualizerImporter)
 - **Location**: `src/network/visualizerimporter.cpp/.h`
 - **QML Page**: `qml/pages/VisualizerBrowserPage.qml`

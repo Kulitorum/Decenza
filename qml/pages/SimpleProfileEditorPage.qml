@@ -184,7 +184,7 @@ Page {
     KeyboardAwareContainer {
         id: keyboardContainer
         anchors.fill: parent
-        textFields: [notesField, saveAsTitleField]
+        textFields: [notesField.textField, saveAsTitleField]
 
     // Editor mode header
     Rectangle {
@@ -263,40 +263,16 @@ Page {
                     }
                 }
 
-                Rectangle {
+                ExpandableTextArea {
+                    id: notesField
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(80)
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-                    clip: true
-
-                    ScrollView {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(6)
-                        contentWidth: availableWidth
-                        ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-                        TextArea {
-                            id: notesField
-                            Accessible.role: Accessible.EditableText
-                            Accessible.name: TranslationManager.translate("profileEditor.accessible.profileDescription", "Profile description")
-                            Accessible.description: text
-                            Accessible.focusable: true
-                            text: profile ? (profile.profile_notes || "") : ""
-                            font: Theme.labelFont
-                            color: Theme.textColor
-                            wrapMode: TextArea.Wrap
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            topPadding: Theme.scaled(4)
-                            bottomPadding: Theme.scaled(4)
-                            background: Rectangle { color: "transparent" }
-                            onEditingFinished: {
-                                if (profile) {
-                                    profile.profile_notes = text
-                                    MainController.uploadProfile(profile)
-                                }
-                            }
+                    accessibleName: TranslationManager.translate("profileEditor.accessible.profileDescription", "Profile description")
+                    text: profile ? (profile.profile_notes || "") : ""
+                    textFont: Theme.labelFont
+                    onEditingFinished: {
+                        if (profile) {
+                            profile.profile_notes = text
+                            MainController.uploadProfile(profile)
                         }
                     }
                 }
@@ -406,6 +382,10 @@ Page {
                                 value: val(recipe.pourTemperature, 90)
                                 onValueModified: function(newValue) { updateProfileTemp(Math.round(newValue * 10) / 10) }
                             }
+
+                            // Dose
+                            Text { text: TranslationManager.translate("simpleProfile.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: val(recipe.dose, 18); onValueModified: function(newValue) { updateRecipe("dose", Math.round(newValue * 10) / 10) } }
                         }
 
                         // Separator
@@ -500,7 +480,7 @@ Page {
                                 Text { text: isFlow ? TranslationManager.translate("simpleProfile.flow", "Flow") : TranslationManager.translate("simpleProfile.limitFlow", "Limit flow"); font: Theme.captionFont; color: Theme.flowColor }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.flowColor
-                                    accessibleName: isFlow ? "Hold flow" : "Flow limiter"
+                                    accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.holdFlow", "Hold flow") : TranslationManager.translate("simpleProfileEditor.flowLimiter", "Flow limiter")
                                     from: isFlow ? 0.1 : 0; to: 8; stepSize: 0.1; suffix: " mL/s"
                                     value: isFlow ? val(recipe.holdFlow, 2.2) : val(recipe.limiterValue, 3.5)
                                     onValueModified: function(newValue) { isFlow
@@ -512,7 +492,7 @@ Page {
                                 Text { text: isFlow ? TranslationManager.translate("simpleProfile.limitPressure", "Limit pressure") : TranslationManager.translate("simpleProfile.pressure2", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.pressureColor
-                                    accessibleName: isFlow ? "Pressure limiter" : "Hold pressure"
+                                    accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.pressureLimiter", "Pressure limiter") : TranslationManager.translate("simpleProfileEditor.holdPressure", "Hold pressure")
                                     from: isFlow ? 0 : 1; to: 12; stepSize: 0.1; suffix: " bar"
                                     value: isFlow ? val(recipe.limiterValue, 3.5) : val(recipe.espressoPressure, 8.4)
                                     onValueModified: function(newValue) { isFlow
@@ -562,7 +542,7 @@ Page {
                                 Text { text: isFlow ? TranslationManager.translate("simpleProfile.endFlow", "Flow") : TranslationManager.translate("simpleProfile.endPressure", "Pressure"); font: Theme.captionFont; color: isFlow ? Theme.flowColor : Theme.pressureColor }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: isFlow ? Theme.flowColor : Theme.pressureColor
-                                    accessibleName: isFlow ? "Decline end flow" : "Decline pressure"
+                                    accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.declineEndFlow", "Decline end flow") : TranslationManager.translate("simpleProfileEditor.declinePressure", "Decline pressure")
                                     from: 0; to: isFlow ? 8 : 12; stepSize: 0.1; suffix: isFlow ? " mL/s" : " bar"
                                     value: isFlow ? val(recipe.flowEnd, 1.8) : val(recipe.pressureEnd, 6.0)
                                     onValueModified: function(newValue) { isFlow
@@ -593,13 +573,9 @@ Page {
                                     Text { text: tr("stopAtWeight", "Stop at Weight"); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.textColor }
                                 }
 
-                                // Dose
-                                Text { text: TranslationManager.translate("simpleProfile.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: val(recipe.dose, 18); onValueModified: function(newValue) { updateRecipe("dose", Math.round(newValue * 10) / 10) } }
-
                                 // Weight
                                 Text { text: TranslationManager.translate("simpleProfile.weight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.targetWeight", "Target weight"); from: 0; to: 100; stepSize: 0.1; suffix: " g"; displayText: val(recipe.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: val(recipe.targetWeight, 36); onValueModified: function(newValue) { updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
 
                                 Text {
                                     Layout.fillWidth: true
@@ -626,25 +602,28 @@ Page {
         onBackClicked: handleBack()
 
         Text {
-            text: "\u2022 Modified"
+            text: "\u2022 " + TranslationManager.translate("simpleProfileEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
             visible: recipeModified
         }
 
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
             text: MainController.frameCount() + " " + tr("frames", "frames")
-            color: "white"
+            color: bottomBar.contentColor
             font: Theme.bodyFont
         }
 
-        Rectangle { width: 1; height: Theme.scaled(30); color: "white"; opacity: 0.3 }
+        Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: val(recipe.targetWeight, 36).toFixed(0) + "g"
-            color: "white"
+            text: {
+                var w = val(recipe.targetWeight, 36)
+                return w > 0 ? w.toFixed(0) + TranslationManager.translate("units.grams", "g") : TranslationManager.translate("profileEditor.off", "off")
+            }
+            color: bottomBar.contentColor
             font: Theme.bodyFont
         }
 
@@ -790,7 +769,7 @@ Page {
                         Item { Layout.fillWidth: true }
                         Text { text: val(recipe.tempHold, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: isFlow ? "Hold temperature" : "Rise and hold temperature"; from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempHold, 90); onValueModified: function(newValue) { updateRecipe("tempHold", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.holdTemperature", "Hold temperature") : TranslationManager.translate("simpleProfileEditor.riseAndHoldTemperature", "Rise and hold temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempHold, 90); onValueModified: function(newValue) { updateRecipe("tempHold", Math.round(newValue * 10) / 10) } }
                 }
 
                 // 3: Decline
@@ -884,8 +863,8 @@ Page {
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
                 Layout.bottomMargin: Theme.scaled(20)
-                text: "OK"
-                accessibleName: "OK"
+                text: TranslationManager.translate("common.button.ok", "OK")
+                accessibleName: TranslationManager.translate("common.button.ok", "OK")
                 onClicked: saveErrorDialog.close()
                 background: Rectangle {
                     implicitHeight: Theme.scaled(44)
@@ -988,7 +967,7 @@ Page {
                     id: saveAsTitleField
                     Accessible.name: TranslationManager.translate("simpleProfileEditor.profileName", "Profile name")
                     Layout.fillWidth: true
-                    text: isFlow ? "New Flow Profile" : "New Pressure Profile"
+                    text: isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
                     font: Theme.bodyFont
                     color: Theme.textColor
                     placeholder: tr("namePlaceholder", "Enter profile name")
@@ -1069,7 +1048,7 @@ Page {
         }
 
         onOpened: {
-            var defaultName = isFlow ? "New Flow Profile" : "New Pressure Profile"
+            var defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
             saveAsTitleField.text = MainController.currentProfileName || defaultName
             saveAsTitleField.forceActiveFocus()
         }
@@ -1191,7 +1170,7 @@ Page {
             freshConversion = true
             console.warn("SimpleProfileEditorPage: Converting non-recipe profile to",
                          isFlow ? "flow" : "pressure", "- original:", MainController.currentProfileName)
-            var defaultName = isFlow ? "New Flow Profile" : "New Pressure Profile"
+            var defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
             if (isFlow) {
                 MainController.createNewFlowProfile(MainController.currentProfileName || defaultName)
             } else {

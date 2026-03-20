@@ -10,10 +10,14 @@ on:
         default: 'false'
         type: boolean
 
-  # Or trigger on version tags
+  # Trigger on version tags (pre-release and release)
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,7 +54,7 @@ jobs:
           cache-key-prefix: 'qt-ios-v4'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1
+        uses: hendrikmuhs/ccache-action@v1.2.21
         with:
           key: ios-arm64
           max-size: 500M
@@ -205,7 +209,28 @@ jobs:
           retention-days: 1
           overwrite: true
 
+      - name: Upload dSYMs for crash symbolication
+        uses: actions/upload-artifact@v7
+        with:
+          name: Decenza-iOS-dSYMs
+          path: ${{ runner.temp }}/Decenza.xcarchive/dSYMs/
+          retention-days: 90
+          overwrite: true
+
       - name: Cleanup keychain
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+      - name: Warm main branch cache for next release
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          IS_PRERELEASE=$(gh release view "$TAG" --json isPrerelease --jq '.isPrerelease')
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "Skipping cache warm for pre-release $TAG"
+          else
+            gh workflow run "$GITHUB_WORKFLOW" --ref main || echo "Cache warm dispatch failed (non-fatal)"
+          fi

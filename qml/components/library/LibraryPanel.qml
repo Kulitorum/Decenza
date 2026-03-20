@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import ".."
 
@@ -125,6 +126,13 @@ Rectangle {
                     sourceSize.width: Theme.scaled(14)
                     sourceSize.height: Theme.scaled(14)
                     opacity: displayMode === 1 ? 1.0 : 0.4
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
 
                 MouseArea {
@@ -235,6 +243,13 @@ Rectangle {
                     source: "qrc:/icons/plus.svg"
                     sourceSize.width: Theme.scaled(16)
                     sourceSize.height: Theme.scaled(16)
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
 
                 MouseArea {
@@ -342,6 +357,13 @@ Rectangle {
                     source: "qrc:/icons/ArrowLeft.svg"
                     sourceSize.width: Theme.scaled(16)
                     sourceSize.height: Theme.scaled(16)
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
 
                 MouseArea {
@@ -372,6 +394,13 @@ Rectangle {
                     source: "qrc:/icons/cross-filled.svg"  // Delete
                     sourceSize.width: Theme.scaled(14)
                     sourceSize.height: Theme.scaled(14)
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.errorColor
+                    }
                 }
 
                 MouseArea {
@@ -403,6 +432,13 @@ Rectangle {
                     source: "qrc:/icons/Upload.svg"
                     sourceSize.width: Theme.scaled(16)
                     sourceSize.height: Theme.scaled(16)
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
 
                 MouseArea {

@@ -47,12 +47,26 @@ LocationProvider::LocationProvider(QNetworkAccessManager* networkManager, QObjec
                  << "methods:" << m_source->supportedPositioningMethods();
 
         // Try to get last known position immediately (might be cached from previous app run)
+        // Use it right away so hasLocation is true and the UI doesn't flash "GPS disabled"
         QGeoPositionInfo lastPos = m_source->lastKnownPosition();
         if (lastPos.isValid()) {
             QGeoCoordinate coord = lastPos.coordinate();
+            auto ageSecs = lastPos.timestamp().secsTo(QDateTime::currentDateTime());
             qDebug() << "LocationProvider: Last known position available -"
                      << "Lat:" << coord.latitude() << "Lon:" << coord.longitude()
-                     << "Age:" << lastPos.timestamp().secsTo(QDateTime::currentDateTime()) << "seconds";
+                     << "Age:" << ageSecs << "seconds";
+
+            // Use cached position immediately (even if stale) so the UI shows a location
+            // instead of "GPS disabled". A fresh fix will replace it shortly.
+            m_currentLocation.latitude = coord.latitude();
+            m_currentLocation.longitude = coord.longitude();
+            m_currentLocation.valid = true;
+            // Defer geocoding and fresh fix to avoid blocking constructor
+            QTimer::singleShot(0, this, [this, coord]() {
+                reverseGeocode(coord.latitude(), coord.longitude());
+                // Also request a fresh fix to replace the stale cached position
+                requestUpdate();
+            });
         } else {
             qDebug() << "LocationProvider: No last known position available";
         }
@@ -154,6 +168,7 @@ void LocationProvider::onPositionUpdated(const QGeoPositionInfo& info)
 
     m_currentLocation.latitude = coord.latitude();
     m_currentLocation.longitude = coord.longitude();
+    m_hasFreshFix = true;
 
     // Check if we need to reverse geocode (position changed significantly)
     double latDiff = std::abs(coord.latitude() - m_lastGeocodedLat);
@@ -465,8 +480,8 @@ void LocationProvider::onAppStateChanged(Qt::ApplicationState state)
     if (state != Qt::ApplicationActive)
         return;
 
-    // If we already have a location (GPS or manual), nothing to do
-    if (m_currentLocation.valid || !m_manualCity.isEmpty())
+    // If we have a fresh GPS fix or manual city, nothing to do
+    if (m_hasFreshFix || !m_manualCity.isEmpty())
         return;
 
     // No source yet (permission may have just been granted) — try creating one

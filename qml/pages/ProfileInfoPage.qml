@@ -137,13 +137,12 @@ Page {
                         Text {
                             text: {
                                 if (!profileData) return "-"
-                                var type = profileData.stop_at_type === "volume" ?
-                                    TranslationManager.translate("profileinfo.volume", "Volume") :
-                                    TranslationManager.translate("profileinfo.weight", "Weight")
-                                var value = profileData.stop_at_type === "volume" ?
-                                    (profileData.target_volume || 0).toFixed(0) + " ml" :
-                                    (profileData.target_weight || 0).toFixed(0) + " g"
-                                return type + ", " + value
+                                var parts = []
+                                if (profileData.target_weight > 0)
+                                    parts.push(TranslationManager.translate("profileinfo.weight", "Weight") + " " + profileData.target_weight.toFixed(0) + " g")
+                                if (profileData.target_volume > 0)
+                                    parts.push(TranslationManager.translate("profileinfo.volume", "Volume") + " " + profileData.target_volume.toFixed(0) + " ml")
+                                return parts.length > 0 ? parts.join(", ") : TranslationManager.translate("profileEditor.off", "off")
                             }
                             font: Theme.bodyFont
                             color: Theme.textColor

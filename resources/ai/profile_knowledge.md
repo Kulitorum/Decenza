@@ -8,11 +8,12 @@ Also matches: "D-Flow / Q", "D-Flow / La Pavoni", "Damian's Q", "Damian's LRv2",
 Category: Lever/Flow hybrid (Londinium family)
 How it works: All D-Flow variants and Damian's profiles share the same core: pressurized pre-infusion with soak, then flow-controlled pour (default 1.7 ml/s). Pressure peaks then gradually declines — this is intentional lever-style behavior. Can heal uneven puck prep.
 Variants: "D-Flow / default" is the starter profile. "D-Flow / Q" (also "Damian's Q") is optimized for medium-light beans. "D-Flow / La Pavoni" emulates a La Pavoni lever. "Damian's LM Leva" emulates a La Marzocco Leva — more creamy than chocolatey body.
-Expected curves: Pressure peaks ~8-9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
+Expected curves: Pressure peaks between 6 and 9 bar early, then declines as puck erodes. Flow stays near target (1.7-2.7 ml/s). Declining pressure is NORMAL and INTENTIONAL.
 Damian's LRv2: If the puck erodes too fast during extraction, switches from pressure to flow control at 1.7 ml/s. This may cause a pressure drop — intentional puck-erosion recovery.
 Damian's LRv3: Pure lever decline — does NOT switch to flow control. Simpler and preferred when dialed in well.
-Temperature: ~88°C typical
-Grind: Medium-fine
+Temperature: The low fill temperature (e.g. 84°C) is INTENTIONAL and controls bitterness — hotter fill water produces dark spots in the crema and more bitter taste. After filling, the target rises to 94°C, but the coffee never reaches 94°C — the high setpoint just makes the heater pump hot water that mixes with the cooler water above the puck, gradually reaching ~88°C at the basket. This is a KEY aspect of D-Flow. DO NOT flag the large gap between temperature target (94°C) and actual (~86-88°C) as a problem — it is by design.
+Flow calibration: If actual flow is consistently below target (e.g. 1.8 target but only 1.5 actual), the flow sensor may be over-reading by ~20%. Reducing the calibration value will show more pressure for the same grind.
+Grind: Medium-fine. Grind determines curve shape: finer grinds produce constant-pressure extraction (boiler-like), coarser grinds produce declining pressure (lever-like). Both are valid — the pressure curve shape is a function of grind, not a problem.
 Roast: All roasts. Excellent for medium (floral/fruity + chocolate). Good for light and dark.
 DO NOT flag declining pressure as a problem — it defines this entire profile family.
 

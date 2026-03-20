@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../components"
 
@@ -248,6 +249,7 @@ Page {
     KeyboardAwareContainer {
         id: keyboardContainer
         anchors.fill: parent
+        targetFlickable: flickable
         textFields: [
             roasterField.textField, coffeeField.textField, roastDateField.textField,
             grinderBrandField.textField, grinderModelField.textField, grinderBurrsField.textField,
@@ -618,7 +620,11 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
                     text: editBeanBrand
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                        if (editBeanBrand.length > 0 && list.indexOf(editBeanBrand) === -1) list = [editBeanBrand].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editBeanBrand = t }
                     onSuggestionSelected: function(t) {
                         editBeanType = ""
@@ -634,19 +640,51 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
                     text: editBeanType
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
+                        if (editBeanType.length > 0 && list.indexOf(editBeanType) === -1) list = [editBeanType].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editBeanType = t }
                     onSuggestionSelected: function(t) { editRoastDate = "" }
                 }
 
-                LabeledField {
-                    id: roastDateField
+                Item {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.roastdate", "Roast date (yyyy-mm-dd)")
-                    text: editRoastDate
-                    inputHints: Qt.ImhDate
-                    inputMask: "9999-99-99"
-                    onTextEdited: function(t) { editRoastDate = t }
+                    implicitHeight: roastDateField.implicitHeight
+
+                    LabeledField {
+                        id: roastDateField
+                        anchors.left: parent.left
+                        anchors.right: reviewCalendarBtn.left
+                        anchors.rightMargin: Theme.scaled(4)
+                        label: TranslationManager.translate("postshotreview.label.roastdate", "Roast date (yyyy-mm-dd)")
+                        text: editRoastDate
+                        inputHints: Qt.ImhDate
+                        inputMask: "9999-99-99"
+                        onTextEdited: function(t) { editRoastDate = t }
+                    }
+
+                    AccessibleButton {
+                        id: reviewCalendarBtn
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: Theme.scaled(44)
+                        height: Theme.scaled(44)
+                        accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                        leftPadding: Theme.scaled(8)
+                        rightPadding: Theme.scaled(8)
+                        icon.source: "qrc:/emoji/1f4c5.svg"
+                        icon.width: Theme.scaled(20)
+                        icon.height: Theme.scaled(20)
+                        text: ""
+                        onClicked: reviewDatePicker.openWithDate(editRoastDate)
+                    }
+
+                    DatePickerDialog {
+                        id: reviewDatePicker
+                        onDateSelected: function(dateString) { editRoastDate = dateString }
+                    }
                 }
 
                 // === ROW 2: Roast level, Grinder ===
@@ -734,7 +772,11 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.setting", "Setting")
                     text: editGrinderSetting
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
+                        if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editGrinderSetting = t }
                 }
 
@@ -752,7 +794,11 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: editBarista
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        if (editBarista.length > 0 && list.indexOf(editBarista) === -1) list = [editBarista].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editBarista = t }
                 }
 
@@ -1037,6 +1083,13 @@ Page {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: status === Image.Ready
                     Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textColor
+                    }
                 }
 
                 Tr {
@@ -1058,6 +1111,67 @@ Page {
                 enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
                 onClicked: {
                     conversationOverlay.openWithShot(editShotData, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
+                }
+            }
+        }
+
+        // Discuss button - opens external AI app
+        Rectangle {
+            id: discussButton
+            visible: editShotData.id > 0
+            Layout.preferredWidth: discussContent.width + 32
+            Layout.preferredHeight: Theme.scaled(44)
+            radius: Theme.scaled(8)
+            color: Theme.primaryColor
+
+            Accessible.role: Accessible.Button
+            Accessible.name: TranslationManager.translate("postshotreview.accessible.discuss", "Discuss shot with external AI app")
+            Accessible.focusable: true
+            Accessible.onPressAction: discussArea.clicked(null)
+
+            Row {
+                id: discussContent
+                anchors.centerIn: parent
+                spacing: Theme.scaled(6)
+
+                Image {
+                    source: "qrc:/icons/sparkle.svg"
+                    width: Theme.scaled(18)
+                    height: Theme.scaled(18)
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: status === Image.Ready
+                    Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: "white"
+                    }
+                }
+
+                Tr {
+                    key: "postshotreview.button.discuss"
+                    fallback: "Discuss"
+                    color: "white"
+                    font: Theme.bodyFont
+                    anchors.verticalCenter: parent.verticalCenter
+                    Accessible.ignored: true
+                }
+            }
+
+            MouseArea {
+                id: discussArea
+                anchors.fill: parent
+                onClicked: {
+                    // Copy shot summary to clipboard if MCP is not connected
+                    if (!Settings.mcpEnabled && MainController.aiManager) {
+                        var summary = MainController.aiManager.generateHistoryShotSummary(editShotData)
+                        if (summary.length > 0) MainController.copyToClipboard(summary)
+                    }
+                    // Open configured AI app
+                    var url = Settings.discussShotUrl()
+                    if (url.length > 0) Qt.openUrlExternally(url)
                 }
             }
         }
@@ -1089,6 +1203,13 @@ Page {
                     visible: status === Image.Ready
                     opacity: 0.6
                     Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.textSecondaryColor
+                    }
                 }
 
                 Tr {

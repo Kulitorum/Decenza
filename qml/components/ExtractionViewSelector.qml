@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "."
 
@@ -10,13 +11,17 @@ Dialog {
 
     property string currentMode: "chart"
     property bool showPhaseIndicator: true
+    property bool showStats: true
     signal modeSelected(string mode)
     signal phaseIndicatorToggled(bool enabled)
+    signal statsToggled(bool enabled)
 
     title: TranslationManager.translate("espresso.viewSelector.title", "Extraction View")
     modal: true
     anchors.centerIn: parent
     width: Math.min(parent.width * 0.85, Theme.scaled(360))
+    // Let the Dialog auto-size vertically from content
+    padding: 0
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -25,18 +30,22 @@ Dialog {
         border.width: 1
     }
 
-    header: Item {
-        height: Theme.scaled(48)
+    header: null
+    footer: null
+
+    contentItem: ColumnLayout {
+        id: contentColumn
+        spacing: Theme.spacingSmall
+
+        // Title (moved from header to content so it's part of the measured layout)
         Text {
-            anchors.centerIn: parent
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Theme.spacingMedium
             text: selectorDialog.title
             color: Theme.textColor
             font: Theme.subtitleFont
+            Accessible.ignored: true  // Dialog.title already announces this
         }
-    }
-
-    contentItem: ColumnLayout {
-        spacing: Theme.spacingSmall
 
         Repeater {
             model: ListModel {
@@ -61,7 +70,7 @@ Dialog {
             delegate: Rectangle {
                 id: optionCard
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(72)
+                implicitHeight: optionRow.implicitHeight + Theme.spacingMedium * 2
                 radius: Theme.cardRadius
                 color: Theme.backgroundColor
                 border.color: selectorDialog.currentMode === model.mode
@@ -72,7 +81,10 @@ Dialog {
                 Accessible.ignored: true
 
                 RowLayout {
-                    anchors.fill: parent
+                    id: optionRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingMedium
 
@@ -81,6 +93,13 @@ Dialog {
                         sourceSize.width: Theme.scaled(28)
                         sourceSize.height: Theme.scaled(28)
                         Layout.alignment: Qt.AlignVCenter
+
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.textColor
+                        }
                     }
 
                     ColumnLayout {
@@ -101,7 +120,7 @@ Dialog {
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                             Layout.fillWidth: true
-                            elide: Text.ElideRight
+                            wrapMode: Text.WordWrap
                             Accessible.ignored: true
                         }
                     }
@@ -151,13 +170,15 @@ Dialog {
 
         // Phase indicator toggle
         Rectangle {
+            id: phaseToggleCard
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(48)
             Layout.topMargin: Theme.spacingSmall
             radius: Theme.cardRadius
             color: Theme.backgroundColor
-
             Accessible.ignored: true
+
+            property bool isChecked: selectorDialog.showPhaseIndicator
 
             RowLayout {
                 anchors.fill: parent
@@ -174,19 +195,104 @@ Dialog {
                     Accessible.ignored: true
                 }
 
-                CheckBox {
-                    id: phaseIndicatorCheck
-                    checked: selectorDialog.showPhaseIndicator
-                    Accessible.name: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
-                    Accessible.checked: checked
-                    Accessible.focusable: true
-                    onToggled: {
-                        selectorDialog.phaseIndicatorToggled(checked)
+                Rectangle {
+                    width: Theme.scaled(20)
+                    height: Theme.scaled(20)
+                    radius: Theme.scaled(4)
+                    color: phaseToggleCard.isChecked ? Theme.primaryColor : "transparent"
+                    border.color: phaseToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
+                    border.width: Theme.scaled(2)
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/tick.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
+                        visible: phaseToggleCard.isChecked
+                        Accessible.ignored: true
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.surfaceColor
+                        }
                     }
                 }
             }
+
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
+                accessibleItem: phaseToggleCard
+                accessibleRole: Accessible.CheckBox
+                accessibleChecked: phaseToggleCard.isChecked
+                onAccessibleClicked: selectorDialog.phaseIndicatorToggled(!phaseToggleCard.isChecked)
+            }
+        }
+
+        // Stats toggle
+        Rectangle {
+            id: statsToggleCard
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.scaled(48)
+            Layout.topMargin: Theme.spacingSmall
+            Layout.bottomMargin: Theme.spacingMedium
+            radius: Theme.cardRadius
+            color: Theme.backgroundColor
+            Accessible.ignored: true
+
+            property bool isChecked: selectorDialog.showStats
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacingMedium
+                anchors.rightMargin: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
+                    color: Theme.textColor
+                    font.family: Theme.bodyFont.family
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    Layout.fillWidth: true
+                    Accessible.ignored: true
+                }
+
+                Rectangle {
+                    width: Theme.scaled(20)
+                    height: Theme.scaled(20)
+                    radius: Theme.scaled(4)
+                    color: statsToggleCard.isChecked ? Theme.primaryColor : "transparent"
+                    border.color: statsToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
+                    border.width: Theme.scaled(2)
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/tick.svg"
+                        sourceSize.width: Theme.scaled(14)
+                        sourceSize.height: Theme.scaled(14)
+                        visible: statsToggleCard.isChecked
+                        Accessible.ignored: true
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.surfaceColor
+                        }
+                    }
+                }
+            }
+
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
+                accessibleItem: statsToggleCard
+                accessibleRole: Accessible.CheckBox
+                accessibleChecked: statsToggleCard.isChecked
+                onAccessibleClicked: selectorDialog.statsToggled(!statsToggleCard.isChecked)
+            }
         }
     }
-
-    footer: null
 }

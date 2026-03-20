@@ -76,6 +76,7 @@ void ScaleDevice::setConnected(bool connected) {
         } else {
             qWarning() << "[Scale]" << name() << "DISCONNECTED";
             m_keepAliveTimer.stop();
+            setBatteryLevel(-1);  // Clear stale reading for reconnect
         }
         emit connectedChanged();
     }

@@ -20,7 +20,7 @@ public slots:
     void stopTimer() override;
     void resetTimer() override;
     void sendKeepAlive() override;
-    void sleep() override { turnOff(); }
+    void sleep() override;
 
     void setUnitToGrams();
     void turnOff();

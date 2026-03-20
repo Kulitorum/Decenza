@@ -81,7 +81,7 @@ git push origin vX.Y.Z
 
 **IMPORTANT: Always use tag pushes to build releases.** Never use `workflow_dispatch` for release builds — it skips version code bumps and causes duplicate upload errors (especially iOS App Store). The `workflow_dispatch` trigger is only for test builds that don't upload anywhere.
 
-**IMPORTANT**: Release notes should only include **user-experience changes** (new features, UI changes, bug fixes users would notice). Skip internal changes like code refactoring, developer tools, translation system improvements, or debug logging changes.
+**IMPORTANT**: Release notes should only include **user-experience changes** (new features, UI changes, bug fixes users would notice). Skip internal changes like code refactoring, developer tools, translation system improvements, or debug logging changes. Use sectioned format: `### New Features`, `### Improvements`, `### Bug Fixes`.
 
 #### Step 1: Review changes since last release
 ```bash
@@ -107,6 +107,9 @@ gh release create vX.Y.Z \
 - Feature 1 (from commit messages)
 - Feature 2
 
+### Improvements
+- Improvement 1
+
 ### Bug Fixes
 - Fix 1
 - Fix 2
@@ -122,7 +125,13 @@ EOF
 
 #### Step 3: Push the tag to trigger builds
 ```bash
+# IMPORTANT: Verify local main is synced with origin BEFORE tagging.
+# Stale tracking branches or failed pulls can leave HEAD on the wrong commit.
+git fetch origin && git reset --hard origin/main
+git rev-parse HEAD  # Verify this matches the expected commit
+
 git tag vX.Y.Z
+git rev-parse vX.Y.Z  # Must match HEAD above
 git push origin vX.Y.Z
 ```
 
@@ -134,13 +143,20 @@ This triggers all 6 platform builds simultaneously. Each workflow will:
 - Android workflow injects `Build: XXXX` into the release notes
 - iOS workflow uploads to App Store Connect
 
+**Cache warming:** When the tag points to a full release (not a pre-release), each workflow also dispatches a `workflow_dispatch` build on `main` after success. This populates ccache for the next version's pre-release builds. Pre-release tag pushes skip this step.
+
 #### Updating an existing pre-release
 To rebuild an existing pre-release at the current HEAD:
 ```bash
+# IMPORTANT: Verify local main is synced with origin BEFORE tagging.
+git fetch origin && git reset --hard origin/main
+git rev-parse HEAD  # Verify this matches the expected commit
+
 # Delete old tag and recreate at HEAD
 git tag -d vX.Y.Z
 git push origin :refs/tags/vX.Y.Z
 git tag vX.Y.Z
+git rev-parse vX.Y.Z  # Must match HEAD above
 git push origin vX.Y.Z
 
 # IMPORTANT: Deleting the remote tag automatically converts the release to a draft.
@@ -148,13 +164,6 @@ git push origin vX.Y.Z
 gh release edit vX.Y.Z --draft=false --prerelease
 ```
 **Note:** Do NOT delete the GitHub Release — only the tag. The release persists and CI will upload new artifacts to it. Draft releases are invisible to users and the auto-update system, so the `--draft=false` step is mandatory.
-
-### Promoting a pre-release to stable
-When promoting a pre-release to a full release, you must also set it as "latest" — GitHub does not do this automatically:
-```bash
-gh release edit vX.Y.Z --prerelease=false --latest
-```
-Without `--latest`, the previous stable release remains the "latest" and the auto-update system won't see the new version.
 
 ### Updating Release Notes
 ```bash
@@ -171,12 +180,18 @@ EOF
 - **Beta channel**: Users opt-in via Settings → Updates → "Beta updates". Prereleases are only shown to opted-in users.
 - **Platforms**: Android auto-downloads APK; iOS directs to App Store; desktop shows release page
 
+### Promoting a pre-release to stable
+When promoting a pre-release to a full release, you must also set it as "latest" — GitHub does not do this automatically:
+```bash
+gh release edit vX.Y.Z --prerelease=false --latest
+```
+Without `--latest`, the previous stable release remains the "latest" and the auto-update system won't see the new version. Note: promoting does NOT re-trigger builds — the artifacts from the pre-release tag push are already attached.
+
 ### Notes
 - **Always use tag pushes** — never `workflow_dispatch` — for release builds
 - **Always review `git log <prev-release>..HEAD`** to include all changes in release notes
 - `Build: XXXX` is injected automatically by CI — do not add manually
 - Always include direct APK link in release notes (old browsers can't see Assets section)
-- Remove `--prerelease` flag for stable releases
 - APK files are for direct distribution (sideloading)
 - AAB files are only for Google Play Store uploads
 - Users cannot install AAB files directly

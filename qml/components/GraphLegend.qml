@@ -37,7 +37,7 @@ Item {
 
                 Accessible.role: Accessible.CheckBox
                 Accessible.name: modelData.label
-                Accessible.checked: legendRoot.graph[modelData.key]
+                Accessible.checked: legendRoot.graph[modelData.key] ?? false
                 Accessible.focusable: true
                 Accessible.onPressAction: legendItemArea.clicked(null)
 

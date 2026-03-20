@@ -40,6 +40,12 @@ void AsyncLogger::uninstall()
 void AsyncLogger::messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
     Q_UNUSED(context);
+
+    // Suppress noisy Qt/iOS AVAudioSession warning that fires on every video transition
+    // in the screensaver. Harmless: audio session deactivation without prior activation.
+    if (type == QtWarningMsg && msg.contains(u"Unbalanced audio session deactivation"))
+        return;
+
     if (!s_instance) {
         // Fallback: write directly if instance was destroyed
         if (s_previousHandler) s_previousHandler(type, context, msg);

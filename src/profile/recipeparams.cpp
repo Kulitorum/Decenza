@@ -1,4 +1,51 @@
 #include "recipeparams.h"
+#include <QtMath>
+
+bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
+    auto eq = [](double a, double b) { return qFuzzyCompare(1.0 + a, 1.0 + b); };
+    // Compare all fields that affect frame generation.
+    // Excluded: targetWeight, targetVolume, dose (metadata only — don't affect frames).
+    return editorType == other.editorType
+        // Fill
+        && eq(fillTemperature, other.fillTemperature)
+        && eq(fillPressure, other.fillPressure)
+        && eq(fillFlow, other.fillFlow)
+        && eq(fillTimeout, other.fillTimeout)
+        // Infuse
+        && infuseEnabled == other.infuseEnabled
+        && eq(infusePressure, other.infusePressure)
+        && eq(infuseTime, other.infuseTime)
+        && eq(infuseWeight, other.infuseWeight)
+        && eq(infuseVolume, other.infuseVolume)
+        // Pour
+        && eq(pourTemperature, other.pourTemperature)
+        && eq(pourPressure, other.pourPressure)
+        && eq(pourFlow, other.pourFlow)
+        && eq(rampTime, other.rampTime)
+        // A-Flow specific
+        && rampDownEnabled == other.rampDownEnabled
+        && flowExtractionUp == other.flowExtractionUp
+        && secondFillEnabled == other.secondFillEnabled
+        // Simple profile params
+        && eq(preinfusionTime, other.preinfusionTime)
+        && eq(preinfusionFlowRate, other.preinfusionFlowRate)
+        && eq(preinfusionStopPressure, other.preinfusionStopPressure)
+        && eq(holdTime, other.holdTime)
+        && eq(espressoPressure, other.espressoPressure)
+        && eq(holdFlow, other.holdFlow)
+        && eq(simpleDeclineTime, other.simpleDeclineTime)
+        && eq(pressureEnd, other.pressureEnd)
+        && eq(flowEnd, other.flowEnd)
+        && eq(limiterValue, other.limiterValue)
+        && eq(limiterRange, other.limiterRange)
+        // Per-step temperatures
+        && eq(tempStart, other.tempStart)
+        && eq(tempPreinfuse, other.tempPreinfuse)
+        && eq(tempHold, other.tempHold)
+        && eq(tempDecline, other.tempDecline)
+        // BLE header
+        && preinfuseFrameCount == other.preinfuseFrameCount;
+}
 
 // Shared legacy migration for old pourStyle/flowLimit/pressureLimit fields
 static void migratePourStyle(RecipeParams& params, const QString& oldStyle,
@@ -17,6 +64,44 @@ static void migratePourStyle(RecipeParams& params, const QString& oldStyle,
     } else {
         params.pourPressure = pourPressure;
         params.pourFlow = pourFlow;
+    }
+}
+
+void RecipeParams::applyEditorDefaults() {
+    switch (editorType) {
+    case EditorType::DFlow:
+        // From D-Flow____default.tcl stock profile (de1app)
+        fillTemperature = 88.0;
+        fillPressure = 3.0;
+        fillTimeout = 25.0;
+        infuseTime = 60.0;
+        infusePressure = 3.0;
+        infuseWeight = 4.0;
+        pourTemperature = 88.0;
+        pourPressure = 8.5;
+        pourFlow = 1.7;
+        targetWeight = 50.0;
+        preinfuseFrameCount = 2;  // D_Flow/code.tcl line 182
+        break;
+    case EditorType::AFlow:
+        // From A-Flow____default-medium.tcl stock profile (de1app)
+        fillTemperature = 95.0;
+        fillPressure = 3.0;
+        fillTimeout = 15.0;
+        infuseTime = 60.0;
+        infusePressure = 3.0;
+        infuseWeight = 3.6;
+        pourTemperature = 95.0;
+        pourPressure = 10.0;
+        pourFlow = 2.0;
+        rampTime = 10.0;
+        targetWeight = 36.0;
+        preinfuseFrameCount = 2;  // All A-Flow stock profiles use 2
+        break;
+    case EditorType::Pressure:
+    case EditorType::Flow:
+        // Simple profiles use struct defaults
+        break;
     }
 }
 
@@ -64,14 +149,11 @@ QStringList RecipeParams::validate() const {
     checkFlow(holdFlow, "holdFlow");
     checkFlow(flowEnd, "flowEnd");
     checkFlow(preinfusionFlowRate, "preinfusionFlowRate");
-    checkFlow(declineTo, "declineTo");
 
     // Time bounds (non-negative)
     if (fillTimeout < 0) issues << "fillTimeout is negative";
     if (infuseTime < 0) issues << "infuseTime is negative";
-    if (bloomTime < 0) issues << "bloomTime is negative";
     if (rampTime < 0) issues << "rampTime is negative";
-    if (declineTime < 0) issues << "declineTime is negative";
     if (preinfusionTime < 0) issues << "preinfusionTime is negative";
     if (holdTime < 0) issues << "holdTime is negative";
     if (simpleDeclineTime < 0) issues << "simpleDeclineTime is negative";
@@ -84,6 +166,10 @@ QStringList RecipeParams::validate() const {
         issues << "limiterValue out of range [0, 12]";
     if (limiterRange < 0 || limiterRange > 10)
         issues << "limiterRange out of range [0, 10]";
+
+    // BLE header bounds (-1 sentinel is valid, means "use countPreinfuseFrames()")
+    if (preinfuseFrameCount < -1 || preinfuseFrameCount > 20)
+        issues << "preinfuseFrameCount out of range [-1, 20]";
 
     return issues;
 }
@@ -104,11 +190,11 @@ void RecipeParams::clamp() {
         clampVal(*p, 0.0, 12.0);
 
     // Flows (0-10)
-    for (double* f : {&fillFlow, &pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate, &declineTo})
+    for (double* f : {&fillFlow, &pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate})
         clampVal(*f, 0.0, 10.0);
 
     // Times (non-negative)
-    for (double* t : {&fillTimeout, &infuseTime, &bloomTime, &rampTime, &declineTime, &preinfusionTime, &holdTime, &simpleDeclineTime})
+    for (double* t : {&fillTimeout, &infuseTime, &rampTime, &preinfusionTime, &holdTime, &simpleDeclineTime})
         if (*t < 0) *t = 0;
 
     if (infuseWeight < 0) infuseWeight = 0;
@@ -136,25 +222,17 @@ QJsonObject RecipeParams::toJson() const {
     obj["infuseTime"] = infuseTime;
     obj["infuseWeight"] = infuseWeight;
     obj["infuseVolume"] = infuseVolume;
-    obj["bloomEnabled"] = bloomEnabled;
-    obj["bloomTime"] = bloomTime;
 
     // Pour (always flow-driven with pressure limit)
     obj["pourTemperature"] = pourTemperature;
     obj["pourPressure"] = pourPressure;
     obj["pourFlow"] = pourFlow;
-    obj["rampEnabled"] = rampEnabled;
     obj["rampTime"] = rampTime;
 
     // A-Flow specific
     obj["rampDownEnabled"] = rampDownEnabled;
     obj["flowExtractionUp"] = flowExtractionUp;
     obj["secondFillEnabled"] = secondFillEnabled;
-
-    // Decline (D-Flow only)
-    obj["declineEnabled"] = declineEnabled;
-    obj["declineTo"] = declineTo;
-    obj["declineTime"] = declineTime;
 
     // Simple profile parameters (pressure/flow editors)
     obj["preinfusionTime"] = preinfusionTime;
@@ -177,6 +255,10 @@ QJsonObject RecipeParams::toJson() const {
 
     // Editor type
     obj["editorType"] = editorTypeToString(editorType);
+
+    // BLE header
+    if (preinfuseFrameCount >= 0)
+        obj["preinfuseFrameCount"] = preinfuseFrameCount;
 
     return obj;
 }
@@ -205,8 +287,6 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     params.infuseTime = json["infuseTime"].toDouble(20.0);
     params.infuseWeight = json["infuseWeight"].toDouble(4.0);
     params.infuseVolume = json["infuseVolume"].toDouble(100.0);
-    params.bloomEnabled = json["bloomEnabled"].toBool(false);
-    params.bloomTime = json["bloomTime"].toDouble(10.0);
 
     // Pour
     params.pourTemperature = json["pourTemperature"].toDouble(93.0);
@@ -225,24 +305,12 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
         json["pressureLimit"].toDouble(6.0),
         json.contains("pressureLimit"));
 
-    params.rampEnabled = json["rampEnabled"].toBool(true);  // Default true for legacy
     params.rampTime = json["rampTime"].toDouble(5.0);
 
     // A-Flow specific
     params.rampDownEnabled = json["rampDownEnabled"].toBool(false);
     params.flowExtractionUp = json["flowExtractionUp"].toBool(true);
     params.secondFillEnabled = json["secondFillEnabled"].toBool(false);
-
-    // Decline
-    params.declineEnabled = json["declineEnabled"].toBool(false);
-    params.declineTo = json["declineTo"].toDouble(1.0);
-    params.declineTime = json["declineTime"].toDouble(30.0);
-
-    // Migration: old profiles stored declineTo in bar (pressure). New model uses mL/s (flow).
-    // Convert using same formula as RecipeAnalyzer::forceConvertToRecipe().
-    if (!json["pourStyle"].toString("").isEmpty() && params.declineEnabled) {
-        params.declineTo = params.pourFlow * 0.5;
-    }
 
     // Simple profile parameters
     params.preinfusionTime = json["preinfusionTime"].toDouble(20.0);
@@ -265,6 +333,10 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
 
     // Editor type
     params.editorType = editorTypeFromString(json["editorType"].toString("dflow"));
+
+    // BLE header
+    if (json.contains("preinfuseFrameCount"))
+        params.preinfuseFrameCount = json["preinfuseFrameCount"].toInt(-1);
 
     return params;
 }
@@ -289,25 +361,17 @@ QVariantMap RecipeParams::toVariantMap() const {
     map["infuseTime"] = infuseTime;
     map["infuseWeight"] = infuseWeight;
     map["infuseVolume"] = infuseVolume;
-    map["bloomEnabled"] = bloomEnabled;
-    map["bloomTime"] = bloomTime;
 
     // Pour (always flow-driven with pressure limit)
     map["pourTemperature"] = pourTemperature;
     map["pourPressure"] = pourPressure;
     map["pourFlow"] = pourFlow;
-    map["rampEnabled"] = rampEnabled;
     map["rampTime"] = rampTime;
 
     // A-Flow specific
     map["rampDownEnabled"] = rampDownEnabled;
     map["flowExtractionUp"] = flowExtractionUp;
     map["secondFillEnabled"] = secondFillEnabled;
-
-    // Decline
-    map["declineEnabled"] = declineEnabled;
-    map["declineTo"] = declineTo;
-    map["declineTime"] = declineTime;
 
     // Simple profile parameters
     map["preinfusionTime"] = preinfusionTime;
@@ -330,6 +394,10 @@ QVariantMap RecipeParams::toVariantMap() const {
 
     // Editor type
     map["editorType"] = editorTypeToString(editorType);
+
+    // BLE header
+    if (preinfuseFrameCount >= 0)
+        map["preinfuseFrameCount"] = preinfuseFrameCount;
 
     return map;
 }
@@ -358,8 +426,6 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     params.infuseTime = map.value("infuseTime", 20.0).toDouble();
     params.infuseWeight = map.value("infuseWeight", 4.0).toDouble();
     params.infuseVolume = map.value("infuseVolume", 100.0).toDouble();
-    params.bloomEnabled = map.value("bloomEnabled", false).toBool();
-    params.bloomTime = map.value("bloomTime", 10.0).toDouble();
 
     // Pour
     params.pourTemperature = map.value("pourTemperature", 93.0).toDouble();
@@ -378,24 +444,12 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
         map.value("pressureLimit", 6.0).toDouble(),
         map.contains("pressureLimit"));
 
-    params.rampEnabled = map.value("rampEnabled", true).toBool();  // Default true for legacy
     params.rampTime = map.value("rampTime", 5.0).toDouble();
 
     // A-Flow specific
     params.rampDownEnabled = map.value("rampDownEnabled", false).toBool();
     params.flowExtractionUp = map.value("flowExtractionUp", true).toBool();
     params.secondFillEnabled = map.value("secondFillEnabled", false).toBool();
-
-    // Decline
-    params.declineEnabled = map.value("declineEnabled", false).toBool();
-    params.declineTo = map.value("declineTo", 1.0).toDouble();
-    params.declineTime = map.value("declineTime", 30.0).toDouble();
-
-    // Migration: old profiles stored declineTo in bar (pressure). New model uses mL/s (flow).
-    // Convert using same formula as RecipeAnalyzer::forceConvertToRecipe().
-    if (!map.value("pourStyle", "").toString().isEmpty() && params.declineEnabled) {
-        params.declineTo = params.pourFlow * 0.5;
-    }
 
     // Simple profile parameters
     params.preinfusionTime = map.value("preinfusionTime", 20.0).toDouble();
@@ -419,6 +473,10 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
 
     // Editor type
     params.editorType = editorTypeFromString(map.value("editorType", "dflow").toString());
+
+    // BLE header
+    if (map.contains("preinfuseFrameCount"))
+        params.preinfuseFrameCount = map.value("preinfuseFrameCount", -1).toInt();
 
     return params;
 }

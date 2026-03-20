@@ -24,5 +24,9 @@
     <string>This app uses your location to show where your espresso shots were made on the shot map.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAppSleepDisabled</key>
+    <true/>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
 </dict>
 </plist>

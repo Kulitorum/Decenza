@@ -12,6 +12,10 @@
 #include <cstdlib>
 #include <cstring>
 
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+#include <pthread.h>
+#endif
+
 #ifdef Q_OS_ANDROID
 #include <unwind.h>
 #include <dlfcn.h>
@@ -173,6 +177,16 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     // Get current time (basic, signal-safe-ish)
     time_t now = time(nullptr);
     fprintf(f, "Time: %s", ctime(&now));  // ctime adds newline
+
+    // Thread info — critical for diagnosing render thread crashes
+    char threadName[64] = {0};
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS) || defined(Q_OS_LINUX)
+    pthread_getname_np(pthread_self(), threadName, sizeof(threadName));
+    fprintf(f, "Thread: %p name=\"%s\"\n",
+            (void*)pthread_self(), threadName[0] ? threadName : "(unnamed)");
+#elif defined(Q_OS_WIN)
+    fprintf(f, "Thread: %lu\n", (unsigned long)GetCurrentThreadId());
+#endif
 
     // Last debug message
     if (s_lastDebugMessage[0] != '\0') {

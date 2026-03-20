@@ -409,9 +409,13 @@ Page {
         }
 
         onOpened: {
-            themeName = ""
-            themeNameInput.text = ""
+            var current = Settings.activeThemeName
+            // Don't pre-fill built-in names or "Custom"
+            var name = (current === "Default Dark" || current === "Default Light" || current === "Custom") ? "" : current
+            themeName = name
+            themeNameInput.text = name
             themeNameInput.forceActiveFocus()
+            themeNameInput.selectAll()
         }
 
         onClosed: {

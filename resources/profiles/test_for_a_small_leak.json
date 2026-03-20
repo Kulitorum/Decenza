@@ -1,7 +1,7 @@
 {
     "title": "Test/for a small leak",
     "author": "Decent",
-    "beverage_type": "calibrate",
+    "beverage_type": "{calibrate}",
     "notes": "Put a blind (no hole) portafilter basket into your portafilter, and then run this profile to see if there are any water leaks in your machine.  Once pressure is reached, water will be turned off and pressure held.  A small mount of pressure loss is normal, because of leaking around the pump's valve.  After two minutes of no flow, your pressure should be above 8 bar.",
     "legacy_profile_type": "settings_2c",
     "version": "2",
@@ -29,11 +29,7 @@
             "pressure": 10.0,
             "flow": 8.0,
             "seconds": 10.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "rise and hold",
@@ -44,11 +40,7 @@
             "pressure": 10.0,
             "flow": 0.0,
             "seconds": 5.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "hold at no flow",
@@ -59,11 +51,25 @@
             "pressure": 10.0,
             "flow": 0.0,
             "seconds": 120.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         }
-    ]
+    ],
+    "espresso_temperature": 0.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 10.0,
+    "espresso_decline_time": 60.0,
+    "espresso_hold_time": 60.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 10.0,
+    "preinfusion_flow_rate": 8.0,
+    "pressure_end": 10.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

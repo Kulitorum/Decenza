@@ -188,7 +188,7 @@ Item {
                         text: "Convert DE1 app TCL profiles to native JSON format. Preserves all fields including popup messages, per-frame weight, etc."
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.Wrap
+                        wrapMode: Text.WordWrap
                     }
 
                     // Progress indicator when converting

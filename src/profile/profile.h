@@ -27,13 +27,6 @@ public:
         DirectControl   // App sends live setpoints during shot
     };
 
-    // Stop-at modes (what triggers end of shot)
-    // NOTE: Must stay in sync with MachineState::StopAtType
-    enum class StopAtType {
-        Weight,         // Stop when scale reaches target weight (brown curve)
-        Volume          // Stop when flow meter reaches target volume (blue curve)
-    };
-
     Profile() = default;
 
     // === Metadata ===
@@ -65,9 +58,6 @@ public:
     double targetVolume() const { return m_targetVolume; }
     void setTargetVolume(double volume) { m_targetVolume = volume; }
 
-    StopAtType stopAtType() const { return m_stopAtType; }
-    void setStopAtType(StopAtType type) { m_stopAtType = type; }
-
     // === Temperature Settings ===
     // Primary espresso temperature (often mirrors first frame temp)
     double espressoTemperature() const { return m_espressoTemperature; }
@@ -93,6 +83,20 @@ public:
 
     double minimumPressure() const { return m_minimumPressure; }
     void setMinimumPressure(double pressure) { m_minimumPressure = pressure; }
+
+    // === Simple Profile Parameters (settings_2a/2b) ===
+    // Used by Visualizer to reconstruct simple profiles
+    double preinfusionTime() const { return m_preinfusionTime; }
+    double preinfusionFlowRate() const { return m_preinfusionFlowRate; }
+    double preinfusionStopPressure() const { return m_preinfusionStopPressure; }
+    double espressoPressure() const { return m_espressoPressure; }
+    double espressoHoldTime() const { return m_espressoHoldTime; }
+    double espressoDeclineTime() const { return m_espressoDeclineTime; }
+    double pressureEnd() const { return m_pressureEnd; }
+    double flowProfileHold() const { return m_flowProfileHold; }
+    double flowProfileDecline() const { return m_flowProfileDecline; }
+    double maximumFlowRangeDefault() const { return m_maximumFlowRangeDefault; }
+    double maximumPressureRangeDefault() const { return m_maximumPressureRangeDefault; }
 
     // === Advanced Limits (de1app settings_2c2) ===
     double tankDesiredWaterTemperature() const { return m_tankDesiredWaterTemperature; }
@@ -229,8 +233,7 @@ private:
 
     // Targets
     double m_targetWeight = 36.0;
-    double m_targetVolume = 36.0;
-    StopAtType m_stopAtType = StopAtType::Weight;  // Default to weight-based stop
+    double m_targetVolume = 0.0;
 
     // Temperature
     double m_espressoTemperature = 93.0;

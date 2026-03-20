@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 import "../components"
 
@@ -96,6 +97,7 @@ Page {
                         visible: viewFilter.currentIndex === 1  // Cleaning/Descale view
                         text: TranslationManager.translate("profileselector.button.descaling_wizard", "Descaling Wizard")
                         accessibleName: TranslationManager.translate("profileSelector.openDescalingWizard", "Open descaling wizard to clean your machine")
+                        primary: true
                         Layout.preferredHeight: Theme.scaled(44)
                         onClicked: root.goToDescaling()
                     }
@@ -290,6 +292,13 @@ Page {
                                     Layout.alignment: Qt.AlignVCenter
                                     opacity: 0.6
                                     Accessible.ignored: true
+
+                                    layer.enabled: true
+                                    layer.smooth: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: Theme.textSecondaryColor
+                                    }
                                 }
                             }
 
@@ -414,6 +423,13 @@ Page {
                                         sourceSize.width: Theme.scaled(16)
                                         sourceSize.height: Theme.scaled(16)
                                         anchors.verticalCenter: parent.verticalCenter
+
+                                        layer.enabled: true
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: Theme.textColor
+                                        }
                                     }
                                     Text {
                                         text: TranslationManager.translate("profileselector.menu.edit", "Edit Profile")
@@ -457,6 +473,13 @@ Page {
                                         sourceSize.width: Theme.scaled(16)
                                         sourceSize.height: Theme.scaled(16)
                                         anchors.verticalCenter: parent.verticalCenter
+
+                                        layer.enabled: true
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: Theme.errorColor
+                                        }
                                     }
                                     Text {
                                         text: TranslationManager.translate("profileselector.menu.remove_from_selected", "Remove from Selected")
@@ -491,6 +514,13 @@ Page {
                                         sourceSize.width: Theme.scaled(16)
                                         sourceSize.height: Theme.scaled(16)
                                         anchors.verticalCenter: parent.verticalCenter
+
+                                        layer.enabled: true
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            colorization: 1.0
+                                            colorizationColor: Theme.errorColor
+                                        }
                                     }
                                     Text {
                                         text: TranslationManager.translate("profileselector.menu.delete", "Delete Profile")
@@ -688,6 +718,13 @@ Page {
                                     sourceSize.width: Theme.scaled(18)
                                     sourceSize.height: Theme.scaled(18)
                                     opacity: index === Settings.selectedFavoriteProfile ? 1.0 : 0.5
+
+                                    layer.enabled: index !== Settings.selectedFavoriteProfile
+                                    layer.smooth: true
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: Theme.textSecondaryColor
+                                    }
 
                                     MouseArea {
                                         id: dragArea

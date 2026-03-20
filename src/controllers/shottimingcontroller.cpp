@@ -25,10 +25,17 @@ double ShotTimingController::shotTime() const
     if (!m_extractionStarted) {
         return 0.0;
     }
-    // Calculate time from wall clock during shot OR during settling (for drip phase)
-    if ((m_shotActive || m_settlingTimer.isActive()) && m_displayTimeBase > 0) {
+    // Calculate time from wall clock during active extraction only
+    // During settling, return the frozen extraction end time so the timer
+    // display stops at the correct duration (graph timestamps are computed
+    // separately via wall clock in onShotSample/onWeightSample)
+    if (m_shotActive && m_displayTimeBase > 0) {
         qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase;
         return elapsed / 1000.0;
+    }
+    // After shot ends (including during settling), return frozen extraction end time
+    if (m_extractionEndTime > 0) {
+        return m_extractionEndTime;
     }
     return m_currentTime;
 }
@@ -62,18 +69,21 @@ void ShotTimingController::setCurrentProfile(const Profile* profile)
 void ShotTimingController::startShot()
 {
     // Cancel settling timer if running (user started new shot before settling completed)
-    // Emit shotProcessingReady so the previous shot is saved before we reset state
+    // Emit shotProcessingReady so the previous shot is saved before we reset state.
+    // IMPORTANT: m_extractionEndTime must not be reset until after shotProcessingReady
+    // is fully handled, because onShotEnded() reads extractionDuration() synchronously.
     if (m_settlingTimer.isActive()) {
         qWarning() << "[SAW] Cancelling settling timer - new shot started, saving previous shot";
         m_sawTriggeredThisShot = false;
         m_settlingTimer.stop();
         m_displayTimer.stop();
         emit sawSettlingChanged();
-        emit shotProcessingReady();
+        emit shotProcessingReady();  // onShotEnded() reads extractionDuration() here
     }
 
-    // Reset all timing state
+    // Reset all timing state (safe now — previous shot has been saved above)
     m_currentTime = 0;
+    m_extractionEndTime = 0;
     m_shotActive = true;
 
     // Reset weight state
@@ -112,6 +122,10 @@ void ShotTimingController::startShot()
 void ShotTimingController::endShot()
 {
     m_shotActive = false;
+    // Freeze extraction end time for timer display and saved duration.
+    // m_currentTime holds the last Pouring-phase sample time (Ending-phase samples
+    // are rejected before reaching onShotSample, so this is accurate).
+    m_extractionEndTime = m_currentTime;
 
     // Start settling timer if SAW triggered this shot (for learning)
     // Keep display timer running during settling so graph continues to update
@@ -212,9 +226,10 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         m_flowRate = flowRate;
         emit weightChanged();
 
-        // Also emit to graph so drip is visible (use live calculated time)
+        // Also emit to graph so drip is visible (use wall clock for advancing timestamps,
+        // since shotTime() is frozen at extraction end for the timer display)
         // LSLR produces clean flow rates even during settling — emit the real value
-        double time = shotTime();
+        double time = (QDateTime::currentMSecsSinceEpoch() - m_displayTimeBase) / 1000.0;
         emit weightSampleReady(time, weight, flowRate);
 
         // Rolling average stability detection

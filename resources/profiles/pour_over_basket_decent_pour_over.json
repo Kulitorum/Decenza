@@ -1,7 +1,7 @@
 {
     "title": "Pour over basket/Decent pour over",
     "author": "Decent",
-    "beverage_type": "pourover",
+    "beverage_type": "{pourover}",
     "notes": "You can make a pour over coffee with your espresso machine.  To do this, first remove the drip tray. Then, place a coffee mug with a filter cone on it under the espresso machine's group head.",
     "legacy_profile_type": "settings_2c",
     "version": "2",
@@ -9,8 +9,8 @@
     "maximum_pressure": 0.0,
     "maximum_flow": 0.0,
     "minimum_pressure": 4.0,
-    "target_weight": 32,
-    "target_volume": 32,
+    "target_weight": 0,
+    "target_volume": 0,
     "mode": "frame_based",
     "is_recipe_mode": false,
     "temperature_presets": [
@@ -29,11 +29,7 @@
             "pressure": 6.0,
             "flow": 6.0,
             "seconds": 4.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pause",
@@ -44,11 +40,7 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 40.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Main water #1",
@@ -59,11 +51,7 @@
             "pressure": 6.0,
             "flow": 6.0,
             "seconds": 14.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Pause",
@@ -74,11 +62,7 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 20.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Main water #2",
@@ -89,11 +73,7 @@
             "pressure": 6.0,
             "flow": 5.0,
             "seconds": 25.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Drain",
@@ -104,11 +84,7 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 20.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         },
         {
             "name": "Reset temperature",
@@ -119,11 +95,25 @@
             "pressure": 6.0,
             "flow": 0.0,
             "seconds": 1.0,
-            "volume": 500.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+            "volume": 500.0
         }
-    ]
+    ],
+    "espresso_temperature": 99.0,
+    "tank_desired_water_temperature": 0.0,
+    "espresso_pressure": 8.6,
+    "espresso_decline_time": 25.0,
+    "espresso_hold_time": 10.0,
+    "preinfusion_time": 5.0,
+    "preinfusion_stop_pressure": 1.5,
+    "preinfusion_flow_rate": 4.0,
+    "pressure_end": 6.0,
+    "flow_profile_preinfusion": 4.0,
+    "flow_profile_preinfusion_time": 5.0,
+    "flow_profile_hold": 2.0,
+    "flow_profile_hold_time": 8.0,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17.0,
+    "flow_profile_minimum_pressure": 4.0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_flow_range_advanced": 0.6
 }

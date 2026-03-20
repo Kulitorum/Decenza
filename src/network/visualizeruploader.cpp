@@ -2,6 +2,7 @@
 #include "../models/shotdatamodel.h"
 #include "../core/settings.h"
 #include "../profile/profile.h"
+#include "../ble/de1device.h"
 #include "version.h"
 
 #include <QJsonDocument>
@@ -433,6 +434,11 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     if (!weightFlowRateData.isEmpty()) {
         flow["by_weight"] = interpolateGoalData(weightFlowRateData, pressureData);
     }
+    // Raw (pre-smoothing) weight flow rate
+    const auto& weightFlowRateRawData = shotData->weightFlowRateRawData();
+    if (!weightFlowRateRawData.isEmpty()) {
+        flow["by_weight_raw"] = interpolateGoalData(weightFlowRateRawData, pressureData);
+    }
     root["flow"] = flow;
 
     // Temperature object
@@ -470,6 +476,29 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
         QJsonObject resistance;
         resistance["resistance"] = interpolateGoalData(resistanceData, pressureData);
         root["resistance"] = resistance;
+    }
+
+    // State change array (de1app format: alternating sign value at each frame transition)
+    // Used by Visualizer to draw vertical frame markers on the shot graph
+    const auto& markers = shotData->phaseMarkersList();
+    if (!markers.isEmpty() && !pressureData.isEmpty()) {
+        // Collect times of real frame transitions only (skip Start/End markers)
+        QVector<double> transitionTimes;
+        for (const auto& m : markers) {
+            if (m.frameNumber >= 0 && m.label != "Start")
+                transitionTimes.append(m.time);
+        }
+        QJsonArray stateChange;
+        double stateVal = 10000000.0;
+        qsizetype markerIdx = 0;
+        for (const auto& pt : pressureData) {
+            while (markerIdx < transitionTimes.size() && pt.x() >= transitionTimes[markerIdx]) {
+                stateVal *= -1.0;
+                markerIdx++;
+            }
+            stateChange.append(stateVal);
+        }
+        root["state_change"] = stateChange;
     }
 
     // Meta object (de1app format)
@@ -557,8 +586,25 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     if (!metadata.barista.isEmpty())
         settings["barista"] = metadata.barista;
 
+    // Merge profile fields so Visualizer's DecentJson parser can extract TCL profile data
+    if (profile) {
+        QJsonObject profileSettings = buildProfileSettings(profile);
+        for (auto it = profileSettings.begin(); it != profileSettings.end(); ++it)
+            settings[it.key()] = it.value();
+    }
+
     QJsonObject data;
     data["settings"] = settings;
+    // Machine state (de1app includes the full ::DE1 array; we include key fields)
+    if (m_device) {
+        QJsonObject machineState;
+        if (!m_device->firmwareVersion().isEmpty())
+            machineState["firmware_version"] = m_device->firmwareVersion();
+        machineState["state"] = m_device->stateString();
+        machineState["substate"] = m_device->subStateString();
+        machineState["headless"] = m_device->isHeadless() ? 1 : 0;
+        data["machine_state"] = machineState;
+    }
     app["data"] = data;
 
     root["app"] = app;
@@ -581,6 +627,63 @@ QJsonObject VisualizerUploader::buildAppInfoJson()
     app["app_name"] = "Decenza";
     app["app_version"] = VERSION_STRING;
     return app;
+}
+
+QJsonObject VisualizerUploader::buildProfileSettings(const Profile* profile)
+{
+    QJsonObject s;
+    if (!profile) return s;
+
+    s["profile_title"] = profile->title();
+    if (!profile->author().isEmpty())
+        s["author"] = profile->author();
+    if (!profile->beverageType().isEmpty())
+        s["beverage_type"] = profile->beverageType();
+    if (!profile->profileNotes().isEmpty())
+        s["profile_notes"] = profile->profileNotes();
+    s["settings_profile_type"] = profile->profileType();
+
+    // Temperature settings (as strings, matching de1app convention)
+    s["espresso_temperature"] = QString::number(profile->espressoTemperature(), 'f', 2);
+    const auto presets = profile->temperaturePresets();
+    for (qsizetype i = 0; i < presets.size() && i < 4; ++i)
+        s[QStringLiteral("espresso_temperature_%1").arg(i)] = QString::number(presets[i], 'f', 2);
+
+    // Limits
+    s["maximum_pressure"] = QString::number(profile->maximumPressure(), 'f', 1);
+    s["maximum_flow"] = QString::number(profile->maximumFlow(), 'f', 1);
+    s["flow_profile_minimum_pressure"] = QString::number(profile->minimumPressure(), 'f', 1);
+    s["tank_desired_water_temperature"] = QString::number(profile->tankDesiredWaterTemperature(), 'f', 1);
+    s["maximum_flow_range_advanced"] = QString::number(profile->maximumFlowRangeAdvanced(), 'f', 1);
+    s["maximum_pressure_range_advanced"] = QString::number(profile->maximumPressureRangeAdvanced(), 'f', 1);
+
+    // Target weight/volume
+    s["final_desired_shot_weight"] = QString::number(profile->targetWeight(), 'f', 1);
+    s["final_desired_shot_weight_advanced"] = s["final_desired_shot_weight"];
+    s["final_desired_shot_volume"] = QString::number(profile->targetVolume(), 'f', 0);
+    s["final_desired_shot_volume_advanced"] = s["final_desired_shot_volume"];
+    s["final_desired_shot_volume_advanced_count_start"] = QString::number(profile->preinfuseFrameCount());
+
+    // Simple profile parameters (settings_2a/2b — Visualizer uses these to reconstruct simple profiles)
+    s["preinfusion_time"] = QString::number(profile->preinfusionTime(), 'f', 1);
+    s["preinfusion_flow_rate"] = QString::number(profile->preinfusionFlowRate(), 'f', 1);
+    s["preinfusion_stop_pressure"] = QString::number(profile->preinfusionStopPressure(), 'f', 1);
+    s["espresso_pressure"] = QString::number(profile->espressoPressure(), 'f', 1);
+    s["espresso_hold_time"] = QString::number(profile->espressoHoldTime(), 'f', 1);
+    s["espresso_decline_time"] = QString::number(profile->espressoDeclineTime(), 'f', 1);
+    s["pressure_end"] = QString::number(profile->pressureEnd(), 'f', 1);
+    s["flow_profile_hold"] = QString::number(profile->flowProfileHold(), 'f', 1);
+    s["flow_profile_decline"] = QString::number(profile->flowProfileDecline(), 'f', 1);
+    s["maximum_flow_range_default"] = QString::number(profile->maximumFlowRangeDefault(), 'f', 1);
+    s["maximum_pressure_range_default"] = QString::number(profile->maximumPressureRangeDefault(), 'f', 1);
+
+    // Advanced shot frames as TCL list
+    QStringList frameTclParts;
+    for (const auto& step : profile->steps())
+        frameTclParts << step.toTclList();
+    s["advanced_shot"] = frameTclParts.join(' ');
+
+    return s;
 }
 
 QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profile)
@@ -885,6 +988,31 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     }
     root["totals"] = totals;
 
+    // State change array from history phase markers
+    QVariantList phases = shotData["phases"].toList();
+    if (!phases.isEmpty() && !pressureData.isEmpty()) {
+        // Collect times of real frame transitions only (skip Start/End markers)
+        QVector<double> markerTimes;
+        for (const auto& p : phases) {
+            QVariantMap pm = p.toMap();
+            int frameNum = pm.value("frameNumber", -1).toInt();
+            QString label = pm["label"].toString();
+            if (frameNum >= 0 && label != "Start")
+                markerTimes.append(pm["time"].toDouble());
+        }
+        QJsonArray stateChange;
+        double stateVal = 10000000.0;
+        qsizetype markerIdx = 0;
+        for (const auto& pt : pressureData) {
+            while (markerIdx < markerTimes.size() && pt.x() >= markerTimes[markerIdx]) {
+                stateVal *= -1.0;
+                markerIdx++;
+            }
+            stateChange.append(stateVal);
+        }
+        root["state_change"] = stateChange;
+    }
+
     // Meta object
     QJsonObject meta;
 
@@ -952,6 +1080,27 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     QString barista = shotData["barista"].toString();
     if (!barista.isEmpty()) settings["barista"] = barista;
 
+    // Parse profile JSON and merge profile fields for Visualizer TCL extraction
+    QString profileJson = shotData["profileJson"].toString();
+    QJsonObject profileJsonObj;
+    if (!profileJson.isEmpty()) {
+        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
+        if (!profileDoc.isNull()) {
+            profileJsonObj = profileDoc.object();
+            Profile profile = Profile::fromJson(profileDoc);
+            if (profile.isValid()) {
+                QJsonObject profileSettings = buildProfileSettings(&profile);
+                for (auto it = profileSettings.begin(); it != profileSettings.end(); ++it)
+                    settings[it.key()] = it.value();
+            }
+        }
+    }
+
+    // Also set profile_title from shot data (may differ from profile's own title)
+    QString profileName = shotData["profileName"].toString();
+    if (!profileName.isEmpty())
+        settings["profile_title"] = profileName;
+
     QJsonObject data;
     data["settings"] = settings;
     app["data"] = data;
@@ -962,14 +1111,9 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const QVariantMap& shotData)
     if (!barista.isEmpty())
         root["barista"] = barista;
 
-    // Profile
-    QString profileJson = shotData["profileJson"].toString();
-    if (!profileJson.isEmpty()) {
-        QJsonDocument profileDoc = QJsonDocument::fromJson(profileJson.toUtf8());
-        if (!profileDoc.isNull()) {
-            root["profile"] = profileDoc.object();
-        }
-    }
+    // Profile JSON object for Visualizer's ?format=json download
+    if (!profileJsonObj.isEmpty())
+        root["profile"] = profileJsonObj;
 
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }

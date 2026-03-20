@@ -17,6 +17,7 @@
 #include <QFileInfo>
 #include <QSet>
 #include <QStandardPaths>
+#include <QPixmapCache>
 #include <memory>
 #include <vector>
 #include <QElapsedTimer>
@@ -60,7 +61,7 @@
 #include "ai/aimanager.h"
 #include "ai/aiconversation.h"
 #include "screensaver/screensavervideomanager.h"
-#ifdef Q_OS_IOS
+#if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "screensaver/iosbrightness.h"
 #endif
 #include "screensaver/strangeattractorrenderer.h"
@@ -70,16 +71,19 @@
 #endif
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
+#include "mcp/mcpserver.h"
 #include "network/librarysharing.h"
 #include "core/documentformatter.h"
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
 
-// GHC Simulator for Windows debug builds
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-#include "simulator/ghcsimulator.h"
+// Simulator engine (all debug builds) and GHC window (desktop debug only)
+#ifdef QT_DEBUG
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+#include "simulator/ghcsimulator.h"
+#endif
 #endif
 
 using namespace Qt::StringLiterals;
@@ -310,13 +314,28 @@ int main(int argc, char *argv[])
     // PNGReadPlugin::InitializePluginData crashes on QSGRenderThread when CoreText
     // tries to decode emoji bitmaps from the sbix font table via CTFontDrawGlyphs →
     // CopyEmojiImage → CGImageSourceCreateImageAtIndex.
-    // QtTextRendering uses distance fields (glyph outlines) instead of
-    // NativeTextRendering (which calls imageForGlyph → bitmap path), avoiding the
-    // crash entirely. This app renders emoji as SVG images (Theme.emojiToImage),
-    // so bitmap emoji glyphs are not needed.
-    // Applied unconditionally — the version check (>= macOS 16) was unreliable
-    // across the 15→26 version jump, and QtTextRendering works fine on all macOS.
-    QQuickWindow::setTextRenderType(QQuickWindow::QtTextRendering);
+    //
+    // QtTextRendering (distance fields) was tried first, but Qt 6.x STILL falls back
+    // to native rendering when QGlyphRun contains color font glyphs — if CoreText's
+    // font shaping assigns ANY character to Apple Color Emoji (a color font), Qt uses
+    // QSGTextMaskMaterial (bitmap path) for that glyph run, triggering the crash.
+    //
+    // CurveTextRendering (Qt 6.7+) renders ALL glyphs as bezier curves on the GPU,
+    // never calling QCoreTextFontEngine::imageForGlyph, completely avoiding the
+    // CopyEmojiImage crash path. This app renders emoji as SVG images
+    // (Theme.emojiToImage), so bitmap emoji glyphs are not needed.
+    QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
+    {
+        auto actual = QQuickWindow::textRenderType();
+        qDebug() << "[TextRender] Requested CurveTextRendering, active type:"
+                 << (actual == QQuickWindow::CurveTextRendering ? "Curve" :
+                     actual == QQuickWindow::QtTextRendering ? "QtText" : "Native")
+                 << "(" << static_cast<int>(actual) << ")";
+    }
+    // Probe which characters CoreText routes to Apple Color Emoji — diagnostic
+    // for the CopyEmojiImage crash. If any non-emoji chars use the emoji font,
+    // it explains why Qt fell back to native rendering despite QtTextRendering.
+    macos_probeEmojiFont();
 #endif
 
     // Set application metadata
@@ -326,10 +345,22 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(VERSION_STRING);
     runAppNameMigrationOnce();
 
+    // Limit Qt's pixmap cache to 32 MB (default is 10 MB on desktop but unbounded
+    // growth via QML Image elements can reach 100+ MB on devices with many emoji/icon SVGs).
+    // iPad 7,4 has 3 GB RAM — keep cache reasonable to avoid OOM kills.
+    QPixmapCache::setCacheLimit(32 * 1024);  // 32 MB in KB
+
     // Set Qt Quick Controls style (must be before QML engine creation)
     QQuickStyle::setStyle("Material");
 
-    qDebug() << "App started - version" << VERSION_STRING << "build" << versionCode();
+    qDebug() << "App started - version" << VERSION_STRING << "build" << versionCode()
+#ifdef QT_NO_DEBUG
+             << "(release)"
+#else
+             << "(debug)"
+#endif
+             << "built" << __DATE__ << __TIME__
+             << "at" << QDateTime::currentDateTime().toString(Qt::ISODate);
 
     // Startup timing - always on, lightweight. Helps diagnose ANRs on slow devices.
     // Wall clock comes from WebDebugLogger's [LOG HH:mm:ss.zzz] prefix automatically.
@@ -353,6 +384,7 @@ int main(int argc, char *argv[])
 
     // Create core objects
     Settings settings;
+    settings.initSystemThemeDetection();
     checkpoint("Settings");
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection
@@ -365,7 +397,7 @@ int main(int argc, char *argv[])
     BLEManager bleManager;
 
     // Disable BLE when simulation mode is active
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     bleManager.setDisabled(settings.simulationMode());
 #endif
 
@@ -466,6 +498,13 @@ int main(int argc, char *argv[])
                          emit machineState.targetWeightReached();
                      });
 
+    // WeightProcessor → MachineState: notify QML when SAW is bypassed (untared cup).
+    // Using &machineState as context ensures lambda runs on the main thread.
+    QObject::connect(&weightProcessor, &WeightProcessor::untaredCupDetected,
+                     &machineState, [&machineState]() {
+                         emit machineState.sawBypassed();
+                     });
+
     // WeightProcessor → ShotDataModel: mark stop time on graph.
     // Using &shotDataModel as context ensures lambda runs on the main thread.
     QObject::connect(&weightProcessor, &WeightProcessor::stopNow,
@@ -562,6 +601,16 @@ int main(int argc, char *argv[])
                      [&weightProcessor]() {
                          QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
                              weightProcessor.resetForRetare();
+                         }, Qt::QueuedConnection);
+                     });
+
+    // Mark extraction start when flow actually begins, not at preheat.
+    // This ensures the untared-cup sanity check in WeightProcessor doesn't fire during
+    // preheat while the BLE tare command is still in transit to the scale.
+    QObject::connect(&machineState, &MachineState::shotStarted,
+                     [&weightProcessor]() {
+                         QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
+                             weightProcessor.markExtractionStart();
                          }, Qt::QueuedConnection);
                      });
 
@@ -684,6 +733,19 @@ int main(int argc, char *argv[])
     // Connect widget library and sharing to shot server for web layout editor
     mainController.shotServer()->setWidgetLibrary(&widgetLibrary);
     mainController.shotServer()->setLibrarySharing(&librarySharing);
+
+    // MCP Server for AI remote control
+    McpServer mcpServer;
+    mcpServer.setDE1Device(&de1Device);
+    mcpServer.setMachineState(&machineState);
+    mcpServer.setMainController(&mainController);
+    mcpServer.setShotHistoryStorage(mainController.shotHistory());
+    mcpServer.setBLEManager(&bleManager);
+    mcpServer.setSettings(&settings);
+    mainController.shotServer()->setMcpServer(&mcpServer);
+    mcpServer.registerAllTools();
+    mcpServer.registerAllResources();
+    mcpServer.connectSseNotifications();
 
     // Weather forecast manager (hourly updates, region-aware API selection)
     WeatherManager weatherManager(&sharedNetworkManager);
@@ -897,12 +959,11 @@ int main(int argc, char *argv[])
             return;
         }
 
-        // Save scale address for future direct wake connections
-        // Use getDeviceIdentifier to handle iOS (uses UUID) vs other platforms (uses MAC address)
-        settings.setScaleAddress(getDeviceIdentifier(device));
-        settings.setScaleType(type);
-        settings.setScaleName(device.name());
-        bleManager.setSavedScaleAddress(getDeviceIdentifier(device), type, device.name());
+        // Save scale to known scales and set as primary
+        QString deviceId = getDeviceIdentifier(device);
+        settings.addKnownScale(deviceId, type, device.name());
+        settings.setPrimaryScale(deviceId);
+        bleManager.setSavedScaleAddress(deviceId, type, device.name());
 
         // Switch MachineState and TimingController to use physical scale instead of FlowScale
         machineState.setScale(physicalScale.get());
@@ -1146,6 +1207,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("WeatherManager", &weatherManager);
     context->setContextProperty("CrashReporter", &crashReporter);
     context->setContextProperty("WidgetLibrary", &widgetLibrary);
+    context->setContextProperty("McpServer", &mcpServer);
     context->setContextProperty("LibrarySharing", &librarySharing);
 #ifndef Q_OS_IOS
     context->setContextProperty("USBManager", &usbManager);
@@ -1214,17 +1276,19 @@ int main(int argc, char *argv[])
     engine.load(url);
     checkpoint("engine.load(main.qml) returned");
 
-    // GHC Simulator window for debug builds (runs when simulation mode is on)
+    // Simulator engine (all debug builds) and GHC window (desktop debug only)
     // NOTE: These must be declared outside the if-block so they survive through
     // app.exec(). Otherwise the if-block scope destroys them before the event
     // loop starts, and signal connections become dangling references (use-after-free).
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#ifdef QT_DEBUG
     std::unique_ptr<DE1Simulator> de1SimulatorPtr;
     std::unique_ptr<SimulatedScale> simulatedScalePtr;
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
+#endif
 
     if (settings.simulationMode()) {
-        qDebug() << "Creating DE1 Simulator and GHC window...";
+        qDebug() << "Creating DE1 Simulator...";
 
         // Create the DE1 machine simulator
         de1SimulatorPtr = std::make_unique<DE1Simulator>();
@@ -1292,6 +1356,8 @@ int main(int argc, char *argv[])
         QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
                          &simulatedScale, &SimulatedScale::setSimulatedWeight);
 
+        // GHC Simulator window (desktop debug only — other platforms use the layout widget)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
         // Configure GHC visual controller (created earlier for main window access)
         ghcSimulator.setDE1Device(&de1Device);
         ghcSimulator.setDE1Simulator(&de1Simulator);
@@ -1314,8 +1380,9 @@ int main(int argc, char *argv[])
 
         const QUrl ghcUrl(u"qrc:/qt/qml/Decenza/qml/simulator/GHCSimulatorWindow.qml"_s);
         ghcEngine.load(ghcUrl);
+#endif // desktop GHC window
     }
-#endif
+#endif // QT_DEBUG
 
 #ifdef Q_OS_ANDROID
     // Set landscape orientation on Android (after QML is loaded)
@@ -1370,12 +1437,15 @@ int main(int argc, char *argv[])
 #endif
 
             if (physicalScale && physicalScale->isConnected()) {
-                physicalScale->sleep();
-                // Give BLE write time to complete before app suspends
-                // de1app waits 1 second, we use 500ms as a compromise
                 QEventLoop waitLoop;
-                QTimer::singleShot(500, &waitLoop, &QEventLoop::quit);
-                waitLoop.exec();
+                bool scaleDone = false;
+                QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
+                                 &waitLoop, [&]() { scaleDone = true; waitLoop.quit(); });
+                physicalScale->sleep();
+                if (!scaleDone) {
+                    QTimer::singleShot(1500, &waitLoop, &QEventLoop::quit);
+                    waitLoop.exec();
+                }
             }
             // DE1 intentionally NOT put to sleep - user may be checking other apps
             // while machine heats up
@@ -1486,7 +1556,6 @@ int main(int argc, char *argv[])
         // Put scale to sleep if connected
         if (physicalScale && physicalScale->isConnected()) {
             qDebug() << "Sending physical scale to sleep on app exit";
-            physicalScale->sleep();
             needBleWait = true;
         }
 
@@ -1495,7 +1564,7 @@ int main(int argc, char *argv[])
             QEventLoop waitLoop;
             auto* transport = de1Device.transport();
             bool drained = false;
-            int timeoutMs = 500; // Scale-only default
+            int timeoutMs = 1500; // Safety-net timeout
 
             if (transport && transport->isConnected()) {
                 QObject::connect(transport, &DE1Transport::queueDrained,
@@ -1503,6 +1572,12 @@ int main(int argc, char *argv[])
                 QObject::connect(transport, &DE1Transport::disconnected,
                                  &waitLoop, [&]() { waitLoop.quit(); });
                 timeoutMs = 2000;
+            }
+
+            if (physicalScale && physicalScale->isConnected()) {
+                QObject::connect(physicalScale.get(), &ScaleDevice::sleepCompleted,
+                                 &waitLoop, [&]() { drained = true; waitLoop.quit(); });
+                physicalScale->sleep();
             }
 
             qDebug() << "Waiting for BLE queue to drain before exit...";

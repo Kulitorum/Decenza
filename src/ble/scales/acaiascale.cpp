@@ -342,10 +342,21 @@ void AcaiaScale::parseResponse(const QByteArray& data) {
     int msgEnd = ACAIA_METADATA_LEN + length;
     if (m_buffer.size() < msgEnd) return;
 
-    // Only process weight messages (msgType 0x0C, eventType 5 or 11)
+    // Weight messages (msgType 0x0C, eventType 5 or 11)
     if (msgType == 0x0C && (eventType == 5 || eventType == 11)) {
         int payloadOffset = (eventType == 5) ? ACAIA_METADATA_LEN : ACAIA_METADATA_LEN + 3;
         decodeWeight(m_buffer, payloadOffset);
+    }
+
+    // Settings response (msgType 0x08): contains battery level
+    // Unlike 0x0C event messages, 0x08 has no eventType byte — payload starts at buf[4]:
+    //   buf[4]=payload[0] (unknown), buf[5]=payload[1] (battery), buf[6]=payload[2] (units), ...
+    // Battery masked with 0x7F gives 0-100%
+    if (msgType == 0x08 && m_buffer.size() >= 6) {
+        int batteryLevel = buf[5] & 0x7F;
+        if (batteryLevel >= 0 && batteryLevel <= 100) {
+            setBatteryLevel(batteryLevel);
+        }
     }
 
     // Clear buffer after processing
