@@ -181,10 +181,20 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             if (!session && sessionHeader.isEmpty() && m_sessions.size() == 1) {
                 session = m_sessions.begin().value();
             }
+            // Auto-recover: if session expired or ID is stale, create a new one
+            // instead of hard-failing. mcp-remote can't re-initialize on its own,
+            // so rejecting here leaves the client permanently broken until restart.
             if (!session) {
-                sendJsonRpcError(socket, -32600, "Invalid session",
-                                 request["id"].toVariant(), sessionHeader);
-                return;
+                qDebug() << "McpServer: Session not found (expired or stale), auto-creating new session";
+                session = findOrCreateSession(QString());
+                if (!session) {
+                    sendJsonRpcError(socket, -32000, "Too many sessions",
+                                     request["id"].toVariant(), sessionHeader);
+                    return;
+                }
+                // Mark as initialized — the client already completed initialize
+                // in a prior session, so skip the handshake requirement
+                session->setInitialized(true);
             }
             if (!session->initialized() && rpcMethod != "notifications/initialized") {
                 sendJsonRpcError(socket, -32600, "Session not initialized",

@@ -133,6 +133,6 @@ private:
     // Limits
     static constexpr int MaxSessions = 8;
     static constexpr int MaxSseConnections = 4;
-    static constexpr int SessionTimeoutMinutes = 30;
+    static constexpr int SessionTimeoutMinutes = 1440;  // 24 hours
     static constexpr int RateLimitPerMinute = 10;
 };
