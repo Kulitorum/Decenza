@@ -515,8 +515,15 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // AI knowledge base ID (Decenza extension)
     profile.m_knowledgeBaseId = obj["knowledge_base_id"].toString();
 
-    // Recipe mode data
+    // Recipe mode data — auto-fix simple profiles that were incorrectly converted
+    // to recipe mode by an older converter. The scalar fields are still correct;
+    // only the recipe object has wrong values.
     profile.m_isRecipeMode = obj["is_recipe_mode"].toBool(false);
+    if (profile.m_isRecipeMode &&
+        (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b")) {
+        qDebug() << "Auto-fixing simple profile with stale is_recipe_mode:" << profile.m_title;
+        profile.m_isRecipeMode = false;
+    }
     if (profile.m_isRecipeMode && obj.contains("recipe")) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
         // Infer editorType from profileType/title when not explicitly saved in recipe
