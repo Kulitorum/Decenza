@@ -568,9 +568,10 @@ int main(int argc, char *argv[])
                              flows.append(e.second);
                          }
 
-                         // Build frame exit weights from current profile
+                         // Build frame exit weights and preinfuse count from current profile
                          QVector<double> frameExitWeights;
                          const Profile& profile = mainController.currentProfile();
+                         int preinfuseFrameCount = profile.preinfuseFrameCount();
                          {
                              const auto& steps = profile.steps();
                              frameExitWeights.reserve(steps.size());
@@ -584,8 +585,8 @@ int main(int argc, char *argv[])
                          double sensorLagSeconds = Settings::sensorLag(scaleType);
 
                          QMetaObject::invokeMethod(&weightProcessor,
-                             [&weightProcessor, targetWeight, frameExitWeights, drips, flows, converged, tareComplete, sensorLagSeconds]() {
-                                 weightProcessor.configure(targetWeight, frameExitWeights, drips, flows, converged,
+                             [&weightProcessor, targetWeight, preinfuseFrameCount, frameExitWeights, drips, flows, converged, tareComplete, sensorLagSeconds]() {
+                                 weightProcessor.configure(targetWeight, preinfuseFrameCount, frameExitWeights, drips, flows, converged,
                                                            sensorLagSeconds);
                                  weightProcessor.startExtraction();
                                  if (tareComplete) {

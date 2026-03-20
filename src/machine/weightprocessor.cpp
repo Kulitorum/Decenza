@@ -165,8 +165,12 @@ void WeightProcessor::processWeight(double weight)
         }
     }
 
+    // Suppress SAW during preinfusion frames (matches de1app: SAW only after
+    // current frame >= number_of_preinfuse_frames)
+    bool pastPreinfusion = (m_currentFrame >= m_preinfuseFrameCount);
+
     // Stop-at-weight check (requires valid flow rate for drip prediction)
-    if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort < 0.5) {
+    if (pastPreinfusion && !m_stopTriggered && m_targetWeight > 0 && flowRateShort < 0.5) {
         // Throttle this log to every 5s, include LSLR diagnostic info
         if (wallClock - m_lastLowFlowLogMs >= 5000) {
             // Compute dt for the short window to diagnose why LSLR returns 0
@@ -186,7 +190,7 @@ void WeightProcessor::processWeight(double weight)
             m_lastLowFlowLogMs = wallClock;
         }
     }
-    if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
+    if (pastPreinfusion && !m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
         // Log once when flow becomes valid — confirms de-jitter is working
         if (!m_flowBecameValidLogged && m_extractionStartTime > 0) {
             m_flowBecameValidLogged = true;
@@ -224,11 +228,13 @@ void WeightProcessor::processWeight(double weight)
     }
 }
 
-void WeightProcessor::configure(double targetWeight, QVector<double> frameExitWeights,
+void WeightProcessor::configure(double targetWeight, int preinfuseFrameCount,
+                                QVector<double> frameExitWeights,
                                 QVector<double> learningDrips, QVector<double> learningFlows,
                                 bool sawConverged, double sensorLagSeconds)
 {
     m_targetWeight = targetWeight;
+    m_preinfuseFrameCount = preinfuseFrameCount;
     m_frameExitWeights = frameExitWeights;
     m_learningDrips = learningDrips;
     m_learningFlows = learningFlows;
