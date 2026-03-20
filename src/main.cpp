@@ -604,7 +604,7 @@ int main(int argc, char *argv[])
                          }, Qt::QueuedConnection);
                      });
 
-    // Mark extraction start when flow actually begins (preinfusion), not at preheat.
+    // Mark extraction start when flow actually begins, not at preheat.
     // This ensures the untared-cup sanity check in WeightProcessor doesn't fire during
     // preheat while the BLE tare command is still in transit to the scale.
     QObject::connect(&machineState, &MachineState::shotStarted,

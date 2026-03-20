@@ -188,7 +188,7 @@ void WeightProcessor::processWeight(double weight)
     }
     if (!m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
         // Log once when flow becomes valid — confirms de-jitter is working
-        if (!m_flowBecameValidLogged) {
+        if (!m_flowBecameValidLogged && m_extractionStartTime > 0) {
             m_flowBecameValidLogged = true;
             double extractionTime = (wallClock - m_extractionStartTime) / 1000.0;
             qDebug() << "[SAW-Worker] Flow became valid: flowShort=" << QString::number(flowRateShort, 'f', 2)
@@ -275,6 +275,7 @@ void WeightProcessor::startExtraction()
 
 void WeightProcessor::markExtractionStart()
 {
+    if (!m_active || m_extractionStartTime != 0) return;
     m_extractionStartTime = QDateTime::currentMSecsSinceEpoch();
 }
 
