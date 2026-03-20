@@ -742,6 +742,7 @@ int main(int argc, char *argv[])
     mcpServer.setShotHistoryStorage(mainController.shotHistory());
     mcpServer.setBLEManager(&bleManager);
     mcpServer.setSettings(&settings);
+    mcpServer.setMemoryMonitor(&memoryMonitor);
     mainController.shotServer()->setMcpServer(&mcpServer);
     mcpServer.registerAllTools();
     mcpServer.registerAllResources();

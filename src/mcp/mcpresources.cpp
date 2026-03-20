@@ -8,6 +8,8 @@
 #include "../machine/machinestate.h"
 #include "../controllers/maincontroller.h"
 #include "../history/shothistorystorage.h"
+#include "../core/memorymonitor.h"
+#include "../network/webdebuglogger.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -19,7 +21,7 @@ static QAtomicInt s_mcpResConnCounter{0};
 
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, MainController* mainController,
-                          ShotHistoryStorage* shotHistory)
+                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor)
 {
     // decenza://machine/state
     registry->registerResource(
@@ -149,5 +151,34 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
             result["profiles"] = profiles;
             result["count"] = profiles.size();
             return result;
+        });
+
+    // decenza://debug/log
+    registry->registerResource(
+        "decenza://debug/log",
+        "Debug Log",
+        "Full persisted debug log with memory snapshot (survives crashes)",
+        "application/json",
+        [memoryMonitor]() -> QJsonObject {
+            QJsonObject result;
+            auto* logger = WebDebugLogger::instance();
+            QString log = logger ? logger->getPersistedLog() : QString();
+            if (memoryMonitor)
+                log += memoryMonitor->toSummaryString();
+            result["log"] = log;
+            result["path"] = logger ? logger->logFilePath() : QString();
+            result["lineCount"] = logger ? logger->lineCount() : 0;
+            return result;
+        });
+
+    // decenza://debug/memory
+    registry->registerResource(
+        "decenza://debug/memory",
+        "Memory Stats",
+        "Current RSS, peak RSS, QObject count, and recent memory samples",
+        "application/json",
+        [memoryMonitor]() -> QJsonObject {
+            if (!memoryMonitor) return QJsonObject();
+            return memoryMonitor->toJson();
         });
 }
