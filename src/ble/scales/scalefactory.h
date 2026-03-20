@@ -21,7 +21,8 @@ enum class ScaleType {
     EurekaPrecisa,
     SoloBarista,
     AtomheartEclair,
-    VariaAku
+    VariaAku,
+    Timemore
 };
 
 class ScaleFactory {
@@ -59,4 +60,5 @@ private:
     static bool isSoloBarista(const QString& name);
     static bool isAtomheartEclair(const QString& name);
     static bool isVariaAku(const QString& name);
+    static bool isTimemoreScale(const QString& name);
 };

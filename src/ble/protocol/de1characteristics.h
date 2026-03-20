@@ -248,7 +248,7 @@ namespace Bookoo {
     const QBluetoothUuid CMD(QString("0000FF12-0000-1000-8000-00805F9B34FB"));
 }
 
-// Eureka Precisa / Solo Barista / SmartChef (same UUIDs)
+// Eureka Precisa / Solo Barista / SmartChef / Timemore (same UUIDs)
 namespace Generic {
     const QBluetoothUuid SERVICE(QString("0000FFF0-0000-1000-8000-00805F9B34FB"));
     const QBluetoothUuid STATUS(QString("0000FFF1-0000-1000-8000-00805F9B34FB"));
