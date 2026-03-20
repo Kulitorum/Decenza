@@ -10,7 +10,7 @@ Window {
     height: 470
     minimumWidth: 300
     minimumHeight: 350
-    visible: true
+    visible: !Settings.hideGhcSimulator
     color: "#1a1a1a"
 
     // Restore window position on load (not size - keep default to match real device)
@@ -23,10 +23,16 @@ Window {
         }
     }
 
-    // Save window position on close
+    // Save window position on close or hide
     onClosing: function(close) {
         Settings.setValue("ghcWindow/x", ghcWindow.x)
         Settings.setValue("ghcWindow/y", ghcWindow.y)
+    }
+    onVisibleChanged: {
+        if (!visible && x >= 0 && y >= 0) {
+            Settings.setValue("ghcWindow/x", ghcWindow.x)
+            Settings.setValue("ghcWindow/y", ghcWindow.y)
+        }
     }
 
     // Raise all application windows together when this window is activated
@@ -40,7 +46,7 @@ Window {
     Connections {
         target: GHCSimulator
         function onRaiseGhcWindow() {
-            ghcWindow.raise()
+            if (ghcWindow.visible) ghcWindow.raise()
         }
     }
 

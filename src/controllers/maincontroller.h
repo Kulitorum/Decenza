@@ -192,7 +192,6 @@ public:
     Q_INVOKABLE void createNewPressureProfile(const QString& title = "New Pressure Profile");
     Q_INVOKABLE void createNewFlowProfile(const QString& title = "New Flow Profile");
     // Profile mode conversion
-    Q_INVOKABLE void convertCurrentProfileToRecipe();   // Advanced -> D-Flow (simplifies profile)
     Q_INVOKABLE void convertCurrentProfileToAdvanced(); // D-Flow -> Advanced (expands capabilities)
 
     // === D-Flow Frame Editor Methods ===

@@ -1,6 +1,5 @@
 #include "profileconverter.h"
 #include "profile.h"
-#include "recipeanalyzer.h"
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -146,15 +145,10 @@ void ProfileConverter::onProcessNextFile()
             m_skippedCount++;
             qDebug() << "ProfileConverter: Skipped" << filename << "(already exists)";
         } else {
-            // Try to convert to D-Flow (recipe) mode if the profile structure is simple enough
-            // Complex profiles (like Damian's LRv3 with 8 frames) stay as frame-based
-            if (RecipeAnalyzer::canConvertToRecipe(profile)) {
-                RecipeAnalyzer::convertToRecipeMode(profile);
-                qDebug() << "ProfileConverter:" << filename << "→ D-Flow mode";
-            } else {
-                profile.setRecipeMode(false);
-                qDebug() << "ProfileConverter:" << filename << "→ Advanced mode (complex profile)";
-            }
+            // Preserve the profile's original editor type from de1app —
+            // don't convert to recipe/D-Flow mode.
+            profile.setRecipeMode(false);
+            qDebug() << "ProfileConverter:" << filename << "→" << profile.profileType();
 
             if (profile.saveToFile(outputPath)) {
                 m_successCount++;

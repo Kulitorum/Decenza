@@ -3250,6 +3250,17 @@ void Settings::setSimulationMode(bool enabled) {
     }
 }
 
+bool Settings::hideGhcSimulator() const {
+    return m_settings.value("developer/hideGhcSimulator", false).toBool();
+}
+
+void Settings::setHideGhcSimulator(bool hide) {
+    if (hideGhcSimulator() != hide) {
+        m_settings.setValue("developer/hideGhcSimulator", hide);
+        emit hideGhcSimulatorChanged();
+    }
+}
+
 // Temperature override (persistent)
 double Settings::temperatureOverride() const {
     return m_temperatureOverride;

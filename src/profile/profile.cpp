@@ -850,9 +850,6 @@ Profile Profile::loadFromTclString(const QString& content) {
     qDebug() << "Loaded Tcl profile:" << profile.m_title
              << "with" << profile.m_steps.size() << "steps";
 
-    // Keep all imported profiles as frame-based to preserve exact frame structure and timing
-    // Converting to recipe mode would regenerate frames with different timing via RecipeGenerator
-
     return profile;
 }
 

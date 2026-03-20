@@ -157,6 +157,26 @@ Item {
                             onToggled: DE1Device.setIsHeadless(checked)
                         }
                     }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(20)
+
+                        Tr {
+                            key: "debug.hideGhcSimulator"
+                            fallback: "Hide GHC Simulator"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: Settings.hideGhcSimulator
+                            accessibleName: TranslationManager.translate("debug.hideGhcSimulator", "Hide GHC Simulator")
+                            onToggled: Settings.hideGhcSimulator = checked
+                        }
+                    }
                 }
             }
 

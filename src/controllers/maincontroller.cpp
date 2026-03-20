@@ -5,8 +5,8 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../models/shotdatamodel.h"
-#include "../profile/recipegenerator.h"
 #include "../profile/recipeanalyzer.h"
+#include "../profile/recipegenerator.h"
 #include "../models/shotcomparisonmodel.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -1707,20 +1707,6 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
 }
 
 QVariantMap MainController::getOrConvertRecipeParams() {
-    if (!m_currentProfile.isRecipeMode() && isDFlowTitle(m_currentProfile.title())) {
-        // Auto-convert D-Flow profiles (detected by title prefix, matching de1app behavior)
-        RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
-        qDebug() << "Auto-converted D-Flow profile to recipe mode:" << m_currentProfile.title();
-    }
-    if (!m_currentProfile.isRecipeMode() && isAFlowTitle(m_currentProfile.title())) {
-        // Auto-convert A-Flow profiles (detected by title prefix, matching de1app behavior)
-        RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
-        // Set editor type to aflow for A-Flow title-detected profiles
-        RecipeParams params = m_currentProfile.recipeParams();
-        params.editorType = EditorType::AFlow;
-        m_currentProfile.setRecipeParams(params);
-        qDebug() << "Auto-converted A-Flow profile to recipe mode:" << m_currentProfile.title();
-    }
     if (m_currentProfile.isRecipeMode()) {
         // Always ensure editorType matches title (handles profiles saved with wrong type)
         RecipeParams params = m_currentProfile.recipeParams();
@@ -1731,6 +1717,17 @@ QVariantMap MainController::getOrConvertRecipeParams() {
         }
         return m_currentProfile.recipeParams().toVariantMap();
     }
+
+    // D-Flow/A-Flow profiles from de1app: extract params from frames on-the-fly
+    // without modifying the profile. Title is the authority for editor selection.
+    if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())) {
+        RecipeParams params = RecipeAnalyzer::extractRecipeParams(m_currentProfile);
+        if (isAFlowTitle(m_currentProfile.title())) {
+            params.editorType = EditorType::AFlow;
+        }
+        return params.toVariantMap();
+    }
+
     // Return default params if not in recipe mode
     return RecipeParams().toVariantMap();
 }
@@ -1780,33 +1777,6 @@ void MainController::createNewProfileWithEditorType(EditorType type, const QStri
 
     uploadCurrentProfile();
     qDebug() << "Created new" << editorTypeToString(type) << "profile:" << title;
-}
-
-void MainController::convertCurrentProfileToRecipe() {
-    // Force convert the current profile to recipe mode
-    // This simplifies complex profiles to fit D-Flow pattern
-    RecipeAnalyzer::forceConvertToRecipe(m_currentProfile);
-
-    // Regenerate frames from recipe params
-    RecipeParams params = m_currentProfile.recipeParams();
-    auto frames = RecipeGenerator::generateFrames(params);
-    m_currentProfile.setSteps(frames);
-
-    m_profileModified = true;
-
-    // Sync overrides to match the converted profile
-    if (m_settings) {
-        m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
-        m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
-    }
-
-    emit currentProfileChanged();
-    emit profileModifiedChanged();
-
-    // Upload the converted profile to machine
-    uploadCurrentProfile();
-
-    qDebug() << "Converted profile to D-Flow mode:" << m_currentProfile.title();
 }
 
 void MainController::convertCurrentProfileToAdvanced() {
