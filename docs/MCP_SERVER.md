@@ -86,9 +86,9 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, settings_get, dialing_get_context |
+| `read` | 0 (Monitor) | machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, dialing_get_context |
 | `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_set_feedback, dialing_suggest_change |
-| `settings` | 2 (Full) | profiles_set_active, settings_set, dialing_apply_change |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, settings_set, dialing_apply_change |
 
 ### Tool → Confirmation Level Mapping
 
@@ -104,6 +104,9 @@ Two confirmation mechanisms are used depending on where the user is:
 | machine_stop | No confirm | Confirm | Chat |
 | machine_skip_frame | No confirm | Confirm | Chat |
 | profiles_set_active | **Confirm** | Confirm | Chat |
+| profiles_edit_params | **Confirm** | Confirm | Chat |
+| profiles_save | **Confirm** | Confirm | Chat |
+| profiles_delete | **Confirm** | Confirm | Chat |
 | settings_set | **Confirm** | Confirm | Chat |
 | dialing_apply_change | **Confirm** | Confirm | Chat |
 | shots_set_feedback | No confirm | No confirm | — |
@@ -176,7 +179,11 @@ This avoids holding HTTP connections and works naturally with the conversational
 | `profiles_list` | List all available profiles | read |
 | `profiles_get_active` | Get current profile name + details | read |
 | `profiles_get_detail` | Full profile JSON by filename | read |
+| `profiles_get_params` | Get the current profile's editable recipe parameters, tailored to its editor type (dflow, aflow, pressure, flow). Returns all parameters that can be passed to `profiles_edit_params`. | read |
 | `profiles_set_active` | Load and activate a profile | settings |
+| `profiles_edit_params` | Edit the current profile's recipe parameters and regenerate frames. Only provide fields you want to change — unspecified fields keep their current values. Triggers frame regeneration and uploads to machine. Profile is marked modified but not saved to disk — call `profiles_save` to persist. | settings |
+| `profiles_save` | Save the current (modified) profile to disk. Without this, edits are active on the machine but lost if another profile is loaded. Optionally provide filename + title for Save As. | settings |
+| `profiles_delete` | Delete a user/downloaded profile. For built-in profiles, removes local overrides and reverts to the original built-in version. | settings |
 
 ### Settings
 | Tool | Description | Category |
@@ -192,7 +199,7 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 |------|-------------|----------|
 | `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with same profile family via `ShotHistoryStorage::getRecentShotsByKbId()`) + bean metadata + dial-in reference tables (`docs/ESPRESSO_DIAL_IN_REFERENCE.md`). This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. | read |
 | `dialing_suggest_change` | Suggest a parameter change to the user with rationale (e.g. "Grind 2 clicks finer to reduce sourness"). Returns the suggestion as structured data. The app shows it as a toast/notification via `McpServer::suggestionReceived` signal → QML handler. Track whether a suggestion is currently displayed via an event-based boolean (`m_suggestionPending`), set when the signal fires and cleared by QML `onSuggestionDismissed` callback. Do NOT use a timer to clear this flag. If a new suggestion arrives while one is displayed, replace the current toast. | control |
-| `dialing_apply_change` | Apply a dial-in change: adjust grind setting (metadata), target weight, target volume, temperature, switch profile, or update bean metadata (brand, type, roast level — for when the user switches to a new bag). Combines settings_set + profiles_set_active + shot metadata updates for dial-in-specific params. | settings |
+| `dialing_apply_change` | Apply a dial-in change: adjust grind setting (metadata), target weight, target volume, temperature, switch profile, or update bean metadata (brand, type, roast level — for when the user switches to a new bag). Temperature and weight changes route through `uploadRecipeProfile()` to regenerate frames and upload to machine. Combines profile editing + settings for dial-in-specific params. | settings |
 
 **Design note — why one read tool instead of four:** An earlier version had separate `dialing_get_shot_summary`, `dialing_get_history`, `dialing_get_profile_knowledge`, and `dialing_get_context` tools. These were consolidated into just `dialing_get_context` because: (1) the MCP client almost always needs all the context together, (2) fewer tools means better MCP client compatibility and less confusion for the AI, (3) the individual data is still available via generic tools (`shots_get_detail`, `profiles_get_detail`, `settings_get`) if needed. The `dialing_get_context` tool accepts optional parameters to control what's included (e.g., `shot_id` to analyze a specific shot instead of the most recent, `history_limit` to control how many prior shots to include).
 
@@ -541,7 +548,7 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 
 ### Future Phases
 
-14. **Profile create/edit tools**: `profiles_create` (create new profile from JSON), `profiles_update` (modify existing profile frames/parameters), `profiles_delete` (remove user/downloaded profile). Category: settings. Allows AI to generate or tweak profiles programmatically (e.g., "make a slower blooming profile" → AI creates one).
+14. **Profile create tool**: `profiles_create` (create new profile from JSON). Category: settings. Allows AI to generate profiles programmatically (e.g., "make a slower blooming profile" → AI creates one). Note: `profiles_get_params`, `profiles_edit_params`, `profiles_save`, and `profiles_delete` are already implemented — AI can read, modify, save, and delete profiles with full frame regeneration.
 15. **Shot management tools**: `shots_delete` (delete a shot by ID), `shots_update` (update arbitrary metadata fields beyond enjoyment/notes). Category: settings. Data cleanup and richer metadata editing.
 16. **Bean inventory system**: Full CRUD for beans and batches — track individual purchases, roast dates, remaining weight, frozen status, cost per bag. Enables AI to suggest when beans are past prime, calculate cost-per-shot, recommend reorders. Requires new DB tables and significant UI work — large feature.
 17. **Real-time streaming**: Subscribe/read pattern for live sensor data during shots. An AI could provide real-time coaching during extraction ("pressure is dropping, channeling detected"). Requires WebSocket or enhanced SSE support.
@@ -563,7 +570,7 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 | 11 | Scale tools | ✅ Done | tare, timer start/stop/reset, get_weight |
 | 12 | Device tools | ✅ Done | list, scan, connect_scale, connection_status |
 | 13 | Confirmation dialog | ✅ Done | Hybrid: in-app for start ops, chat for settings |
-| 14 | Profile create/edit | 🔲 Future | create, update, delete profiles via AI |
+| 14 | Profile create/delete | 🔲 Future | create, delete profiles via AI (edit params already done) |
 | 15 | Shot management | 🔲 Future | delete shots, update metadata |
 | 16 | Bean inventory | 🔲 Future | Full CRUD, new DB tables — large feature |
 | 17 | Real-time streaming | 🔲 Future | WebSocket/enhanced SSE for live coaching |

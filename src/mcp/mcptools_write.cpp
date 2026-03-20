@@ -139,7 +139,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
         },
-        [settings](const QJsonObject& args) -> QJsonObject {
+        [mainController, settings](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
                 result["error"] = "Settings not available";
@@ -148,17 +148,32 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
 
             QStringList updated;
 
-            // Dispatch to main thread for each setting
-            if (args.contains("espressoTemperature")) {
-                double v = args["espressoTemperature"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setEspressoTemperature(v); }, Qt::QueuedConnection);
-                updated << "espressoTemperature";
+            // Temperature and weight changes must go through uploadRecipeProfile()
+            // to regenerate frames and upload to the machine
+            bool needsProfileUpdate = args.contains("espressoTemperature") || args.contains("targetWeight");
+            if (needsProfileUpdate && mainController) {
+                QVariantMap currentParams = mainController->getOrConvertRecipeParams();
+
+                if (args.contains("espressoTemperature")) {
+                    double v = args["espressoTemperature"].toDouble();
+                    currentParams["fillTemperature"] = v;
+                    currentParams["pourTemperature"] = v;
+                    currentParams["tempStart"] = v;
+                    currentParams["tempPreinfuse"] = v;
+                    currentParams["tempHold"] = v;
+                    currentParams["tempDecline"] = v;
+                    updated << "espressoTemperature";
+                }
+                if (args.contains("targetWeight")) {
+                    currentParams["targetWeight"] = args["targetWeight"].toDouble();
+                    updated << "targetWeight";
+                }
+
+                QMetaObject::invokeMethod(mainController, [mainController, currentParams]() {
+                    mainController->uploadRecipeProfile(currentParams);
+                }, Qt::QueuedConnection);
             }
-            if (args.contains("targetWeight")) {
-                double v = args["targetWeight"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setTargetWeight(v); }, Qt::QueuedConnection);
-                updated << "targetWeight";
-            }
+
             if (args.contains("steamTemperature")) {
                 double v = args["steamTemperature"].toDouble();
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamTemperature(v); }, Qt::QueuedConnection);
@@ -255,21 +270,39 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             QJsonObject result;
             QStringList applied;
 
+            // Temperature and weight changes must go through uploadRecipeProfile()
+            // to regenerate frames and upload to the machine
+            bool needsProfileUpdate = args.contains("espressoTemperature") || args.contains("targetWeight");
+            if (needsProfileUpdate && mainController) {
+                QVariantMap currentParams = mainController->getOrConvertRecipeParams();
+
+                if (args.contains("espressoTemperature")) {
+                    double v = args["espressoTemperature"].toDouble();
+                    // Set all temperature fields uniformly (matching QML editor behavior)
+                    currentParams["fillTemperature"] = v;
+                    currentParams["pourTemperature"] = v;
+                    currentParams["tempStart"] = v;
+                    currentParams["tempPreinfuse"] = v;
+                    currentParams["tempHold"] = v;
+                    currentParams["tempDecline"] = v;
+                    applied << "espressoTemperature";
+                }
+                if (args.contains("targetWeight")) {
+                    currentParams["targetWeight"] = args["targetWeight"].toDouble();
+                    applied << "targetWeight";
+                }
+
+                QMetaObject::invokeMethod(mainController, [mainController, currentParams]() {
+                    mainController->uploadRecipeProfile(currentParams);
+                }, Qt::QueuedConnection);
+            }
+
+            // Metadata-only changes go directly to Settings
             if (settings) {
                 if (args.contains("grinderSetting")) {
                     QString v = args["grinderSetting"].toString();
                     QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeGrinderSetting(v); }, Qt::QueuedConnection);
                     applied << "grinderSetting";
-                }
-                if (args.contains("targetWeight")) {
-                    double v = args["targetWeight"].toDouble();
-                    QMetaObject::invokeMethod(settings, [settings, v]() { settings->setTargetWeight(v); }, Qt::QueuedConnection);
-                    applied << "targetWeight";
-                }
-                if (args.contains("espressoTemperature")) {
-                    double v = args["espressoTemperature"].toDouble();
-                    QMetaObject::invokeMethod(settings, [settings, v]() { settings->setEspressoTemperature(v); }, Qt::QueuedConnection);
-                    applied << "espressoTemperature";
                 }
                 if (args.contains("dyeBeanBrand")) {
                     QString v = args["dyeBeanBrand"].toString();

@@ -2301,6 +2301,9 @@ QString MainController::findProfileByTitle(const QString& title) const {
 }
 
 bool MainController::profileExists(const QString& filename) const {
+    if (m_availableProfiles.contains(filename))
+        return true;
+    // Fallback: check disk (for profiles loaded after initial scan)
     QString path = profilesPath() + "/" + filename + ".json";
     return QFile::exists(path);
 }
