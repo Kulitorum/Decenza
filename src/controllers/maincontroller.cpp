@@ -518,10 +518,11 @@ void MainController::clearBrewOverrides() {
 
 QVariantList MainController::availableProfiles() const {
     QVariantList result;
-    for (const QString& name : m_availableProfiles) {
+    for (const ProfileInfo& info : m_allProfiles) {
         QVariantMap profile;
-        profile["name"] = name;  // filename for loading
-        profile["title"] = m_profileTitles.value(name, name);  // display title
+        profile["name"] = info.filename;  // filename for loading
+        profile["title"] = info.title;    // display title
+        profile["editorType"] = info.editorType;
         result.append(profile);
     }
 
@@ -1238,33 +1239,47 @@ void MainController::refreshProfiles() {
         if (isRecipeMode && obj.contains("recipe")) {
             editorType = obj["recipe"].toObject()["editorType"].toString();
         }
+        // Infer editor type from title and legacy_profile_type if not set by recipe mode
+        QString title = obj["title"].toString();
+        if (editorType.isEmpty()) {
+            if (title.contains(QLatin1String("D-Flow"), Qt::CaseInsensitive))
+                editorType = QStringLiteral("dflow");
+            else if (title.contains(QLatin1String("A-Flow"), Qt::CaseInsensitive))
+                editorType = QStringLiteral("aflow");
+            else {
+                QString profileType = obj["legacy_profile_type"].toString();
+                if (profileType.isEmpty()) profileType = obj["profile_type"].toString();
+                if (profileType == QLatin1String("settings_2a"))
+                    editorType = QStringLiteral("pressure");
+                else if (profileType == QLatin1String("settings_2b"))
+                    editorType = QStringLiteral("flow");
+                else
+                    editorType = QStringLiteral("advanced");
+            }
+        }
         bool hasKb = obj.contains("knowledge_base_id");
         // If no baked-in KB ID, try computing one from title/editorType
         if (!hasKb) {
-            hasKb = !ShotSummarizer::computeProfileKbId(obj["title"].toString(), editorType).isEmpty();
+            hasKb = !ShotSummarizer::computeProfileKbId(title, editorType).isEmpty();
         }
-        return {obj["title"].toString(), obj["beverage_type"].toString(),
+        return {title, obj["beverage_type"].toString(),
                 isRecipeMode, hasKb, editorType};
     };
 
     // Helper to load profile metadata from file path
-    auto loadProfileMeta = [&extractProfileMeta](const QString& path) -> std::tuple<QString, QString, bool, bool> {
+    auto loadProfileMeta = [&extractProfileMeta](const QString& path) -> std::tuple<QString, QString, bool, bool, QString> {
         QFile file(path);
         if (file.open(QIODevice::ReadOnly)) {
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-            auto [title, bevType, isRecipe, hasKb, editorType] = extractProfileMeta(doc.object());
-            Q_UNUSED(editorType);
-            return {title, bevType, isRecipe, hasKb};
+            return extractProfileMeta(doc.object());
         }
-        return {QString(), QString(), false, false};
+        return {QString(), QString(), false, false, QStringLiteral("advanced")};
     };
 
     // Helper to load profile metadata from JSON string
-    auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent) -> std::tuple<QString, QString, bool, bool> {
+    auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent) -> std::tuple<QString, QString, bool, bool, QString> {
         QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
-        auto [title, bevType, isRecipe, hasKb, editorType] = extractProfileMeta(doc.object());
-        Q_UNUSED(editorType);
-        return {title, bevType, isRecipe, hasKb};
+        return extractProfileMeta(doc.object());
     };
 
     QStringList filters;
@@ -1275,12 +1290,13 @@ void MainController::refreshProfiles() {
     QStringList files = builtInDir.entryList(filters, QDir::Files);
     for (const QString& file : files) {
         QString name = file.left(file.length() - 5);  // Remove .json
-        auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMeta(":/profiles/" + file);
+        auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType] = loadProfileMeta(":/profiles/" + file);
 
         ProfileInfo info;
         info.filename = name;
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
+        info.editorType = editorType;
         info.source = ProfileSource::BuiltIn;
         info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
         info.hasKnowledgeBase = hasKnowledgeBase;
@@ -1304,19 +1320,20 @@ void MainController::refreshProfiles() {
             // Cache for loadProfile() to avoid re-reading from storage
             m_profileJsonCache[name] = jsonContent;
 
-            auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMetaFromJson(jsonContent);
+            auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType] = loadProfileMetaFromJson(jsonContent);
 
             ProfileInfo info;
             info.filename = name;
             info.title = title.isEmpty() ? name : title;
             info.beverageType = beverageType;
+            info.editorType = editorType;
             info.source = ProfileSource::UserCreated;
             info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
             info.hasKnowledgeBase = hasKnowledgeBase;
 
             if (m_availableProfiles.contains(name)) {
                 // Override built-in entry so list matches what loadProfile() actually loads
-                for (int i = 0; i < m_allProfiles.size(); ++i) {
+                for (qsizetype i = 0; i < m_allProfiles.size(); ++i) {
                     if (m_allProfiles[i].filename == name) {
                         m_allProfiles[i] = info;
                         break;
@@ -1339,12 +1356,13 @@ void MainController::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMeta(downloadedDir.filePath(file));
+        auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType] = loadProfileMeta(downloadedDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
+        info.editorType = editorType;
         info.source = ProfileSource::Downloaded;
         info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
         info.hasKnowledgeBase = hasKnowledgeBase;
@@ -1363,12 +1381,13 @@ void MainController::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, isRecipeMode, hasKnowledgeBase] = loadProfileMeta(userDir.filePath(file));
+        auto [title, beverageType, isRecipeMode, hasKnowledgeBase, editorType] = loadProfileMeta(userDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
+        info.editorType = editorType;
         info.source = ProfileSource::UserCreated;
         info.isRecipeMode = isRecipeMode || isDFlowTitle(info.title) || isAFlowTitle(info.title);
         info.hasKnowledgeBase = hasKnowledgeBase;
@@ -2301,6 +2320,9 @@ QString MainController::findProfileByTitle(const QString& title) const {
 }
 
 bool MainController::profileExists(const QString& filename) const {
+    if (m_availableProfiles.contains(filename))
+        return true;
+    // Fallback: check disk (for profiles loaded after initial scan)
     QString path = profilesPath() + "/" + filename + ".json";
     return QFile::exists(path);
 }

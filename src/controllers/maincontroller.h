@@ -45,6 +45,7 @@ struct ProfileInfo {
     QString filename;
     QString title;
     QString beverageType;
+    QString editorType;   // "dflow", "aflow", "pressure", "flow", "advanced"
     ProfileSource source;
     bool isRecipeMode = false;
     bool hasKnowledgeBase = false;
