@@ -341,6 +341,15 @@ void MachineState::updatePhase() {
                 if (startingExtraction) {
                     // Extraction starting from preheating - properly start the shot timer
                     startShotTimer();
+                    m_stopAtWeightTriggered = false;
+                    m_stopAtVolumeTriggered = false;
+                    m_stopAtTimeTriggered = false;
+                    m_preinfusionVolume = 0.0;
+                    m_pourVolume = 0.0;
+                    m_cumulativeVolume = 0.0;
+                    m_lastEmittedCumulativeVolumeMl = -1;
+                    m_lastEmittedPreinfusionVolumeMl = -1;
+                    m_lastEmittedPourVolumeMl = -1;
 
                     // Reset and start scale timer (like de1app)
                     if (m_scale) {
