@@ -8,14 +8,15 @@
 
 // Timemore Dot/Duo BLE protocol (reverse-engineered)
 // Packets: 17 bytes, header A5 5A, checksum at byte[16] = XOR of bytes[2..15]
+// Checksum verified for tare; timer command structure is predicted and unconfirmed.
 // Notify packets: type 0x01 = weight data, weight at bytes[8-9] big-endian
 namespace {
     // Tare command (confirmed working)
     const QByteArray CMD_TARE = QByteArray::fromHex("A55A020000000000000000000000000002");
     // Timer commands (predicted from Duo pattern — may not work on all models)
-    const QByteArray CMD_TIMER_START = QByteArray::fromHex("A55A030100000000000000000000000003");
-    const QByteArray CMD_TIMER_STOP  = QByteArray::fromHex("A55A030200000000000000000000000004");
-    const QByteArray CMD_TIMER_RESET = QByteArray::fromHex("A55A030000000000000000000000000002");
+    const QByteArray CMD_TIMER_START = QByteArray::fromHex("A55A030100000000000000000000000002");
+    const QByteArray CMD_TIMER_STOP  = QByteArray::fromHex("A55A030200000000000000000000000001");
+    const QByteArray CMD_TIMER_RESET = QByteArray::fromHex("A55A030000000000000000000000000003");
     // Heartbeat / keepalive
     const QByteArray CMD_HEARTBEAT   = QByteArray::fromHex("A55A000000000000000000000000000000");
 }
