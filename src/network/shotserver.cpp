@@ -991,6 +991,12 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 set -e
 echo "Configuring Claude Desktop for Decenza MCP..."
 
+# Check for Node.js (needed for npx/mcp-remote)
+if ! command -v npx &>/dev/null; then
+    echo "ERROR: npx not found. Install Node.js from https://nodejs.org"
+    exit 1
+fi
+
 # Configure Claude Desktop
 CONFIG_DIR="$HOME/Library/Application Support/Claude"
 if [ ! -d "$CONFIG_DIR" ]; then
@@ -1007,7 +1013,10 @@ import json
 with open('$CONFIG') as f:
     config = json.load(f)
 config.setdefault('mcpServers', {})
-config['mcpServers']['decenza'] = {'url': '%1'}
+config['mcpServers']['decenza'] = {
+    'command': 'npx',
+    'args': ['-y', 'mcp-remote', '%1']
+}
 with open('$CONFIG', 'w') as f:
     json.dump(config, f, indent=2)
 print('Updated:', '$CONFIG')
@@ -1017,7 +1026,8 @@ else
 {
   "mcpServers": {
     "decenza": {
-      "url": "%1"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "%1"]
     }
   }
 }
@@ -1040,6 +1050,12 @@ echo '  "What is the state of my espresso machine?"'
             QString script = QString(R"PS1(
 Write-Host "Configuring Claude Desktop for Decenza MCP..."
 
+# Check for Node.js (needed for npx/mcp-remote)
+if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: npx not found. Install Node.js from https://nodejs.org" -ForegroundColor Red
+    exit 1
+}
+
 $configDir = "$env:APPDATA\Claude"
 if (-not (Test-Path $configDir)) {
     Write-Host "Claude Desktop config directory not found."
@@ -1055,7 +1071,8 @@ if (Test-Path $configPath) {
 }
 if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue @{} }
 $config.mcpServers.decenza = @{
-    url = "%1"
+    command = "npx"
+    args = @("-y", "mcp-remote", "%1")
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content $configPath
 Write-Host "Config updated: $configPath"
