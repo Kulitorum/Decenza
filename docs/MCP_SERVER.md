@@ -203,6 +203,8 @@ The MCP AI has a significant advantage over the in-app AI: it's not limited by t
 | `decenza://profiles/active` | Active profile | `MainController::currentProfileChanged` |
 | `decenza://shots/recent` | Last 10 shots | `ShotHistoryStorage::shotSaved` |
 | `decenza://profiles/list` | All available profiles | `MainController::profilesChanged` |
+| `decenza://debug/log` | Full persisted debug log with memory snapshot | On-demand (no SSE) |
+| `decenza://debug/memory` | RSS, peak RSS, QObject count, memory samples | On-demand (no SSE) |
 
 ## AI Settings Tab UI Redesign
 

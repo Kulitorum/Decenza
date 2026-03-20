@@ -138,6 +138,30 @@ QString WebDebugLogger::getPersistedLog() const
     return QString();
 }
 
+QStringList WebDebugLogger::getPersistedLogChunk(qsizetype offset, qsizetype limit, qsizetype* totalLines) const
+{
+    QFile file(m_logFilePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (totalLines) *totalLines = 0;
+        return {};
+    }
+
+    QTextStream stream(&file);
+    QStringList result;
+    qsizetype lineNum = 0;
+
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        if (lineNum >= offset && result.size() < limit) {
+            result.append(line);
+        }
+        lineNum++;
+    }
+
+    if (totalLines) *totalLines = lineNum;
+    return result;
+}
+
 QString WebDebugLogger::logFilePath() const
 {
     return m_logFilePath;

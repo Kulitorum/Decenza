@@ -28,6 +28,10 @@ public:
     // Get persisted log from file (survives crashes)
     QString getPersistedLog() const;
 
+    // Get a chunk of the persisted log by line offset/limit.
+    // Returns the lines and sets totalLines to the total number of lines in the file.
+    QStringList getPersistedLogChunk(qsizetype offset, qsizetype limit, qsizetype* totalLines = nullptr) const;
+
     // Clear the buffer (and optionally the file)
     void clear(bool clearFile = false);
 

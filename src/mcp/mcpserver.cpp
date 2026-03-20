@@ -29,9 +29,11 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                         ShotHistoryStorage* shotHistory, Settings* settings);
 void registerScaleTools(McpToolRegistry* registry, MachineState* machineState);
 void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1Device* device);
+class MemoryMonitor;
+void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor);
 void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, MainController* mainController,
-                          ShotHistoryStorage* shotHistory);
+                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor);
 
 McpServer::McpServer(QObject* parent)
     : QObject(parent)
@@ -65,12 +67,13 @@ void McpServer::registerAllTools()
     registerWriteTools(m_toolRegistry, m_mainController, m_shotHistory, m_settings);
     registerScaleTools(m_toolRegistry, m_machineState);
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
+    registerDebugTools(m_toolRegistry, m_memoryMonitor);
     qDebug() << "McpServer: Registered" << m_toolRegistry->listTools(2).size() << "tools";
 }
 
 void McpServer::registerAllResources()
 {
-    registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_mainController, m_shotHistory);
+    registerMcpResources(m_resourceRegistry, m_device, m_machineState, m_mainController, m_shotHistory, m_memoryMonitor);
     qDebug() << "McpServer: Registered" << m_resourceRegistry->listResources().size() << "resources";
 }
 
@@ -217,7 +220,7 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         }
 
         if (!wantsSse) {
-            // Not an SSE request — return server info (used by mcp-remote for transport discovery)
+            // GET without Accept: text/event-stream is invalid per MCP Streamable HTTP spec
             sendHttpResponse(socket, 405, "Method not allowed. Use POST for JSON-RPC.", "text/plain");
             return;
         }
@@ -359,6 +362,10 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         }
     }
 
+    // Count control/settings calls before execution so failed calls also count
+    if (category == "control" || category == "settings")
+        session->incrementControlCalls();
+
     QString error;
     QJsonObject toolResult = m_toolRegistry->callTool(toolName, arguments, accessLevel, error);
 
@@ -370,10 +377,6 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         result["error"] = errorObj;
         return result;
     }
-
-    // Count successful control/settings calls
-    if (category == "control" || category == "settings")
-        session->incrementControlCalls();
 
     QJsonObject result;
     QJsonArray content;

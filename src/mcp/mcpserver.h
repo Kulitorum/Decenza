@@ -19,6 +19,7 @@ class MainController;
 class ShotHistoryStorage;
 class BLEManager;
 class Settings;
+class MemoryMonitor;
 
 class McpServer : public QObject {
     Q_OBJECT
@@ -35,6 +36,7 @@ public:
     void setShotHistoryStorage(ShotHistoryStorage* storage) { m_shotHistory = storage; }
     void setBLEManager(BLEManager* ble) { m_bleManager = ble; }
     void setSettings(Settings* settings) { m_settings = settings; }
+    void setMemoryMonitor(MemoryMonitor* monitor) { m_memoryMonitor = monitor; }
 
     // Called by ShotServer for /mcp routes
     void handleHttpRequest(QTcpSocket* socket, const QString& method,
@@ -91,6 +93,7 @@ private:
     ShotHistoryStorage* m_shotHistory = nullptr;
     BLEManager* m_bleManager = nullptr;
     Settings* m_settings = nullptr;
+    MemoryMonitor* m_memoryMonitor = nullptr;
 
     // Registries
     McpToolRegistry* m_toolRegistry;

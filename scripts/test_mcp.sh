@@ -267,7 +267,7 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame shots_set_feedback profiles_set_active settings_set dialing_suggest_change dialing_apply_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame shots_set_feedback profiles_set_active settings_set dialing_suggest_change dialing_apply_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
 for tool in $EXPECTED_TOOLS; do
     assert_ok "tool '$tool' registered" "$TOOLS_JSON" \
         "'$tool' in d"
@@ -525,7 +525,7 @@ resources = d.get('result',{}).get('resources',[])
 print(json.dumps([r['uri'] for r in resources]))
 " 2>/dev/null)
 
-EXPECTED_RESOURCES="decenza://machine/state decenza://machine/telemetry decenza://profiles/active decenza://shots/recent decenza://profiles/list"
+EXPECTED_RESOURCES="decenza://machine/state decenza://machine/telemetry decenza://profiles/active decenza://shots/recent decenza://profiles/list decenza://debug/log decenza://debug/memory"
 for uri in $EXPECTED_RESOURCES; do
     assert_ok "resource '$uri' registered" "$RES_URIS" \
         "'$uri' in d"
@@ -541,8 +541,58 @@ SHOTS_RES_RAW=$(rpc 92 "resources/read" '{"uri":"decenza://shots/recent"}')
 assert_ok "shots/recent resource returns shots" "$SHOTS_RES_RAW" \
     "'shots' in json.loads(d.get('result',{}).get('contents',[{}])[0].get('text','{}'))"
 
+# Read debug log resource
+LOG_RES_RAW=$(rpc 93 "resources/read" '{"uri":"decenza://debug/log"}')
+LOG_RES_PARSED=$(echo "$LOG_RES_RAW" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+contents = d.get('result',{}).get('contents',[])
+text = contents[0].get('text','{}') if contents else '{}'
+inner = json.loads(text)
+print(json.dumps({'hasLog': len(inner.get('log','')) > 100, 'hasPath': len(inner.get('path','')) > 0, 'lineCount': inner.get('lineCount',0)}))
+" 2>/dev/null)
+assert_ok "debug/log resource returns log content" "$LOG_RES_PARSED" \
+    "d.get('hasLog') == True"
+assert_ok "debug/log resource returns path" "$LOG_RES_PARSED" \
+    "d.get('hasPath') == True"
+
+# Read memory stats resource
+MEM_RES_RAW=$(rpc 94 "resources/read" '{"uri":"decenza://debug/memory"}')
+MEM_RES_TEXT=$(echo "$MEM_RES_RAW" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+contents = d.get('result',{}).get('contents',[])
+text = contents[0].get('text','{}') if contents else '{}'
+print(text)
+" 2>/dev/null)
+assert_ok "debug/memory resource returns rssMB" "$MEM_RES_TEXT" \
+    "d.get('current',{}).get('rssMB') is not None"
+assert_ok "debug/memory resource returns qobjectCount" "$MEM_RES_TEXT" \
+    "d.get('current',{}).get('qobjectCount') is not None"
+
+# debug_get_log tool — chunked log access
+LOG_TOOL_RAW=$(rpc 95 "tools/call" '{"name":"debug_get_log","arguments":{"offset":0,"limit":10}}')
+LOG_TOOL=$(echo "$LOG_TOOL_RAW" | parse_tool_result)
+assert_ok "debug_get_log returns totalLines" "$LOG_TOOL" \
+    "d.get('totalLines',0) > 0"
+assert_ok "debug_get_log returns returnedLines" "$LOG_TOOL" \
+    "d.get('returnedLines',0) > 0 and d.get('returnedLines',0) <= 10"
+assert_ok "debug_get_log returns hasMore" "$LOG_TOOL" \
+    "'hasMore' in d"
+assert_ok "debug_get_log returns log text" "$LOG_TOOL" \
+    "len(d.get('log','')) > 0"
+
+# Pagination: read from middle
+LOG_TOTAL=$(echo "$LOG_TOOL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('totalLines',0))" 2>/dev/null)
+if [ "$LOG_TOTAL" -gt 20 ]; then
+    LOG_PAGE2_RAW=$(rpc 96 "tools/call" "{\"name\":\"debug_get_log\",\"arguments\":{\"offset\":10,\"limit\":5}}")
+    LOG_PAGE2=$(echo "$LOG_PAGE2_RAW" | parse_tool_result)
+    assert_ok "debug_get_log pagination works" "$LOG_PAGE2" \
+        "d.get('offset') == 10 and d.get('returnedLines') == 5"
+fi
+
 # Read unknown resource
-UNK_RES_RAW=$(rpc 93 "resources/read" '{"uri":"decenza://nonexistent"}')
+UNK_RES_RAW=$(rpc 97 "resources/read" '{"uri":"decenza://nonexistent"}')
 assert_ok "unknown resource returns error" "$UNK_RES_RAW" \
     "'error' in d.get('result',{}) or 'error' in d"
 
@@ -551,12 +601,12 @@ echo
 # ─── 10. Scale Tools ───
 echo -e "${CYAN}10. Scale Tools${NC}"
 
-WEIGHT_RAW=$(rpc 94 "tools/call" '{"name":"scale_get_weight","arguments":{}}')
+WEIGHT_RAW=$(rpc 96 "tools/call" '{"name":"scale_get_weight","arguments":{}}')
 WEIGHT=$(echo "$WEIGHT_RAW" | parse_tool_result)
 assert_ok "scale_get_weight returns weight or error" "$WEIGHT" \
     "'weight' in d or 'error' in d"
 
-TARE_RAW=$(rpc 95 "tools/call" '{"name":"scale_tare","arguments":{}}')
+TARE_RAW=$(rpc 97 "tools/call" '{"name":"scale_tare","arguments":{}}')
 TARE=$(echo "$TARE_RAW" | parse_tool_result)
 assert_ok "scale_tare responds" "$TARE" \
     "'success' in d or 'error' in d"
@@ -566,12 +616,12 @@ echo
 # ─── 11. Device Tools ───
 echo -e "${CYAN}11. Device Tools${NC}"
 
-DEV_LIST_RAW=$(rpc 96 "tools/call" '{"name":"devices_list","arguments":{}}')
+DEV_LIST_RAW=$(rpc 98 "tools/call" '{"name":"devices_list","arguments":{}}')
 DEV_LIST=$(echo "$DEV_LIST_RAW" | parse_tool_result)
 assert_ok "devices_list returns devices array" "$DEV_LIST" \
     "'devices' in d or 'error' in d"
 
-DEV_STATUS_RAW=$(rpc 97 "tools/call" '{"name":"devices_connection_status","arguments":{}}')
+DEV_STATUS_RAW=$(rpc 99 "tools/call" '{"name":"devices_connection_status","arguments":{}}')
 DEV_STATUS=$(echo "$DEV_STATUS_RAW" | parse_tool_result)
 assert_ok "devices_connection_status returns machineConnected" "$DEV_STATUS" \
     "'machineConnected' in d"
@@ -580,7 +630,7 @@ assert_ok "devices_connection_status returns machineConnected" "$DEV_STATUS" \
 # Just verify the tool exists (already checked in discovery)
 
 # devices_connect_scale without address
-DEV_CONNECT_RAW=$(rpc 98 "tools/call" '{"name":"devices_connect_scale","arguments":{}}')
+DEV_CONNECT_RAW=$(rpc 100 "tools/call" '{"name":"devices_connect_scale","arguments":{}}')
 DEV_CONNECT=$(echo "$DEV_CONNECT_RAW" | parse_tool_result)
 assert_ok "devices_connect_scale requires address" "$DEV_CONNECT" \
     "'error' in d"
