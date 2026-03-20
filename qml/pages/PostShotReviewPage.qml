@@ -620,7 +620,11 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
                     text: editBeanBrand
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                        if (editBeanBrand.length > 0 && list.indexOf(editBeanBrand) === -1) list = [editBeanBrand].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editBeanBrand = t }
                     onSuggestionSelected: function(t) {
                         editBeanType = ""
@@ -636,7 +640,11 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
                     text: editBeanType
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
+                        if (editBeanType.length > 0 && list.indexOf(editBeanType) === -1) list = [editBeanType].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editBeanType = t }
                     onSuggestionSelected: function(t) { editRoastDate = "" }
                 }
@@ -764,7 +772,11 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.setting", "Setting")
                     text: editGrinderSetting
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
+                        if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editGrinderSetting = t }
                 }
 
@@ -782,7 +794,11 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: editBarista
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        if (editBarista.length > 0 && list.indexOf(editBarista) === -1) list = [editBarista].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { editBarista = t }
                 }
 

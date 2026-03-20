@@ -9,15 +9,24 @@ import Decenza
 //       title: "Pick one"
 //       options: ["A", "B", "C"]
 //       currentIndex: Settings.myChoice
-//       onSelected: function(index) { Settings.myChoice = index }
+//       onSelected: function(index, value) { Settings.myChoice = index }
+//   }
+//
+// For string-based matching (e.g. SuggestionField):
+//   SelectionDialog {
+//       currentValue: root.text     // highlights matching item
+//       onSelected: function(index, value) { root.selectSuggestion(value) }
 //   }
 Dialog {
     id: root
 
     property var options: []        // Array of display strings
-    property int currentIndex: -1   // Which option is currently selected
+    property int currentIndex: -1   // Which option is currently selected (index-based)
+    property string currentValue: ""  // Alternative: select by string match (overrides currentIndex)
+    property string emptyItemText: ""  // Display text for empty/blank items (e.g. "(None)")
+    property string emptyStateText: ""  // Shown when options list is empty
 
-    signal selected(int index)
+    signal selected(int index, string value)
 
     parent: Overlay.overlay
     anchors.centerIn: parent
@@ -36,8 +45,19 @@ Dialog {
 
     onAboutToShow: _snapshot = root.options.slice()
     onOpened: {
-        if (root.currentIndex >= 0 && dialogList.count > 0)
-            dialogList.positionViewAtIndex(root.currentIndex, ListView.Center)
+        if (dialogList.count > 0) {
+            if (root.currentValue.length > 0) {
+                // String-based: find matching index and scroll to it
+                for (var i = 0; i < root._snapshot.length; i++) {
+                    if (root._snapshot[i] === root.currentValue) {
+                        dialogList.positionViewAtIndex(i, ListView.Center)
+                        break
+                    }
+                }
+            } else if (root.currentIndex >= 0) {
+                dialogList.positionViewAtIndex(root.currentIndex, ListView.Center)
+            }
+        }
         AccessibilityManager.announce(root.title)
     }
 
@@ -98,17 +118,19 @@ Dialog {
                     width: dialogList.width
                     height: Theme.scaled(48)
 
-                    property string _text: modelData || ""
-                    property bool _isCurrent: index === root.currentIndex
+                    property string _rawText: modelData || ""
+                    property string _displayText: _rawText.length > 0 ? _rawText : root.emptyItemText
+                    property bool _isCurrent: root.currentValue.length > 0
+                        ? (_rawText === root.currentValue)
+                        : (index === root.currentIndex)
 
                     color: _isCurrent
                         ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
                         : (optionArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1) : "transparent")
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: _text + (_isCurrent
-                        ? ". " + TranslationManager.translate("combobox.selected", "Selected")
-                        : "")
+                    Accessible.name: (_displayText.length > 0 ? _displayText : TranslationManager.translate("combobox.empty", "None")) +
+                        (_isCurrent ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
                     Accessible.focusable: true
                     Accessible.onPressAction: optionArea.clicked(null)
 
@@ -131,10 +153,12 @@ Dialog {
                         }
 
                         Text {
-                            text: optionDelegate._text
+                            text: optionDelegate._displayText
                             font.pixelSize: Theme.scaled(16)
                             font.family: Theme.bodyFont.family
-                            color: Theme.textColor
+                            font.italic: optionDelegate._rawText.length === 0 && optionDelegate._displayText.length > 0
+                            color: optionDelegate._rawText.length === 0 && root.emptyItemText.length > 0
+                                ? Theme.textSecondaryColor : Theme.textColor
                             verticalAlignment: Text.AlignVCenter
                             anchors.verticalCenter: parent.verticalCenter
                             elide: Text.ElideRight
@@ -155,10 +179,19 @@ Dialog {
                         id: optionArea
                         anchors.fill: parent
                         onClicked: {
-                            root.selected(index)
+                            root.selected(index, optionDelegate._rawText)
                             root.close()
                         }
                     }
+                }
+
+                // Empty state
+                Text {
+                    anchors.centerIn: parent
+                    text: root.emptyStateText
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(14)
+                    visible: dialogList.count === 0 && root.emptyStateText.length > 0
                 }
             }
 

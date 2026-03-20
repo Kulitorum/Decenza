@@ -948,7 +948,7 @@ KeyboardAwareContainer {
         title: TranslationManager.translate("settings.ai.discuss.selectAppTitle", "Select AI App")
         options: aiTab.discussAppNames
         currentIndex: Settings.discussShotApp
-        onSelected: function(index) { Settings.discussShotApp = index }
+        onSelected: function(index, value) { Settings.discussShotApp = index }
     }
 
     // Conversation overlay panel

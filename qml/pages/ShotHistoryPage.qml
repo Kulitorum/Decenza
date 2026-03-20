@@ -1070,105 +1070,17 @@ Page {
     }
 
     // Sort picker dialog
-    Dialog {
+    SelectionDialog {
         id: sortPickerDialog
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        width: Math.min(Theme.scaled(400), shotHistoryPage.width - Theme.scaled(40))
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            Text {
-                text: TranslationManager.translate("shothistory.sortByTitle", "Sort By")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(20)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
-            ListView {
-                id: sortFieldList
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(contentHeight, Theme.scaled(400))
-                Layout.topMargin: Theme.scaled(10)
-                Layout.leftMargin: Theme.scaled(10)
-                Layout.rightMargin: Theme.scaled(10)
-                clip: true
-                model: sortFieldKeys
-                spacing: Theme.scaled(2)
-
-                delegate: Rectangle {
-                    width: sortFieldList.width
-                    height: Theme.scaled(44)
-                    radius: Theme.scaled(6)
-                    color: sortItemArea.pressed ? Qt.darker(Theme.surfaceColor, 1.1) : "transparent"
-
-                    Accessible.role: Accessible.Button
-                    Accessible.name: sortFieldLabels[modelData] || modelData
-                    Accessible.focusable: true
-                    Accessible.onPressAction: sortItemArea.clicked(null)
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.scaled(10)
-                        anchors.rightMargin: Theme.scaled(10)
-                        spacing: Theme.spacingSmall
-
-                        Text {
-                            text: sortFieldLabels[modelData] || modelData
-                            font: Theme.bodyFont
-                            color: Theme.textColor
-                            Layout.fillWidth: true
-                            Accessible.ignored: true
-                        }
-
-                        ColoredIcon {
-                            source: "qrc:/icons/tick.svg"
-                            iconWidth: Theme.scaled(16)
-                            iconHeight: Theme.scaled(16)
-                            iconColor: Theme.primaryColor
-                            visible: sortField === modelData
-                        }
-                    }
-
-                    MouseArea {
-                        id: sortItemArea
-                        anchors.fill: parent
-                        onClicked: {
-                            sortField = modelData
-                            sortDirection = defaultSortDirections[modelData] || "DESC"
-                            Settings.shotHistorySortField = sortField
-                            Settings.shotHistorySortDirection = sortDirection
-                            sortPickerDialog.close()
-                            loadShots()
-                        }
-                    }
-                }
-            }
-
-            // Close button
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.close", "Close")
-                accessibleName: TranslationManager.translate("shothistory.closeSortPicker", "Close sort picker")
-                Layout.alignment: Qt.AlignRight
-                Layout.topMargin: Theme.scaled(12)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                onClicked: sortPickerDialog.close()
-            }
+        title: TranslationManager.translate("shothistory.sortByTitle", "Sort By")
+        options: sortFieldKeys.map(function(key) { return sortFieldLabels[key] || key })
+        currentIndex: sortFieldKeys.indexOf(sortField)
+        onSelected: function(index, value) {
+            sortField = sortFieldKeys[index]
+            sortDirection = defaultSortDirections[sortFieldKeys[index]] || "DESC"
+            Settings.shotHistorySortField = sortField
+            Settings.shotHistorySortDirection = sortDirection
+            loadShots()
         }
     }
 

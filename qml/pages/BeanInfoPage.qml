@@ -635,7 +635,12 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.roaster", "Roaster")
                     text: isEditMode ? editBeanBrand : Settings.dyeBeanBrand
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                        var current = isEditMode ? editBeanBrand : Settings.dyeBeanBrand
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else Settings.dyeBeanBrand = t; }
                     onSuggestionSelected: function(t) {
                         if (isEditMode) { editBeanType = ""; editRoastDate = ""; }
@@ -654,8 +659,13 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.coffee", "Coffee")
                     text: isEditMode ? editBeanType : Settings.dyeBeanType
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
-                        isEditMode ? editBeanBrand : Settings.dyeBeanBrand) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
+                            isEditMode ? editBeanBrand : Settings.dyeBeanBrand) : []
+                        var current = isEditMode ? editBeanType : Settings.dyeBeanType
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editBeanType = t; else Settings.dyeBeanType = t; }
                     onSuggestionSelected: function(t) {
                         if (isEditMode) editRoastDate = ""; else Settings.dyeRoastDate = "";
@@ -805,8 +815,13 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.setting", "Setting")
                     text: isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
-                        isEditMode ? editGrinderModel : Settings.dyeGrinderModel) : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(
+                            isEditMode ? editGrinderModel : Settings.dyeGrinderModel) : []
+                        var current = isEditMode ? editGrinderSetting : Settings.dyeGrinderSetting
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editGrinderSetting = t; else Settings.dyeGrinderSetting = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
@@ -815,7 +830,12 @@ Page {
                     Layout.fillWidth: true
                     label: TranslationManager.translate("shotmetadata.label.barista", "Barista")
                     text: isEditMode ? editBarista : Settings.dyeBarista
-                    suggestions: _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        var current = isEditMode ? editBarista : Settings.dyeBarista
+                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                        return list
+                    }
                     onTextEdited: function(t) { if (isEditMode) editBarista = t; else Settings.dyeBarista = t; }
                     onInputFocused: function(field) { focusedField = field; focusResetTimer.stop() }
                 }
