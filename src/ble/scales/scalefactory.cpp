@@ -11,6 +11,7 @@
 #include "solobaristascale.h"
 #include "atomhearteclairscale.h"
 #include "variaakuscale.h"
+#include "timemorescale.h"
 
 // Transport implementations
 #include "../transport/qtscalebletransport.h"
@@ -47,6 +48,7 @@ ScaleType ScaleFactory::detectScaleType(const QBluetoothDeviceInfo& device) {
     if (isSoloBarista(name)) return ScaleType::SoloBarista;
     if (isAtomheartEclair(name)) return ScaleType::AtomheartEclair;
     if (isVariaAku(name)) return ScaleType::VariaAku;
+    if (isTimemoreScale(name)) return ScaleType::Timemore;
 
     return ScaleType::Unknown;
 }
@@ -81,6 +83,8 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
             return std::make_unique<AtomheartEclairScale>(createTransportForPlatform(), parent);
         case ScaleType::VariaAku:
             return std::make_unique<VariaAkuScale>(createTransportForPlatform(), parent);
+        case ScaleType::Timemore:
+            return std::make_unique<TimemoreScale>(createTransportForPlatform(), parent);
         default:
             return nullptr;
     }
@@ -112,6 +116,7 @@ ScaleType ScaleFactory::resolveScaleType(const QString& name) {
     if (isSoloBarista(lower)) return ScaleType::SoloBarista;
     if (isAtomheartEclair(lower)) return ScaleType::AtomheartEclair;
     if (isVariaAku(lower)) return ScaleType::VariaAku;
+    if (isTimemoreScale(lower)) return ScaleType::Timemore;
     return ScaleType::Unknown;
 }
 
@@ -150,6 +155,8 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
             return std::make_unique<AtomheartEclairScale>(createTransportForPlatform(), parent);
         case ScaleType::VariaAku:
             return std::make_unique<VariaAkuScale>(createTransportForPlatform(), parent);
+        case ScaleType::Timemore:
+            return std::make_unique<TimemoreScale>(createTransportForPlatform(), parent);
         default:
             return nullptr;
     }
@@ -170,6 +177,7 @@ QString ScaleFactory::scaleTypeName(ScaleType type) {
         case ScaleType::SoloBarista: return "Solo Barista";
         case ScaleType::AtomheartEclair: return "Atomheart Eclair";
         case ScaleType::VariaAku: return "Varia Aku";
+        case ScaleType::Timemore: return "Timemore";
         default: return "Unknown";
     }
 }
@@ -242,4 +250,8 @@ bool ScaleFactory::isAtomheartEclair(const QString& name) {
 bool ScaleFactory::isVariaAku(const QString& name) {
     return name.contains("aku") ||
            name.contains("varia");
+}
+
+bool ScaleFactory::isTimemoreScale(const QString& name) {
+    return name.contains("timemore");
 }

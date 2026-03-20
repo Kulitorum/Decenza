@@ -226,6 +226,7 @@ set(SOURCES
     src/ble/scales/solobaristascale.cpp
     src/ble/scales/atomhearteclairscale.cpp
     src/ble/scales/variaakuscale.cpp
+    src/ble/scales/timemorescale.cpp
     src/ble/scales/flowscale.cpp
     src/ble/transport/qtscalebletransport.cpp
     src/core/asynclogger.cpp
@@ -358,6 +359,7 @@ set(HEADERS
     src/ble/scales/solobaristascale.h
     src/ble/scales/atomhearteclairscale.h
     src/ble/scales/variaakuscale.h
+    src/ble/scales/timemorescale.h
     src/ble/scales/flowscale.h
     src/ble/transport/scalebletransport.h
     src/ble/transport/qtscalebletransport.h
