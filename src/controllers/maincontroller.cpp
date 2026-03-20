@@ -1333,7 +1333,7 @@ void MainController::refreshProfiles() {
 
             if (m_availableProfiles.contains(name)) {
                 // Override built-in entry so list matches what loadProfile() actually loads
-                for (int i = 0; i < m_allProfiles.size(); ++i) {
+                for (qsizetype i = 0; i < m_allProfiles.size(); ++i) {
                     if (m_allProfiles[i].filename == name) {
                         m_allProfiles[i] = info;
                         break;

@@ -627,8 +627,9 @@ bool McpServer::needsChatConfirmation(const QString& toolName) const
     if (level == 0) return false;
 
     // All non-zero levels: settings/profile/dial-in write ops
-    if (toolName == "profiles_set_active" || toolName == "settings_set" ||
-        toolName == "dialing_apply_change")
+    if (toolName == "profiles_set_active" || toolName == "profiles_edit_params" ||
+        toolName == "profiles_save" || toolName == "profiles_delete" ||
+        toolName == "settings_set" || toolName == "dialing_apply_change")
         return true;
 
     // Level 2 (All Control): also non-start machine control ops
@@ -652,6 +653,9 @@ QString McpServer::confirmationDescription(const QString& toolName) const
         {"machine_stop", "Stop the current operation"},
         {"machine_skip_frame", "Skip to next profile frame"},
         {"profiles_set_active", "Activate a different profile"},
+        {"profiles_edit_params", "Edit profile parameters"},
+        {"profiles_save", "Save profile to disk"},
+        {"profiles_delete", "Delete a profile"},
         {"settings_set", "Change machine settings"},
         {"dialing_apply_change", "Apply a dial-in change"},
     };

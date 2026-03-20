@@ -1,3 +1,8 @@
+// TODO: Move disk I/O (saveProfile, saveProfileAs, deleteProfile) to background thread
+// per CLAUDE.md design principle. Current tool handler architecture (synchronous
+// QJsonObject return) prevents this. Requires refactoring McpToolHandler to support
+// async responses.
+
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../controllers/maincontroller.h"
@@ -50,7 +55,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
             QVariantMap profile = mainController->getCurrentProfile();
             if (!profile.isEmpty()) {
                 result["title"] = profile["title"].toString();
-                result["editorType"] = profile["editorType"].toString();
+                result["editorType"] = mainController->currentEditorType();
                 result["targetWeight"] = mainController->profileTargetWeight();
                 result["targetTemperature"] = mainController->profileTargetTemperature();
                 if (mainController->profileHasRecommendedDose())
@@ -202,6 +207,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 {"infusePressure", QJsonObject{{"type", "number"}, {"description", "Soak pressure (bar)"}}},
                 {"infuseTime", QJsonObject{{"type", "number"}, {"description", "Soak duration (seconds)"}}},
                 {"infuseWeight", QJsonObject{{"type", "number"}, {"description", "Weight to exit infuse (grams, 0=disabled)"}}},
+                {"infuseVolume", QJsonObject{{"type", "number"}, {"description", "Max volume during infuse (mL)"}}},
                 {"pourTemperature", QJsonObject{{"type", "number"}, {"description", "Pour water temperature (Celsius)"}}},
                 {"pourPressure", QJsonObject{{"type", "number"}, {"description", "Pressure limit/cap (bar)"}}},
                 {"pourFlow", QJsonObject{{"type", "number"}, {"description", "Extraction flow setpoint (mL/s)"}}},

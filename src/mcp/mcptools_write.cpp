@@ -148,29 +148,43 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
 
             QStringList updated;
 
-            // Temperature and weight changes must go through uploadRecipeProfile()
-            // to regenerate frames and upload to the machine
+            // Temperature and weight changes use the same code path as the QML editors:
+            // recipe profiles → uploadRecipeProfile(), advanced → uploadProfile()
             bool needsProfileUpdate = args.contains("espressoTemperature") || args.contains("targetWeight");
             if (needsProfileUpdate && mainController) {
-                QVariantMap currentParams = mainController->getOrConvertRecipeParams();
-
-                if (args.contains("espressoTemperature")) {
-                    double v = args["espressoTemperature"].toDouble();
-                    currentParams["fillTemperature"] = v;
-                    currentParams["pourTemperature"] = v;
-                    currentParams["tempStart"] = v;
-                    currentParams["tempPreinfuse"] = v;
-                    currentParams["tempHold"] = v;
-                    currentParams["tempDecline"] = v;
-                    updated << "espressoTemperature";
+                QString editorType = mainController->currentEditorType();
+                if (editorType == "advanced") {
+                    // Advanced path: use uploadProfile() — same as ProfileEditorPage
+                    QVariantMap profileData = mainController->getCurrentProfile();
+                    if (args.contains("espressoTemperature")) {
+                        profileData["espresso_temperature"] = args["espressoTemperature"].toDouble();
+                        updated << "espressoTemperature";
+                    }
+                    if (args.contains("targetWeight")) {
+                        profileData["target_weight"] = args["targetWeight"].toDouble();
+                        updated << "targetWeight";
+                    }
+                    mainController->uploadProfile(profileData);
+                } else {
+                    // Recipe path: use uploadRecipeProfile() — same as RecipeEditorPage/SimpleProfileEditorPage
+                    QVariantMap currentParams = mainController->getOrConvertRecipeParams();
+                    if (args.contains("espressoTemperature")) {
+                        double v = args["espressoTemperature"].toDouble();
+                        // Set all temperature fields uniformly (matching QML editor behavior)
+                        currentParams["fillTemperature"] = v;
+                        currentParams["pourTemperature"] = v;
+                        currentParams["tempStart"] = v;
+                        currentParams["tempPreinfuse"] = v;
+                        currentParams["tempHold"] = v;
+                        currentParams["tempDecline"] = v;
+                        updated << "espressoTemperature";
+                    }
+                    if (args.contains("targetWeight")) {
+                        currentParams["targetWeight"] = args["targetWeight"].toDouble();
+                        updated << "targetWeight";
+                    }
+                    mainController->uploadRecipeProfile(currentParams);
                 }
-                if (args.contains("targetWeight")) {
-                    currentParams["targetWeight"] = args["targetWeight"].toDouble();
-                    updated << "targetWeight";
-                }
-
-                // Call directly — tool handlers run on the main thread
-                mainController->uploadRecipeProfile(currentParams);
             }
 
             if (args.contains("steamTemperature")) {
@@ -269,30 +283,43 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             QJsonObject result;
             QStringList applied;
 
-            // Temperature and weight changes must go through uploadRecipeProfile()
-            // to regenerate frames and upload to the machine
+            // Temperature and weight changes use the same code path as the QML editors:
+            // recipe profiles → uploadRecipeProfile(), advanced → uploadProfile()
             bool needsProfileUpdate = args.contains("espressoTemperature") || args.contains("targetWeight");
             if (needsProfileUpdate && mainController) {
-                QVariantMap currentParams = mainController->getOrConvertRecipeParams();
-
-                if (args.contains("espressoTemperature")) {
-                    double v = args["espressoTemperature"].toDouble();
-                    // Set all temperature fields uniformly (matching QML editor behavior)
-                    currentParams["fillTemperature"] = v;
-                    currentParams["pourTemperature"] = v;
-                    currentParams["tempStart"] = v;
-                    currentParams["tempPreinfuse"] = v;
-                    currentParams["tempHold"] = v;
-                    currentParams["tempDecline"] = v;
-                    applied << "espressoTemperature";
+                QString editorType = mainController->currentEditorType();
+                if (editorType == "advanced") {
+                    // Advanced path: use uploadProfile() — same as ProfileEditorPage
+                    QVariantMap profileData = mainController->getCurrentProfile();
+                    if (args.contains("espressoTemperature")) {
+                        profileData["espresso_temperature"] = args["espressoTemperature"].toDouble();
+                        applied << "espressoTemperature";
+                    }
+                    if (args.contains("targetWeight")) {
+                        profileData["target_weight"] = args["targetWeight"].toDouble();
+                        applied << "targetWeight";
+                    }
+                    mainController->uploadProfile(profileData);
+                } else {
+                    // Recipe path: use uploadRecipeProfile() — same as RecipeEditorPage/SimpleProfileEditorPage
+                    QVariantMap currentParams = mainController->getOrConvertRecipeParams();
+                    if (args.contains("espressoTemperature")) {
+                        double v = args["espressoTemperature"].toDouble();
+                        // Set all temperature fields uniformly (matching QML editor behavior)
+                        currentParams["fillTemperature"] = v;
+                        currentParams["pourTemperature"] = v;
+                        currentParams["tempStart"] = v;
+                        currentParams["tempPreinfuse"] = v;
+                        currentParams["tempHold"] = v;
+                        currentParams["tempDecline"] = v;
+                        applied << "espressoTemperature";
+                    }
+                    if (args.contains("targetWeight")) {
+                        currentParams["targetWeight"] = args["targetWeight"].toDouble();
+                        applied << "targetWeight";
+                    }
+                    mainController->uploadRecipeProfile(currentParams);
                 }
-                if (args.contains("targetWeight")) {
-                    currentParams["targetWeight"] = args["targetWeight"].toDouble();
-                    applied << "targetWeight";
-                }
-
-                // Call directly — tool handlers run on the main thread
-                mainController->uploadRecipeProfile(currentParams);
             }
 
             // Metadata-only changes go directly to Settings
