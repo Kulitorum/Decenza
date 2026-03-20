@@ -339,7 +339,8 @@ void MachineState::updatePhase() {
                 bool startingExtraction = (oldPhase == Phase::EspressoPreheating);
 
                 if (startingExtraction) {
-                    // Extraction starting from preheating - properly start the shot timer
+                    // EspressoPreheating is wasInEspresso=true, so the outer !wasInEspresso
+                    // reset block does not fire. Reset counters here for a fresh extraction.
                     startShotTimer();
                     m_stopAtWeightTriggered = false;
                     m_stopAtVolumeTriggered = false;

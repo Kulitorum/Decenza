@@ -1686,6 +1686,12 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
     }
 
+    // Sync stop targets to MachineState so SAW/volume checks use current values
+    if (m_machineState) {
+        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
+    }
+
     // Mark as modified
     if (!m_profileModified) {
         m_profileModified = true;
@@ -1760,6 +1766,10 @@ void MainController::createNewProfileWithEditorType(EditorType type, const QStri
         m_settings->setSelectedFavoriteProfile(-1);
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
+    if (m_machineState) {
+        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
     }
 
     emit currentProfileChanged();
@@ -2078,6 +2088,10 @@ void MainController::createNewProfile(const QString& title) {
         m_settings->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
         m_settings->setBrewYieldOverride(m_currentProfile.targetWeight());
         m_settings->setTemperatureOverride(m_currentProfile.espressoTemperature());
+    }
+    if (m_machineState) {
+        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        m_machineState->setTargetVolume(m_currentProfile.targetVolume());
     }
 
     emit currentProfileChanged();
