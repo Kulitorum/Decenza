@@ -15,7 +15,7 @@ import Decenza
 // For string-based matching (e.g. SuggestionField):
 //   SelectionDialog {
 //       currentValue: root.text     // highlights matching item
-//       onSelected: function(index, value) { root.setText(value) }
+//       onSelected: function(index, value) { root.selectSuggestion(value) }
 //   }
 Dialog {
     id: root

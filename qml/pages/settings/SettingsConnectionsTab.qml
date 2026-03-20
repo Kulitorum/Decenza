@@ -827,9 +827,12 @@ Item {
                                 Accessible.name: {
                                     var scales = Settings.knownScales
                                     for (var i = 0; i < scales.length; i++) {
-                                        if (scales[i].isPrimary)
-                                            return scales[i].name + " " + scales[i].type + ". " +
-                                                TranslationManager.translate("settings.bluetooth.tapToChange", "Tap to change")
+                                        if (scales[i].isPrimary) {
+                                            var label = scales[i].name || scales[i].type
+                                            if (scales.length > 1)
+                                                return label + ". " + TranslationManager.translate("settings.bluetooth.tapToChange", "Tap to change")
+                                            return label
+                                        }
                                     }
                                     return TranslationManager.translate("settings.bluetooth.selectScale", "Select scale")
                                 }

@@ -1219,8 +1219,8 @@ Dialog {
         { token: "%CONNECTED%", label: TranslationManager.translate("customeditor.var.connected", "Online/Offline") },
         { token: "%CONNECTED_COLOR%", label: TranslationManager.translate("customeditor.var.statusColor", "Status Color") },
         { token: "%DEVICES%", label: TranslationManager.translate("customeditor.var.devices", "Devices") },
-        { token: "%MACHINE_CONNECTED%", label: TranslationManager.translate("customeditor.var.machineConnected", "Machine \u2713/\u2717") },
-        { token: "%SCALE_CONNECTED%", label: TranslationManager.translate("customeditor.var.scaleConnected", "Scale \u2713/\u2717") }
+        { token: "%MACHINE_CONNECTED%", label: TranslationManager.translate("customeditor.var.machineConnected", "Machine On/Off") },
+        { token: "%SCALE_CONNECTED%", label: TranslationManager.translate("customeditor.var.scaleConnected", "Scale On/Off") }
     ]
 
     // === Variable picker dialog ===
