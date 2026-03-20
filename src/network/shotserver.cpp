@@ -989,26 +989,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             QString mcpUrl = serverUrl + "/mcp";
             QString script = QString(R"BASH(#!/bin/bash
 set -e
-echo "Installing Decenza MCP bridge..."
-
-# Create directory
-BRIDGE_DIR="$HOME/Library/Application Support/Decenza"
-if [ ! -d "$HOME/Library" ]; then
-    BRIDGE_DIR="$HOME/.local/share/Decenza"
-fi
-mkdir -p "$BRIDGE_DIR"
-
-# Download bridge script
-BRIDGE_PATH="$BRIDGE_DIR/mcp_bridge.py"
-curl -fsSL "%1/mcp/bridge.py" -o "$BRIDGE_PATH"
-chmod +x "$BRIDGE_PATH"
-echo "Bridge script installed: $BRIDGE_PATH"
-
-# Check for Python
-if ! command -v python3 &>/dev/null; then
-    echo "WARNING: python3 not found. Install Python from python.org"
-    exit 1
-fi
+echo "Configuring Claude Desktop for Decenza MCP..."
 
 # Configure Claude Desktop
 CONFIG_DIR="$HOME/Library/Application Support/Claude"
@@ -1021,39 +1002,33 @@ CONFIG="$CONFIG_DIR/claude_desktop_config.json"
 
 # Read existing config or create new
 if [ -f "$CONFIG" ]; then
-    # Merge: add decenza server to existing config
     python3 -c "
-import json, sys
+import json
 with open('$CONFIG') as f:
     config = json.load(f)
 config.setdefault('mcpServers', {})
-config['mcpServers']['decenza'] = {
-    'command': '/usr/bin/python3',
-    'args': ['$BRIDGE_PATH', '%2']
-}
+config['mcpServers']['decenza'] = {'url': '%1'}
 with open('$CONFIG', 'w') as f:
     json.dump(config, f, indent=2)
 print('Updated:', '$CONFIG')
 "
 else
-    cat > "$CONFIG" << 'ENDJSON'
+    cat > "$CONFIG" << ENDJSON
 {
   "mcpServers": {
     "decenza": {
-      "command": "/usr/bin/python3",
-      "args": ["BRIDGE_PATH_PLACEHOLDER", "%2"]
+      "url": "%1"
     }
   }
 }
 ENDJSON
-    sed -i '' "s|BRIDGE_PATH_PLACEHOLDER|$BRIDGE_PATH|g" "$CONFIG"
     echo "Created: $CONFIG"
 fi
 
 echo ""
 echo "Done! Restart Claude Desktop and ask:"
 echo '  "What is the state of my espresso machine?"'
-)BASH").arg(serverUrl, mcpUrl);
+)BASH").arg(mcpUrl);
 
             sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
             return;
@@ -1063,21 +1038,7 @@ echo '  "What is the state of my espresso machine?"'
             QString serverUrl = url();
             QString mcpUrl = serverUrl + "/mcp";
             QString script = QString(R"PS1(
-Write-Host "Installing Decenza MCP bridge..."
-
-$bridgeDir = "$env:APPDATA\Decenza"
-New-Item -ItemType Directory -Force -Path $bridgeDir | Out-Null
-
-$bridgePath = "$bridgeDir\mcp_bridge.py"
-Invoke-WebRequest -Uri "%1/mcp/bridge.py" -OutFile $bridgePath
-Write-Host "Bridge script installed: $bridgePath"
-
-# Check for Python
-$py = Get-Command python -ErrorAction SilentlyContinue
-if (-not $py) {
-    Write-Host "WARNING: Python not found. Install from python.org" -ForegroundColor Yellow
-    exit 1
-}
+Write-Host "Configuring Claude Desktop for Decenza MCP..."
 
 $configDir = "$env:APPDATA\Claude"
 if (-not (Test-Path $configDir)) {
@@ -1094,82 +1055,16 @@ if (Test-Path $configPath) {
 }
 if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue @{} }
 $config.mcpServers.decenza = @{
-    command = "python"
-    args = @($bridgePath, "%2")
+    url = "%1"
 }
 $config | ConvertTo-Json -Depth 10 | Set-Content $configPath
 Write-Host "Config updated: $configPath"
 Write-Host ""
 Write-Host "Done! Restart Claude Desktop and ask:"
 Write-Host '  "What is the state of my espresso machine?"'
-)PS1").arg(serverUrl, mcpUrl);
+)PS1").arg(mcpUrl);
 
             sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
-            return;
-        }
-
-        // Serve bridge script inline
-        if (path == "/mcp/bridge.py") {
-            QByteArray script = R"PY(#!/usr/bin/env python3
-"""Decenza MCP Bridge - connects Claude Desktop (stdio) to Decenza's HTTP MCP server."""
-import sys, json, urllib.request, urllib.error
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: mcp_bridge.py <server-url> [api-key]", file=sys.stderr)
-        sys.exit(1)
-    server_url = sys.argv[1]
-    api_key = sys.argv[2] if len(sys.argv) > 2 else None
-    session = [None]
-
-    def make_headers():
-        h = {"Content-Type": "application/json"}
-        if session[0]: h["Mcp-Session"] = session[0]
-        if api_key: h["Authorization"] = f"Bearer {api_key}"
-        return h
-
-    while True:
-        try:
-            line = sys.stdin.readline()
-        except EOFError:
-            break
-        if not line: break
-        line = line.strip()
-        if not line: continue
-        try:
-            request = json.loads(line)
-        except json.JSONDecodeError as e:
-            print(json.dumps({"jsonrpc":"2.0","id":None,"error":{"code":-32700,"message":f"Parse error: {e}"}}), flush=True)
-            continue
-        is_notification = "id" not in request
-        try:
-            data = json.dumps(request).encode("utf-8")
-            req = urllib.request.Request(server_url, data=data, headers=make_headers(), method="POST")
-            if is_notification:
-                try:
-                    with urllib.request.urlopen(req, timeout=2) as resp: resp.read()
-                except Exception: pass
-                continue
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                new_session = resp.headers.get("Mcp-Session")
-                if new_session: session[0] = new_session
-                body = resp.read().decode("utf-8")
-                if body.strip(): print(body, flush=True)
-        except urllib.error.URLError as e:
-            msg = str(e.reason) if hasattr(e,'reason') else str(e)
-            rid = request.get("id")
-            if rid is not None:
-                print(json.dumps({"jsonrpc":"2.0","id":rid,"error":{"code":-32000,"message":f"Server error: {msg}"}}), flush=True)
-        except Exception as e:
-            rid = request.get("id")
-            if rid is not None:
-                print(json.dumps({"jsonrpc":"2.0","id":rid,"error":{"code":-32000,"message":f"Bridge error: {e}"}}), flush=True)
-
-if __name__ == "__main__":
-    main()
-)PY";
-            sendResponse(socket, 200, "text/plain; charset=utf-8", script,
-                "Content-Disposition: attachment; filename=\"decenza_mcp_bridge.py\"\r\n");
             return;
         }
 
@@ -1232,7 +1127,7 @@ a{color:#6c8cff}
 <h2>Setup Steps</h2>
 <div class="step"><span class="step-num">1.</span> Enable MCP in Decenza: Settings &gt; AI &gt; MCP Server &gt; toggle ON</div>
 <div class="step"><span class="step-num">2.</span> On your computer, install <a href="https://claude.ai/download">Claude Desktop</a></div>
-<div class="step"><span class="step-num">3.</span> Run this command in your terminal to install the MCP bridge:
+<div class="step"><span class="step-num">3.</span> Run this command in your terminal to configure Claude Desktop:
 <pre id="installCmd"><code id="installCmdText">Loading...</code><button class="copy-btn" onclick="copyInstallCmd(this)">Copy</button></pre></div>
 <div class="step"><span class="step-num">4.</span> Restart Claude Desktop (Quit &amp; reopen)</div>
 <div class="step"><span class="step-num">5.</span> Ask Claude: <em>"What's the current state of my espresso machine?"</em></div>
