@@ -373,7 +373,9 @@ QJsonDocument Profile::toJson() const {
         obj["espresso_decline_time"] = m_espressoDeclineTime;
         obj["pressure_end"] = m_pressureEnd;
         obj["flow_profile_hold"] = m_flowProfileHold;
+        obj["flow_profile_hold_time"] = m_flowProfileHoldTime;
         obj["flow_profile_decline"] = m_flowProfileDecline;
+        obj["flow_profile_decline_time"] = m_flowProfileDeclineTime;
         obj["maximum_flow_range_default"] = m_maximumFlowRangeDefault;
         obj["maximum_pressure_range_default"] = m_maximumPressureRangeDefault;
         obj["temp_steps_enabled"] = m_tempStepsEnabled;
@@ -452,6 +454,8 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_espressoDeclineTime = jsonToDouble(obj["espresso_decline_time"], 25.0);
     profile.m_pressureEnd = jsonToDouble(obj["pressure_end"], 4.0);
     profile.m_flowProfileHold = jsonToDouble(obj["flow_profile_hold"], 2.0);
+    profile.m_flowProfileHoldTime = jsonToDouble(obj["flow_profile_hold_time"], 8.0);
+    profile.m_flowProfileDeclineTime = jsonToDouble(obj["flow_profile_decline_time"], 17.0);
     profile.m_flowProfileDecline = jsonToDouble(obj["flow_profile_decline"], 1.2);
     profile.m_maximumFlowRangeDefault = jsonToDouble(obj["maximum_flow_range_default"], 1.0);
     profile.m_maximumPressureRangeDefault = jsonToDouble(obj["maximum_pressure_range_default"], 0.9);
@@ -531,17 +535,20 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         }
     }
 
-    // Sync espresso_temperature from first frame if not explicitly in JSON
-    // (de1app profiles may omit espresso_temperature, deriving it from the first step)
-    if (!obj.contains("espresso_temperature") && !profile.m_steps.isEmpty()) {
-        profile.m_espressoTemperature = profile.m_steps.first().temperature;
-    } else if (!profile.m_steps.isEmpty()) {
-        // Even when present, sync if they diverge (matches de1app behavior)
-        double firstFrameTemp = profile.m_steps.first().temperature;
-        if (qAbs(profile.m_espressoTemperature - firstFrameTemp) > 0.1) {
-            qDebug() << "Syncing espresso_temperature from" << profile.m_espressoTemperature
-                     << "to first frame temp" << firstFrameTemp;
-            profile.m_espressoTemperature = firstFrameTemp;
+    // Sync espresso_temperature from first frame for advanced profiles only.
+    // Simple profiles (settings_2a/2b) have explicit espresso_temperature that is
+    // authoritative — their frames may be stale from a prior conversion.
+    bool isSimpleProfile = (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b");
+    if (!isSimpleProfile && !profile.m_steps.isEmpty()) {
+        if (!obj.contains("espresso_temperature")) {
+            profile.m_espressoTemperature = profile.m_steps.first().temperature;
+        } else {
+            double firstFrameTemp = profile.m_steps.first().temperature;
+            if (qAbs(profile.m_espressoTemperature - firstFrameTemp) > 0.1) {
+                qDebug() << "Syncing espresso_temperature from" << profile.m_espressoTemperature
+                         << "to first frame temp" << firstFrameTemp;
+                profile.m_espressoTemperature = firstFrameTemp;
+            }
         }
     }
 
@@ -809,7 +816,9 @@ Profile Profile::loadFromTclString(const QString& content) {
 
             // Store flow-specific params
             profile.m_flowProfileHold = flowHold;
+            profile.m_flowProfileHoldTime = extractValue("flow_profile_hold_time").toDouble();
             profile.m_flowProfileDecline = flowDecline;
+            profile.m_flowProfileDeclineTime = extractValue("flow_profile_decline_time").toDouble();
             profile.m_maximumPressureRangeDefault = maximumPressureRange;
 
             profile.m_steps = generateFlowProfileFrames(

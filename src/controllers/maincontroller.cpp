@@ -1712,9 +1712,19 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
 }
 
 QVariantMap MainController::getOrConvertRecipeParams() {
+    qDebug() << "getOrConvertRecipeParams:"
+             << "title=" << m_currentProfile.title()
+             << "profileType=" << m_currentProfile.profileType()
+             << "isRecipeMode=" << m_currentProfile.isRecipeMode()
+             << "espressoTemp=" << m_currentProfile.espressoTemperature()
+             << "presets=" << m_currentProfile.temperaturePresets();
+
     if (m_currentProfile.isRecipeMode()) {
         // Always ensure editorType matches title (handles profiles saved with wrong type)
         RecipeParams params = m_currentProfile.recipeParams();
+        qDebug() << "  -> recipe mode: fillTemp=" << params.fillTemperature
+                 << "pourTemp=" << params.pourTemperature
+                 << "editorType=" << static_cast<int>(params.editorType);
         if (isAFlowTitle(m_currentProfile.title()) && params.editorType != EditorType::AFlow) {
             params.editorType = EditorType::AFlow;
             m_currentProfile.setRecipeParams(params);
@@ -1736,6 +1746,14 @@ QVariantMap MainController::getOrConvertRecipeParams() {
     // Simple profiles (settings_2a/2b): populate RecipeParams from scalar fields
     const QString& pt = m_currentProfile.profileType();
     if (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b")) {
+        qDebug() << "  -> simple profile path:" << pt
+                 << "espressoTemp=" << m_currentProfile.espressoTemperature()
+                 << "preinfTime=" << m_currentProfile.preinfusionTime()
+                 << "holdTime=" << m_currentProfile.espressoHoldTime()
+                 << "declineTime=" << m_currentProfile.espressoDeclineTime()
+                 << "holdFlow=" << m_currentProfile.flowProfileHold()
+                 << "declineFlow=" << m_currentProfile.flowProfileDecline()
+                 << "targetWeight=" << m_currentProfile.targetWeight();
         RecipeParams params;
         params.targetWeight = m_currentProfile.targetWeight();
         params.targetVolume = m_currentProfile.targetVolume();
@@ -1751,8 +1769,13 @@ QVariantMap MainController::getOrConvertRecipeParams() {
         params.preinfusionTime = m_currentProfile.preinfusionTime();
         params.preinfusionFlowRate = m_currentProfile.preinfusionFlowRate();
         params.preinfusionStopPressure = m_currentProfile.preinfusionStopPressure();
-        params.holdTime = m_currentProfile.espressoHoldTime();
-        params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
+        if (pt == QLatin1String("settings_2a")) {
+            params.holdTime = m_currentProfile.espressoHoldTime();
+            params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
+        } else {
+            params.holdTime = m_currentProfile.flowProfileHoldTime();
+            params.simpleDeclineTime = m_currentProfile.flowProfileDeclineTime();
+        }
         if (pt == QLatin1String("settings_2a")) {
             params.editorType = EditorType::Pressure;
             params.espressoPressure = m_currentProfile.espressoPressure();

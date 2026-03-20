@@ -94,7 +94,9 @@ public:
     double espressoDeclineTime() const { return m_espressoDeclineTime; }
     double pressureEnd() const { return m_pressureEnd; }
     double flowProfileHold() const { return m_flowProfileHold; }
+    double flowProfileHoldTime() const { return m_flowProfileHoldTime; }
     double flowProfileDecline() const { return m_flowProfileDecline; }
+    double flowProfileDeclineTime() const { return m_flowProfileDeclineTime; }
     double maximumFlowRangeDefault() const { return m_maximumFlowRangeDefault; }
     double maximumPressureRangeDefault() const { return m_maximumPressureRangeDefault; }
 
@@ -263,7 +265,9 @@ private:
     double m_espressoDeclineTime = 25.0;
     double m_pressureEnd = 4.0;             // settings_2a only
     double m_flowProfileHold = 2.0;         // settings_2b only
+    double m_flowProfileHoldTime = 8.0;     // settings_2b only
     double m_flowProfileDecline = 1.2;      // settings_2b only
+    double m_flowProfileDeclineTime = 17.0; // settings_2b only
     double m_maximumFlowRangeDefault = 1.0; // settings_2a limiter range
     double m_maximumPressureRangeDefault = 0.9; // settings_2b limiter range
     bool m_tempStepsEnabled = false;
