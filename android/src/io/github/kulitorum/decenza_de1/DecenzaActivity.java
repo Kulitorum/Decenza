@@ -64,10 +64,28 @@ public class DecenzaActivity extends QtActivity {
         super.onDestroy();
     }
 
+    private static boolean isDeadSystemException(Throwable t) {
+        while (t != null) {
+            if (t.getClass().getName().contains("DeadSystem")) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
+    }
+
     private void installJavaCrashHandler() {
         defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
 
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            // DeadSystemException means Android's system_server crashed or the device
+            // is rebooting. Nothing we can do — skip the crash report to avoid noise.
+            if (isDeadSystemException(throwable)) {
+                Log.w(TAG, "DeadSystemException on thread " + thread.getName()
+                        + " — Android system is dying, suppressing crash report");
+                return;
+            }
+
             try {
                 // Get crash log path (same as C++ crash handler)
                 File filesDir = getFilesDir();
