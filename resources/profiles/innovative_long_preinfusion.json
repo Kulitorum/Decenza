@@ -37,5 +37,6 @@
     "flow_profile_decline_time": 23.0,
     "flow_profile_minimum_pressure": 6.0,
     "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6
+    "maximum_flow_range_advanced": 0.6,
+    "temp_steps_enabled": true
 }

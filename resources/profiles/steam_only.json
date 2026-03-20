@@ -96,5 +96,6 @@
     "flow_profile_hold_time": 8.0,
     "flow_profile_decline": 1.2,
     "flow_profile_decline_time": 17.0,
-    "flow_profile_minimum_pressure": 4.0
+    "flow_profile_minimum_pressure": 4.0,
+    "temp_steps_enabled": true
 }

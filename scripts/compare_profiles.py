@@ -344,14 +344,17 @@ for dk, dv in sorted(decenza.items()):
     jd = dv['data']
     td = de1app[mk]['data']
     ptype = jd.get('legacy_profile_type', jd.get('profile_type', ''))
+    if ptype in ('settings_2a', 'settings_2b'):
+        PROFILE_SETTINGS += [
+            ('preinfusion_time', 'preinfusion_time', 'preinfusion_time'),
+            ('preinfusion_stop_pressure', 'preinfusion_stop_pressure', 'preinfusion_stop_pressure'),
+            ('preinfusion_flow_rate', 'preinfusion_flow_rate', 'preinfusion_flow_rate'),
+        ]
     if ptype == 'settings_2a':
         PROFILE_SETTINGS += [
             ('espresso_pressure', 'espresso_pressure', 'espresso_pressure'),
             ('espresso_decline_time', 'espresso_decline_time', 'espresso_decline_time'),
             ('espresso_hold_time', 'espresso_hold_time', 'espresso_hold_time'),
-            ('preinfusion_time', 'preinfusion_time', 'preinfusion_time'),
-            ('preinfusion_stop_pressure', 'preinfusion_stop_pressure', 'preinfusion_stop_pressure'),
-            ('preinfusion_flow_rate', 'preinfusion_flow_rate', 'preinfusion_flow_rate'),
             ('pressure_end', 'pressure_end', 'pressure_end'),
         ]
     elif ptype == 'settings_2b':
@@ -363,9 +366,6 @@ for dk, dv in sorted(decenza.items()):
             ('flow_profile_decline', 'flow_profile_decline', 'flow_profile_decline'),
             ('flow_profile_decline_time', 'flow_profile_decline_time', 'flow_decline_time'),
             ('flow_profile_minimum_pressure', 'flow_profile_minimum_pressure', 'flow_min_pressure'),
-            ('preinfusion_time', 'preinfusion_time', 'preinfusion_time'),
-            ('preinfusion_stop_pressure', 'preinfusion_stop_pressure', 'preinfusion_stop_pressure'),
-            ('preinfusion_flow_rate', 'preinfusion_flow_rate', 'preinfusion_flow_rate'),
         ]
     settings_diffs = []
     for jkey, tkey, label in PROFILE_SETTINGS:
@@ -376,6 +376,18 @@ for dk, dv in sorted(decenza.items()):
                 settings_diffs.append(f"  {label}: D={jv}, T={tv}")
         elif str(jv) != str(tv):
             settings_diffs.append(f"  {label}: D={jv}, T={tv}")
+    # Compare temperature stepping and presets for simple profiles
+    if ptype in ('settings_2a', 'settings_2b'):
+        j_temp_steps = jd.get('temp_steps_enabled', False)
+        t_temp_steps = td.get('temperature_steps_enabled', 0)
+        if bool(j_temp_steps) != bool(t_temp_steps):
+            settings_diffs.append(f"  temp_steps_enabled: D={j_temp_steps}, T={t_temp_steps}")
+        j_presets = jd.get('temperature_presets', [])
+        t_presets = [td.get(f'temperature_{i}', 0) for i in range(4)]
+        if j_presets and t_presets:
+            for i in range(min(len(j_presets), len(t_presets))):
+                if abs(float(j_presets[i]) - float(t_presets[i])) > 0.01:
+                    settings_diffs.append(f"  temperature_{i}: D={j_presets[i]}, T={t_presets[i]}")
     if settings_diffs:
         has_major = True
         details = [f"  Profile-level settings:"] + settings_diffs + details

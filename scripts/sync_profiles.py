@@ -322,6 +322,26 @@ def sync_profile(jdata, tdata):
                 changes.append(f"  {jkey}: {jv} -> {tv}")
                 jdata[jkey] = tv
 
+    # Sync temperature stepping and presets for simple profiles
+    ptype = jdata.get('legacy_profile_type', jdata.get('profile_type', ''))
+    if ptype in ('settings_2a', 'settings_2b'):
+        t_temp_steps = bool(int(tdata.get('espresso_temperature_steps_enabled', 0)))
+        j_temp_steps = jdata.get('temp_steps_enabled', False)
+        if j_temp_steps != t_temp_steps:
+            changes.append(f"  temp_steps_enabled: {j_temp_steps} -> {t_temp_steps}")
+            jdata['temp_steps_enabled'] = t_temp_steps
+
+        j_presets = jdata.get('temperature_presets', [])
+        t_presets = []
+        for i in range(4):
+            tkey = f'espresso_temperature_{i}'
+            if tkey in tdata:
+                t_presets.append(tdata[tkey])
+        if t_presets and len(t_presets) == 4:
+            if j_presets != t_presets:
+                changes.append(f"  temperature_presets: {j_presets} -> {t_presets}")
+                jdata['temperature_presets'] = t_presets
+
     # Sync frames
     jframes = jdata.get('steps', [])
     tframes = tdata.get('frames', [])
