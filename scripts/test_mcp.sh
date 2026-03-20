@@ -543,17 +543,18 @@ assert_ok "shots/recent resource returns shots" "$SHOTS_RES_RAW" \
 
 # Read debug log resource
 LOG_RES_RAW=$(rpc 93 "resources/read" '{"uri":"decenza://debug/log"}')
-LOG_RES_TEXT=$(echo "$LOG_RES_RAW" | python3 -c "
+LOG_RES_PARSED=$(echo "$LOG_RES_RAW" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 contents = d.get('result',{}).get('contents',[])
 text = contents[0].get('text','{}') if contents else '{}'
-print(text[:500])
+inner = json.loads(text)
+print(json.dumps({'hasLog': len(inner.get('log','')) > 100, 'hasPath': len(inner.get('path','')) > 0, 'lineCount': inner.get('lineCount',0)}))
 " 2>/dev/null)
-assert_ok "debug/log resource returns log content" "$LOG_RES_TEXT" \
-    "'log' in d and len(d.get('log','')) > 100"
-assert_ok "debug/log resource returns path" "$LOG_RES_TEXT" \
-    "'path' in d and len(d.get('path','')) > 0"
+assert_ok "debug/log resource returns log content" "$LOG_RES_PARSED" \
+    "d.get('hasLog') == True"
+assert_ok "debug/log resource returns path" "$LOG_RES_PARSED" \
+    "d.get('hasPath') == True"
 
 # Read memory stats resource
 MEM_RES_RAW=$(rpc 94 "resources/read" '{"uri":"decenza://debug/memory"}')
@@ -565,9 +566,9 @@ text = contents[0].get('text','{}') if contents else '{}'
 print(text)
 " 2>/dev/null)
 assert_ok "debug/memory resource returns rssMB" "$MEM_RES_TEXT" \
-    "'rssMB' in d or 'currentRssMB' in d"
+    "d.get('current',{}).get('rssMB') is not None"
 assert_ok "debug/memory resource returns qobjectCount" "$MEM_RES_TEXT" \
-    "'qobjectCount' in d"
+    "d.get('current',{}).get('qobjectCount') is not None"
 
 # Read unknown resource
 UNK_RES_RAW=$(rpc 95 "resources/read" '{"uri":"decenza://nonexistent"}')
