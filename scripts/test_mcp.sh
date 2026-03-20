@@ -267,7 +267,7 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame shots_set_feedback profiles_set_active settings_set dialing_suggest_change dialing_apply_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame shots_set_feedback profiles_set_active settings_set dialing_suggest_change dialing_apply_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
 for tool in $EXPECTED_TOOLS; do
     assert_ok "tool '$tool' registered" "$TOOLS_JSON" \
         "'$tool' in d"
@@ -570,8 +570,29 @@ assert_ok "debug/memory resource returns rssMB" "$MEM_RES_TEXT" \
 assert_ok "debug/memory resource returns qobjectCount" "$MEM_RES_TEXT" \
     "d.get('current',{}).get('qobjectCount') is not None"
 
+# debug_get_log tool — chunked log access
+LOG_TOOL_RAW=$(rpc 95 "tools/call" '{"name":"debug_get_log","arguments":{"offset":0,"limit":10}}')
+LOG_TOOL=$(echo "$LOG_TOOL_RAW" | parse_tool_result)
+assert_ok "debug_get_log returns totalLines" "$LOG_TOOL" \
+    "d.get('totalLines',0) > 0"
+assert_ok "debug_get_log returns returnedLines" "$LOG_TOOL" \
+    "d.get('returnedLines',0) > 0 and d.get('returnedLines',0) <= 10"
+assert_ok "debug_get_log returns hasMore" "$LOG_TOOL" \
+    "'hasMore' in d"
+assert_ok "debug_get_log returns log text" "$LOG_TOOL" \
+    "len(d.get('log','')) > 0"
+
+# Pagination: read from middle
+LOG_TOTAL=$(echo "$LOG_TOOL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('totalLines',0))" 2>/dev/null)
+if [ "$LOG_TOTAL" -gt 20 ]; then
+    LOG_PAGE2_RAW=$(rpc 96 "tools/call" "{\"name\":\"debug_get_log\",\"arguments\":{\"offset\":10,\"limit\":5}}")
+    LOG_PAGE2=$(echo "$LOG_PAGE2_RAW" | parse_tool_result)
+    assert_ok "debug_get_log pagination works" "$LOG_PAGE2" \
+        "d.get('offset') == 10 and d.get('returnedLines') == 5"
+fi
+
 # Read unknown resource
-UNK_RES_RAW=$(rpc 95 "resources/read" '{"uri":"decenza://nonexistent"}')
+UNK_RES_RAW=$(rpc 97 "resources/read" '{"uri":"decenza://nonexistent"}')
 assert_ok "unknown resource returns error" "$UNK_RES_RAW" \
     "'error' in d.get('result',{}) or 'error' in d"
 

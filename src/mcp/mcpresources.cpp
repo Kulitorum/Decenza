@@ -4,6 +4,7 @@
 
 #include "mcpserver.h"
 #include "mcpresourceregistry.h"
+#include "mcptoolregistry.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../controllers/maincontroller.h"
@@ -181,4 +182,55 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
             if (!memoryMonitor) return QJsonObject();
             return memoryMonitor->toJson();
         });
+}
+
+void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
+{
+    // debug_get_log — chunked access to the persisted debug log
+    registry->registerTool(
+        "debug_get_log",
+        "Read the persisted debug log in chunks. Returns lines from offset to offset+limit. "
+        "Use offset=0, limit=500 to start, then increment offset to page through. "
+        "Also returns totalLines so you know when you've reached the end.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"offset", QJsonObject{
+                    {"type", "integer"},
+                    {"description", "Line number to start from (0-based). Default: 0"}
+                }},
+                {"limit", QJsonObject{
+                    {"type", "integer"},
+                    {"description", "Maximum lines to return (1-2000). Default: 500"}
+                }}
+            }}
+        },
+        [memoryMonitor](const QJsonObject& args) -> QJsonObject {
+            auto* logger = WebDebugLogger::instance();
+            if (!logger) {
+                return QJsonObject{{"error", "Debug logger not available"}};
+            }
+
+            int offset = qMax(0, args["offset"].toInt(0));
+            int limit = qBound(1, args["limit"].toInt(500), 2000);
+            int totalLines = 0;
+
+            QStringList lines = logger->getPersistedLogChunk(offset, limit, &totalLines);
+
+            QJsonObject result;
+            result["offset"] = offset;
+            result["limit"] = limit;
+            result["totalLines"] = totalLines;
+            result["returnedLines"] = lines.size();
+            result["hasMore"] = (offset + lines.size()) < totalLines;
+            result["log"] = lines.join('\n');
+
+            // Append memory summary if this is the last chunk
+            if (!result["hasMore"].toBool() && memoryMonitor) {
+                result["memorySummary"] = memoryMonitor->toSummaryString();
+            }
+
+            return result;
+        },
+        "read");
 }
