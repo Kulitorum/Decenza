@@ -423,7 +423,12 @@ bool MainController::isCurrentProfileRecipe() const {
     if (m_currentProfile.isRecipeMode()) {
         return true;
     }
-    return isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title());
+    if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())) {
+        return true;
+    }
+    // Simple profiles (settings_2a/2b) use the Pressure/Flow editor
+    const QString& pt = m_currentProfile.profileType();
+    return (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b"));
 }
 
 QString MainController::currentEditorType() const {
@@ -1724,6 +1729,35 @@ QVariantMap MainController::getOrConvertRecipeParams() {
         RecipeParams params = RecipeAnalyzer::extractRecipeParams(m_currentProfile);
         if (isAFlowTitle(m_currentProfile.title())) {
             params.editorType = EditorType::AFlow;
+        }
+        return params.toVariantMap();
+    }
+
+    // Simple profiles (settings_2a/2b): populate RecipeParams from scalar fields
+    const QString& pt = m_currentProfile.profileType();
+    if (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b")) {
+        RecipeParams params;
+        params.targetWeight = m_currentProfile.targetWeight();
+        params.targetVolume = m_currentProfile.targetVolume();
+        params.fillTemperature = m_currentProfile.espressoTemperature();
+        params.pourTemperature = m_currentProfile.espressoTemperature();
+        params.preinfusionTime = m_currentProfile.preinfusionTime();
+        params.preinfusionFlowRate = m_currentProfile.preinfusionFlowRate();
+        params.preinfusionStopPressure = m_currentProfile.preinfusionStopPressure();
+        params.holdTime = m_currentProfile.espressoHoldTime();
+        params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
+        if (pt == QLatin1String("settings_2a")) {
+            params.editorType = EditorType::Pressure;
+            params.espressoPressure = m_currentProfile.espressoPressure();
+            params.pressureEnd = m_currentProfile.pressureEnd();
+            params.limiterValue = m_currentProfile.maximumFlow();
+            params.limiterRange = m_currentProfile.maximumFlowRangeDefault();
+        } else {
+            params.editorType = EditorType::Flow;
+            params.holdFlow = m_currentProfile.flowProfileHold();
+            params.flowEnd = m_currentProfile.flowProfileDecline();
+            params.limiterValue = m_currentProfile.maximumPressure();
+            params.limiterRange = m_currentProfile.maximumPressureRangeDefault();
         }
         return params.toVariantMap();
     }

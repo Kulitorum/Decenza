@@ -23,10 +23,10 @@ Window {
         }
     }
 
-    // Save window position on close or hide
+    // Route close via the setting to preserve the visible binding
     onClosing: function(close) {
-        Settings.setValue("ghcWindow/x", ghcWindow.x)
-        Settings.setValue("ghcWindow/y", ghcWindow.y)
+        close.accepted = false
+        Settings.hideGhcSimulator = true
     }
     onVisibleChanged: {
         if (!visible && x >= 0 && y >= 0) {
