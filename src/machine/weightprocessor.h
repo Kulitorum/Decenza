@@ -36,6 +36,7 @@ public slots:
     void setCurrentFrame(int frameNumber);
     void setTareComplete(bool complete);
     void startExtraction();
+    void markExtractionStart();  // Called when flow starts (idempotent, espresso-only)
     void stopExtraction();
     void resetForRetare();  // Clear LSLR buffer after auto-tare during preheat
 
