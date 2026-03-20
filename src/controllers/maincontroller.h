@@ -300,6 +300,7 @@ private:
     void migrateProfileFolders();
     void migrateProfileFormat();
     void migrateRecipeFrames();
+    void applyRecipeToScalarFields(const RecipeParams& recipe);
     void createNewProfileWithEditorType(EditorType type, const QString& title);
     QString profilesPath() const;
     QString userProfilesPath() const;

@@ -1663,25 +1663,34 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     }
     recipe.clamp();  // Ensure values are within hardware limits
 
-    // Check if frame-affecting params actually changed. When only metadata changes
-    // (targetWeight, targetVolume, dose), skip frame regeneration to preserve
-    // hand-tuned frame values. Matches de1app behavior where changing weight
-    // doesn't recompute frames through the D-Flow editor.
-    RecipeParams oldRecipe = m_currentProfile.recipeParams();
-    bool needFrameRegen = !m_currentProfile.isRecipeMode()
-                       || m_currentProfile.steps().isEmpty()
-                       || !oldRecipe.frameAffectingFieldsEqual(recipe);
+    const QString& pt = m_currentProfile.profileType();
+    bool isSimpleProfile = !m_currentProfile.isRecipeMode()
+        && (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b"));
 
-    // Update current profile's recipe params
-    m_currentProfile.setRecipeMode(true);
-    m_currentProfile.setRecipeParams(recipe);
-
-    if (needFrameRegen) {
-        m_currentProfile.regenerateFromRecipe();
-    } else {
-        // Only metadata changed — update target weight/volume without touching frames
+    if (isSimpleProfile) {
+        // Simple profile path: write RecipeParams back to scalar fields and
+        // regenerate frames using the de1app-compatible generators.
+        // Do NOT set isRecipeMode — the scalar fields remain the source of truth.
+        applyRecipeToScalarFields(recipe);
+        m_currentProfile.regenerateSimpleFrames();
         m_currentProfile.setTargetWeight(recipe.targetWeight);
         m_currentProfile.setTargetVolume(recipe.targetVolume);
+    } else {
+        // Recipe/D-Flow/A-Flow path (existing logic)
+        RecipeParams oldRecipe = m_currentProfile.recipeParams();
+        bool needFrameRegen = !m_currentProfile.isRecipeMode()
+                           || m_currentProfile.steps().isEmpty()
+                           || !oldRecipe.frameAffectingFieldsEqual(recipe);
+
+        m_currentProfile.setRecipeMode(true);
+        m_currentProfile.setRecipeParams(recipe);
+
+        if (needFrameRegen) {
+            m_currentProfile.regenerateFromRecipe();
+        } else {
+            m_currentProfile.setTargetWeight(recipe.targetWeight);
+            m_currentProfile.setTargetVolume(recipe.targetVolume);
+        }
     }
 
     // Sync overrides so uploadCurrentProfile doesn't apply wrong delta
@@ -1711,24 +1720,57 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
     qDebug() << "Recipe profile uploaded with" << m_currentProfile.steps().size() << "frames";
 }
 
-QVariantMap MainController::getOrConvertRecipeParams() {
-    qDebug() << "getOrConvertRecipeParams:"
-             << "title=" << m_currentProfile.title()
-             << "profileType=" << m_currentProfile.profileType()
-             << "isRecipeMode=" << m_currentProfile.isRecipeMode()
-             << "espressoTemp=" << m_currentProfile.espressoTemperature()
-             << "presets=" << m_currentProfile.temperaturePresets();
+void MainController::applyRecipeToScalarFields(const RecipeParams& recipe) {
+    // Common preinfusion fields
+    m_currentProfile.setPreinfusionTime(recipe.preinfusionTime);
+    m_currentProfile.setPreinfusionFlowRate(recipe.preinfusionFlowRate);
+    m_currentProfile.setPreinfusionStopPressure(recipe.preinfusionStopPressure);
 
+    // Temperature presets from per-step temperatures
+    m_currentProfile.setTemperaturePresets({
+        recipe.tempStart, recipe.tempPreinfuse,
+        recipe.tempHold, recipe.tempDecline
+    });
+
+    // Compute tempStepsEnabled: true if any step temp differs from another
+    bool tempsDiffer = !qFuzzyCompare(recipe.tempStart, recipe.tempPreinfuse)
+                    || !qFuzzyCompare(recipe.tempStart, recipe.tempHold)
+                    || !qFuzzyCompare(recipe.tempStart, recipe.tempDecline);
+    m_currentProfile.setTempStepsEnabled(tempsDiffer);
+
+    // espressoHoldTime/espressoDeclineTime are used by both generators as the
+    // holdTime/declineTime parameters — always set them regardless of profile type
+    m_currentProfile.setEspressoHoldTime(recipe.holdTime);
+    m_currentProfile.setEspressoDeclineTime(recipe.simpleDeclineTime);
+
+    const QString& pt = m_currentProfile.profileType();
+    if (pt == QLatin1String("settings_2a")) {
+        m_currentProfile.setEspressoPressure(recipe.espressoPressure);
+        m_currentProfile.setPressureEnd(recipe.pressureEnd);
+        m_currentProfile.setMaximumFlow(recipe.limiterValue);
+        m_currentProfile.setMaximumFlowRangeDefault(recipe.limiterRange);
+    } else {
+        // settings_2b — also set flow-specific hold/decline time fields
+        m_currentProfile.setFlowProfileHoldTime(recipe.holdTime);
+        m_currentProfile.setFlowProfileDeclineTime(recipe.simpleDeclineTime);
+        m_currentProfile.setFlowProfileHold(recipe.holdFlow);
+        m_currentProfile.setFlowProfileDecline(recipe.flowEnd);
+        m_currentProfile.setMaximumPressure(recipe.limiterValue);
+        m_currentProfile.setMaximumPressureRangeDefault(recipe.limiterRange);
+    }
+
+    // Set espressoTemperature from the first preset (will be synced from first frame
+    // after regenerateSimpleFrames, but set it here for consistency)
+    m_currentProfile.setEspressoTemperature(recipe.tempStart);
+}
+
+QVariantMap MainController::getOrConvertRecipeParams() {
     if (m_currentProfile.isRecipeMode()) {
         // Always ensure editorType matches title (handles profiles saved with wrong type)
         RecipeParams params = m_currentProfile.recipeParams();
-        qDebug() << "  -> recipe mode: fillTemp=" << params.fillTemperature
-                 << "pourTemp=" << params.pourTemperature
-                 << "editorType=" << static_cast<int>(params.editorType);
         if (isAFlowTitle(m_currentProfile.title()) && params.editorType != EditorType::AFlow) {
             params.editorType = EditorType::AFlow;
             m_currentProfile.setRecipeParams(params);
-            qDebug() << "Corrected editorType to aflow for:" << m_currentProfile.title();
         }
         return m_currentProfile.recipeParams().toVariantMap();
     }
@@ -1746,14 +1788,6 @@ QVariantMap MainController::getOrConvertRecipeParams() {
     // Simple profiles (settings_2a/2b): populate RecipeParams from scalar fields
     const QString& pt = m_currentProfile.profileType();
     if (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b")) {
-        qDebug() << "  -> simple profile path:" << pt
-                 << "espressoTemp=" << m_currentProfile.espressoTemperature()
-                 << "preinfTime=" << m_currentProfile.preinfusionTime()
-                 << "holdTime=" << m_currentProfile.espressoHoldTime()
-                 << "declineTime=" << m_currentProfile.espressoDeclineTime()
-                 << "holdFlow=" << m_currentProfile.flowProfileHold()
-                 << "declineFlow=" << m_currentProfile.flowProfileDecline()
-                 << "targetWeight=" << m_currentProfile.targetWeight();
         RecipeParams params;
         params.targetWeight = m_currentProfile.targetWeight();
         params.targetVolume = m_currentProfile.targetVolume();

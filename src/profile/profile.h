@@ -87,18 +87,34 @@ public:
     // === Simple Profile Parameters (settings_2a/2b) ===
     // Used by Visualizer to reconstruct simple profiles
     double preinfusionTime() const { return m_preinfusionTime; }
+    void setPreinfusionTime(double t) { m_preinfusionTime = t; }
     double preinfusionFlowRate() const { return m_preinfusionFlowRate; }
+    void setPreinfusionFlowRate(double f) { m_preinfusionFlowRate = f; }
     double preinfusionStopPressure() const { return m_preinfusionStopPressure; }
+    void setPreinfusionStopPressure(double p) { m_preinfusionStopPressure = p; }
     double espressoPressure() const { return m_espressoPressure; }
+    void setEspressoPressure(double p) { m_espressoPressure = p; }
     double espressoHoldTime() const { return m_espressoHoldTime; }
+    void setEspressoHoldTime(double t) { m_espressoHoldTime = t; }
     double espressoDeclineTime() const { return m_espressoDeclineTime; }
+    void setEspressoDeclineTime(double t) { m_espressoDeclineTime = t; }
     double pressureEnd() const { return m_pressureEnd; }
+    void setPressureEnd(double p) { m_pressureEnd = p; }
     double flowProfileHold() const { return m_flowProfileHold; }
+    void setFlowProfileHold(double f) { m_flowProfileHold = f; }
     double flowProfileHoldTime() const { return m_flowProfileHoldTime; }
+    void setFlowProfileHoldTime(double t) { m_flowProfileHoldTime = t; }
     double flowProfileDecline() const { return m_flowProfileDecline; }
+    void setFlowProfileDecline(double f) { m_flowProfileDecline = f; }
     double flowProfileDeclineTime() const { return m_flowProfileDeclineTime; }
+    void setFlowProfileDeclineTime(double t) { m_flowProfileDeclineTime = t; }
     double maximumFlowRangeDefault() const { return m_maximumFlowRangeDefault; }
+    void setMaximumFlowRangeDefault(double r) { m_maximumFlowRangeDefault = r; }
     double maximumPressureRangeDefault() const { return m_maximumPressureRangeDefault; }
+    void setMaximumPressureRangeDefault(double r) { m_maximumPressureRangeDefault = r; }
+
+    bool tempStepsEnabled() const { return m_tempStepsEnabled; }
+    void setTempStepsEnabled(bool e) { m_tempStepsEnabled = e; }
 
     // === Advanced Limits (de1app settings_2c2) ===
     double tankDesiredWaterTemperature() const { return m_tankDesiredWaterTemperature; }
@@ -177,6 +193,9 @@ public:
 
     // Regenerate frames from stored recipe parameters
     void regenerateFromRecipe();
+
+    // Regenerate frames from scalar fields for simple profiles (settings_2a/2b)
+    void regenerateSimpleFrames();
 
     // === Serialization ===
     QJsonDocument toJson() const;
