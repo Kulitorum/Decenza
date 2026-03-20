@@ -1,6 +1,7 @@
-// TODO: Move SQL queries to background thread per CLAUDE.md design principle.
-// Current tool handler architecture (synchronous QJsonObject return) prevents this.
-// Requires refactoring McpToolHandler to support async responses.
+// TODO: Move SQL queries and disk I/O (debug log reads) to background thread
+// per CLAUDE.md design principle. Current tool handler architecture (synchronous
+// QJsonObject return) prevents this. Requires refactoring McpToolHandler to
+// support async responses.
 
 #include "mcpserver.h"
 #include "mcpresourceregistry.h"
@@ -168,7 +169,7 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                 log += memoryMonitor->toSummaryString();
             result["log"] = log;
             result["path"] = logger ? logger->logFilePath() : QString();
-            result["lineCount"] = logger ? logger->lineCount() : 0;
+            result["lineCount"] = log.count('\n');
             return result;
         });
 
@@ -211,17 +212,17 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 return QJsonObject{{"error", "Debug logger not available"}};
             }
 
-            int offset = qMax(0, args["offset"].toInt(0));
-            int limit = qBound(1, args["limit"].toInt(500), 2000);
-            int totalLines = 0;
+            qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
+            qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
+            qsizetype totalLines = 0;
 
             QStringList lines = logger->getPersistedLogChunk(offset, limit, &totalLines);
 
             QJsonObject result;
-            result["offset"] = offset;
-            result["limit"] = limit;
-            result["totalLines"] = totalLines;
-            result["returnedLines"] = lines.size();
+            result["offset"] = static_cast<int>(offset);
+            result["limit"] = static_cast<int>(limit);
+            result["totalLines"] = static_cast<int>(totalLines);
+            result["returnedLines"] = static_cast<int>(lines.size());
             result["hasMore"] = (offset + lines.size()) < totalLines;
             result["log"] = lines.join('\n');
 

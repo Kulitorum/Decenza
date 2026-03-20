@@ -220,7 +220,7 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         }
 
         if (!wantsSse) {
-            // Not an SSE request — return server info (used by mcp-remote for transport discovery)
+            // GET without Accept: text/event-stream is invalid per MCP Streamable HTTP spec
             sendHttpResponse(socket, 405, "Method not allowed. Use POST for JSON-RPC.", "text/plain");
             return;
         }
@@ -362,6 +362,10 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         }
     }
 
+    // Count control/settings calls before execution so failed calls also count
+    if (category == "control" || category == "settings")
+        session->incrementControlCalls();
+
     QString error;
     QJsonObject toolResult = m_toolRegistry->callTool(toolName, arguments, accessLevel, error);
 
@@ -373,10 +377,6 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         result["error"] = errorObj;
         return result;
     }
-
-    // Count successful control/settings calls
-    if (category == "control" || category == "settings")
-        session->incrementControlCalls();
 
     QJsonObject result;
     QJsonArray content;
