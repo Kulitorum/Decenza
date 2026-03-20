@@ -1849,6 +1849,26 @@ ApplicationWindow {
         }
     }
 
+    // MCP confirmation dialog — shown when an AI assistant triggers a machine start operation
+    McpConfirmDialog {
+        id: mcpConfirmDialog
+        onConfirmed: function(sessionId) {
+            McpServer.confirmationResolved(sessionId, true)
+        }
+        onDenied: function(sessionId) {
+            McpServer.confirmationResolved(sessionId, false)
+        }
+    }
+
+    Connections {
+        target: McpServer
+        function onConfirmationRequested(toolName, toolDescription, sessionId) {
+            mcpConfirmDialog.toolDescription = toolDescription
+            mcpConfirmDialog.sessionId = sessionId
+            mcpConfirmDialog.open()
+        }
+    }
+
     // First-run welcome dialog
     Dialog {
         id: firstRunDialog

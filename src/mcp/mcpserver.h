@@ -9,6 +9,7 @@
 #include <QPair>
 #include <QPointer>
 #include <QSet>
+#include <optional>
 
 class McpSession;
 class McpToolRegistry;
@@ -20,6 +21,15 @@ class ShotHistoryStorage;
 class BLEManager;
 class Settings;
 class MemoryMonitor;
+
+struct PendingConfirmation {
+    QPointer<QTcpSocket> socket;
+    QVariant requestId;
+    QString sessionId;
+    QString toolName;
+    QJsonObject arguments;
+    int accessLevel;
+};
 
 class McpServer : public QObject {
     Q_OBJECT
@@ -76,6 +86,11 @@ private:
     McpSession* findSession(const QString& sessionId);
     void cleanupExpiredSessions();
 
+    // Confirmation helpers
+    bool needsInAppConfirmation(const QString& toolName) const;
+    bool needsChatConfirmation(const QString& toolName) const;
+    QString confirmationDescription(const QString& toolName) const;
+
     // Response helpers
     void sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& result,
                              const QVariant& id, const QString& sessionId);
@@ -109,6 +124,11 @@ private:
     // SSE clients
     QSet<QTcpSocket*> m_sseClients;
     void broadcastSseNotification(const QString& resourceUri);
+
+    // In-app confirmation (machine_start_* tools)
+    std::optional<PendingConfirmation> m_pendingConfirmation;
+    QPointer<QTcpSocket> m_currentSocket;   // temp, set during handleHttpRequest
+    QVariant m_currentRequestId;             // temp, set during handleHttpRequest
 
     // Limits
     static constexpr int MaxSessions = 8;

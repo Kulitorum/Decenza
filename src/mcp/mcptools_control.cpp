@@ -11,7 +11,9 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     registry->registerTool(
         "machine_wake",
         "Wake the machine from sleep mode",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+        }}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!device || !device->isConnected()) {
@@ -29,7 +31,9 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     registry->registerTool(
         "machine_sleep",
         "Put the machine to sleep",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+        }}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!device || !device->isConnected()) {
@@ -155,7 +159,9 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     registry->registerTool(
         "machine_stop",
         "Stop the current operation (espresso, steam, hot water, or flush)",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+        }}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!device || !device->isConnected()) {
@@ -177,7 +183,9 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
     registry->registerTool(
         "machine_skip_frame",
         "Skip to the next profile frame during espresso extraction",
-        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+        }}},
         [device, machineState](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
             if (!device || !device->isConnected()) {

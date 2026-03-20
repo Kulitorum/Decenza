@@ -92,25 +92,56 @@ Each tool has a `category` that determines the minimum access level required:
 
 ### Tool → Confirmation Level Mapping
 
-| Confirmation Behavior | When "Dangerous Only" (1) | When "All Control" (2) |
-|----------------------|---------------------------|------------------------|
-| machine_wake/sleep | No confirm | Confirm |
-| machine_stop | No confirm | Confirm |
-| machine_skip_frame | No confirm | Confirm |
-| machine_start_* | **Confirm** | Confirm |
-| profiles_set_active | **Confirm** | Confirm |
-| profiles_upload | **Confirm** | Confirm |
-| settings_set* | **Confirm** | Confirm |
-| shots_set_feedback | No confirm | No confirm |
-| dialing_suggest_change | No confirm | No confirm |
-| dialing_apply_change | **Confirm** | Confirm |
+Two confirmation mechanisms are used depending on where the user is:
 
-**Confirmation mechanism**: Tools that need confirmation emit `confirmationRequested(toolName, toolDescription, sessionId)`. QML shows `McpConfirmDialog`: "AI wants to start espresso. Allow?" with a 15-second auto-dismiss timer (legitimate UI auto-dismiss per CLAUDE.md). The dialog's `onClosed` signal drives the C++ callback — not the raw timer. The timer only closes the dialog UI; the `onClosed` handler then calls `McpServer::confirmationResolved(sessionId, accepted)` which invokes the stored response callback. If the dialog closes for any reason (user confirm, user deny, timer auto-dismiss, app backgrounded), the callback fires exactly once. When confirmation level is 0 (None), the callback is invoked immediately with "confirmed".
+- **In-app dialog**: For machine start operations — the user is physically at the machine and must approve on screen
+- **Chat-based**: For settings/data operations — the user is at their desk interacting with the AI remotely
+
+| Tool | Dangerous Only (1) | All Control (2) | Mechanism |
+|------|-------------------|-----------------|-----------|
+| machine_start_* | **Confirm** | Confirm | In-app dialog |
+| machine_wake/sleep | No confirm | Confirm | Chat |
+| machine_stop | No confirm | Confirm | Chat |
+| machine_skip_frame | No confirm | Confirm | Chat |
+| profiles_set_active | **Confirm** | Confirm | Chat |
+| profiles_upload | **Confirm** | Confirm | Chat |
+| settings_set* | **Confirm** | Confirm | Chat |
+| dialing_apply_change | **Confirm** | Confirm | Chat |
+| shots_set_feedback | No confirm | No confirm | — |
+| dialing_suggest_change | No confirm | No confirm | — |
+
+When confirmation level is 0 (None), all tools execute immediately regardless of mechanism.
+
+### In-App Confirmation (machine_start_* tools)
+
+For operations that physically affect the machine, confirmation happens on the device screen where the user can see and control the machine:
+
+1. `McpServer::handleToolsCall()` detects the tool needs in-app confirmation
+2. The HTTP response is **held** — stored in `PendingConfirmation` with a `QPointer<QTcpSocket>`
+3. McpServer emits `confirmationRequested(toolName, toolDescription, sessionId)`
+4. QML shows `McpConfirmDialog`: "An AI assistant wants to: Start pulling an espresso shot. Allow?"
+5. The dialog has a **15-second auto-dismiss timer** (legitimate UI auto-dismiss per CLAUDE.md) that denies by default
+6. The dialog's `onClosed` signal drives the C++ callback — not the raw timer. The timer only closes the dialog UI; `onClosed` then calls `McpServer::confirmationResolved(sessionId, accepted)`
+7. `confirmationResolved` executes the tool (if accepted) or returns an error (if denied), sending the held HTTP response
+
+**Edge cases**: If the socket disconnects while waiting, the response is dropped (logged). If a new confirmation arrives while one is pending, the old one is auto-denied first.
 
 **McpConfirmDialog implementation notes**:
 - Use `property string toolDescription` for the text — NOT `message` or `description`, which are FINAL on `Dialog` in Qt 6.10+
 - Use `AccessibleButton` for Confirm/Deny buttons — not raw `Rectangle+MouseArea`
 - Announce dialog text via `AccessibilityManager.announce()` when opened
+
+### Chat-Based Confirmation (settings/data tools)
+
+For operations where the user is at their desk interacting with the AI remotely (not at the machine):
+
+1. `McpServer::handleToolsCall()` checks if the tool needs chat confirmation and `"confirmed"` is not in the arguments
+2. If not confirmed, returns immediately with: `{"needs_confirmation": true, "action": "settings_set", "description": "Change machine settings", "parameters": {...}}`
+3. The AI sees this response and asks the user in chat: "I'd like to change the brew temperature to 94°C. Should I proceed?"
+4. If the user approves, the AI re-calls the tool with `"confirmed": true` in the arguments
+5. The tool executes normally (the `confirmed` key is stripped before passing to the handler)
+
+This avoids holding HTTP connections and works naturally with the conversational AI flow. The `confirmed` parameter is declared in each tool's `inputSchema` so the AI knows to include it.
 
 ## Tools (Full Set)
 
@@ -507,15 +538,38 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 9. ~~**Write tools**: shots_set_feedback, dialing_suggest_change, dialing_apply_change, profiles_set_active, settings_set — all with access-level gating.~~ ✅
 10. ~~**Polish**: Rate limiting, session cleanup, session limits, API key auth, setup page with install scripts, Claude Desktop integration, help dialog, bridge script.~~ ✅
 
+11. ~~**Scale control tools**: `scale_tare`, `scale_timer_start`, `scale_timer_stop`, `scale_timer_reset`, `scale_get_weight`. Category: control.~~ ✅
+12. ~~**Device management tools**: `devices_list`, `devices_scan`, `devices_connect_scale`, `devices_connection_status`. Category: control.~~ ✅
+13. ~~**Confirmation dialog**: Hybrid confirmation system — in-app dialog for machine start operations (user is at the machine), chat-based confirmation for settings/data operations (user is at their desk). Maps to `mcpConfirmationLevel` setting (None/Dangerous Only/All Control).~~ ✅
+
 ### Future Phases
 
-11. **Scale control tools**: `scale_tare` (tare the connected scale), `scale_timer_start`, `scale_timer_stop`, `scale_timer_reset`. Category: control. Useful for AI-guided workflows ("tare your scale, I'll tell you when to start").
-12. **Device management tools**: `devices_list` (list discovered BLE devices), `devices_scan` (trigger BLE scan), `devices_connect` (connect by address), `devices_disconnect`. Category: control. Enables AI-assisted troubleshooting ("I can't find my scale" → AI triggers scan and connects).
-13. **Profile create/edit tools**: `profiles_create` (create new profile from JSON), `profiles_update` (modify existing profile frames/parameters), `profiles_delete` (remove user/downloaded profile). Category: settings. Allows AI to generate or tweak profiles programmatically (e.g., "make a slower blooming profile" → AI creates one).
-14. **Shot management tools**: `shots_delete` (delete a shot by ID), `shots_update` (update arbitrary metadata fields beyond enjoyment/notes). Category: settings. Data cleanup and richer metadata editing.
-15. **Confirmation dialog**: McpConfirmDialog QML component for dangerous operations (start espresso, profile uploads, settings changes). Async callback pattern with 15-second auto-dismiss timer. Maps to `mcpConfirmationLevel` setting (None/Dangerous Only/All Control).
+14. **Profile create/edit tools**: `profiles_create` (create new profile from JSON), `profiles_update` (modify existing profile frames/parameters), `profiles_delete` (remove user/downloaded profile). Category: settings. Allows AI to generate or tweak profiles programmatically (e.g., "make a slower blooming profile" → AI creates one).
+15. **Shot management tools**: `shots_delete` (delete a shot by ID), `shots_update` (update arbitrary metadata fields beyond enjoyment/notes). Category: settings. Data cleanup and richer metadata editing.
 16. **Bean inventory system**: Full CRUD for beans and batches — track individual purchases, roast dates, remaining weight, frozen status, cost per bag. Enables AI to suggest when beans are past prime, calculate cost-per-shot, recommend reorders. Requires new DB tables and significant UI work — large feature.
 17. **Real-time streaming**: Subscribe/read pattern for live sensor data during shots. An AI could provide real-time coaching during extraction ("pressure is dropping, channeling detected"). Requires WebSocket or enhanced SSE support.
+
+## Phase Status
+
+| # | Phase | Status | Notes |
+|---|-------|--------|-------|
+| 1 | Settings + UI | ✅ Done | MCP settings, AI tab redesign |
+| 2 | Discuss Shot | ✅ Done | Discuss button + layout widget |
+| 3 | Prerequisites | ✅ Done | getRecentShotsByKbId() |
+| 4 | Core protocol | ✅ Done | McpServer, JSON-RPC, ShotServer routing |
+| 5 | Read-only tools | ✅ Done | 9 tools: state, telemetry, shots, profiles, settings |
+| 6 | Dial-in read tool | ✅ Done | dialing_get_context context bundle |
+| 7 | Machine control | ✅ Done | start/stop with access-level gating |
+| 8 | Resources + SSE | ✅ Done | 7 resources, SSE notifications |
+| 9 | Write tools | ✅ Done | feedback, profiles, settings, dial-in |
+| 10 | Polish | ✅ Done | Rate limiting, sessions, auth, setup, bridge |
+| 11 | Scale tools | ✅ Done | tare, timer start/stop/reset, get_weight |
+| 12 | Device tools | ✅ Done | list, scan, connect_scale, connection_status |
+| 13 | Confirmation dialog | ✅ Done | Hybrid: in-app for start ops, chat for settings |
+| 14 | Profile create/edit | 🔲 Future | create, update, delete profiles via AI |
+| 15 | Shot management | 🔲 Future | delete shots, update metadata |
+| 16 | Bean inventory | 🔲 Future | Full CRUD, new DB tables — large feature |
+| 17 | Real-time streaming | 🔲 Future | WebSocket/enhanced SSE for live coaching |
 
 ## Verification
 
