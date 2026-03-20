@@ -136,7 +136,7 @@ Page {
                         id: hotWaterProgressText
                         visible: !isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: Math.max(0, ScaleDevice ? ScaleDevice.weight : 0).toFixed(0) + "g / " + Settings.waterVolume + "g"
+                        text: Math.max(0, MachineState.scaleWeight).toFixed(0) + "g / " + Settings.waterVolume + "g"
                         color: Theme.textColor
                         font: Theme.timerFont
                     }
@@ -170,7 +170,7 @@ Page {
                         color: Theme.surfaceColor
 
                         Rectangle {
-                            width: parent.width * Math.min(1, Math.max(0, ScaleDevice ? ScaleDevice.weight : 0) / Settings.waterVolume)
+                            width: parent.width * Math.min(1, Math.max(0, MachineState.scaleWeight) / Settings.waterVolume)
                             height: parent.height
                             radius: Theme.scaled(4)
                             color: Theme.primaryColor

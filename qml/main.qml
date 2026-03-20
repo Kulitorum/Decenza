@@ -1550,7 +1550,7 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: {
                     if (completionType === "hotwater") {
-                        return Math.max(0, ScaleDevice ? ScaleDevice.weight : 0).toFixed(0) + "g"
+                        return Math.max(0, MachineState.scaleWeight).toFixed(0) + "g"
                     } else {
                         return MachineState.shotTime.toFixed(1) + "s"
                     }

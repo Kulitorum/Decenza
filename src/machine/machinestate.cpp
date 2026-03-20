@@ -300,6 +300,8 @@ void MachineState::updatePhase() {
                 m_stopAtTimeTriggered = false;
                 m_hotWaterTareBaseline = 0.0;
                 m_hotWaterTareTimeMs = 0;
+                m_hotWaterMaxEffectiveWeight = 0.0;
+                m_hotWaterFrozenWeight = -1.0;
                 m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
@@ -446,9 +448,22 @@ void MachineState::onScaleWeightChanged(double weight) {
 
     // Hot water fire-and-forget: if the BLE tare actually worked (scale zeroed),
     // clear the baseline so SAW uses absolute weight from now on.
-    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0 && m_hotWaterTareTimeMs > 0 && qAbs(weight) < 1.0) {
+    // Guard: only clear if we haven't seen significant water flow yet (< 3g effective).
+    // Slow-tare scales (e.g. Eureka Precisa) may process the tare command after water
+    // has been dispensed, causing weight to drop to 0 — clearing baseline then would
+    // make the effective weight wrong.
+    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0 && m_hotWaterTareTimeMs > 0
+        && qAbs(weight) < 1.0 && m_hotWaterMaxEffectiveWeight < 3.0) {
         qDebug() << "=== TARE: Scale zeroed, clearing hot water baseline ===";
         m_hotWaterTareBaseline = 0.0;
+    }
+
+    // Track peak effective weight during hot water (used to guard baseline clearing)
+    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0) {
+        double effective = weight - m_hotWaterTareBaseline;
+        if (effective > m_hotWaterMaxEffectiveWeight) {
+            m_hotWaterMaxEffectiveWeight = effective;
+        }
     }
 
     // Burst-log every weight sample for 2s after hot water tare (debugging BLE tare reliability)
@@ -553,6 +568,7 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
 
     if (effectiveWeight >= stopThreshold) {
         m_stopAtWeightTriggered = true;
+        m_hotWaterFrozenWeight = effectiveWeight;  // Freeze UI display at trigger weight
         qDebug() << "[SAW-HotWater] STOP triggered: effectiveWeight=" << effectiveWeight
                  << "scaleWeight=" << weight << "baseline=" << m_hotWaterTareBaseline
                  << "threshold=" << stopThreshold << "target=" << target;
@@ -699,7 +715,19 @@ void MachineState::checkStopAtTime() {
 }
 
 double MachineState::scaleWeight() const {
-    return m_scale ? m_scale->weight() : 0.0;
+    if (!m_scale) return 0.0;
+    double raw = m_scale->weight();
+
+    // During hot water, return effective weight (accounting for fire-and-forget baseline).
+    // This ensures the UI shows water added, not cup+water, on slow-tare scales.
+    if (m_phase == Phase::HotWater) {
+        // After SAW triggered, freeze the display to prevent late tare from showing 0g
+        if (m_hotWaterFrozenWeight >= 0.0)
+            return m_hotWaterFrozenWeight;
+        if (m_hotWaterTareBaseline != 0.0)
+            return qMax(0.0, raw - m_hotWaterTareBaseline);
+    }
+    return raw;
 }
 
 double MachineState::scaleFlowRate() const {

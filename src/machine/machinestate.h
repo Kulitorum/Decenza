@@ -154,6 +154,8 @@ private:
     // SAW uses (scale_weight - baseline) so it works whether or not the BLE tare executes.
     double m_hotWaterTareBaseline = 0.0;
     qint64 m_hotWaterTareTimeMs = 0;  // For burst logging first 2s after tare
+    double m_hotWaterMaxEffectiveWeight = 0.0;  // Peak effective weight seen (guards baseline clearing)
+    double m_hotWaterFrozenWeight = -1.0;       // Effective weight at SAW trigger (-1 = not frozen)
 
     // Throttle scaleWeightChanged / scaleFlowRateChanged to QML (10Hz cap).
     // Trailing-edge timers ensure the last update is never dropped.
