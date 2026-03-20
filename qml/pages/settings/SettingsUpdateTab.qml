@@ -408,7 +408,9 @@ Item {
                                 selectByMouse: true
 
                                 Accessible.role: Accessible.StaticText
-                                Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes") + ": " + MainController.updateChecker.releaseNotes
+                                Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes")
+                                Accessible.description: text
+                                Accessible.focusable: true
                             }
                         }
                     }
