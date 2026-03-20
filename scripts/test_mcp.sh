@@ -525,7 +525,7 @@ resources = d.get('result',{}).get('resources',[])
 print(json.dumps([r['uri'] for r in resources]))
 " 2>/dev/null)
 
-EXPECTED_RESOURCES="decenza://machine/state decenza://machine/telemetry decenza://profiles/active decenza://shots/recent decenza://profiles/list"
+EXPECTED_RESOURCES="decenza://machine/state decenza://machine/telemetry decenza://profiles/active decenza://shots/recent decenza://profiles/list decenza://debug/log decenza://debug/memory"
 for uri in $EXPECTED_RESOURCES; do
     assert_ok "resource '$uri' registered" "$RES_URIS" \
         "'$uri' in d"
@@ -541,8 +541,36 @@ SHOTS_RES_RAW=$(rpc 92 "resources/read" '{"uri":"decenza://shots/recent"}')
 assert_ok "shots/recent resource returns shots" "$SHOTS_RES_RAW" \
     "'shots' in json.loads(d.get('result',{}).get('contents',[{}])[0].get('text','{}'))"
 
+# Read debug log resource
+LOG_RES_RAW=$(rpc 93 "resources/read" '{"uri":"decenza://debug/log"}')
+LOG_RES_TEXT=$(echo "$LOG_RES_RAW" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+contents = d.get('result',{}).get('contents',[])
+text = contents[0].get('text','{}') if contents else '{}'
+print(text[:500])
+" 2>/dev/null)
+assert_ok "debug/log resource returns log content" "$LOG_RES_TEXT" \
+    "'log' in d and len(d.get('log','')) > 100"
+assert_ok "debug/log resource returns path" "$LOG_RES_TEXT" \
+    "'path' in d and len(d.get('path','')) > 0"
+
+# Read memory stats resource
+MEM_RES_RAW=$(rpc 94 "resources/read" '{"uri":"decenza://debug/memory"}')
+MEM_RES_TEXT=$(echo "$MEM_RES_RAW" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+contents = d.get('result',{}).get('contents',[])
+text = contents[0].get('text','{}') if contents else '{}'
+print(text)
+" 2>/dev/null)
+assert_ok "debug/memory resource returns rssMB" "$MEM_RES_TEXT" \
+    "'rssMB' in d or 'currentRssMB' in d"
+assert_ok "debug/memory resource returns qobjectCount" "$MEM_RES_TEXT" \
+    "'qobjectCount' in d"
+
 # Read unknown resource
-UNK_RES_RAW=$(rpc 93 "resources/read" '{"uri":"decenza://nonexistent"}')
+UNK_RES_RAW=$(rpc 95 "resources/read" '{"uri":"decenza://nonexistent"}')
 assert_ok "unknown resource returns error" "$UNK_RES_RAW" \
     "'error' in d.get('result',{}) or 'error' in d"
 
@@ -551,12 +579,12 @@ echo
 # ─── 10. Scale Tools ───
 echo -e "${CYAN}10. Scale Tools${NC}"
 
-WEIGHT_RAW=$(rpc 94 "tools/call" '{"name":"scale_get_weight","arguments":{}}')
+WEIGHT_RAW=$(rpc 96 "tools/call" '{"name":"scale_get_weight","arguments":{}}')
 WEIGHT=$(echo "$WEIGHT_RAW" | parse_tool_result)
 assert_ok "scale_get_weight returns weight or error" "$WEIGHT" \
     "'weight' in d or 'error' in d"
 
-TARE_RAW=$(rpc 95 "tools/call" '{"name":"scale_tare","arguments":{}}')
+TARE_RAW=$(rpc 97 "tools/call" '{"name":"scale_tare","arguments":{}}')
 TARE=$(echo "$TARE_RAW" | parse_tool_result)
 assert_ok "scale_tare responds" "$TARE" \
     "'success' in d or 'error' in d"
@@ -566,12 +594,12 @@ echo
 # ─── 11. Device Tools ───
 echo -e "${CYAN}11. Device Tools${NC}"
 
-DEV_LIST_RAW=$(rpc 96 "tools/call" '{"name":"devices_list","arguments":{}}')
+DEV_LIST_RAW=$(rpc 98 "tools/call" '{"name":"devices_list","arguments":{}}')
 DEV_LIST=$(echo "$DEV_LIST_RAW" | parse_tool_result)
 assert_ok "devices_list returns devices array" "$DEV_LIST" \
     "'devices' in d or 'error' in d"
 
-DEV_STATUS_RAW=$(rpc 97 "tools/call" '{"name":"devices_connection_status","arguments":{}}')
+DEV_STATUS_RAW=$(rpc 99 "tools/call" '{"name":"devices_connection_status","arguments":{}}')
 DEV_STATUS=$(echo "$DEV_STATUS_RAW" | parse_tool_result)
 assert_ok "devices_connection_status returns machineConnected" "$DEV_STATUS" \
     "'machineConnected' in d"
@@ -580,7 +608,7 @@ assert_ok "devices_connection_status returns machineConnected" "$DEV_STATUS" \
 # Just verify the tool exists (already checked in discovery)
 
 # devices_connect_scale without address
-DEV_CONNECT_RAW=$(rpc 98 "tools/call" '{"name":"devices_connect_scale","arguments":{}}')
+DEV_CONNECT_RAW=$(rpc 100 "tools/call" '{"name":"devices_connect_scale","arguments":{}}')
 DEV_CONNECT=$(echo "$DEV_CONNECT_RAW" | parse_tool_result)
 assert_ok "devices_connect_scale requires address" "$DEV_CONNECT" \
     "'error' in d"
