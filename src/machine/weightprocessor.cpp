@@ -186,7 +186,7 @@ void WeightProcessor::processWeight(double weight)
                      << "samples=" << m_weightSamples.size()
                      << "shortWindow=" << shortWindowMs << "ms"
                      << "shortDt=" << QString::number(shortDt, 'f', 3) << "s"
-                     << "gate=" << QString::number(shortWindowMs * 0.8 / 1000.0, 'f', 3) << "s";
+                     << "gate=" << QString::number(shortWindowMs * 0.65 / 1000.0, 'f', 3) << "s";
             m_lastLowFlowLogMs = wallClock;
         }
     }
@@ -337,7 +337,7 @@ double WeightProcessor::computeLSLR(int windowMs) const
     if (n < 2) return 0.0;
 
     double dt = (m_weightSamples.last().timestamp - m_weightSamples[startIdx].timestamp) / 1000.0;
-    if (dt < (windowMs * 0.8 / 1000.0)) return 0.0;  // Wait until window is ~80% full
+    if (dt < (windowMs * 0.65 / 1000.0)) return 0.0;  // Wait until window is ~65% full
 
     // Least-squares linear regression: fits w = slope*t + intercept
     // slope = flow rate in g/s. Uses all samples in the window, averaging
