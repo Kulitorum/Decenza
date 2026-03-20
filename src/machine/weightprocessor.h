@@ -30,7 +30,8 @@ public:
 public slots:
     // Called from main thread (all via QueuedConnection — thread-safe)
     void processWeight(double weight);
-    void configure(double targetWeight, QVector<double> frameExitWeights,
+    void configure(double targetWeight, int preinfuseFrameCount,
+                   QVector<double> frameExitWeights,
                    QVector<double> learningDrips, QVector<double> learningFlows,
                    bool sawConverged, double sensorLagSeconds = 0.38);
     void setCurrentFrame(int frameNumber);
@@ -85,6 +86,7 @@ private:
 
     // Configuration (set once at shot start, read-only during extraction)
     double m_targetWeight = 0;
+    int m_preinfuseFrameCount = 0;  // SAW suppressed until m_currentFrame >= this
     QVector<double> m_frameExitWeights;
 
     // SAW learning data snapshot (filtered to current scale type at configure time)
