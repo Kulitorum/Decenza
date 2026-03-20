@@ -9,6 +9,7 @@
 #include <QPair>
 #include <QPointer>
 #include <QSet>
+#include <optional>
 
 class McpSession;
 class McpToolRegistry;
@@ -20,6 +21,15 @@ class ShotHistoryStorage;
 class BLEManager;
 class Settings;
 class MemoryMonitor;
+
+struct PendingConfirmation {
+    QPointer<QTcpSocket> socket;
+    QVariant requestId;
+    QString sessionId;
+    QString toolName;
+    QJsonObject arguments;
+    int accessLevel;
+};
 
 class McpServer : public QObject {
     Q_OBJECT
@@ -64,10 +74,12 @@ public slots:
 
 private:
     // JSON-RPC dispatch
-    QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session);
+    QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session,
+                              QTcpSocket* socket, const QVariant& requestId);
     QJsonObject handleInitialize(const QJsonObject& params, McpSession* session);
     QJsonObject handleToolsList(const QJsonObject& params, McpSession* session);
-    QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session);
+    QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session,
+                                QTcpSocket* socket, const QVariant& requestId);
     QJsonObject handleResourcesList(const QJsonObject& params, McpSession* session);
     QJsonObject handleResourcesRead(const QJsonObject& params, McpSession* session);
 
@@ -75,6 +87,11 @@ private:
     McpSession* findOrCreateSession(const QString& sessionHeader);
     McpSession* findSession(const QString& sessionId);
     void cleanupExpiredSessions();
+
+    // Confirmation helpers
+    bool needsInAppConfirmation(const QString& toolName) const;
+    bool needsChatConfirmation(const QString& toolName) const;
+    QString confirmationDescription(const QString& toolName) const;
 
     // Response helpers
     void sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& result,
@@ -109,6 +126,9 @@ private:
     // SSE clients
     QSet<QTcpSocket*> m_sseClients;
     void broadcastSseNotification(const QString& resourceUri);
+
+    // In-app confirmation (machine_start_* tools)
+    std::optional<PendingConfirmation> m_pendingConfirmation;
 
     // Limits
     static constexpr int MaxSessions = 8;

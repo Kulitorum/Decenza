@@ -638,6 +638,7 @@ set(QML_FILES
     qml/components/DatePickerDialog.qml
     qml/components/SwipeableArea.qml
     qml/components/CrashReportDialog.qml
+    qml/components/McpConfirmDialog.qml
     qml/components/ColoredIcon.qml
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml

@@ -205,7 +205,12 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             return;
         }
 
-        QJsonObject result = handleJsonRpc(request, session);
+        QJsonObject result = handleJsonRpc(request, session, socket, request["id"].toVariant());
+
+        // If in-app confirmation is pending, response will be sent later by confirmationResolved()
+        if (result.contains("_deferred"))
+            return;
+
         sendJsonRpcResponse(socket, result, request["id"].toVariant(), session->id());
 
     } else if (method == "GET") {
@@ -254,6 +259,9 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         // Terminate session
         McpSession* session = findSession(sessionHeader);
         if (session) {
+            // Clear pending confirmation if it belongs to this session
+            if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == session->id())
+                m_pendingConfirmation.reset();
             m_sessions.remove(session->id());
             delete session;
             emit activeSessionCountChanged();
@@ -272,7 +280,8 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
     }
 }
 
-QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session)
+QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
+                                     QTcpSocket* socket, const QVariant& requestId)
 {
     QString method = request["method"].toString();
     QJsonObject params = request["params"].toObject();
@@ -282,7 +291,7 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
     if (method == "tools/list")
         return handleToolsList(params, session);
     if (method == "tools/call")
-        return handleToolsCall(params, session);
+        return handleToolsCall(params, session, socket, requestId);
     if (method == "resources/list")
         return handleResourcesList(params, session);
     if (method == "resources/read")
@@ -342,7 +351,8 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* se
     return result;
 }
 
-QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* session)
+QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* session,
+                                       QTcpSocket* socket, const QVariant& requestId)
 {
     QString toolName = params["name"].toString();
     QJsonObject arguments = params["arguments"].toObject();
@@ -365,6 +375,58 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
     // Count control/settings calls before execution so failed calls also count
     if (category == "control" || category == "settings")
         session->incrementControlCalls();
+
+    // Chat-based confirmation: tool returns needs_confirmation, AI re-calls with confirmed:true
+    if (needsChatConfirmation(toolName) && !arguments.contains("confirmed")) {
+        QJsonObject confirmPayload;
+        confirmPayload["needs_confirmation"] = true;
+        confirmPayload["action"] = toolName;
+        confirmPayload["description"] = confirmationDescription(toolName);
+        confirmPayload["parameters"] = arguments;
+
+        QJsonObject result;
+        QJsonArray content;
+        QJsonObject textContent;
+        textContent["type"] = "text";
+        textContent["text"] = QString::fromUtf8(QJsonDocument(confirmPayload).toJson(QJsonDocument::Compact));
+        content.append(textContent);
+        result["content"] = content;
+        return result;
+    }
+
+    // Strip the confirmed key before passing to tool handler
+    if (arguments.contains("confirmed"))
+        arguments.remove("confirmed");
+
+    // In-app confirmation: hold HTTP response, show QML dialog on machine screen
+    if (needsInAppConfirmation(toolName)) {
+        // Deny any existing pending confirmation
+        if (m_pendingConfirmation.has_value()) {
+            auto& old = m_pendingConfirmation.value();
+            if (old.socket && old.socket->state() == QAbstractSocket::ConnectedState) {
+                sendJsonRpcError(old.socket, -32000, "Confirmation superseded by newer request",
+                                 old.requestId, old.sessionId);
+                qDebug() << "McpServer: Superseded pending confirmation for" << old.toolName;
+            }
+            m_pendingConfirmation.reset();
+        }
+
+        PendingConfirmation pending;
+        pending.socket = socket;
+        pending.requestId = requestId;
+        pending.sessionId = session->id();
+        pending.toolName = toolName;
+        pending.arguments = arguments;
+        pending.accessLevel = accessLevel;
+        m_pendingConfirmation = pending;
+
+        QString description = confirmationDescription(toolName);
+        emit confirmationRequested(toolName, description, session->id());
+
+        QJsonObject deferred;
+        deferred["_deferred"] = true;
+        return deferred;
+    }
 
     QString error;
     QJsonObject toolResult = m_toolRegistry->callTool(toolName, arguments, accessLevel, error);
@@ -460,6 +522,11 @@ void McpServer::cleanupExpiredSessions()
 
     for (const QString& id : expired) {
         qDebug() << "McpServer: Expiring session" << id;
+        // Clear pending confirmation if it belongs to this expired session
+        if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == id) {
+            qDebug() << "McpServer: Cancelling pending confirmation for expired session" << id;
+            m_pendingConfirmation.reset();
+        }
         delete m_sessions.take(id);
     }
 
@@ -469,9 +536,116 @@ void McpServer::cleanupExpiredSessions()
 
 void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
 {
-    Q_UNUSED(sessionId)
-    Q_UNUSED(accepted)
-    // Placeholder — will be implemented with machine control tools (Phase 7)
+    if (!m_pendingConfirmation.has_value()) {
+        qWarning() << "McpServer: confirmationResolved but no pending confirmation";
+        return;
+    }
+
+    auto pending = m_pendingConfirmation.value();
+
+    if (pending.sessionId != sessionId) {
+        qWarning() << "McpServer: confirmation session mismatch, expected"
+                    << pending.sessionId << "got" << sessionId;
+        // Don't reset m_pendingConfirmation — a newer valid confirmation may be pending.
+        // This can happen when a stale QML callback arrives after a superseded dialog.
+        return;
+    }
+
+    m_pendingConfirmation.reset();
+
+    if (!pending.socket || pending.socket->state() != QAbstractSocket::ConnectedState) {
+        qDebug() << "McpServer: confirmation socket disconnected, dropping response for"
+                 << pending.toolName;
+        return;
+    }
+
+    if (!accepted) {
+        qDebug() << "McpServer: User denied" << pending.toolName;
+        QJsonObject deniedPayload;
+        deniedPayload["error"] = "User denied confirmation for " + pending.toolName;
+
+        QJsonObject result;
+        QJsonArray content;
+        QJsonObject textContent;
+        textContent["type"] = "text";
+        textContent["text"] = QString::fromUtf8(QJsonDocument(deniedPayload).toJson(QJsonDocument::Compact));
+        content.append(textContent);
+        result["content"] = content;
+        result["isError"] = true;
+        sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
+        return;
+    }
+
+    qDebug() << "McpServer: User confirmed" << pending.toolName;
+    QString error;
+    QJsonObject toolResult = m_toolRegistry->callTool(
+        pending.toolName, pending.arguments, pending.accessLevel, error);
+
+    if (!error.isEmpty()) {
+        QJsonObject errorObj;
+        errorObj["code"] = -32603;
+        errorObj["message"] = error;
+        QJsonObject result;
+        result["error"] = errorObj;
+        sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
+        return;
+    }
+
+    QJsonObject result;
+    QJsonArray content;
+    QJsonObject textContent;
+    textContent["type"] = "text";
+    textContent["text"] = QString::fromUtf8(QJsonDocument(toolResult).toJson(QJsonDocument::Compact));
+    content.append(textContent);
+    result["content"] = content;
+    sendJsonRpcResponse(pending.socket, result, pending.requestId, pending.sessionId);
+}
+
+bool McpServer::needsInAppConfirmation(const QString& toolName) const
+{
+    if (!m_settings) return false;
+    int level = m_settings->mcpConfirmationLevel();
+    if (level == 0) return false;
+    // machine_start_* requires in-app confirmation at any non-zero confirmation level
+    return toolName.startsWith("machine_start_");
+}
+
+bool McpServer::needsChatConfirmation(const QString& toolName) const
+{
+    if (!m_settings) return false;
+    int level = m_settings->mcpConfirmationLevel();
+    if (level == 0) return false;
+
+    // All non-zero levels: settings/profile/dial-in write ops
+    if (toolName == "profiles_set_active" || toolName == "settings_set" ||
+        toolName == "dialing_apply_change")
+        return true;
+
+    // Level 2 (All Control): also non-start machine control ops
+    if (level >= 2) {
+        if (toolName == "machine_wake" || toolName == "machine_sleep" ||
+            toolName == "machine_stop" || toolName == "machine_skip_frame")
+            return true;
+    }
+    return false;
+}
+
+QString McpServer::confirmationDescription(const QString& toolName) const
+{
+    static const QHash<QString, QString> descriptions = {
+        {"machine_start_espresso", "Start pulling an espresso shot"},
+        {"machine_start_steam", "Start steaming milk"},
+        {"machine_start_hot_water", "Dispense hot water"},
+        {"machine_start_flush", "Flush the group head"},
+        {"machine_wake", "Wake the machine from sleep"},
+        {"machine_sleep", "Put the machine to sleep"},
+        {"machine_stop", "Stop the current operation"},
+        {"machine_skip_frame", "Skip to next profile frame"},
+        {"profiles_set_active", "Activate a different profile"},
+        {"settings_set", "Change machine settings"},
+        {"dialing_apply_change", "Apply a dial-in change"},
+    };
+    return descriptions.value(toolName, toolName);
 }
 
 void McpServer::sendJsonRpcResponse(QTcpSocket* socket, const QJsonObject& result,

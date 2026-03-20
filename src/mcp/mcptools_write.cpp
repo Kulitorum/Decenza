@@ -86,7 +86,8 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
-                {"filename", QJsonObject{{"type", "string"}, {"description", "Profile filename to activate"}}}
+                {"filename", QJsonObject{{"type", "string"}, {"description", "Profile filename to activate"}}},
+                {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }},
             {"required", QJsonArray{"filename"}}
         },
@@ -134,7 +135,8 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"dyeBeanType", QJsonObject{{"type", "string"}, {"description", "Bean type/name"}}},
                 {"dyeRoastLevel", QJsonObject{{"type", "string"}, {"description", "Roast level"}}},
                 {"dyeGrinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
-                {"dyeBeanWeight", QJsonObject{{"type", "number"}, {"description", "Dose weight in grams"}}}
+                {"dyeBeanWeight", QJsonObject{{"type", "number"}, {"description", "Dose weight in grams"}}},
+                {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
         },
         [settings](const QJsonObject& args) -> QJsonObject {
@@ -245,7 +247,8 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Switch to this profile"}}},
                 {"dyeBeanBrand", QJsonObject{{"type", "string"}, {"description", "Update bean brand"}}},
                 {"dyeBeanType", QJsonObject{{"type", "string"}, {"description", "Update bean type"}}},
-                {"dyeRoastLevel", QJsonObject{{"type", "string"}, {"description", "Update roast level"}}}
+                {"dyeRoastLevel", QJsonObject{{"type", "string"}, {"description", "Update roast level"}}},
+                {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
         },
         [mainController, settings](const QJsonObject& args) -> QJsonObject {
