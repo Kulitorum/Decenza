@@ -33,7 +33,13 @@ rpc() {
 }
 
 extract_session() {
-    grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | awk '{print $2}' | tr -d '\r\n'
+    # Prefer Mcp-Session-Id (spec name), fall back to Mcp-Session
+    local sid
+    sid=$(grep -i 'Mcp-Session-Id' /tmp/mcp_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+    if [ -z "$sid" ]; then
+        sid=$(grep -i 'Mcp-Session:' /tmp/mcp_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+    fi
+    echo "$sid"
 }
 
 # Parse JSON result — extracts the tool result text as parsed JSON
@@ -128,6 +134,122 @@ PARSE_RESP=$(curl -s -X POST "$BASE" -H "Content-Type: application/json" \
     -H "Mcp-Session: $SESSION" -d 'not json')
 assert_ok "malformed JSON returns parse error" "$PARSE_RESP" \
     "d.get('error',{}).get('code') == -32700"
+
+echo
+
+# ─── 1b. HTTP Protocol Compliance ───
+echo -e "${CYAN}1b. HTTP Protocol Compliance${NC}"
+
+# Test: Mcp-Session-Id header accepted (spec header name)
+SESSIONID_RESP=$(curl -s --max-time 5 -X POST "$BASE" \
+    -H "Content-Type: application/json" \
+    -H "Mcp-Session-Id: $SESSION" \
+    -d '{"jsonrpc":"2.0","id":200,"method":"tools/list","params":{}}')
+assert_ok "Mcp-Session-Id header accepted" "$SESSIONID_RESP" \
+    "'error' not in d and isinstance(d.get('result',{}).get('tools'), list)"
+
+# Test: notifications/initialized returns 202 Accepted
+NOTIF_HEADERS=$(curl -s --max-time 5 -D - -o /dev/null -X POST "$BASE" \
+    -H "Content-Type: application/json" \
+    -H "Mcp-Session: $SESSION" \
+    -d '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}')
+NOTIF_STATUS=$(echo "$NOTIF_HEADERS" | head -1 | tr -d '\r\n')
+if echo "$NOTIF_STATUS" | grep -q "202"; then
+    echo -e "  ${GREEN}PASS${NC} notifications/initialized returns 202"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} notifications/initialized returns 202 (got: $NOTIF_STATUS)"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test: 204 response has no Content-Length (RFC 7231 — checked on OPTIONS response below)
+# (OPTIONS test captures headers; 204 Content-Length check is done there)
+
+# Test: OPTIONS CORS preflight
+OPTIONS_HEADERS=$(curl -s --max-time 5 -D - -o /dev/null -X OPTIONS "$BASE")
+OPTIONS_STATUS=$(echo "$OPTIONS_HEADERS" | head -1 | tr -d '\r\n')
+if echo "$OPTIONS_STATUS" | grep -q "204"; then
+    echo -e "  ${GREEN}PASS${NC} OPTIONS returns 204"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} OPTIONS returns 204 (got: $OPTIONS_STATUS)"
+    FAIL=$((FAIL + 1))
+fi
+if echo "$OPTIONS_HEADERS" | grep -qi "Access-Control-Allow-Methods"; then
+    echo -e "  ${GREEN}PASS${NC} OPTIONS includes Access-Control-Allow-Methods"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} OPTIONS missing Access-Control-Allow-Methods"
+    FAIL=$((FAIL + 1))
+fi
+if echo "$OPTIONS_HEADERS" | grep -qi "Access-Control-Allow-Headers"; then
+    echo -e "  ${GREEN}PASS${NC} OPTIONS includes Access-Control-Allow-Headers"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} OPTIONS missing Access-Control-Allow-Headers"
+    FAIL=$((FAIL + 1))
+fi
+# RFC 7231: 204 must NOT have Content-Length
+if echo "$OPTIONS_HEADERS" | grep -qi "Content-Length"; then
+    echo -e "  ${RED}FAIL${NC} 204 response has Content-Length (RFC violation)"
+    FAIL=$((FAIL + 1))
+else
+    echo -e "  ${GREEN}PASS${NC} 204 response has no Content-Length"
+    PASS=$((PASS + 1))
+fi
+
+# Test: HTTP status text correctness (not "400 OK" or "200 Unknown")
+INIT_STATUS=$(curl -s --max-time 5 -D /tmp/mcp_status_headers -o /dev/null -X POST "$BASE" \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":201,"method":"initialize","params":{"capabilities":{}}}' && \
+    head -1 /tmp/mcp_status_headers | tr -d '\r\n')
+if echo "$INIT_STATUS" | grep -q "200 OK"; then
+    echo -e "  ${GREEN}PASS${NC} initialize returns '200 OK' (not '200 Unknown')"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} initialize status text (got: $INIT_STATUS)"
+    FAIL=$((FAIL + 1))
+fi
+# Clean up the extra session we just created
+EXTRA_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_status_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+if [ -z "$EXTRA_SID" ]; then
+    EXTRA_SID=$(grep -i 'Mcp-Session:' /tmp/mcp_status_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+fi
+if [ -n "$EXTRA_SID" ]; then
+    curl -s --max-time 5 -X DELETE "$BASE" -H "Mcp-Session-Id: $EXTRA_SID" > /dev/null 2>&1
+fi
+
+BAD_SESS_STATUS=$(curl -s --max-time 5 -D - -o /dev/null -X POST "$BASE" \
+    -H "Content-Type: application/json" \
+    -H "Mcp-Session: invalid-for-status-text-test" \
+    -d '{"jsonrpc":"2.0","id":202,"method":"tools/list","params":{}}' | head -1 | tr -d '\r\n')
+if echo "$BAD_SESS_STATUS" | grep -q "200 OK"; then
+    echo -e "  ${GREEN}PASS${NC} error response returns '200 OK' status line"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} error response status text (got: $BAD_SESS_STATUS)"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test: Response includes both Mcp-Session-Id and Mcp-Session headers
+DUAL_HEADERS=$(curl -s --max-time 5 -D - -o /dev/null -X POST "$BASE" \
+    -H "Content-Type: application/json" \
+    -H "Mcp-Session: $SESSION" \
+    -d '{"jsonrpc":"2.0","id":203,"method":"tools/list","params":{}}')
+if echo "$DUAL_HEADERS" | grep -qi "Mcp-Session-Id:"; then
+    echo -e "  ${GREEN}PASS${NC} response includes Mcp-Session-Id header"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} response missing Mcp-Session-Id header"
+    FAIL=$((FAIL + 1))
+fi
+if echo "$DUAL_HEADERS" | grep -qi "Mcp-Session:"; then
+    echo -e "  ${GREEN}PASS${NC} response includes Mcp-Session header"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} response missing Mcp-Session header"
+    FAIL=$((FAIL + 1))
+fi
 
 echo
 
@@ -485,7 +607,7 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
     curl -s -X DELETE "$BASE" -H "Mcp-Session: $SESSION" > /dev/null 2>&1
     WRITE_INIT=$(curl -s -D /tmp/mcp_headers -X POST "$BASE" -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","id":99,"method":"initialize","params":{"capabilities":{}}}')
-    SESSION=$(grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | awk '{print $2}' | tr -d '\r\n')
+    SESSION=$(grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
 else
     echo -e "${CYAN}12. Write Tools (SKIPPED — access level < 2, set to Full Automation to test)${NC}"
     SKIP=$((SKIP + 7))
@@ -557,7 +679,7 @@ if [ "${SKIP_INTERACTIVE:-}" != "1" ]; then
         # Fresh session
         local ASESS=$(curl -s --max-time 5 -D /tmp/mcp_access_headers -X POST "$BASE" -H "Content-Type: application/json" \
             -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}')
-        local ASID=$(grep -i 'Mcp-Session' /tmp/mcp_access_headers 2>/dev/null | awk '{print $2}' | tr -d '\r\n')
+        local ASID=$(grep -i 'Mcp-Session' /tmp/mcp_access_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
 
         # Check which tools are visible
         local ATOOLS=$(curl -s --max-time 5 -X POST "$BASE" -H "Content-Type: application/json" -H "Mcp-Session: $ASID" \
@@ -684,7 +806,7 @@ echo -e "${CYAN}15. Rate Limiting${NC}"
 curl -s -X DELETE "$BASE" -H "Mcp-Session: $SESSION" > /dev/null 2>&1
 RATE_INIT=$(curl -s -D /tmp/mcp_headers -X POST "$BASE" -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":99,"method":"initialize","params":{"capabilities":{}}}')
-SESSION=$(grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | awk '{print $2}' | tr -d '\r\n')
+SESSION=$(grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
 
 # Fire 11 machine_wake calls (succeeds on simulator).
 # Calls 1-10 should work, 11th should be rate limited.
@@ -738,7 +860,7 @@ HIT_LIMIT=false
 for i in $(seq 1 12); do
     SINIT=$(curl -s --max-time 5 -D /tmp/mcp_sess_headers -X POST "$BASE" -H "Content-Type: application/json" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":$((200+i)),\"method\":\"initialize\",\"params\":{\"capabilities\":{}}}")
-    SID=$(grep -i 'Mcp-Session' /tmp/mcp_sess_headers 2>/dev/null | awk '{print $2}' | tr -d '\r\n')
+    SID=$(grep -i 'Mcp-Session' /tmp/mcp_sess_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
     HAS_ERROR=$(echo "$SINIT" | python3 -c "import json,sys; d=json.load(sys.stdin); print('1' if 'error' in d else '0')" 2>/dev/null)
     if [ "$HAS_ERROR" = "1" ]; then
         HIT_LIMIT=true
@@ -762,7 +884,7 @@ done
 # Re-create session for remaining tests
 REINIT=$(curl -s -D /tmp/mcp_headers -X POST "$BASE" -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","id":210,"method":"initialize","params":{"capabilities":{}}}')
-SESSION=$(grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | awk '{print $2}' | tr -d '\r\n')
+SESSION=$(grep -i 'Mcp-Session' /tmp/mcp_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
 
 echo
 

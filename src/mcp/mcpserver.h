@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QTimer>
+#include <QPair>
 #include <QPointer>
 #include <QSet>
 
@@ -80,7 +81,8 @@ private:
                           const QVariant& id, const QString& sessionId = QString());
     void sendHttpResponse(QTcpSocket* socket, int statusCode,
                           const QByteArray& body, const QString& contentType,
-                          const QString& sessionId = QString());
+                          const QString& sessionId = QString(),
+                          const QList<QPair<QByteArray, QByteArray>>& extraHeaders = {});
 
     // Dependencies
     DE1Device* m_device = nullptr;

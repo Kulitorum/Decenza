@@ -46,6 +46,8 @@ def main():
     def make_headers():
         h = {"Content-Type": "application/json"}
         if session[0]:
+            # Send both header names for compatibility
+            h["Mcp-Session-Id"] = session[0]
             h["Mcp-Session"] = session[0]
         if api_key:
             h["Authorization"] = f"Bearer {api_key}"
@@ -93,8 +95,8 @@ def main():
                 continue
 
             with urllib.request.urlopen(req, timeout=30) as resp:
-                # Capture session ID from response headers
-                new_session = resp.headers.get("Mcp-Session")
+                # Capture session ID from response headers (prefer spec name)
+                new_session = resp.headers.get("Mcp-Session-Id") or resp.headers.get("Mcp-Session")
                 if new_session:
                     session[0] = new_session
 

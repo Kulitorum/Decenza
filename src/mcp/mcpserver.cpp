@@ -139,10 +139,12 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
 {
     Q_UNUSED(path)
 
-    // Extract Mcp-Session header
+    // Extract Mcp-Session or Mcp-Session-Id header (spec uses Mcp-Session-Id,
+    // but some clients send Mcp-Session — accept both for compatibility)
     QString sessionHeader;
     for (const QByteArray& line : headers.split('\n')) {
-        if (line.trimmed().toLower().startsWith("mcp-session:")) {
+        QByteArray lower = line.trimmed().toLower();
+        if (lower.startsWith("mcp-session-id:") || lower.startsWith("mcp-session:")) {
             sessionHeader = QString::fromUtf8(line.mid(line.indexOf(':') + 1).trimmed());
             break;
         }
@@ -191,12 +193,12 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         session->touch();
 
         // Notifications (no id, no response expected per JSON-RPC)
-        // But HTTP still needs a response — send 204 No Content
+        // But HTTP still needs a response — send 202 Accepted
         if (!request.contains("id")) {
             if (rpcMethod == "notifications/initialized") {
                 // Client acknowledged initialization — nothing to do
             }
-            sendHttpResponse(socket, 204, "", "application/json", session->id());
+            sendHttpResponse(socket, 202, "", "application/json", session->id());
             return;
         }
 
@@ -233,6 +235,7 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         response.append("Cache-Control: no-cache\r\n");
         response.append("Connection: keep-alive\r\n");
         response.append("Access-Control-Allow-Origin: *\r\n");
+        response.append("Access-Control-Expose-Headers: Mcp-Session-Id, Mcp-Session\r\n");
         response.append("\r\n");
         socket->write(response);
         socket->flush();
@@ -253,6 +256,13 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             emit activeSessionCountChanged();
         }
         sendHttpResponse(socket, 200, "{}", "application/json");
+
+    } else if (method == "OPTIONS") {
+        // CORS preflight
+        sendHttpResponse(socket, 204, "", "", QString(),
+                         {{"Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS"},
+                          {"Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session, Mcp-Session-Id"},
+                          {"Access-Control-Max-Age", "86400"}});
 
     } else {
         sendHttpResponse(socket, 405, "Method not allowed", "text/plain");
@@ -304,8 +314,14 @@ QJsonObject McpServer::handleInitialize(const QJsonObject& params, McpSession* s
     serverInfo["name"] = "Decenza MCP Server";
     serverInfo["version"] = "1.0.0";
 
+    // Negotiate protocol version — accept what the client requests if we support it
+    QString clientVersion = params["protocolVersion"].toString();
+    static const QStringList supportedVersions = {"2025-03-26", "2024-11-05"};
+    QString negotiatedVersion = supportedVersions.contains(clientVersion)
+        ? clientVersion : supportedVersions.first();
+
     QJsonObject result;
-    result["protocolVersion"] = "2025-03-26";
+    result["protocolVersion"] = negotiatedVersion;
     result["capabilities"] = serverCapabilities;
     result["serverInfo"] = serverInfo;
     return result;
@@ -489,23 +505,54 @@ void McpServer::sendJsonRpcError(QTcpSocket* socket, int code, const QString& me
     sendHttpResponse(socket, 200, body, "application/json", sessionId);
 }
 
+static const char* httpStatusText(int code)
+{
+    switch (code) {
+    case 200: return "OK";
+    case 202: return "Accepted";
+    case 204: return "No Content";
+    case 400: return "Bad Request";
+    case 405: return "Method Not Allowed";
+    case 429: return "Too Many Requests";
+    default:  return "Unknown";
+    }
+}
+
 void McpServer::sendHttpResponse(QTcpSocket* socket, int statusCode,
                                   const QByteArray& body, const QString& contentType,
-                                  const QString& sessionId)
+                                  const QString& sessionId,
+                                  const QList<QPair<QByteArray, QByteArray>>& extraHeaders)
 {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState) return;
 
     QByteArray response;
     response.append("HTTP/1.1 ");
     response.append(QByteArray::number(statusCode));
-    response.append(" OK\r\n");
-    response.append("Content-Type: " + contentType.toUtf8() + "\r\n");
-    response.append("Content-Length: " + QByteArray::number(body.size()) + "\r\n");
-    if (!sessionId.isEmpty())
-        response.append("Mcp-Session: " + sessionId.toUtf8() + "\r\n");
-    response.append("Access-Control-Allow-Origin: *\r\n");
+    response.append(" ");
+    response.append(httpStatusText(statusCode));
     response.append("\r\n");
-    response.append(body);
+
+    // RFC 7231: 204 must NOT include Content-Type or Content-Length
+    if (statusCode != 204) {
+        response.append("Content-Type: " + contentType.toUtf8() + "\r\n");
+        response.append("Content-Length: " + QByteArray::number(body.size()) + "\r\n");
+    }
+
+    // Send both session header names for maximum client compatibility
+    if (!sessionId.isEmpty()) {
+        response.append("Mcp-Session-Id: " + sessionId.toUtf8() + "\r\n");
+        response.append("Mcp-Session: " + sessionId.toUtf8() + "\r\n");
+    }
+
+    response.append("Access-Control-Allow-Origin: *\r\n");
+    response.append("Access-Control-Expose-Headers: Mcp-Session-Id, Mcp-Session\r\n");
+
+    for (const auto& header : extraHeaders)
+        response.append(header.first + ": " + header.second + "\r\n");
+
+    response.append("\r\n");
+    if (statusCode != 204)
+        response.append(body);
 
     socket->write(response);
     socket->flush();
