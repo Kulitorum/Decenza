@@ -256,7 +256,7 @@ void WeightProcessor::startExtraction()
 {
     m_active = true;
     m_stopTriggered = false;
-    m_extractionStartTime = QDateTime::currentMSecsSinceEpoch();
+    m_extractionStartTime = 0;  // Set later by markExtractionStart() when flow actually begins
     m_frameWeightSkipSent.clear();
     m_weightSamples.clear();
     m_currentFrame = -1;
@@ -271,6 +271,11 @@ void WeightProcessor::startExtraction()
     m_lastSampleTs = 0;
     m_uncalibratedBatchWarned = false;
     // Keep m_estimatedIntervalMs — it calibrates across shots for the same scale
+}
+
+void WeightProcessor::markExtractionStart()
+{
+    m_extractionStartTime = QDateTime::currentMSecsSinceEpoch();
 }
 
 void WeightProcessor::stopExtraction()
@@ -297,7 +302,7 @@ void WeightProcessor::stopExtraction()
 void WeightProcessor::resetForRetare()
 {
     m_weightSamples.clear();
-    m_extractionStartTime = QDateTime::currentMSecsSinceEpoch();
+    m_extractionStartTime = 0;  // Will be set when extraction actually starts
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();
     m_lastWallClockMs = 0;

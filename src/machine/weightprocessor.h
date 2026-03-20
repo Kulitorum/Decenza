@@ -36,6 +36,7 @@ public slots:
     void setCurrentFrame(int frameNumber);
     void setTareComplete(bool complete);
     void startExtraction();
+    void markExtractionStart();  // Called when extraction actually begins (preinfusion)
     void stopExtraction();
     void resetForRetare();  // Clear LSLR buffer after auto-tare during preheat
 
