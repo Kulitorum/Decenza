@@ -318,6 +318,9 @@ void MachineState::updatePhase() {
                 }
 
                 m_tareCompleted = false;
+                m_waitingForTare = false;
+                if (m_tareTimeoutTimer)
+                    m_tareTimeoutTimer->stop();
 
                 // Reset and start scale timer when flow starts (like de1app)
                 if (m_scale) {
@@ -716,17 +719,21 @@ void MachineState::checkStopAtTime() {
 
 double MachineState::scaleWeight() const {
     if (!m_scale) return 0.0;
+
+    // After hot water SAW triggered, freeze the display to prevent late tare from
+    // showing 0g. Checked outside the phase guard because the completion overlay
+    // reads scaleWeight() after phase has already transitioned to Idle.
+    // Safe unconditionally: reset to -1.0 at the start of each new flow cycle.
+    if (m_hotWaterFrozenWeight >= 0.0)
+        return m_hotWaterFrozenWeight;
+
     double raw = m_scale->weight();
 
     // During hot water, return effective weight (accounting for fire-and-forget baseline).
     // This ensures the UI shows water added, not cup+water, on slow-tare scales.
-    if (m_phase == Phase::HotWater) {
-        // After SAW triggered, freeze the display to prevent late tare from showing 0g
-        if (m_hotWaterFrozenWeight >= 0.0)
-            return m_hotWaterFrozenWeight;
-        if (m_hotWaterTareBaseline != 0.0)
-            return qMax(0.0, raw - m_hotWaterTareBaseline);
-    }
+    if (m_phase == Phase::HotWater && m_hotWaterTareBaseline != 0.0)
+        return qMax(0.0, raw - m_hotWaterTareBaseline);
+
     return raw;
 }
 

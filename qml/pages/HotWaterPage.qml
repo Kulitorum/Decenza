@@ -15,9 +15,11 @@ Page {
         Settings.waterVolumeMode = getCurrentVesselMode()
         Settings.hotWaterFlowRate = getCurrentVesselFlowRate()
         MainController.applyHotWaterSettings()
-        // Tare immediately so display shows 0g instead of current scale weight
-        // (scale will tare again when hot water flow actually starts)
-        if (!isVolumeMode) {
+        // Tare immediately so display shows 0g instead of current scale weight.
+        // Skip if already dispensing — the C++ flow-start handler tares with a
+        // 200ms delay to avoid BLE command contention; a duplicate tare here
+        // would overwrite the baseline and risk BLE packet drops.
+        if (!isVolumeMode && !isDispensing) {
             MachineState.tareScale()
         }
     }
