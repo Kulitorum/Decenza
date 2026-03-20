@@ -205,11 +205,7 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
             return;
         }
 
-        // Store socket/requestId for potential in-app confirmation deferral
-        m_currentSocket = socket;
-        m_currentRequestId = request["id"].toVariant();
-        QJsonObject result = handleJsonRpc(request, session);
-        m_currentSocket = nullptr;
+        QJsonObject result = handleJsonRpc(request, session, socket, request["id"].toVariant());
 
         // If in-app confirmation is pending, response will be sent later by confirmationResolved()
         if (result.contains("_deferred"))
@@ -263,6 +259,9 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         // Terminate session
         McpSession* session = findSession(sessionHeader);
         if (session) {
+            // Clear pending confirmation if it belongs to this session
+            if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == session->id())
+                m_pendingConfirmation.reset();
             m_sessions.remove(session->id());
             delete session;
             emit activeSessionCountChanged();
@@ -281,7 +280,8 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
     }
 }
 
-QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session)
+QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* session,
+                                     QTcpSocket* socket, const QVariant& requestId)
 {
     QString method = request["method"].toString();
     QJsonObject params = request["params"].toObject();
@@ -291,7 +291,7 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject& request, McpSession* ses
     if (method == "tools/list")
         return handleToolsList(params, session);
     if (method == "tools/call")
-        return handleToolsCall(params, session);
+        return handleToolsCall(params, session, socket, requestId);
     if (method == "resources/list")
         return handleResourcesList(params, session);
     if (method == "resources/read")
@@ -351,7 +351,8 @@ QJsonObject McpServer::handleToolsList(const QJsonObject& params, McpSession* se
     return result;
 }
 
-QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* session)
+QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* session,
+                                       QTcpSocket* socket, const QVariant& requestId)
 {
     QString toolName = params["name"].toString();
     QJsonObject arguments = params["arguments"].toObject();
@@ -403,19 +404,16 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject& params, McpSession* se
         if (m_pendingConfirmation.has_value()) {
             auto& old = m_pendingConfirmation.value();
             if (old.socket && old.socket->state() == QAbstractSocket::ConnectedState) {
-                QJsonObject denied;
-                denied["error"] = "Confirmation superseded by newer request";
-                QJsonObject errResult;
-                errResult["error"] = denied;
-                sendJsonRpcResponse(old.socket, errResult, old.requestId, old.sessionId);
+                sendJsonRpcError(old.socket, -32000, "Confirmation superseded by newer request",
+                                 old.requestId, old.sessionId);
                 qDebug() << "McpServer: Superseded pending confirmation for" << old.toolName;
             }
             m_pendingConfirmation.reset();
         }
 
         PendingConfirmation pending;
-        pending.socket = m_currentSocket;
-        pending.requestId = m_currentRequestId;
+        pending.socket = socket;
+        pending.requestId = requestId;
         pending.sessionId = session->id();
         pending.toolName = toolName;
         pending.arguments = arguments;
@@ -524,6 +522,11 @@ void McpServer::cleanupExpiredSessions()
 
     for (const QString& id : expired) {
         qDebug() << "McpServer: Expiring session" << id;
+        // Clear pending confirmation if it belongs to this expired session
+        if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == id) {
+            qDebug() << "McpServer: Cancelling pending confirmation for expired session" << id;
+            m_pendingConfirmation.reset();
+        }
         delete m_sessions.take(id);
     }
 
@@ -539,13 +542,16 @@ void McpServer::confirmationResolved(const QString& sessionId, bool accepted)
     }
 
     auto pending = m_pendingConfirmation.value();
-    m_pendingConfirmation.reset();
 
     if (pending.sessionId != sessionId) {
         qWarning() << "McpServer: confirmation session mismatch, expected"
                     << pending.sessionId << "got" << sessionId;
+        // Don't reset m_pendingConfirmation — a newer valid confirmation may be pending.
+        // This can happen when a stale QML callback arrives after a superseded dialog.
         return;
     }
+
+    m_pendingConfirmation.reset();
 
     if (!pending.socket || pending.socket->state() != QAbstractSocket::ConnectedState) {
         qDebug() << "McpServer: confirmation socket disconnected, dropping response for"
@@ -600,7 +606,7 @@ bool McpServer::needsInAppConfirmation(const QString& toolName) const
     if (!m_settings) return false;
     int level = m_settings->mcpConfirmationLevel();
     if (level == 0) return false;
-    // machine_start_* always confirmed at levels 1 and 2 — user is at the machine
+    // machine_start_* requires in-app confirmation at any non-zero confirmation level
     return toolName.startsWith("machine_start_");
 }
 
@@ -610,12 +616,11 @@ bool McpServer::needsChatConfirmation(const QString& toolName) const
     int level = m_settings->mcpConfirmationLevel();
     if (level == 0) return false;
 
-    // Level 1 (Dangerous Only): settings/profile/dial-in write ops
-    if (level >= 1) {
-        if (toolName == "profiles_set_active" || toolName == "settings_set" ||
-            toolName == "dialing_apply_change")
-            return true;
-    }
+    // All non-zero levels: settings/profile/dial-in write ops
+    if (toolName == "profiles_set_active" || toolName == "settings_set" ||
+        toolName == "dialing_apply_change")
+        return true;
+
     // Level 2 (All Control): also non-start machine control ops
     if (level >= 2) {
         if (toolName == "machine_wake" || toolName == "machine_sleep" ||

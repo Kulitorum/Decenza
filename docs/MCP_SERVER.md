@@ -88,7 +88,7 @@ Each tool has a `category` that determines the minimum access level required:
 |----------|-----------------|-------|
 | `read` | 0 (Monitor) | machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, settings_get, dialing_get_context |
 | `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_set_feedback, dialing_suggest_change |
-| `settings` | 2 (Full) | profiles_set_active, profiles_upload, settings_set, settings_set_shot_params, dialing_apply_change |
+| `settings` | 2 (Full) | profiles_set_active, settings_set, dialing_apply_change |
 
 ### Tool → Confirmation Level Mapping
 
@@ -104,8 +104,7 @@ Two confirmation mechanisms are used depending on where the user is:
 | machine_stop | No confirm | Confirm | Chat |
 | machine_skip_frame | No confirm | Confirm | Chat |
 | profiles_set_active | **Confirm** | Confirm | Chat |
-| profiles_upload | **Confirm** | Confirm | Chat |
-| settings_set* | **Confirm** | Confirm | Chat |
+| settings_set | **Confirm** | Confirm | Chat |
 | dialing_apply_change | **Confirm** | Confirm | Chat |
 | shots_set_feedback | No confirm | No confirm | — |
 | dialing_suggest_change | No confirm | No confirm | — |
@@ -178,14 +177,12 @@ This avoids holding HTTP connections and works naturally with the conversational
 | `profiles_get_active` | Get current profile name + details | read |
 | `profiles_get_detail` | Full profile JSON by filename | read |
 | `profiles_set_active` | Load and activate a profile | settings |
-| `profiles_upload` | Upload new profile JSON | settings |
 
 ### Settings
 | Tool | Description | Category |
 |------|-------------|----------|
 | `settings_get` | Read settings (all or by keys) | read |
-| `settings_set` | Update settings | settings |
-| `settings_set_shot_params` | Set steam/water temp, target weight/volume | settings |
+| `settings_set` | Update settings (temperature, weight, steam/water, DYE metadata) | settings |
 
 ### AI Dial-In Conversation (key feature)
 

@@ -74,10 +74,12 @@ public slots:
 
 private:
     // JSON-RPC dispatch
-    QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session);
+    QJsonObject handleJsonRpc(const QJsonObject& request, McpSession* session,
+                              QTcpSocket* socket, const QVariant& requestId);
     QJsonObject handleInitialize(const QJsonObject& params, McpSession* session);
     QJsonObject handleToolsList(const QJsonObject& params, McpSession* session);
-    QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session);
+    QJsonObject handleToolsCall(const QJsonObject& params, McpSession* session,
+                                QTcpSocket* socket, const QVariant& requestId);
     QJsonObject handleResourcesList(const QJsonObject& params, McpSession* session);
     QJsonObject handleResourcesRead(const QJsonObject& params, McpSession* session);
 
@@ -127,8 +129,6 @@ private:
 
     // In-app confirmation (machine_start_* tools)
     std::optional<PendingConfirmation> m_pendingConfirmation;
-    QPointer<QTcpSocket> m_currentSocket;   // temp, set during handleHttpRequest
-    QVariant m_currentRequestId;             // temp, set during handleHttpRequest
 
     // Limits
     static constexpr int MaxSessions = 8;

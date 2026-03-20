@@ -1863,6 +1863,11 @@ ApplicationWindow {
     Connections {
         target: McpServer
         function onConfirmationRequested(toolName, toolDescription, sessionId) {
+            if (mcpConfirmDialog.visible) {
+                // Suppress denied signal for the superseded request (C++ already handled it)
+                mcpConfirmDialog.userResponded = true
+                mcpConfirmDialog.close()
+            }
             mcpConfirmDialog.toolDescription = toolDescription
             mcpConfirmDialog.sessionId = sessionId
             mcpConfirmDialog.open()
