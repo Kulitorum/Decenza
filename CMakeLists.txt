@@ -509,10 +509,14 @@ if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     )
 endif()
 
-# iOS/macOS: Use Darwin multimedia and location permission plugins
+# iOS/macOS: Use native AVFoundation backend only (no FFmpeg).
+# The FFmpeg/VideoToolbox backend leaks Metal/IOSurface memory on macOS
+# (~10 MB per video transition, causing SIGBUS after ~15 screensaver videos).
+# Excluding the FFmpeg plugin avoids linking libavcodec/libavformat entirely.
 if(IOS OR APPLE)
     qt_import_plugins(Decenza
         INCLUDE_BY_TYPE multimedia Qt6::QDarwinMediaPlugin
+        EXCLUDE_BY_TYPE multimedia Qt6::QFFmpegMediaPlugin
         INCLUDE_BY_TYPE permissions Qt6::QDarwinLocationPermissionPlugin
     )
 endif()

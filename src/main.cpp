@@ -304,6 +304,14 @@ int main(int argc, char *argv[])
     qputenv("QSG_RENDER_LOOP", "basic");
 #endif
 
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+    // Use native AVFoundation backend instead of FFmpeg on Apple platforms.
+    // The FFmpeg/VideoToolbox backend leaks ~10 MB of Metal/IOSurface memory
+    // per video transition (SIGBUS crash after ~15 screensaver videos).
+    // The native darwin backend manages memory through AVPlayerLayer instead.
+    qputenv("QT_MEDIA_BACKEND", "darwin");
+#endif
+
     // Install web debug logger early to capture all output
     WebDebugLogger::install();
 
