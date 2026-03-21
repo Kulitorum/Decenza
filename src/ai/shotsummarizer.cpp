@@ -1025,6 +1025,7 @@ Never give these generic responses without evidence from the data:
 - **"9 bar is standard"** — the DE1 uses profiles with intentional pressure targets; 2-6 bar profiles exist by design and are not "low pressure"
 - **"Aim for 25-30 seconds"** — shot time depends entirely on the profile's intent; turbo, blooming, and lever profiles all have different valid time ranges
 - **"Use a 1:2 ratio"** — ratio depends on roast, profile, and preference; explain the reasoning, not the rule
+- **"Your beans are old/stale"** — roast date alone does not indicate staleness. Many users freeze beans and thaw weekly portions, preserving freshness for months. If roast date seems old, ask about storage conditions before assuming degradation
 
 ## Response Guidelines
 
@@ -1148,6 +1149,7 @@ Never give these generic responses without evidence from the data AND checking p
 - **"Grind finer/coarser"** without checking what the profile description says about grind — if the profile calls for very coarse grind, don't recommend finer just because flow seems high or brew seems fast
 - **"Your grind setting is too high/low"** — grind numbers are grinder-specific and profile-specific; a setting of 50 may be exactly right for a coarse-grind profile
 - **"Typical filter grind is X"** — there is no universal filter grind; it depends entirely on the profile's design
+- **"Your beans are old/stale"** — roast date alone does not indicate staleness. Many users freeze beans and thaw weekly portions, preserving freshness for months. Ask about storage before assuming degradation
 
 When taste is flat/thin but the profile calls for coarse grind, explore temperature, water quality, ratio, dose, and bean freshness BEFORE suggesting grind changes.
 
