@@ -85,35 +85,30 @@ except Exception as e:
     fi
 }
 
-ALL_SESSIONS=()  # Track all sessions created during the test run
+declare -a ALL_SESSIONS  # Track all sessions created during the test run
 
 cleanup_all_sessions() {
-    for sid in "${ALL_SESSIONS[@]}"; do
-        curl -s --max-time 2 -X DELETE "$BASE" -H "Mcp-Session-Id: $sid" > /dev/null 2>&1
-    done
+    if [ ${#ALL_SESSIONS[@]} -gt 0 ]; then
+        for sid in "${ALL_SESSIONS[@]}"; do
+            curl -s --max-time 2 -X DELETE "$BASE" -H "Mcp-Session-Id: $sid" > /dev/null 2>&1
+        done
+    fi
 }
 trap cleanup_all_sessions EXIT
 
-# Create a session and track it for cleanup
+# Create a session, set SESSION + INIT_RESP, track for cleanup
 create_session() {
-    local resp
-    resp=$(curl -s --max-time 5 -D /tmp/mcp_headers -X POST "$BASE" -H "Content-Type: application/json" \
+    INIT_RESP=$(curl -s --max-time 5 -D /tmp/mcp_headers -X POST "$BASE" -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}')
-    local sid
-    sid=$(grep -i 'Mcp-Session-Id' /tmp/mcp_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
-    if [ -z "$sid" ]; then
-        sid=$(grep -i 'Mcp-Session:' /tmp/mcp_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
+    SESSION=$(extract_session)
+    if [ -n "${SESSION:-}" ]; then
+        ALL_SESSIONS+=("$SESSION")
     fi
-    if [ -n "$sid" ]; then
-        ALL_SESSIONS+=("$sid")
-    fi
-    SESSION="$sid"
-    echo "$resp"
 }
 
-# Delete the current session and remove from tracking
+# Delete the current session
 delete_session() {
-    if [ -n "$SESSION" ]; then
+    if [ -n "${SESSION:-}" ]; then
         curl -s --max-time 2 -X DELETE "$BASE" -H "Mcp-Session-Id: $SESSION" > /dev/null 2>&1
         SESSION=""
     fi
@@ -130,7 +125,7 @@ echo -e "${CYAN}1. Protocol${NC}"
 
 # Test: MCP disabled returns 404 (can't test if enabled — skip)
 # Test: Initialize
-INIT_RESP=$(create_session)
+create_session
 assert_ok "initialize returns protocolVersion" "$INIT_RESP" \
     "d.get('result',{}).get('protocolVersion') == '2025-03-26'"
 assert_ok "initialize returns serverInfo" "$INIT_RESP" \
@@ -714,7 +709,7 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
 
     # Fresh session to avoid rate limit from earlier control tool calls
     delete_session
-    WRITE_INIT=$(create_session)
+    create_session
 else
     echo -e "${CYAN}12. Write Tools (SKIPPED — access level < 2, set to Full Automation to test)${NC}"
     SKIP=$((SKIP + 7))
@@ -924,7 +919,7 @@ echo -e "${CYAN}15. Rate Limiting${NC}"
 
 # Use a fresh session so previous control calls don't affect the count
 delete_session
-RATE_INIT=$(create_session)
+create_session
 
 # Fire 11 machine_wake calls (succeeds on simulator).
 # Calls 1-10 should work, 11th should be rate limited.
@@ -1003,7 +998,7 @@ for sid in "${LIMIT_SESSIONS[@]}"; do
 done
 
 # Re-create session for remaining tests
-REINIT=$(create_session)
+create_session
 
 echo
 
