@@ -199,7 +199,7 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 |------|-------------|----------|
 | `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with same profile family via `ShotHistoryStorage::getRecentShotsByKbId()`) + bean metadata + dial-in reference tables (`docs/ESPRESSO_DIAL_IN_REFERENCE.md`). This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. | read |
 | `dialing_suggest_change` | Suggest a parameter change to the user with rationale (e.g. "Grind 2 clicks finer to reduce sourness"). Returns the suggestion as structured data. The app shows it as a toast/notification via `McpServer::suggestionReceived` signal → QML handler. Track whether a suggestion is currently displayed via an event-based boolean (`m_suggestionPending`), set when the signal fires and cleared by QML `onSuggestionDismissed` callback. Do NOT use a timer to clear this flag. If a new suggestion arrives while one is displayed, replace the current toast. | control |
-| `dialing_apply_change` | Apply a dial-in change: adjust grind setting (metadata), target weight, target volume, temperature, switch profile, or update bean metadata (brand, type, roast level — for when the user switches to a new bag). Temperature and weight changes route through `uploadRecipeProfile()` to regenerate frames and upload to machine. Combines profile editing + settings for dial-in-specific params. | settings |
+| `dialing_apply_change` | **DEPRECATED — remove in phase 15.** Convenience wrapper that duplicates `settings_set` + `profiles_set_active`. Caused the advanced-profile-corruption bug due to duplicated code paths. Callers should use `settings_set` for temp/weight/DYE changes and `profiles_set_active` for profile switches. | settings |
 
 **Design note — why one read tool instead of four:** An earlier version had separate `dialing_get_shot_summary`, `dialing_get_history`, `dialing_get_profile_knowledge`, and `dialing_get_context` tools. These were consolidated into just `dialing_get_context` because: (1) the MCP client almost always needs all the context together, (2) fewer tools means better MCP client compatibility and less confusion for the AI, (3) the individual data is still available via generic tools (`shots_get_detail`, `profiles_get_detail`, `settings_get`) if needed. The `dialing_get_context` tool accepts optional parameters to control what's included (e.g., `shot_id` to analyze a specific shot instead of the most recent, `history_limit` to control how many prior shots to include).
 
@@ -546,12 +546,64 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 12. ~~**Device management tools**: `devices_list`, `devices_scan`, `devices_connect_scale`, `devices_connection_status`. Category: control.~~ ✅
 13. ~~**Confirmation dialog**: Hybrid confirmation system — in-app dialog for machine start operations (user is at the machine), chat-based confirmation for settings/data operations (user is at their desk). Maps to `mcpConfirmationLevel` setting (None/Dangerous Only/All Control).~~ ✅
 
-### Future Phases
+### QML Parity — Remaining Gaps
 
-14. **Profile create tool**: `profiles_create` (create new profile from JSON). Category: settings. Allows AI to generate profiles programmatically (e.g., "make a slower blooming profile" → AI creates one). Note: `profiles_get_params`, `profiles_edit_params`, `profiles_save`, and `profiles_delete` are already implemented — AI can read, modify, save, and delete profiles with full frame regeneration.
-15. **Shot management tools**: `shots_delete` (delete a shot by ID), `shots_update` (update arbitrary metadata fields beyond enjoyment/notes). Category: settings. Data cleanup and richer metadata editing.
-16. **Bean inventory system**: Full CRUD for beans and batches — track individual purchases, roast dates, remaining weight, frozen status, cost per bag. Enables AI to suggest when beans are past prime, calculate cost-per-shot, recommend reorders. Requires new DB tables and significant UI work — large feature.
-17. **Real-time streaming**: Subscribe/read pattern for live sensor data during shots. An AI could provide real-time coaching during extraction ("pressure is dropping, channeling detected"). Requires WebSocket or enhanced SSE support.
+The following QML capabilities do not yet have MCP equivalents. Organized by priority for achieving full parity as a parallel UI.
+
+#### High Priority (needed for initial release)
+
+14. **Profile creation**: `profiles_create` — create a new blank profile with a given editor type and title. Calls `createNewRecipe()`, `createNewPressureProfile()`, `createNewFlowProfile()`, or `createNewProfile()` depending on editor type. Category: settings.
+
+15. **Shot management**: Replace `shots_set_feedback` with a broader `shots_update` that accepts any metadata field the QML shot editors can change (enjoyment, notes, dose, bean brand/type, roast level/date, grinder brand/model/burrs/setting, barista, TDS, EY). Add `shots_delete` for deleting individual shots. Category: settings.
+
+16. **Brew overrides**: `machine_start_espresso` should accept optional dose/yield/temperature/grind overrides — matching the BrewDialog that QML shows before starting a shot. Calls `activateBrewWithOverrides()`. This lets MCP start a shot with specific parameters without permanently changing the profile.
+
+#### Medium Priority (useful but not blocking)
+
+17. **Visualizer integration**: `visualizer_upload` to upload a shot to visualizer.coffee, `visualizer_import` to import a profile by share code or shot ID. These are network operations the QML UI does via VisualizerUploader and VisualizerImporter.
+
+18. **Profile favorites**: Read/write favorite profiles list — `profiles_get_favorites`, `profiles_add_favorite`, `profiles_remove_favorite`. The IdlePage shows favorites as quick-switch buttons; MCP should be able to manage them.
+
+19. **Advanced frame manipulation**: Individual frame operations for advanced profiles — `profiles_add_frame`, `profiles_delete_frame`, `profiles_move_frame`, `profiles_set_frame_property`. Currently MCP can replace the entire steps array via `profiles_edit_params`, but QML's ProfileEditorPage also has granular frame operations. **Alternative**: rely on `profiles_edit_params` with full steps array (already works) and skip granular tools to avoid API bloat.
+
+#### Low Priority (future phases)
+
+20. **Bean inventory system**: Full CRUD for beans and batches. Requires new DB tables and significant UI work.
+21. **Real-time streaming**: Subscribe/read for live sensor data during shots. Requires WebSocket or enhanced SSE.
+22. **Direct control mode**: Live setpoint adjustment during shots (`setLivePressure`, `setLiveFlow`, `setLiveTemperature`). Only useful for advanced users doing manual profiling.
+23. **Community library**: Browse and download community-shared profiles. Complex async network flow.
+24. **Presets management**: Steam pitcher presets, water vessel presets, profile visibility (hidden/selected built-ins). Low-frequency operations.
+25. **Backup/restore**: Create and restore database backups via MCP.
+
+### Restructuring Proposal
+
+Before adding new tools, consolidate existing ones to reduce tool count and avoid duplication:
+
+#### Consolidate `dialing_apply_change` into `settings_set` + `profiles_set_active`
+
+`dialing_apply_change` is a convenience wrapper that duplicates code from `settings_set` (temperature, weight, grinder, bean metadata) and `profiles_set_active` (profile switching). The duplication caused the advanced-profile-corruption bug (fix had to be applied in both places). Removing it simplifies the API — an AI can achieve the same result by calling the individual tools. `dialing_get_context` and `dialing_suggest_change` remain (they have unique functionality).
+
+**Tools removed**: `dialing_apply_change`
+**Migration**: Callers use `settings_set` for temp/weight/DYE changes + `profiles_set_active` for profile switches.
+
+#### Replace `shots_set_feedback` with `shots_update`
+
+`shots_set_feedback` only handles enjoyment + notes, but QML can update any shot metadata field (dose, bean info, grinder info, barista, TDS, EY). Replace with a general `shots_update` that accepts any metadata field. Same underlying function (`requestUpdateShotMetadata`).
+
+**Tools removed**: `shots_set_feedback`
+**Tools added**: `shots_update` (superset), `shots_delete`
+
+#### Net tool count change
+
+| Change | Count |
+|--------|-------|
+| Current tools | 37 |
+| Remove `dialing_apply_change` | -1 |
+| Remove `shots_set_feedback` | -1 |
+| Add `profiles_create` | +1 |
+| Add `shots_update` | +1 |
+| Add `shots_delete` | +1 |
+| **New total** | **38** |
 
 ## Phase Status
 
@@ -570,10 +622,10 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 | 11 | Scale tools | ✅ Done | tare, timer start/stop/reset, get_weight |
 | 12 | Device tools | ✅ Done | list, scan, connect_scale, connection_status |
 | 13 | Confirmation dialog | ✅ Done | Hybrid: in-app for start ops, chat for settings |
-| 14 | Profile create/delete | 🔲 Future | create, delete profiles via AI (edit params already done) |
-| 15 | Shot management | 🔲 Future | delete shots, update metadata |
-| 16 | Bean inventory | 🔲 Future | Full CRUD, new DB tables — large feature |
-| 17 | Real-time streaming | 🔲 Future | WebSocket/enhanced SSE for live coaching |
+| 14 | Profile editor tools | ✅ Done | get_params, edit_params, save, delete (all 5 editor types) |
+| 15 | QML parity: high | 🔲 Next | profiles_create, shots_update/delete, brew overrides, consolidation |
+| 16 | QML parity: medium | 🔲 Future | visualizer, favorites, frame manipulation |
+| 17 | QML parity: low | 🔲 Future | bean inventory, streaming, direct control, community, presets, backup |
 
 ## Verification
 
