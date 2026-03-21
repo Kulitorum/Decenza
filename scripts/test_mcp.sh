@@ -763,10 +763,12 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
     assert_ok "profiles_create creates profile" "$CREATE" \
         "d.get('success') == True and d.get('editorType') == 'pressure'"
 
-    # Clean up: delete the created profile
+    # Clean up: delete the created profile and restore original
     CREATED_FILE=$(echo "$CREATE" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('filename',''))" 2>/dev/null)
     if [ -n "$CREATED_FILE" ]; then
-        DEL_RAW=$(rpc 107 "tools/call" "{\"name\":\"profiles_delete\",\"arguments\":{\"filename\":\"$CREATED_FILE\",\"confirmed\":true}}")
+        # Switch to default before deleting (can't delete the active profile's backing file)
+        rpc 108 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"default","confirmed":true}}' > /dev/null
+        DEL_RAW=$(rpc 109 "tools/call" "{\"name\":\"profiles_delete\",\"arguments\":{\"filename\":\"$CREATED_FILE\",\"confirmed\":true}}")
         DEL=$(echo "$DEL_RAW" | parse_tool_result)
         assert_ok "profiles_delete removes created profile" "$DEL" \
             "d.get('success') == True"
