@@ -116,6 +116,7 @@ Page {
     property int videoSkipCount: 0  // Guard against deep recursion when skipping broken videos
     property int videoTransitionCount: 0  // Track transitions for memory leak monitoring
     property string pendingVideoSource: ""  // Source queued for next video after decoder teardown
+    property real preDestroyRss: 0  // RSS before MediaPlayer destroy (for delta logging)
 
     function playNextMedia() {
         if (!ScreensaverManager.enabled) {
@@ -157,13 +158,36 @@ Page {
                 playNextMedia()
                 return
             } else {
-                // Play video — destroy and recreate MediaPlayer to fully release
-                // FFmpeg decoder resources. Without this, ~2-3 MB leaks per transition
-                // because FFmpeg/VideoToolbox doesn't fully tear down the old decoder
-                // when source changes within the same MediaPlayer instance.
+                // Play video — destroy and recreate MediaPlayer + VideoOutput to fully
+                // release FFmpeg decoder resources and VideoToolbox frame pool. Both
+                // must be destroyed together; a persistent VideoOutput retains the last
+                // decoded frame's CVPixelBuffer/IOSurface on macOS.
                 videoTransitionCount++
+                var liveRss = MemoryMonitor.liveRssMB()
+                var delta = videoTransitionCount > 1 ? " delta:" + (liveRss - preDestroyRss).toFixed(1) + " MB" : ""
                 console.log("[Screensaver] Video transition #" + videoTransitionCount +
-                            " RSS:" + MemoryMonitor.currentRssMB.toFixed(1) + " MB")
+                            " RSS:" + liveRss.toFixed(1) + " MB" + delta +
+                            " src:" + source.substring(source.lastIndexOf("/") + 1))
+                preDestroyRss = liveRss
+
+                // Qt's FFmpeg/VideoToolbox backend leaks ~5-10 MB per video transition
+                // on macOS (CVPixelBufferPool not fully released). Restart the screensaver
+                // when RSS grows too high to prevent eventual SIGBUS crash.
+                if (liveRss > 500 && videoTransitionCount > 5) {
+                    console.warn("[Screensaver] RSS ceiling exceeded (" + liveRss.toFixed(0) +
+                                 " MB at transition #" + videoTransitionCount + ") — restarting screensaver")
+                    pendingVideoSource = ""
+                    mediaPlayerLoader.active = false
+                    mediaPlaying = false
+                    videoTransitionCount = 0
+                    preDestroyRss = 0
+                    // Let the Loader destruction complete, then GC and re-enter
+                    Qt.callLater(function() {
+                        gc()
+                        playNextMedia()
+                    })
+                    return
+                }
 
                 // Reset image state
                 imageDisplayTimer.stop()
@@ -199,7 +223,7 @@ Page {
         if (!mediaPlayerLoader.item) return
 
         // Prevent handling the same failure twice
-        var playerSource = mediaPlayerLoader.item.source.toString()
+        var playerSource = mediaPlayerLoader.item.player.source.toString()
         if (playerSource === lastFailedSource) return
         lastFailedSource = playerSource
 
@@ -235,13 +259,16 @@ Page {
         }
     }
 
-    // MediaPlayer wrapped in Loader — destroyed and recreated between videos
-    // to fully release FFmpeg decoder resources and prevent memory leaks
+    // MediaPlayer + VideoOutput wrapped in Loader — destroyed and recreated
+    // between videos to fully release FFmpeg decoder resources (including the
+    // VideoToolbox CVPixelBufferPool on macOS). Both must be co-located so that
+    // the VideoOutput's retained last frame is released with the decoder.
     Loader {
         id: mediaPlayerLoader
+        anchors.fill: parent
         active: false
 
-        // Event-driven recreation: when the old MediaPlayer is destroyed (item
+        // Event-driven recreation: when the old component is destroyed (item
         // becomes null), re-activate the Loader to create a fresh decoder.
         onItemChanged: {
             if (item === null && pendingVideoSource.length > 0) {
@@ -249,45 +276,52 @@ Page {
             }
         }
 
-        sourceComponent: MediaPlayer {
-            onMediaStatusChanged: {
-                if (mediaStatus === MediaPlayer.EndOfMedia) {
-                    // Mark current video as played for LRU tracking
-                    ScreensaverManager.markVideoPlayed(source.toString())
-                    // Play next media (reset fail count on success)
-                    videoFailCount = 0
-                    lastFailedSource = ""
-                    playNextMedia()
-                } else if (mediaStatus === MediaPlayer.InvalidMedia) {
+        sourceComponent: Item {
+            anchors.fill: parent
+
+            property alias player: mediaPlayer
+            property alias output: videoOut
+
+            MediaPlayer {
+                id: mediaPlayer
+
+                onMediaStatusChanged: {
+                    if (mediaStatus === MediaPlayer.EndOfMedia) {
+                        ScreensaverManager.markVideoPlayed(source.toString())
+                        videoFailCount = 0
+                        lastFailedSource = ""
+                        playNextMedia()
+                    } else if (mediaStatus === MediaPlayer.InvalidMedia) {
+                        handleVideoFailure()
+                    }
+                }
+
+                onErrorOccurred: function(error, errorString) {
+                    console.warn("[Screensaver] MediaPlayer error:", error, errorString)
                     handleVideoFailure()
                 }
-            }
 
-            onErrorOccurred: function(error, errorString) {
-                console.warn("[Screensaver] MediaPlayer error:", error, errorString)
-                handleVideoFailure()
-            }
-
-            onPlaybackStateChanged: {
-                if (playbackState === MediaPlayer.PlayingState) {
-                    videoFailCount = 0
-                    lastFailedSource = ""
+                onPlaybackStateChanged: {
+                    if (playbackState === MediaPlayer.PlayingState) {
+                        videoFailCount = 0
+                        lastFailedSource = ""
+                    }
                 }
+            }
+
+            VideoOutput {
+                id: videoOut
+                anchors.fill: parent
+                fillMode: VideoOutput.PreserveAspectCrop
+                visible: isVideosMode && mediaPlaying && !isCurrentItemImage
             }
         }
 
         onLoaded: {
-            item.videoOutput = videoOutput
-            item.source = pendingVideoSource
-            item.play()
+            item.player.videoOutput = item.output
+            item.player.source = pendingVideoSource
+            item.player.play()
         }
-    }
-
-    VideoOutput {
-        id: videoOutput
-        anchors.fill: parent
-        fillMode: VideoOutput.PreserveAspectCrop
-        visible: isVideosMode && mediaPlaying && !isCurrentItemImage
     }
 
     // Image display with cross-fade transition
@@ -385,7 +419,7 @@ Page {
     Rectangle {
         id: fallbackBackground
         anchors.fill: parent
-        visible: isVideosMode && (!mediaPlaying || (!isCurrentItemImage && (!mediaPlayerLoader.item || mediaPlayerLoader.item.playbackState !== MediaPlayer.PlayingState)))
+        visible: isVideosMode && (!mediaPlaying || (!isCurrentItemImage && (!mediaPlayerLoader.item || mediaPlayerLoader.item.player.playbackState !== MediaPlayer.PlayingState)))
         z: 1
 
         Rectangle {
@@ -430,7 +464,7 @@ Page {
 
         visible: isVideosMode &&
                  (showDate || ScreensaverManager.currentVideoAuthor.length > 0) &&
-                 ((mediaPlayerLoader.item && mediaPlayerLoader.item.playbackState === MediaPlayer.PlayingState) ||
+                 ((mediaPlayerLoader.item && mediaPlayerLoader.item.player.playbackState === MediaPlayer.PlayingState) ||
                   (isCurrentItemImage && mediaPlaying))
 
         Text {

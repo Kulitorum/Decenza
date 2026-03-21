@@ -237,6 +237,11 @@ double MemoryMonitor::currentRssMB() const
     return m_lastRss / (1024.0 * 1024.0);
 }
 
+double MemoryMonitor::liveRssMB() const
+{
+    return readRss() / (1024.0 * 1024.0);
+}
+
 double MemoryMonitor::peakRssMB() const
 {
     return m_peakRss / (1024.0 * 1024.0);
