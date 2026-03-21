@@ -143,7 +143,10 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 return result;
             }
 
+            // toInteger() can return 0 if the value arrives as a double from JSON
             qint64 shotId = args["shotId"].toInteger();
+            if (shotId <= 0)
+                shotId = static_cast<qint64>(args["shotId"].toDouble());
             if (shotId <= 0) {
                 result["error"] = "Valid shotId is required";
                 return result;
