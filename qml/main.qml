@@ -422,11 +422,11 @@ ApplicationWindow {
         updateScale()
 
         // Keep screen on while app is running (Android only)
-        // This prevents Android's system timeout from turning off the screen
-        // while the user is prepping beans, etc. The screensaver handles sleep.
-        if (Qt.platform.os === "android") {
-            ScreensaverManager.setKeepScreenOn(true)
-        }
+        // Prevent system screen timeout — the app has its own screensaver.
+        // On Android: FLAG_KEEP_SCREEN_ON. On iOS: idleTimerDisabled = true.
+        // Without this on iOS, the system auto-locks during screensaver,
+        // suspending the app and breaking BLE comms and smart charging.
+        ScreensaverManager.setKeepScreenOn(true)
 
         // Check for crash log from previous session
         if (PreviousCrashLog && PreviousCrashLog.length > 0) {
