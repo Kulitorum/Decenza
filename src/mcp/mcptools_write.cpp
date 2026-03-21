@@ -169,7 +169,8 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
     // profiles_set_active
     registry->registerTool(
         "profiles_set_active",
-        "Load and activate a profile by filename",
+        "Load and activate a profile on the machine by filename. "
+        "IMPORTANT: Only call this when the user explicitly asks to change the active profile on the machine.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -209,11 +210,13 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
     // settings_set
     registry->registerTool(
         "settings_set",
-        "Update any app setting. Covers all QML settings tabs: preferences, connections, "
+        "Update any app setting on the device. Covers all QML settings tabs: preferences, connections, "
         "screensaver, accessibility, AI, espresso, steam, water, flush, DYE metadata, MQTT, "
         "themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. "
         "API keys and passwords are excluded (sensitive). "
-        "For temperature and weight changes on the active profile, this tool handles the profile update automatically.",
+        "For temperature and weight changes on the active profile, this tool handles the profile update automatically. "
+        "IMPORTANT: Only call this when the user explicitly asks to change settings on the machine. "
+        "For discussion and recommendations, respond in chat instead.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -1044,7 +1047,9 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
     // dialing_suggest_change
     registry->registerTool(
         "dialing_suggest_change",
-        "Suggest a parameter change to the user with rationale (shown as a notification in the app)",
+        "Push a parameter change suggestion to the app (shown as a notification on the device). "
+        "IMPORTANT: Only call this when the user explicitly asks to send/push a suggestion to the app. "
+        "For discussion and analysis, respond in chat instead — do not push to the device.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
