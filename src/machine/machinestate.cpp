@@ -290,6 +290,14 @@ void MachineState::updatePhase() {
                           oldPhase == Phase::Cleaning);
 
         if (isFlowing() && !wasFlowing) {
+            // Always clear hot water frozen weight when any new flow starts.
+            // This is outside the !wasInEspresso guard because the frozen weight
+            // is a hot-water-only display feature that must not persist into
+            // espresso cycles. Without this, hot water SAW freezing the display
+            // at e.g. 75g causes scaleWeight() to return that stale value for
+            // the entire subsequent espresso shot (issue #529).
+            m_hotWaterFrozenWeight = -1.0;
+
             // Don't restart timer mid-espresso cycle (BLE phase glitch protection)
             // For espresso, the timer starts at preinfusion and should not reset
             // if there's a brief glitch to a non-flowing state and back
@@ -301,7 +309,6 @@ void MachineState::updatePhase() {
                 m_hotWaterTareBaseline = 0.0;
                 m_hotWaterTareTimeMs = 0;
                 m_hotWaterMaxEffectiveWeight = 0.0;
-                m_hotWaterFrozenWeight = -1.0;
                 m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
