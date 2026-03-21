@@ -1270,7 +1270,7 @@ a{color:#6c8cff}
 </ul>
 
 <h2>Prerequisites</h2>
-<div class="step"><a href="https://nodejs.org">Node.js</a> must be installed on your computer (provides <code>npx</code> used by the connector).</div>
+<div class="step"><a href="https://nodejs.org">Node.js</a> is required (the install script will offer to install it automatically if missing).</div>
 
 <h2>Setup Steps</h2>
 <div class="step"><span class="step-num">1.</span> Enable MCP in Decenza: Settings &gt; AI &gt; MCP Server &gt; toggle ON</div>

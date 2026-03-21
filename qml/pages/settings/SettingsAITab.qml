@@ -451,6 +451,41 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Setup page link (visible when MCP enabled)
+                ColumnLayout {
+                    visible: Settings.mcpEnabled && MainController.shotServer
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+
+                    Text {
+                        text: TranslationManager.translate("settings.ai.mcp.setupPageLabel", "Setup page:") + " "
+                            + (MainController.shotServer ? MainController.shotServer.url : "") + "/mcp/setup"
+                        color: Theme.accentColor
+                        font.pixelSize: Theme.scaled(12)
+                        font.underline: true
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        Accessible.role: Accessible.Link
+                        Accessible.name: TranslationManager.translate("settings.ai.mcp.setupLinkAccessible", "Open MCP setup page in browser")
+                        Accessible.focusable: true
+                        MouseArea {
+                            id: setupLinkArea
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Qt.openUrlExternally((MainController.shotServer ? MainController.shotServer.url : "") + "/mcp/setup")
+                        }
+                        Accessible.onPressAction: setupLinkArea.clicked(null)
+                    }
+                    Tr {
+                        key: "settings.ai.mcp.setupPageHint"
+                        fallback: "Open this link on your desktop computer with Claude Desktop installed."
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
+
                 // Access Level
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -635,50 +670,6 @@ KeyboardAwareContainer {
                     font.pixelSize: Theme.scaled(12)
                 }
 
-                // Connect Claude Desktop button
-                RowLayout {
-                    visible: Settings.mcpEnabled
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.ai.mcp.copySetupUrl", "Copy Setup URL")
-                        accessibleName: TranslationManager.translate("settings.ai.mcp.copySetupUrlAccessible", "Copy the MCP setup page URL to open on your computer")
-                        onClicked: {
-                            var serverUrl = MainController.shotServer ? MainController.shotServer.url : "http://localhost:8888"
-                            MainController.copyToClipboard(serverUrl + "/mcp/setup")
-                            mcpSetupUrlCopiedText.visible = true
-                            setupUrlCopiedTimer.restart()
-                        }
-                    }
-
-                    Text {
-                        id: mcpSetupUrlCopiedText
-                        visible: false
-                        text: TranslationManager.translate("settings.ai.mcp.setupUrlCopied", "Copied! Open this URL in a browser on your computer to install.")
-                        color: Theme.successColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-
-                    Timer {
-                        id: setupUrlCopiedTimer
-                        interval: 3000
-                        onTriggered: mcpSetupUrlCopiedText.visible = false
-                    }
-                }
-
-                // Web setup link
-                Text {
-                    visible: Settings.mcpEnabled && MainController.shotServer
-                    text: TranslationManager.translate("settings.ai.mcp.webSetup", "Or open setup guide in browser:")
-                        + " " + (MainController.shotServer ? MainController.shotServer.url : "") + "/mcp/setup"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
 
                 // ─── Discuss Shot subsection ───
                 Item { height: Theme.scaled(4) }
@@ -873,7 +864,7 @@ KeyboardAwareContainer {
 
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.steps",
-                            "1. Enable MCP Server (toggle above)\n2. On your computer: install Claude Desktop (claude.ai/download) and Python (python.org)\n3. Open the web setup guide (button below) on your computer\n4. Copy and run the install command in your terminal — it downloads the bridge and configures Claude Desktop automatically\n5. Restart Claude Desktop\n6. Ask Claude about your espresso!\n\nBoth devices must be on the same WiFi network.")
+                            "1. Enable MCP Server (toggle on the settings page)\n2. On your computer: install Claude Desktop (claude.ai/download)\n3. Open the setup page link on your computer (shown on the settings page when MCP is enabled)\n4. Copy and run the install command in your terminal — it installs Node.js if needed and configures Claude Desktop automatically\n5. Restart Claude Desktop\n6. Ask Claude about your espresso!\n\nBoth devices must be on the same WiFi network.")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap
