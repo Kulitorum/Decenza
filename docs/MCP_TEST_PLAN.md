@@ -206,10 +206,10 @@ Expect: updated includes "espressoTemperature"
 Verify: profiles_get_params → steps still has FRAME_COUNT elements, espresso_temperature = ADV_TEMP+3
 ```
 
-### 4.7 dialing_apply_change — temperature on advanced profile (frame preservation)
+### 4.7 Restore advanced profile temperature
 ```
-Call: dialing_apply_change (espressoTemperature: ADV_TEMP, confirmed: true)
-Expect: applied includes "espressoTemperature"
+Call: settings_set (espressoTemperature: ADV_TEMP, confirmed: true)
+Expect: updated includes "espressoTemperature"
 Verify: profiles_get_active → editorType="advanced", targetTemperature = ADV_TEMP
 ```
 
@@ -251,6 +251,21 @@ Note: this cleans up the user override created in 4.8, restoring "default" to bu
 Call: profiles_set_active (filename: "blooming_espresso", confirmed: true)
 Expect: success=true
 Verify: profiles_get_active → title="Blooming Espresso"
+```
+
+### 4.13 profiles_create — all editor types
+```
+For each type in [dflow, aflow, pressure, flow, advanced]:
+  Call: profiles_create (editorType: type, title: "_MCP Test " + type, confirmed: true)
+  Expect: success=true, editorType=type
+  Verify: profiles_get_params → editorType matches type
+  Cleanup: profiles_delete (filename from create response, confirmed: true)
+```
+
+### 4.14 Verify removed tool — dialing_apply_change
+```
+Call: dialing_apply_change (grinderSetting: "12", confirmed: true)
+Expect: error — tool not found (removed in phase 15)
 ```
 
 ## 5. Settings
@@ -301,13 +316,36 @@ Call: shots_compare (shotIds: [SHOT_ID, SHOT_ID_2])
 Expect: response contains data for both shot IDs
 ```
 
-### 6.5 shots_set_feedback
+### 6.5 shots_update — enjoyment and notes
 ```
 Call: shots_get_detail (shotId: SHOT_ID)
-Save: ORIGINAL_ENJOYMENT = enjoyment, ORIGINAL_NOTES = notes (espressoNotes)
-Call: shots_set_feedback (shotId: SHOT_ID, enjoyment: 85, notes: "MCP test run")
+Save: ORIGINAL_ENJOYMENT = enjoyment, ORIGINAL_NOTES = espressoNotes
+Call: shots_update (shotId: SHOT_ID, enjoyment: 85, notes: "MCP test run")
 Expect: success=true, message contains shot ID
-Cleanup: shots_set_feedback (shotId: SHOT_ID, enjoyment: ORIGINAL_ENJOYMENT, notes: ORIGINAL_NOTES)
+Cleanup: shots_update (shotId: SHOT_ID, enjoyment: ORIGINAL_ENJOYMENT, notes: ORIGINAL_NOTES)
+```
+
+### 6.6 shots_update — full metadata
+```
+Call: shots_get_detail (shotId: SHOT_ID)
+Save: ORIGINAL_DOSE = doseWeight, ORIGINAL_BARISTA = barista
+Call: shots_update (shotId: SHOT_ID, doseWeight: 18.5, barista: "MCP Test")
+Expect: success=true, updated includes "dose_weight" and "barista"
+Verify: shots_get_detail (shotId: SHOT_ID) → doseWeight=18.5
+Cleanup: shots_update (shotId: SHOT_ID, doseWeight: ORIGINAL_DOSE, barista: ORIGINAL_BARISTA)
+```
+
+### 6.7 shots_delete — invalid ID (safe test)
+```
+Call: shots_delete (shotId: 999999, confirmed: true)
+Expect: success=true (deletion queued — async, may not error on invalid ID)
+Note: do NOT delete real shots in automated tests
+```
+
+### 6.8 Verify removed tool — shots_set_feedback
+```
+Call: shots_set_feedback (shotId: SHOT_ID, enjoyment: 85)
+Expect: error — tool not found (replaced by shots_update in phase 15)
 ```
 
 ## 7. Dial-In
@@ -325,11 +363,11 @@ Call: dialing_suggest_change (parameter: "grind", suggestion: "Test suggestion",
 Expect: status="suggestion_displayed", parameter="grind"
 ```
 
-### 7.3 dialing_apply_change — metadata only
+### 7.3 settings_set — DYE metadata (replaces dialing_apply_change)
 ```
-Call: dialing_apply_change (grinderSetting: "99", confirmed: true)
-Expect: applied includes "grinderSetting"
-Cleanup: dialing_apply_change (grinderSetting: ORIGINAL_GRIND, confirmed: true)
+Call: settings_set (dyeGrinderSetting: "99", confirmed: true)
+Expect: updated includes "dyeGrinderSetting"
+Cleanup: settings_set (dyeGrinderSetting: ORIGINAL_GRIND, confirmed: true)
 ```
 
 ## 8. Scale
@@ -421,11 +459,11 @@ Step 4 — Verify clean state:
 | Machine State | 2 | Read-only |
 | Machine Control | 4+1 | 1 skipped in simulator (start ops) |
 | Profile Read | 8 | All 5 editor types |
-| Profile Edit | 12 | Includes frame preservation checks for advanced |
+| Profile Edit | 14 | Includes frame preservation, create all types, removed tool checks |
 | Settings | 3 | Includes cleanup |
-| Shot History | 5 | |
-| Dial-In | 3 | Includes cleanup |
+| Shot History | 8 | shots_update full metadata, shots_delete, removed tool check |
+| Dial-In | 3 | dialing_apply_change replaced by settings_set |
 | Scale | 3 | |
 | Devices | 3 | |
 | Debug | 1 | |
-| **Total** | **44** | |
+| **Total** | **50** | |

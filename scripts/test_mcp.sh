@@ -267,7 +267,14 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare profiles_list profiles_get_active profiles_get_detail settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame shots_set_feedback profiles_set_active settings_set dialing_suggest_change dialing_apply_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare shots_update shots_delete profiles_list profiles_get_active profiles_get_detail profiles_get_params profiles_edit_params profiles_save profiles_delete profiles_create settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame profiles_set_active settings_set dialing_suggest_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
+
+# Verify removed tools are NOT registered
+REMOVED_TOOLS="dialing_apply_change shots_set_feedback"
+for tool in $REMOVED_TOOLS; do
+    assert_ok "removed tool '$tool' NOT registered" "$TOOLS_JSON" \
+        "'$tool' not in d"
+done
 for tool in $EXPECTED_TOOLS; do
     assert_ok "tool '$tool' registered" "$TOOLS_JSON" \
         "'$tool' in d"
@@ -400,8 +407,18 @@ assert_ok "profiles_get_active returns filename" "$ACTIVE" \
     "'filename' in d and len(d['filename']) > 0"
 assert_ok "profiles_get_active returns title" "$ACTIVE" \
     "'title' in d"
+assert_ok "profiles_get_active returns editorType" "$ACTIVE" \
+    "'editorType' in d and len(d['editorType']) > 0"
 assert_ok "profiles_get_active returns targetWeight" "$ACTIVE" \
     "'targetWeight' in d"
+
+# profiles_get_params — editor-type-aware
+PARAMS_RAW=$(rpc 44 "tools/call" '{"name":"profiles_get_params","arguments":{}}')
+PARAMS=$(echo "$PARAMS_RAW" | parse_tool_result)
+assert_ok "profiles_get_params returns editorType" "$PARAMS" \
+    "'editorType' in d and len(d['editorType']) > 0"
+assert_ok "profiles_get_params returns filename" "$PARAMS" \
+    "'filename' in d"
 
 # Get detail for first profile
 PROFILE_FILE=$(echo "$PROFILES" | python3 -c "
@@ -663,21 +680,21 @@ else
     SKIP=$((SKIP + 7))
 fi
 
-# shots_set_feedback (control category — level 1+, always available)
+# shots_update (control category — level 1+, always available)
 if [ "$SHOT_ID" != "0" ] && [ -n "$SHOT_ID" ]; then
-    FEEDBACK_RAW=$(rpc 100 "tools/call" "{\"name\":\"shots_set_feedback\",\"arguments\":{\"shotId\":$SHOT_ID,\"enjoyment\":85,\"notes\":\"MCP test note\"}}")
-    FEEDBACK=$(echo "$FEEDBACK_RAW" | parse_tool_result)
-    assert_ok "shots_set_feedback saves feedback" "$FEEDBACK" \
+    UPDATE_RAW=$(rpc 100 "tools/call" "{\"name\":\"shots_update\",\"arguments\":{\"shotId\":$SHOT_ID,\"enjoyment\":85,\"notes\":\"MCP test note\"}}")
+    UPDATE=$(echo "$UPDATE_RAW" | parse_tool_result)
+    assert_ok "shots_update saves metadata" "$UPDATE" \
         "d.get('success') == True"
 else
-    echo -e "  ${YELLOW}SKIP${NC} shots_set_feedback (no shots)"
+    echo -e "  ${YELLOW}SKIP${NC} shots_update (no shots)"
     SKIP=$((SKIP + 1))
 fi
 
-# shots_set_feedback without data
-FEEDBACK_EMPTY_RAW=$(rpc 101 "tools/call" '{"name":"shots_set_feedback","arguments":{"shotId":1}}')
-FEEDBACK_EMPTY=$(echo "$FEEDBACK_EMPTY_RAW" | parse_tool_result)
-assert_ok "shots_set_feedback requires enjoyment or notes" "$FEEDBACK_EMPTY" \
+# shots_update without data
+UPDATE_EMPTY_RAW=$(rpc 101 "tools/call" '{"name":"shots_update","arguments":{"shotId":1}}')
+UPDATE_EMPTY=$(echo "$UPDATE_EMPTY_RAW" | parse_tool_result)
+assert_ok "shots_update requires at least one field" "$UPDATE_EMPTY" \
     "'error' in d"
 
 # dialing_suggest_change
@@ -705,11 +722,20 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
     assert_ok "profiles_set_active rejects invalid profile" "$BAD_PROFILE" \
         "'error' in d"
 
-    # dialing_apply_change
-    APPLY_RAW=$(rpc 106 "tools/call" '{"name":"dialing_apply_change","arguments":{"grinderSetting":"12","targetWeight":38.0}}')
-    APPLY=$(echo "$APPLY_RAW" | parse_tool_result)
-    assert_ok "dialing_apply_change applies changes" "$APPLY" \
-        "d.get('success') == True and 'grinderSetting' in d.get('applied',[])"
+    # profiles_create + profiles_delete roundtrip
+    CREATE_RAW=$(rpc 106 "tools/call" '{"name":"profiles_create","arguments":{"editorType":"pressure","title":"_MCP Test Profile"}}')
+    CREATE=$(echo "$CREATE_RAW" | parse_tool_result)
+    assert_ok "profiles_create creates profile" "$CREATE" \
+        "d.get('success') == True and d.get('editorType') == 'pressure'"
+
+    # Clean up: delete the created profile
+    CREATED_FILE=$(echo "$CREATE" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('filename',''))" 2>/dev/null)
+    if [ -n "$CREATED_FILE" ]; then
+        DEL_RAW=$(rpc 107 "tools/call" "{\"name\":\"profiles_delete\",\"arguments\":{\"filename\":\"$CREATED_FILE\"}}")
+        DEL=$(echo "$DEL_RAW" | parse_tool_result)
+        assert_ok "profiles_delete removes created profile" "$DEL" \
+            "d.get('success') == True"
+    fi
 fi
 
 echo
