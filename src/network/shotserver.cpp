@@ -993,47 +993,53 @@ echo "Configuring Claude Desktop for Decenza MCP..."
 
 # Check for Node.js (needed for npx/mcp-remote)
 if ! command -v npx &>/dev/null; then
-    echo "ERROR: npx not found. Install Node.js from https://nodejs.org"
-    exit 1
+    echo "Node.js is required but not installed."
+    if command -v brew &>/dev/null; then
+        printf "Install Node.js via Homebrew? (Y/n) "
+        read choice < /dev/tty
+        choice=${choice:-Y}
+        if [[ "$choice" =~ ^[Yy]$ ]]; then
+            echo "Installing Node.js..."
+            if ! brew install node; then
+                echo "Homebrew install failed. Install Node.js from https://nodejs.org then re-run."
+                exit 1
+            fi
+            if ! command -v npx &>/dev/null; then
+                echo "Node.js installed but npx not found. Close and reopen your terminal, then re-run."
+                exit 1
+            fi
+        else
+            echo "Install Node.js from https://nodejs.org then re-run."
+            exit 1
+        fi
+    else
+        echo "Install Node.js from https://nodejs.org then re-run."
+        exit 1
+    fi
 fi
 
 # Configure Claude Desktop
 CONFIG_DIR="$HOME/Library/Application Support/Claude"
 if [ ! -d "$CONFIG_DIR" ]; then
-    echo "Claude Desktop config directory not found."
-    echo "Install Claude Desktop from claude.ai/download, then re-run this script."
-    exit 1
+    echo "Creating config directory: $CONFIG_DIR"
+    mkdir -p "$CONFIG_DIR"
 fi
 CONFIG="$CONFIG_DIR/claude_desktop_config.json"
 
-# Read existing config or create new
-if [ -f "$CONFIG" ]; then
-    python3 -c "
-import json
-with open('$CONFIG') as f:
-    config = json.load(f)
-config.setdefault('mcpServers', {})
-config['mcpServers']['decenza'] = {
-    'command': 'npx',
-    'args': ['-y', 'mcp-remote', '%1', '--allow-http']
-}
-with open('$CONFIG', 'w') as f:
-    json.dump(config, f, indent=2)
-print('Updated:', '$CONFIG')
+# Read existing config or create new, then add decenza MCP server
+node -e "
+const fs = require('fs');
+const p = '$CONFIG';
+let config = {};
+try { config = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {}
+if (!config.mcpServers) config.mcpServers = {};
+config.mcpServers.decenza = {
+    command: 'npx',
+    args: ['-y', 'mcp-remote', '%1', '--allow-http']
+};
+fs.writeFileSync(p, JSON.stringify(config, null, 2));
+console.log('Updated:', p);
 "
-else
-    cat > "$CONFIG" << ENDJSON
-{
-  "mcpServers": {
-    "decenza": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "%1", "--allow-http"]
-    }
-  }
-}
-ENDJSON
-    echo "Created: $CONFIG"
-fi
 
 echo ""
 echo "Done! Restart Claude Desktop and ask:"
@@ -1050,17 +1056,43 @@ echo '  "What is the state of my espresso machine?"'
             QString script = QString(R"PS1(
 Write-Host "Configuring Claude Desktop for Decenza MCP..."
 
+# Warn if running as Administrator
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isAdmin) {
+    Write-Host "WARNING: Running as Administrator. Config will be written to the admin profile." -ForegroundColor Yellow
+    Write-Host "If Claude Desktop runs as your normal user, close this and re-run without 'Run as Administrator'." -ForegroundColor Yellow
+    Write-Host ""
+}
+
 # Check for Node.js (needed for npx/mcp-remote)
 if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
-    Write-Host "ERROR: npx not found. Install Node.js from https://nodejs.org" -ForegroundColor Red
-    exit 1
+    Write-Host "Node.js is required but not installed." -ForegroundColor Yellow
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        $choice = Read-Host "Install Node.js via winget? (Y/n)"
+        if ($choice -eq '' -or $choice -match '^[Yy]') {
+            Write-Host "Installing Node.js LTS..."
+            winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+            # Refresh PATH for current session
+            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+            if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
+                Write-Host "Node.js installed but npx not in PATH yet. Close and reopen PowerShell, then re-run." -ForegroundColor Yellow
+                exit 1
+            }
+        } else {
+            Write-Host "Install Node.js from https://nodejs.org then re-run."
+            exit 1
+        }
+    } else {
+        Write-Host "Install Node.js from https://nodejs.org then re-run."
+        exit 1
+    }
 }
 
 $configDir = "$env:APPDATA\Claude"
 if (-not (Test-Path $configDir)) {
-    Write-Host "Claude Desktop config directory not found."
-    Write-Host "Install Claude Desktop from claude.ai/download, then re-run."
-    exit 1
+    Write-Host "Config directory not found: $configDir" -ForegroundColor Yellow
+    Write-Host "Creating it now..."
+    New-Item -ItemType Directory -Path $configDir -Force | Out-Null
 }
 $configPath = "$configDir\claude_desktop_config.json"
 
@@ -1098,7 +1130,27 @@ if [ ! -f "$CONFIG" ]; then
     exit 0
 fi
 
-python3 -c "
+if command -v node &>/dev/null; then
+    node -e "
+const fs = require('fs');
+const p = '$CONFIG';
+try {
+    const config = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (config.mcpServers && config.mcpServers.decenza) {
+        delete config.mcpServers.decenza;
+        if (Object.keys(config.mcpServers).length === 0) delete config.mcpServers;
+        fs.writeFileSync(p, JSON.stringify(config, null, 2));
+        console.log('Removed decenza from:', p);
+    } else {
+        console.log('Decenza not found in config - nothing to remove.');
+    }
+} catch(e) {
+    console.error('Error reading config:', e.message);
+    process.exit(1);
+}
+"
+elif command -v python3 &>/dev/null; then
+    python3 -c "
 import json
 with open('$CONFIG') as f:
     config = json.load(f)
@@ -1110,8 +1162,13 @@ if 'mcpServers' in config and 'decenza' in config['mcpServers']:
         json.dump(config, f, indent=2)
     print('Removed decenza from:', '$CONFIG')
 else:
-    print('Decenza not found in config — nothing to remove.')
+    print('Decenza not found in config - nothing to remove.')
 "
+else
+    echo "ERROR: Neither node nor python3 found. Remove 'decenza' manually from:"
+    echo "  $CONFIG"
+    exit 1
+fi
 
 echo ""
 echo "Done! Restart Claude Desktop to apply."
