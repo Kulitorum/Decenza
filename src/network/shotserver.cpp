@@ -1102,10 +1102,11 @@ if (Test-Path $configPath) {
     $config = @{}
 }
 if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue @{} }
-$config.mcpServers.decenza = @{
+$decenza = @{
     command = "npx"
     args = @("-y", "mcp-remote", "%1", "--allow-http")
 }
+$config.mcpServers | Add-Member -NotePropertyName decenza -NotePropertyValue $decenza -Force
 $config | ConvertTo-Json -Depth 10 | Set-Content $configPath
 Write-Host "Config updated: $configPath"
 Write-Host ""
