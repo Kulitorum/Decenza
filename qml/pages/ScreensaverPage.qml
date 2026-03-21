@@ -176,17 +176,15 @@ Page {
                 // when RSS grows too high to prevent eventual SIGBUS crash.
                 if (liveRss > 500 && videoTransitionCount > 5) {
                     console.warn("[Screensaver] RSS ceiling exceeded (" + liveRss.toFixed(0) +
-                                 " MB at transition #" + videoTransitionCount + ") — restarting screensaver")
+                                 " MB at transition #" + videoTransitionCount +
+                                 ") — stopping video playback (Qt FFmpeg leak is unrecoverable)")
+                    // Qt's FFmpeg/VideoToolbox backend leaks Metal/IOSurface memory
+                    // that survives both Loader destruction and full page teardown.
+                    // Stop playing videos to prevent the leak from reaching SIGBUS.
+                    // The screensaver stays visible with the fallback gradient.
                     pendingVideoSource = ""
                     mediaPlayerLoader.active = false
                     mediaPlaying = false
-                    videoTransitionCount = 0
-                    preDestroyRss = 0
-                    // Let the Loader destruction complete, then GC and re-enter
-                    Qt.callLater(function() {
-                        gc()
-                        playNextMedia()
-                    })
                     return
                 }
 
