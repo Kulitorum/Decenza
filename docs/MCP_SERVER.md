@@ -191,8 +191,8 @@ This avoids holding HTTP connections and works naturally with the conversational
 ### Settings
 | Tool | Description | Category |
 |------|-------------|----------|
-| `settings_get` | Read settings (all or by keys) | read |
-| `settings_set` | Update settings (temperature, weight, steam/water, DYE metadata) | settings |
+| `settings_get` | Read all app settings, specific keys, or a category. Categories: preferences, connections, screensaver, accessibility, ai, espresso, steam, water, flush, dye, mqtt, themes, visualizer, update, data, history, language, debug, battery, heater, autofavorites. Sensitive fields (API keys, passwords) are excluded. | read |
+| `settings_set` | Update any app setting across all QML Settings tabs. Covers 100+ fields: preferences, connections, screensaver, accessibility, AI, espresso, steam, water, flush, DYE, MQTT, themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. Sensitive fields (API keys, passwords) excluded. | settings |
 
 ### AI Dial-In Conversation (key feature)
 
@@ -652,7 +652,7 @@ Before adding new tools, consolidate existing ones to reduce tool count and avoi
 | 13 | Confirmation dialog | ✅ Done | Hybrid: in-app for start ops, chat for settings |
 | 14 | Profile editor tools | ✅ Done | get_params, edit_params, save, delete (all 5 editor types) |
 | 15 | QML parity: high | ✅ Done | profiles_create, shots_update/delete, brew overrides, removed dialing_apply_change |
-| 16 | Full settings parity | 🔲 Next | All QML Settings tabs readable + writable via settings_get/set |
+| 16 | Full settings parity | ✅ Done | All QML Settings tabs readable + writable via settings_get/set |
 | 17 | QML parity: medium | 🔲 Future | visualizer, favorites, frame manipulation |
 | 18 | QML parity: low | 🔲 Future | bean inventory, streaming, direct control, community, backup |
 

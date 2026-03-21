@@ -1030,6 +1030,89 @@ fi
 
 echo
 
+# ─── 18. Settings Parity (Phase 16) ───
+echo -e "${CYAN}18. Settings Parity${NC}"
+
+# Category filter
+CAT_PREF_RAW=$(rpc 300 "tools/call" '{"name":"settings_get","arguments":{"category":"preferences"}}')
+CAT_PREF=$(echo "$CAT_PREF_RAW" | parse_tool_result)
+assert_ok "category 'preferences' returns autoSleepMinutes" "$CAT_PREF" \
+    "'autoSleepMinutes' in d"
+assert_ok "category 'preferences' returns themeMode" "$CAT_PREF" \
+    "'themeMode' in d"
+assert_ok "category 'preferences' excludes mqttEnabled" "$CAT_PREF" \
+    "'mqttEnabled' not in d"
+assert_ok "category 'preferences' excludes screensaverType" "$CAT_PREF" \
+    "'screensaverType' not in d"
+
+# Accessibility category
+CAT_A11Y_RAW=$(rpc 301 "tools/call" '{"name":"settings_get","arguments":{"category":"accessibility"}}')
+CAT_A11Y=$(echo "$CAT_A11Y_RAW" | parse_tool_result)
+assert_ok "category 'accessibility' returns accessibilityEnabled" "$CAT_A11Y" \
+    "'accessibilityEnabled' in d"
+assert_ok "category 'accessibility' returns ttsEnabled" "$CAT_A11Y" \
+    "'ttsEnabled' in d"
+assert_ok "category 'accessibility' returns tickVolume" "$CAT_A11Y" \
+    "'tickVolume' in d"
+assert_ok "category 'accessibility' returns extractionAnnouncementMode" "$CAT_A11Y" \
+    "'extractionAnnouncementMode' in d"
+
+# Screensaver category
+CAT_SS_RAW=$(rpc 302 "tools/call" '{"name":"settings_get","arguments":{"category":"screensaver"}}')
+CAT_SS=$(echo "$CAT_SS_RAW" | parse_tool_result)
+assert_ok "category 'screensaver' returns screensaverType" "$CAT_SS" \
+    "'screensaverType' in d"
+assert_ok "category 'screensaver' returns dimPercent" "$CAT_SS" \
+    "'dimPercent' in d"
+
+# MQTT category
+CAT_MQTT_RAW=$(rpc 303 "tools/call" '{"name":"settings_get","arguments":{"category":"mqtt"}}')
+CAT_MQTT=$(echo "$CAT_MQTT_RAW" | parse_tool_result)
+assert_ok "category 'mqtt' returns mqttEnabled" "$CAT_MQTT" \
+    "'mqttEnabled' in d"
+assert_ok "category 'mqtt' returns mqttBrokerHost" "$CAT_MQTT" \
+    "'mqttBrokerHost' in d"
+
+# All settings (no category, no keys) — verify total field count
+ALL_SET_RAW=$(rpc 304 "tools/call" '{"name":"settings_get","arguments":{}}')
+ALL_SET=$(echo "$ALL_SET_RAW" | parse_tool_result)
+ALL_COUNT=$(echo "$ALL_SET" | python3 -c "import json,sys; print(len(json.loads(sys.stdin.read())))" 2>/dev/null)
+if [ "$ALL_COUNT" -ge 80 ]; then
+    echo -e "  ${GREEN}PASS${NC} settings_get returns $ALL_COUNT fields (>= 80)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} settings_get returns $ALL_COUNT fields (expected >= 80)"
+    FAIL=$((FAIL + 1))
+fi
+
+# Sensitive fields NOT present
+assert_ok "openaiApiKey not exposed" "$ALL_SET" "'openaiApiKey' not in d"
+assert_ok "anthropicApiKey not exposed" "$ALL_SET" "'anthropicApiKey' not in d"
+assert_ok "mqttPassword not exposed" "$ALL_SET" "'mqttPassword' not in d"
+assert_ok "visualizerPassword not exposed" "$ALL_SET" "'visualizerPassword' not in d"
+assert_ok "mcpApiKey not exposed" "$ALL_SET" "'mcpApiKey' not in d"
+
+# Keys across categories
+CROSS_RAW=$(rpc 305 "tools/call" '{"name":"settings_get","arguments":{"keys":["autoSleepMinutes","mqttEnabled","screensaverType"]}}')
+CROSS=$(echo "$CROSS_RAW" | parse_tool_result)
+CROSS_COUNT=$(echo "$CROSS" | python3 -c "import json,sys; print(len(json.loads(sys.stdin.read())))" 2>/dev/null)
+assert_ok "cross-category key filter returns exactly 3" "$CROSS" \
+    "len(d) == 3 and 'autoSleepMinutes' in d and 'mqttEnabled' in d and 'screensaverType' in d"
+
+# Write test (only if Full Automation)
+if [ "$HAS_SETTINGS_SET" = "1" ]; then
+    # Save + set + verify + restore autoSleepMinutes
+    ORIG_SLEEP=$(echo "$CAT_PREF" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('autoSleepMinutes',60))" 2>/dev/null)
+    SET_SLEEP_RAW=$(rpc 306 "tools/call" '{"name":"settings_set","arguments":{"autoSleepMinutes":30,"confirmed":true}}')
+    SET_SLEEP=$(echo "$SET_SLEEP_RAW" | parse_tool_result)
+    assert_ok "settings_set autoSleepMinutes accepted" "$SET_SLEEP" \
+        "'autoSleepMinutes' in d.get('updated',[])"
+    # Restore
+    rpc 307 "tools/call" "{\"name\":\"settings_set\",\"arguments\":{\"autoSleepMinutes\":$ORIG_SLEEP,\"confirmed\":true}}" > /dev/null
+fi
+
+echo
+
 # ─── Summary ───
 TOTAL=$((PASS + FAIL + SKIP))
 echo -e "${CYAN}═══════════════════════════════════════════${NC}"

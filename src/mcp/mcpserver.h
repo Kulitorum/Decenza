@@ -21,6 +21,10 @@ class ShotHistoryStorage;
 class BLEManager;
 class Settings;
 class MemoryMonitor;
+class AccessibilityManager;
+class ScreensaverVideoManager;
+class TranslationManager;
+class BatteryManager;
 
 struct PendingConfirmation {
     QPointer<QTcpSocket> socket;
@@ -47,6 +51,10 @@ public:
     void setBLEManager(BLEManager* ble) { m_bleManager = ble; }
     void setSettings(Settings* settings) { m_settings = settings; }
     void setMemoryMonitor(MemoryMonitor* monitor) { m_memoryMonitor = monitor; }
+    void setAccessibilityManager(AccessibilityManager* mgr) { m_accessibilityManager = mgr; }
+    void setScreensaverVideoManager(ScreensaverVideoManager* mgr) { m_screensaverManager = mgr; }
+    void setTranslationManager(TranslationManager* mgr) { m_translationManager = mgr; }
+    void setBatteryManager(BatteryManager* mgr) { m_batteryManager = mgr; }
 
     // Called by ShotServer for /mcp routes
     void handleHttpRequest(QTcpSocket* socket, const QString& method,
@@ -111,6 +119,10 @@ private:
     BLEManager* m_bleManager = nullptr;
     Settings* m_settings = nullptr;
     MemoryMonitor* m_memoryMonitor = nullptr;
+    AccessibilityManager* m_accessibilityManager = nullptr;
+    ScreensaverVideoManager* m_screensaverManager = nullptr;
+    TranslationManager* m_translationManager = nullptr;
+    BatteryManager* m_batteryManager = nullptr;
 
     // Registries
     McpToolRegistry* m_toolRegistry;

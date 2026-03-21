@@ -21,13 +21,25 @@ void registerMachineTools(McpToolRegistry* registry, DE1Device* device,
                           MachineState* machineState, MainController* mainController);
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory);
 void registerProfileTools(McpToolRegistry* registry, MainController* mainController);
-void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings);
+class AccessibilityManager;
+class ScreensaverVideoManager;
+class TranslationManager;
+class BatteryManager;
+void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
+                               AccessibilityManager* accessibility,
+                               ScreensaverVideoManager* screensaver,
+                               TranslationManager* translation,
+                               BatteryManager* battery);
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
                           ShotHistoryStorage* shotHistory, Settings* settings);
 void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineState* machineState,
                           MainController* mainController);
 void registerWriteTools(McpToolRegistry* registry, MainController* mainController,
-                        ShotHistoryStorage* shotHistory, Settings* settings);
+                        ShotHistoryStorage* shotHistory, Settings* settings,
+                        AccessibilityManager* accessibility,
+                        ScreensaverVideoManager* screensaver,
+                        TranslationManager* translation,
+                        BatteryManager* battery);
 void registerScaleTools(McpToolRegistry* registry, MachineState* machineState);
 void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1Device* device);
 class MemoryMonitor;
@@ -62,10 +74,13 @@ void McpServer::registerAllTools()
     registerMachineTools(m_toolRegistry, m_device, m_machineState, m_mainController);
     registerShotTools(m_toolRegistry, m_shotHistory);
     registerProfileTools(m_toolRegistry, m_mainController);
-    registerSettingsReadTools(m_toolRegistry, m_settings);
+    registerSettingsReadTools(m_toolRegistry, m_settings, m_accessibilityManager,
+                              m_screensaverManager, m_translationManager, m_batteryManager);
     registerDialingTools(m_toolRegistry, m_mainController, m_shotHistory, m_settings);
     registerControlTools(m_toolRegistry, m_device, m_machineState, m_mainController);
-    registerWriteTools(m_toolRegistry, m_mainController, m_shotHistory, m_settings);
+    registerWriteTools(m_toolRegistry, m_mainController, m_shotHistory, m_settings,
+                       m_accessibilityManager, m_screensaverManager,
+                       m_translationManager, m_batteryManager);
     registerScaleTools(m_toolRegistry, m_machineState);
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);

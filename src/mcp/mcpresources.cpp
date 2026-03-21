@@ -187,22 +187,32 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
 
 void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
 {
-    // debug_get_log — chunked access to the persisted debug log
+    // debug_get_log — chunked access to the persisted debug log with session awareness
     registry->registerTool(
         "debug_get_log",
-        "Read the persisted debug log in chunks. Returns lines from offset to offset+limit. "
-        "Use offset=0, limit=500 to start, then increment offset to page through. "
-        "Also returns totalLines so you know when you've reached the end.",
+        "Read the persisted debug log. Supports three modes: "
+        "(1) sessions=true: list all sessions with index, start line, timestamp, and line count. "
+        "(2) session=N: return lines from session N (-1=most recent, -2=previous, 0=first). "
+        "Combine with offset/limit for pagination within a session. "
+        "(3) Default: raw line-based pagination with offset/limit.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"offset", QJsonObject{
                     {"type", "integer"},
-                    {"description", "Line number to start from (0-based). Default: 0"}
+                    {"description", "Line number to start from (0-based, or relative within session). Default: 0"}
                 }},
                 {"limit", QJsonObject{
                     {"type", "integer"},
                     {"description", "Maximum lines to return (1-2000). Default: 500"}
+                }},
+                {"sessions", QJsonObject{
+                    {"type", "boolean"},
+                    {"description", "If true, return a list of sessions instead of log lines"}
+                }},
+                {"session", QJsonObject{
+                    {"type", "integer"},
+                    {"description", "Return lines from this session only. Negative indexes count from end (-1=most recent)"}
                 }}
             }}
         },
@@ -212,6 +222,97 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 return QJsonObject{{"error", "Debug logger not available"}};
             }
 
+            static const QString sessionMarker = QStringLiteral("========== SESSION START:");
+
+            // For sessions or session mode, we need to scan the full log for session boundaries
+            if (args.contains("sessions") || args.contains("session")) {
+                // Read all lines to find session boundaries
+                qsizetype totalLines = 0;
+                QStringList allLines = logger->getPersistedLogChunk(0, 100000, &totalLines);
+
+                // Find session start lines
+                struct SessionInfo {
+                    qsizetype startLine;
+                    QString timestamp;
+                    qsizetype lineCount; // filled in after scan
+                };
+                QList<SessionInfo> sessions;
+
+                for (qsizetype i = 0; i < allLines.size(); ++i) {
+                    if (allLines[i].contains(sessionMarker)) {
+                        // Extract timestamp from "========== SESSION START: 2026-03-20T... =========="
+                        QString ts;
+                        qsizetype tsStart = allLines[i].indexOf(sessionMarker) + sessionMarker.size();
+                        qsizetype tsEnd = allLines[i].indexOf(QStringLiteral("=========="), tsStart);
+                        if (tsEnd > tsStart)
+                            ts = allLines[i].mid(tsStart, tsEnd - tsStart).trimmed();
+                        sessions.append({i, ts, 0});
+                    }
+                }
+
+                // Calculate line counts
+                for (qsizetype i = 0; i < sessions.size(); ++i) {
+                    qsizetype nextStart = (i + 1 < sessions.size()) ? sessions[i + 1].startLine : totalLines;
+                    sessions[i].lineCount = nextStart - sessions[i].startLine;
+                }
+
+                // Mode 1: list sessions
+                if (args["sessions"].toBool()) {
+                    QJsonArray sessionList;
+                    for (qsizetype i = 0; i < sessions.size(); ++i) {
+                        QJsonObject s;
+                        s["index"] = static_cast<int>(i);
+                        s["negativeIndex"] = static_cast<int>(i - sessions.size());
+                        s["startLine"] = static_cast<int>(sessions[i].startLine);
+                        s["lineCount"] = static_cast<int>(sessions[i].lineCount);
+                        s["timestamp"] = sessions[i].timestamp;
+                        sessionList.append(s);
+                    }
+                    return QJsonObject{
+                        {"sessions", sessionList},
+                        {"sessionCount", static_cast<int>(sessions.size())},
+                        {"totalLines", static_cast<int>(totalLines)}
+                    };
+                }
+
+                // Mode 2: return lines from a specific session
+                int sessionIdx = args["session"].toInt(0);
+                if (sessionIdx < 0)
+                    sessionIdx = static_cast<int>(sessions.size()) + sessionIdx;
+                if (sessionIdx < 0 || sessionIdx >= sessions.size()) {
+                    return QJsonObject{{"error", "Session index out of range"},
+                                       {"sessionCount", static_cast<int>(sessions.size())}};
+                }
+
+                qsizetype sessStart = sessions[sessionIdx].startLine;
+                qsizetype sessLines = sessions[sessionIdx].lineCount;
+                qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
+                qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
+
+                // Clamp to session bounds
+                qsizetype absStart = sessStart + offset;
+                qsizetype absEnd = qMin(absStart + limit, sessStart + sessLines);
+                QStringList sessionLines;
+                for (qsizetype i = absStart; i < absEnd && i < allLines.size(); ++i)
+                    sessionLines.append(allLines[i]);
+
+                QJsonObject result;
+                result["session"] = sessionIdx;
+                result["sessionTimestamp"] = sessions[sessionIdx].timestamp;
+                result["offset"] = static_cast<int>(offset);
+                result["limit"] = static_cast<int>(limit);
+                result["sessionLines"] = static_cast<int>(sessLines);
+                result["returnedLines"] = static_cast<int>(sessionLines.size());
+                result["hasMore"] = (offset + sessionLines.size()) < sessLines;
+                result["log"] = sessionLines.join('\n');
+
+                if (!result["hasMore"].toBool() && memoryMonitor)
+                    result["memorySummary"] = memoryMonitor->toSummaryString();
+
+                return result;
+            }
+
+            // Mode 3: raw offset/limit (original behavior)
             qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
             qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
             qsizetype totalLines = 0;

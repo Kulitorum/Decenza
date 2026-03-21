@@ -744,10 +744,11 @@ int main(int argc, char *argv[])
     mcpServer.setBLEManager(&bleManager);
     mcpServer.setSettings(&settings);
     mcpServer.setMemoryMonitor(&memoryMonitor);
+    mcpServer.setScreensaverVideoManager(&screensaverManager);
+    mcpServer.setTranslationManager(&translationManager);
+    mcpServer.setBatteryManager(&batteryManager);
     mainController.shotServer()->setMcpServer(&mcpServer);
-    mcpServer.registerAllTools();
-    mcpServer.registerAllResources();
-    mcpServer.connectSseNotifications();
+    // Note: registerAllTools() is deferred until after AccessibilityManager is created (below)
 
     // Weather forecast manager (hourly updates, region-aware API selection)
     WeatherManager weatherManager(&sharedNetworkManager);
@@ -812,6 +813,12 @@ int main(int argc, char *argv[])
 
     AccessibilityManager accessibilityManager;
     accessibilityManager.setTranslationManager(&translationManager);
+
+    // Now that all managers exist, finish MCP server setup
+    mcpServer.setAccessibilityManager(&accessibilityManager);
+    mcpServer.registerAllTools();
+    mcpServer.registerAllResources();
+    mcpServer.connectSseNotifications();
 
     // Crash reporter for sending crash reports to api.decenza.coffee
     CrashReporter crashReporter;

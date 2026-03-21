@@ -452,6 +452,115 @@ Step 4 — Verify clean state:
 - No changed machine phase (restored in cleanup step 3)
 - Active profile and temperature restored to pre-test values
 
+## 11. Settings Parity (Phase 16)
+
+### State Capture
+```
+Call: settings_get (category: "preferences")
+Save: ORIGINAL_AUTO_SLEEP = autoSleepMinutes, ORIGINAL_KEEP_STEAM = keepSteamHeaterOn
+
+Call: settings_get (category: "accessibility")
+Save: ORIGINAL_A11Y_ENABLED = accessibilityEnabled, ORIGINAL_TICK_VOLUME = tickVolume
+
+Call: settings_get (category: "screensaver")
+Save: ORIGINAL_DIM_PERCENT = dimPercent
+
+Call: settings_get (category: "mqtt")
+Save: ORIGINAL_MQTT_ENABLED = mqttEnabled
+
+Call: settings_get (category: "update")
+Save: ORIGINAL_AUTO_CHECK = autoCheckUpdates
+```
+
+### 11.1 settings_get — category filter
+```
+Call: settings_get (category: "preferences")
+Expect: autoSleepMinutes present, keepSteamHeaterOn present, themeMode present
+Expect absent: mqttEnabled, screensaverType, accessibilityEnabled (wrong category)
+```
+
+### 11.2 settings_get — all categories
+```
+Call: settings_get
+Expect: 100+ fields returned across all categories
+Expect present: autoSleepMinutes, screensaverType, accessibilityEnabled, mqttEnabled, autoCheckUpdates
+```
+
+### 11.3 settings_get — specific keys across categories
+```
+Call: settings_get (keys: ["autoSleepMinutes", "mqttEnabled", "screensaverType"])
+Expect: exactly 3 fields returned
+```
+
+### 11.4 settings_get — accessibility category
+```
+Call: settings_get (category: "accessibility")
+Expect: accessibilityEnabled, ttsEnabled, tickEnabled, tickSoundIndex, tickVolume,
+        extractionAnnouncementsEnabled, extractionAnnouncementMode, extractionAnnouncementInterval
+```
+
+### 11.5 settings_get — screensaver category
+```
+Call: settings_get (category: "screensaver")
+Expect: screensaverType, dimDelayMinutes, dimPercent, pipesSpeed, pipesCameraSpeed,
+        pipesShowClock, flipClockUse3D, videosShowClock, cacheEnabled present
+```
+
+### 11.6 settings_set — preferences
+```
+Call: settings_set (autoSleepMinutes: 30, keepSteamHeaterOn: false, confirmed: true)
+Expect: success=true, updated includes "autoSleepMinutes" and "keepSteamHeaterOn"
+Verify: settings_get (keys: ["autoSleepMinutes", "keepSteamHeaterOn"]) → 30, false
+Cleanup: settings_set (autoSleepMinutes: ORIGINAL_AUTO_SLEEP, keepSteamHeaterOn: ORIGINAL_KEEP_STEAM, confirmed: true)
+```
+
+### 11.7 settings_set — accessibility
+```
+Call: settings_set (tickVolume: 50, confirmed: true)
+Expect: success=true, updated includes "tickVolume"
+Verify: settings_get (keys: ["tickVolume"]) → 50
+Cleanup: settings_set (tickVolume: ORIGINAL_TICK_VOLUME, confirmed: true)
+```
+
+### 11.8 settings_set — screensaver
+```
+Call: settings_set (dimPercent: 42, confirmed: true)
+Expect: success=true, updated includes "dimPercent"
+Verify: settings_get (keys: ["dimPercent"]) → 42
+Cleanup: settings_set (dimPercent: ORIGINAL_DIM_PERCENT, confirmed: true)
+```
+
+### 11.9 settings_set — MQTT
+```
+Call: settings_set (mqttEnabled: true, mqttBrokerHost: "test.mqtt.local", confirmed: true)
+Expect: success=true, updated includes "mqttEnabled" and "mqttBrokerHost"
+Verify: settings_get (category: "mqtt") → mqttEnabled=true, mqttBrokerHost="test.mqtt.local"
+Cleanup: settings_set (mqttEnabled: ORIGINAL_MQTT_ENABLED, mqttBrokerHost: "", confirmed: true)
+```
+
+### 11.10 settings_set — update settings
+```
+Call: settings_set (autoCheckUpdates: false, confirmed: true)
+Expect: success=true
+Cleanup: settings_set (autoCheckUpdates: ORIGINAL_AUTO_CHECK, confirmed: true)
+```
+
+### 11.11 settings_set — sensitive fields rejected
+```
+Verify: settings_get does NOT return openaiApiKey, anthropicApiKey, mqttPassword,
+        visualizerUsername, visualizerPassword, mcpApiKey
+Note: These fields are not in settings_set schema — attempts to set them are silently ignored
+```
+
+### 11.12 settings_set — language
+```
+Call: settings_get (category: "language")
+Save: ORIGINAL_LANG = currentLanguage
+Call: settings_set (currentLanguage: "de", confirmed: true)
+Expect: success=true, updated includes "currentLanguage"
+Cleanup: settings_set (currentLanguage: ORIGINAL_LANG, confirmed: true)
+```
+
 ## Summary
 
 | Category | Tests | Notes |
@@ -460,10 +569,11 @@ Step 4 — Verify clean state:
 | Machine Control | 4+1 | 1 skipped in simulator (start ops) |
 | Profile Read | 8 | All 5 editor types |
 | Profile Edit | 14 | Includes frame preservation, create all types, removed tool checks |
-| Settings | 3 | Includes cleanup |
+| Settings | 3 | Basic settings (phase 9) |
 | Shot History | 8 | shots_update full metadata, shots_delete, removed tool check |
 | Dial-In | 3 | dialing_apply_change replaced by settings_set |
 | Scale | 3 | |
 | Devices | 3 | |
 | Debug | 1 | |
-| **Total** | **50** | |
+| Settings Parity | 12 | Category filter, all categories, write+verify+restore |
+| **Total** | **62** | |
