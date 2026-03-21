@@ -421,6 +421,14 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 return result;
             }
 
+            // D-Flow/A-Flow profiles require title prefix for editor type detection
+            // (matching QML RecipeEditorPage behavior which always prefixes)
+            if (editorType == "dflow" && !title.startsWith("D-Flow")) {
+                title = "D-Flow / " + title;
+            } else if (editorType == "aflow" && !title.startsWith("A-Flow")) {
+                title = "A-Flow / " + title;
+            }
+
             // Route to the same creation functions as the QML UI
             if (editorType == "dflow") {
                 mainController->createNewRecipe(title);
