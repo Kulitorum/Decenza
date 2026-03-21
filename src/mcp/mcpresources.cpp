@@ -276,9 +276,9 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 }
 
                 // Mode 2: return lines from a specific session
-                int sessionIdx = args["session"].toInt(0);
+                qsizetype sessionIdx = static_cast<qsizetype>(args["session"].toInt(0));
                 if (sessionIdx < 0)
-                    sessionIdx = static_cast<int>(sessions.size()) + sessionIdx;
+                    sessionIdx = sessions.size() + sessionIdx;
                 if (sessionIdx < 0 || sessionIdx >= sessions.size()) {
                     return QJsonObject{{"error", "Session index out of range"},
                                        {"sessionCount", static_cast<int>(sessions.size())}};
@@ -297,7 +297,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                     sessionLines.append(allLines[i]);
 
                 QJsonObject result;
-                result["session"] = sessionIdx;
+                result["session"] = static_cast<int>(sessionIdx);
                 result["sessionTimestamp"] = sessions[sessionIdx].timestamp;
                 result["offset"] = static_cast<int>(offset);
                 result["limit"] = static_cast<int>(limit);

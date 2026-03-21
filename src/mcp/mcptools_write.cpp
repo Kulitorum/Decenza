@@ -213,7 +213,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
         "screensaver, accessibility, AI, espresso, steam, water, flush, DYE metadata, MQTT, "
         "themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. "
         "API keys and passwords are excluded (sensitive). "
-        "For temperature and weight changes on the active profile, also use this instead of dialing_apply_change.",
+        "For temperature and weight changes on the active profile, this tool handles the profile update automatically.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -264,6 +264,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"screenBrightness", QJsonObject{{"type", "number"}, {"description", "Screen brightness 0.0-1.0"}}},
                 {"defaultShotRating", QJsonObject{{"type", "integer"}, {"description", "Default shot enjoyment rating 0-100"}}},
                 {"headlessSkipPurgeConfirm", QJsonObject{{"type", "boolean"}, {"description", "Skip purge confirmation on headless machines"}}},
+                {"launcherMode", QJsonObject{{"type", "boolean"}, {"description", "Enable kiosk/launcher mode (Android only)"}}},
                 {"flowCalibrationMultiplier", QJsonObject{{"type", "number"}, {"description", "Flow calibration multiplier"}}},
                 {"autoFlowCalibration", QJsonObject{{"type", "boolean"}, {"description", "Enable automatic flow calibration"}}},
                 {"autoWakeEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable auto-wake schedule"}}},
@@ -334,6 +335,8 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 // Data
                 {"webSecurityEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable web security (TOTP auth)"}}},
                 {"dailyBackupHour", QJsonObject{{"type", "integer"}, {"description", "Daily backup hour (0-23)"}}},
+                {"shotServerEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable web server"}}},
+                {"shotServerPort", QJsonObject{{"type", "integer"}, {"description", "Web server port"}}},
                 // History
                 {"shotHistorySortField", QJsonObject{{"type", "string"}, {"description", "Shot history sort field"}}},
                 {"shotHistorySortDirection", QJsonObject{{"type", "string"}, {"description", "Shot history sort direction"}}},
@@ -604,6 +607,11 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 bool v = args["headlessSkipPurgeConfirm"].toBool();
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeadlessSkipPurgeConfirm(v); }, Qt::QueuedConnection);
                 updated << "headlessSkipPurgeConfirm";
+            }
+            if (args.contains("launcherMode")) {
+                bool v = args["launcherMode"].toBool();
+                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setLauncherMode(v); }, Qt::QueuedConnection);
+                updated << "launcherMode";
             }
             if (args.contains("flowCalibrationMultiplier")) {
                 double v = args["flowCalibrationMultiplier"].toDouble();
@@ -933,6 +941,16 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 int v = qBound(0, args["dailyBackupHour"].toInt(), 23);
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDailyBackupHour(v); }, Qt::QueuedConnection);
                 updated << "dailyBackupHour";
+            }
+            if (args.contains("shotServerEnabled")) {
+                bool v = args["shotServerEnabled"].toBool();
+                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setShotServerEnabled(v); }, Qt::QueuedConnection);
+                updated << "shotServerEnabled";
+            }
+            if (args.contains("shotServerPort")) {
+                int v = args["shotServerPort"].toInt();
+                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setShotServerPort(v); }, Qt::QueuedConnection);
+                updated << "shotServerPort";
             }
 
             // === History ===
