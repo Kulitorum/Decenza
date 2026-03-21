@@ -143,12 +143,16 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 return result;
             }
 
-            // toInteger() can return 0 if the value arrives as a double from JSON
+            // Debug: log what we received
+            qDebug() << "shots_delete args:" << QJsonDocument(args).toJson(QJsonDocument::Compact);
+            qDebug() << "shots_delete shotId type:" << args["shotId"].type() << "value:" << args["shotId"];
+
             qint64 shotId = args["shotId"].toInteger();
             if (shotId <= 0)
                 shotId = static_cast<qint64>(args["shotId"].toDouble());
             if (shotId <= 0) {
-                result["error"] = "Valid shotId is required";
+                result["error"] = "Valid shotId is required (got: " +
+                    QString::fromUtf8(QJsonDocument(QJsonObject{{"shotId", args["shotId"]}}).toJson(QJsonDocument::Compact)) + ")";
                 return result;
             }
 
