@@ -1031,7 +1031,9 @@ node -e "
 const fs = require('fs');
 const p = '$CONFIG';
 let config = {};
-try { config = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {}
+try { config = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {
+    if (e.code !== 'ENOENT') { console.error('Could not parse existing config:', e.message); process.exit(1); }
+}
 if (!config.mcpServers) config.mcpServers = {};
 config.mcpServers.decenza = {
     command: 'npx',
@@ -1099,9 +1101,9 @@ $configPath = "$configDir\claude_desktop_config.json"
 if (Test-Path $configPath) {
     $config = Get-Content $configPath | ConvertFrom-Json
 } else {
-    $config = @{}
+    $config = [PSCustomObject]@{}
 }
-if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue @{} }
+if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([PSCustomObject]@{}) }
 $decenza = @{
     command = "npx"
     args = @("-y", "mcp-remote", "%1", "--allow-http")
