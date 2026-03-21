@@ -996,7 +996,7 @@ if ! command -v npx &>/dev/null; then
     echo "Node.js is required but not installed."
     if command -v brew &>/dev/null; then
         printf "Install Node.js via Homebrew? (Y/n) "
-        read choice < /dev/tty
+        read choice < /dev/tty || true
         choice=${choice:-Y}
         if [[ "$choice" =~ ^[Yy]$ ]]; then
             echo "Installing Node.js..."
@@ -1154,9 +1154,13 @@ try {
 "
 elif command -v python3 &>/dev/null; then
     python3 -c "
-import json
-with open('$CONFIG') as f:
-    config = json.load(f)
+import json, sys
+try:
+    with open('$CONFIG') as f:
+        config = json.load(f)
+except Exception as e:
+    print('Error reading config:', e, file=sys.stderr)
+    sys.exit(1)
 if 'mcpServers' in config and 'decenza' in config['mcpServers']:
     del config['mcpServers']['decenza']
     if not config['mcpServers']:
