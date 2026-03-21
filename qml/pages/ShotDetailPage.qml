@@ -126,13 +126,17 @@ Page {
                 spacing: Theme.scaled(2)
 
                 Text {
+                    textFormat: Text.RichText
                     text: {
                         var name = shotData.profileName || "Shot Detail"
                         var t = shotData.temperatureOverride
+                        var result
                         if (t !== undefined && t !== null && t > 0) {
-                            return name + " (" + Math.round(t) + "\u00B0C)"
+                            result = name + " (" + Math.round(t) + "\u00B0C)"
+                        } else {
+                            result = name
                         }
-                        return name
+                        return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize)
                     }
                     font: Theme.titleFont
                     color: Theme.textColor
@@ -480,10 +484,12 @@ Page {
                     spacing: Theme.spacingSmall
 
                     Text {
+                        textFormat: Text.RichText
                         text: {
                             var title = TranslationManager.translate("shotdetail.beaninfo", "Beans")
                             var grind = shotData.grinderSetting || ""
-                            return grind ? title + " (" + grind + ")" : title
+                            var result = grind ? title + " (" + grind + ")" : title
+                            return Theme.replaceEmojiWithImg(result, Theme.subtitleFont.pixelSize)
                         }
                         font: Theme.subtitleFont
                         color: Theme.textColor
@@ -498,16 +504,16 @@ Page {
                         Layout.fillWidth: true
 
                         Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanBrand); Accessible.ignored: true }
-                        Text { text: shotData.beanBrand || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanType); Accessible.ignored: true }
-                        Text { text: shotData.beanType || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanType); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanType || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanType); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastDate); Accessible.ignored: true }
-                        Text { text: shotData.roastDate || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastDate); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastDate || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastDate); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastLevel); Accessible.ignored: true }
-                        Text { text: shotData.roastLevel || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastLevel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastLevel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
                     }
                 }
             }
@@ -544,16 +550,16 @@ Page {
                         Layout.fillWidth: true
 
                         Tr { key: "shotdetail.brand"; fallback: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBrand); Accessible.ignored: true }
-                        Text { text: shotData.grinderBrand || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderModel); Accessible.ignored: true }
-                        Text { text: shotData.grinderModel || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderModel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderModel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderModel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.burrs"; fallback: "Burrs:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBurrs); Accessible.ignored: true }
-                        Text { text: shotData.grinderBurrs || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBurrs); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBurrs || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBurrs); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting); Accessible.ignored: true }
-                        Text { text: shotData.grinderSetting || ""; font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderSetting || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
                     }
                 }
             }
@@ -628,7 +634,8 @@ Page {
                     }
 
                     Text {
-                        text: shotData.barista || ""
+                        textFormat: Text.RichText
+                        text: Theme.replaceEmojiWithImg(shotData.barista || "", Theme.labelFont.pixelSize)
                         font: Theme.labelFont
                         color: Theme.textColor
                         Layout.fillWidth: true

@@ -833,7 +833,8 @@ Page {
                             anchors.fill: parent
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.rightMargin: Theme.scaled(12)
-                            text: editShotData.profileName || ""
+                            textFormat: Text.RichText
+                            text: Theme.replaceEmojiWithImg(editShotData.profileName || "", Theme.scaled(14))
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                             verticalAlignment: Text.AlignVCenter

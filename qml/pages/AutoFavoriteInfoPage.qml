@@ -471,23 +471,23 @@ Page {
 
                         // Bean info
                         Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: beanBrand !== ""; Accessible.ignored: true }
-                        Text { text: beanBrand; font: Theme.labelFont; color: Theme.textColor; visible: beanBrand !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(beanBrand, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: beanBrand !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: beanType !== ""; Accessible.ignored: true }
-                        Text { text: beanType; font: Theme.labelFont; color: Theme.textColor; visible: beanType !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(beanType, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: beanType !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: _hasRoastDate; Accessible.ignored: true }
-                        Text { text: shotData.roastDate || ""; font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastDate; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastDate || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastDate; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: _hasRoastLevel; Accessible.ignored: true }
-                        Text { text: shotData.roastLevel || ""; font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastLevel; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastLevel; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         // Grinder info
                         Tr { key: "shotdetail.grinder"; fallback: "Grinder:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderBrand !== "" || grinderModel !== ""; Accessible.ignored: true }
-                        Text { text: ((grinderBrand || "") + " " + (grinderModel || "")).trim(); font: Theme.labelFont; color: Theme.textColor; visible: grinderBrand !== "" || grinderModel !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(((grinderBrand || "") + " " + (grinderModel || "")).trim(), Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: grinderBrand !== "" || grinderModel !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         Tr { key: "shotdetail.grindersetting"; fallback: "Grind Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderSetting !== ""; Accessible.ignored: true }
-                        Text { text: grinderSetting; font: Theme.labelFont; color: Theme.textColor; visible: grinderSetting !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(grinderSetting, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: grinderSetting !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
                     }
                 }
             }

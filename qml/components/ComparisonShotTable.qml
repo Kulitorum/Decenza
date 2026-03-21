@@ -134,7 +134,8 @@ ColumnLayout {
 
                     Text {
                         Layout.fillWidth: true
-                        text: root.metricValue("profile", root.comparisonModel.getShotInfo(index))
+                        textFormat: Text.RichText
+                        text: Theme.replaceEmojiWithImg(root.metricValue("profile", root.comparisonModel.getShotInfo(index)), Theme.labelFont.pixelSize)
                         font: Theme.labelFont
                         color: Theme.textColor
                         elide: Text.ElideRight
@@ -185,7 +186,8 @@ ColumnLayout {
                 Text {
                     required property int index
                     Layout.fillWidth: true
-                    text: root.metricValue(metricRowItem.modelData.key, root.comparisonModel.getShotInfo(index))
+                    textFormat: Text.RichText
+                    text: Theme.replaceEmojiWithImg(root.metricValue(metricRowItem.modelData.key, root.comparisonModel.getShotInfo(index)), Theme.labelFont.pixelSize)
                     horizontalAlignment: Text.AlignLeft
                     font: Theme.labelFont
                     color: metricRowItem.modelData.key === "rating" ? Theme.warningColor : Theme.textColor

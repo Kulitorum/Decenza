@@ -628,13 +628,17 @@ Page {
                             }
 
                             Text {
+                                textFormat: Text.RichText
                                 text: {
                                     var name = model.profileName || ""
                                     var tempOvr = model.temperatureOverride || 0
+                                    var result
                                     if (tempOvr > 0) {
-                                        return name + " (" + Math.round(tempOvr) + "\u00B0C)"
+                                        result = name + " (" + Math.round(tempOvr) + "\u00B0C)"
+                                    } else {
+                                        result = name
                                     }
-                                    return name
+                                    return Theme.replaceEmojiWithImg(result, Theme.labelFont.pixelSize)
                                 }
                                 font: Theme.labelFont
                                 color: Theme.primaryColor
@@ -645,13 +649,16 @@ Page {
                         }
 
                         Text {
+                            textFormat: Text.RichText
                             text: {
                                 var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
                                 var grind = model.grinderSetting || ""
-                                if (bean && grind) return bean + " (" + grind + ")"
-                                if (bean) return bean
-                                if (grind) return "Grind: " + grind
-                                return ""
+                                var result
+                                if (bean && grind) result = bean + " (" + grind + ")"
+                                else if (bean) result = bean
+                                else if (grind) result = "Grind: " + grind
+                                else result = ""
+                                return Theme.replaceEmojiWithImg(result, Theme.labelFont.pixelSize)
                             }
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
