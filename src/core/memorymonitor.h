@@ -30,6 +30,7 @@ public:
     void setEngine(QQmlApplicationEngine* engine) { m_engine = engine; }
 
     double currentRssMB() const;
+    Q_INVOKABLE double liveRssMB() const;  // Fresh read (not cached) — for diagnostic logging
     double peakRssMB() const;
     double startupRssMB() const;
     int qobjectCount() const { return m_lastQObjectCount; }
