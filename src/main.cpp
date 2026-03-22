@@ -698,6 +698,43 @@ int main(int argc, char *argv[])
     QJniObject::callStaticMethod<void>(
         "io/github/kulitorum/decenza_de1/BleHelper",
         "idleGc", "()V");
+
+    // BLE dead system recovery: Android's Bluetooth system service can die
+    // (DeadSystemException) during deep sleep or OEM power management.
+    // When this happens, the Qt BLE handler thread dies but the app keeps running.
+    // The Java crash handler writes a flag file; we check for it every 10 seconds
+    // and trigger BLE reconnection if found.
+    auto* bleRecoveryTimer = new QTimer();
+    bleRecoveryTimer->setInterval(10000);
+    QObject::connect(bleRecoveryTimer, &QTimer::timeout,
+                     [&bleManager, &de1Device, &settings]() {
+        // Java getFilesDir() = /data/data/<pkg>/files/ on Android
+        // QStandardPaths::AppDataLocation = /data/data/<pkg>/files/ on Android
+        QString flagPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                         + "/ble_dead_system";
+        QFile flagFile(flagPath);
+        if (!flagFile.exists())
+            return;
+
+        qWarning() << "BLE recovery: DeadSystemException detected, triggering reconnect";
+        flagFile.remove();
+
+        // The BLE handler thread is dead — Qt's QLowEnergyController won't emit
+        // disconnected() on its own. Force-disconnect and re-scan.
+        if (de1Device.isConnected()) {
+            qWarning() << "BLE recovery: forcing DE1 disconnect";
+            de1Device.disconnect();
+        }
+        bleManager.resetScaleConnectionState();
+
+        // Attempt reconnection after a short delay to let Android restart Bluetooth
+        QTimer::singleShot(3000, [&bleManager]() {
+            qDebug() << "BLE recovery: attempting reconnect";
+            bleManager.tryDirectConnectToDE1();
+            bleManager.tryDirectConnectToScale();
+        });
+    });
+    bleRecoveryTimer->start();
 #endif
 
     checkpoint("WeightProcessor wiring");
