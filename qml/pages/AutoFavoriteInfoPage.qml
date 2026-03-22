@@ -47,6 +47,7 @@ Page {
         function onShotReady(id, shot) {
             if (id !== autoFavoriteInfoPage.shotId) return
             shotData = shot
+            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
         }
         function onAutoFavoriteGroupDetailsReady(details) {
             groupDetails = details
@@ -73,6 +74,7 @@ Page {
     property bool _hasBeanCardData: _hasBean || _hasRoastDate || _hasRoastLevel || _hasGrinder
 
     ScrollView {
+        id: scrollView
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -180,6 +182,9 @@ Page {
                     weightData: shotData.weight || []
                     weightFlowRateData: shotData.weightFlowRate || []
                     resistanceData: shotData.resistance || []
+                    pressureGoalData: shotData.pressureGoal || []
+                    flowGoalData: shotData.flowGoal || []
+                    temperatureGoalData: shotData.temperatureGoal || []
                     phaseMarkers: shotData.phases || []
                     maxTime: shotData.duration || 60
                     Accessible.ignored: true
@@ -258,6 +263,7 @@ Page {
                         }
                         onReleased: {
                             Settings.setValue("autoFavoriteInfo/graphHeight", autoFavoriteInfoPage.graphHeight)
+                            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
                         }
                     }
                 }

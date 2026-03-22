@@ -47,6 +47,9 @@ ChartView {
     property var weightData: []
     property var weightFlowRateData: []
     property var resistanceData: []
+    property var pressureGoalData: []
+    property var flowGoalData: []
+    property var temperatureGoalData: []
     property var phaseMarkers: []
     property double maxTime: 60
 
@@ -90,7 +93,52 @@ ChartView {
     // the first property change would trigger loadData() while other properties still
     // hold stale values from the previous shot, causing a mix of old/new data.
     // Qt.callLater deduplicates: N calls before execution → 1 actual invocation.
-    function doReload() { dismissInspect(); loadData(); loadMarkers() }
+    function doReload() { dismissInspect(); loadData(); loadMarkers(); loadGoalData() }
+
+    // Split a goal data array into segments at time gaps (pump mode transitions).
+    // During recording, goal=0 samples are skipped, creating natural time gaps
+    // between segments. Normal sample interval is ~0.2s; gaps > 0.5s indicate
+    // a mode switch boundary.
+    function segmentGoalData(data, maxSegments) {
+        if (!data || data.length === 0) return []
+        var segments = [[data[0]]]
+        for (var i = 1; i < data.length; i++) {
+            if (data[i].x - data[i - 1].x > 0.5 && segments.length < maxSegments) {
+                segments.push([data[i]])
+            } else {
+                segments[segments.length - 1].push(data[i])
+            }
+        }
+        return segments
+    }
+
+    // Load goal/target lines into their LineSeries
+    function loadGoalData() {
+        // Clear all goal series
+        for (var i = 0; i < _pressureGoalLines.length; i++)
+            _pressureGoalLines[i].clear()
+        for (i = 0; i < _flowGoalLines.length; i++)
+            _flowGoalLines[i].clear()
+        temperatureGoalSeries.clear()
+
+        // Segment and load pressure goal
+        var pSegs = segmentGoalData(pressureGoalData, 5)
+        for (i = 0; i < pSegs.length && i < _pressureGoalLines.length; i++) {
+            for (var j = 0; j < pSegs[i].length; j++)
+                _pressureGoalLines[i].append(pSegs[i][j].x, pSegs[i][j].y)
+        }
+
+        // Segment and load flow goal
+        var fSegs = segmentGoalData(flowGoalData, 5)
+        for (i = 0; i < fSegs.length && i < _flowGoalLines.length; i++) {
+            for (j = 0; j < fSegs[i].length; j++)
+                _flowGoalLines[i].append(fSegs[i][j].x, fSegs[i][j].y)
+        }
+
+        // Temperature goal is continuous across all modes — no segmentation
+        for (i = 0; i < temperatureGoalData.length; i++)
+            temperatureGoalSeries.append(temperatureGoalData[i].x, temperatureGoalData[i].y)
+    }
 
     // Inspect at a pixel position: show crosshair + tooltip, announce for TTS
     function inspectAtPosition(pixelX, pixelY) {
@@ -184,6 +232,9 @@ ChartView {
     onWeightDataChanged: Qt.callLater(doReload)
     onWeightFlowRateDataChanged: Qt.callLater(doReload)
     onResistanceDataChanged: Qt.callLater(doReload)
+    onPressureGoalDataChanged: Qt.callLater(doReload)
+    onFlowGoalDataChanged: Qt.callLater(doReload)
+    onTemperatureGoalDataChanged: Qt.callLater(doReload)
     onPhaseMarkersChanged: Qt.callLater(doReload)
     Component.onCompleted: doReload()
 
@@ -211,6 +262,12 @@ ChartView {
         }
         for (var i = 0; i < weightFlowRateData.length; i++) {
             if (weightFlowRateData[i].y > maxVal) maxVal = weightFlowRateData[i].y
+        }
+        for (i = 0; i < pressureGoalData.length; i++) {
+            if (pressureGoalData[i].y > maxVal) maxVal = pressureGoalData[i].y
+        }
+        for (i = 0; i < flowGoalData.length; i++) {
+            if (flowGoalData[i].y > maxVal) maxVal = flowGoalData[i].y
         }
         // Resistance excluded from axis scaling — values are clamped at source
         // and clip at the axis boundary, matching the live graph behavior
@@ -264,12 +321,68 @@ ChartView {
         max: maxWeight
     }
 
+    // === EXTRACTION START / STOP MARKERS (styled differently from frame markers) ===
+
+    LineSeries {
+        id: extractionStartMarker
+        name: ""
+        color: Theme.accentColor
+        width: Theme.scaled(2)
+        style: Qt.DashDotLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
+
+    LineSeries {
+        id: stopMarker
+        name: ""
+        color: Theme.stopMarkerColor
+        width: Theme.scaled(2)
+        style: Qt.DashDotLine
+        axisX: timeAxis
+        axisY: pressureAxis
+    }
+
+    // === GOAL LINES (dashed) — segments for clean breaks at pump mode transitions ===
+
+    // Pressure goal segments (up to 5 for mode switches)
+    LineSeries { id: pressureGoal1; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal2; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal3; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal4; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+    LineSeries { id: pressureGoal5; name: ""; color: Theme.pressureGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showPressure }
+
+    property var _pressureGoalLines: [pressureGoal1, pressureGoal2, pressureGoal3, pressureGoal4, pressureGoal5]
+
+    // Flow goal segments (up to 5 for mode switches)
+    LineSeries { id: flowGoal1; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal2; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal3; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal4; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+    LineSeries { id: flowGoal5; name: ""; color: Theme.flowGoalColor; width: Theme.scaled(2); style: Qt.DashLine; axisX: timeAxis; axisY: pressureAxis; visible: chart.showFlow }
+
+    property var _flowGoalLines: [flowGoal1, flowGoal2, flowGoal3, flowGoal4, flowGoal5]
+
+    // Temperature goal (single line — continuous across all modes)
+    LineSeries {
+        id: temperatureGoalSeries
+        name: ""
+        color: Theme.temperatureGoalColor
+        width: Theme.scaled(2)
+        style: Qt.DashLine
+        axisX: timeAxis
+        axisYRight: tempAxis
+        visible: chart.showTemperature
+    }
+
+    // === ACTUAL DATA LINES ===
+
     // Pressure line
     LineSeries {
         id: pressureSeries
         name: "Pressure"
         color: Theme.pressureColor
-        width: Theme.graphLineWidth
+        width: Theme.scaled(3)
         axisX: timeAxis
         axisY: pressureAxis
         visible: chart.showPressure
@@ -280,7 +393,7 @@ ChartView {
         id: flowSeries
         name: "Flow"
         color: Theme.flowColor
-        width: Theme.graphLineWidth
+        width: Theme.scaled(3)
         axisX: timeAxis
         axisY: pressureAxis
         visible: chart.showFlow
@@ -291,7 +404,7 @@ ChartView {
         id: temperatureSeries
         name: "Temperature"
         color: Theme.temperatureColor
-        width: Theme.graphLineWidth
+        width: Theme.scaled(3)
         axisX: timeAxis
         axisYRight: tempAxis
         visible: chart.showTemperature
@@ -302,7 +415,7 @@ ChartView {
         id: weightSeries
         name: "Weight"
         color: Theme.weightColor
-        width: Theme.graphLineWidth
+        width: Theme.scaled(3)
         axisX: timeAxis
         axisYRight: weightAxis
         visible: chart.showWeight
@@ -313,7 +426,7 @@ ChartView {
         id: weightFlowRateSeries
         name: "Weight Flow"
         color: Theme.weightFlowColor
-        width: Theme.graphLineWidth
+        width: Theme.scaled(2)
         axisX: timeAxis
         axisY: pressureAxis
         visible: chart.showWeightFlow
@@ -324,7 +437,7 @@ ChartView {
         id: resistanceSeries
         name: "Resistance"
         color: Theme.resistanceColor
-        width: Theme.graphLineWidth
+        width: Theme.scaled(2)
         axisX: timeAxis
         axisY: pressureAxis
         visible: chart.showResistance
@@ -350,14 +463,25 @@ ChartView {
         for (var i = 0; i < _markerLines.length; i++) {
             _markerLines[i].clear()
         }
+        extractionStartMarker.clear()
+        stopMarker.clear()
 
         // Draw vertical lines for each phase marker
-        for (var m = 0; m < phaseMarkers.length && m < _markerLines.length; m++) {
+        var markerIdx = 0
+        for (var m = 0; m < phaseMarkers.length; m++) {
             var marker = phaseMarkers[m]
             var t = marker.time
-            if (marker.label === "Start" || marker.label === "End") continue
-            _markerLines[m].append(t, 0)
-            _markerLines[m].append(t, 100)  // large value; clipped to axis range
+            if (marker.label === "Start") {
+                extractionStartMarker.append(t, 0)
+                extractionStartMarker.append(t, 100)
+            } else if (marker.label === "End") {
+                stopMarker.append(t, 0)
+                stopMarker.append(t, 100)
+            } else if (markerIdx < _markerLines.length) {
+                _markerLines[markerIdx].append(t, 0)
+                _markerLines[markerIdx].append(t, 100)
+                markerIdx++
+            }
         }
     }
 
@@ -379,7 +503,7 @@ ChartView {
             x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
             y: chart.plotArea.y
             height: chart.plotArea.height
-            visible: markerTime <= timeAxis.max && markerTime >= 0 && !isStart && chart.showPhaseLabels
+            visible: markerTime <= timeAxis.max && markerTime >= 0 && chart.showPhaseLabels
 
             Text {
                 text: {
@@ -394,8 +518,8 @@ ChartView {
                     return markerLabel + suffix
                 }
                 font.pixelSize: Theme.scaled(14)
-                font.bold: isEnd
-                color: isEnd ? Theme.stopMarkerColor : Qt.rgba(255, 255, 255, 0.8)
+                font.bold: isStart || isEnd
+                color: isStart ? Theme.accentColor : (isEnd ? Theme.stopMarkerColor : Qt.rgba(255, 255, 255, 0.8))
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(3)
@@ -410,6 +534,45 @@ ChartView {
                 }
             }
         }
+    }
+
+    // Pump mode indicator bars at bottom of chart
+    Repeater {
+        id: pumpModeIndicators
+        model: phaseMarkers
+
+        delegate: Rectangle {
+            required property int index
+            required property var modelData
+            property double markerTime: modelData.time
+            property bool isFlowMode: modelData.isFlowMode || false
+            property double nextTime: {
+                if (index < phaseMarkers.length - 1) {
+                    return phaseMarkers[index + 1].time
+                }
+                return maxTime
+            }
+
+            x: chart.plotArea.x + (markerTime / timeAxis.max) * chart.plotArea.width
+            y: chart.plotArea.y + chart.plotArea.height - Theme.scaled(4)
+            width: Math.max(0, ((nextTime - markerTime) / timeAxis.max) * chart.plotArea.width)
+            height: Theme.scaled(4)
+            color: isFlowMode ? Theme.flowColor : Theme.pressureColor
+            opacity: 0.8
+            visible: markerTime <= timeAxis.max && modelData.label !== "Start" && modelData.label !== "End"
+            Accessible.ignored: true
+        }
+    }
+
+    // Time axis label - inside graph at bottom right
+    Text {
+        x: chart.plotArea.x + chart.plotArea.width - width - Theme.spacingSmall
+        y: chart.plotArea.y + chart.plotArea.height - height - Theme.scaled(12)
+        text: TranslationManager.translate("graph.timeAxis", "Time (s)")
+        color: Theme.textSecondaryColor
+        font: Theme.captionFont
+        opacity: 0.7
+        Accessible.ignored: true
     }
 
     // Crosshair vertical line
