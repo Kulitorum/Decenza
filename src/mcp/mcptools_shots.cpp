@@ -30,7 +30,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 {"offset", QJsonObject{{"type", "integer"}, {"description", "Offset for pagination"}}},
                 {"profileName", QJsonObject{{"type", "string"}, {"description", "Filter by profile name (substring match)"}}},
                 {"beanBrand", QJsonObject{{"type", "string"}, {"description", "Filter by bean brand"}}},
-                {"minEnjoyment", QJsonObject{{"type", "integer"}, {"description", "Minimum enjoyment rating (0-100)"}}},
+                {"minEnjoyment", QJsonObject{{"type", "integer"}, {"description", "Minimum enjoyment rating (1-100, 0 or omit means no filter)"}}},
                 {"after", QJsonObject{{"type", "string"}, {"description", "Only shots after this ISO timestamp (e.g. 2026-03-15T00:00:00)"}}},
                 {"before", QJsonObject{{"type", "string"}, {"description", "Only shots before this ISO timestamp (e.g. 2026-03-21T23:59:59)"}}}
             }}
@@ -68,7 +68,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 if (db.open()) {
                     QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
                                   "duration_seconds, enjoyment, grinder_setting, grinder_model, "
-                                  "espresso_notes, bean_brand, bean_type, profile_kb_id "
+                                  "espresso_notes, bean_brand, bean_type "
                                   "FROM shots WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
 
@@ -80,7 +80,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         sql += " AND bean_brand LIKE :beanFilter";
                         countSql += " AND bean_brand LIKE :beanFilter";
                     }
-                    if (minEnjoyment >= 0) {
+                    if (minEnjoyment > 0) {
                         sql += " AND enjoyment >= :minEnjoyment";
                         countSql += " AND enjoyment >= :minEnjoyment";
                     }
@@ -141,14 +141,18 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         countQuery.bindValue(":before", beforeEpoch);
                     if (countQuery.exec() && countQuery.next())
                         totalCount = countQuery.value(0).toInt();
+                } else {
+                    result["error"] = "Failed to open shot database";
                 }
             }
             QSqlDatabase::removeDatabase(connName);
 
-            result["shots"] = shots;
-            result["count"] = shots.size();
-            result["total"] = totalCount;
-            result["offset"] = offset;
+            if (!result.contains("error")) {
+                result["shots"] = shots;
+                result["count"] = shots.size();
+                result["total"] = totalCount;
+                result["offset"] = offset;
+            }
             return result;
         },
         "read");
@@ -191,6 +195,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
+                } else {
+                    result["error"] = "Failed to open shot database";
                 }
             }
             QSqlDatabase::removeDatabase(connName);
@@ -242,6 +248,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         if (!shotMap.isEmpty())
                             shots.append(QJsonObject::fromVariantMap(shotMap));
                     }
+                } else {
+                    result["error"] = "Failed to open shot database";
                 }
             }
             QSqlDatabase::removeDatabase(connName);
@@ -276,10 +284,18 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     diffStr("grinderSetting");
                     diffStr("profileName");
                     diffStr("beanBrand");
-                    diffNum("doseWeight", "g");
-                    diffNum("finalWeight", "g");
-                    diffNum("duration", "s");
-                    diffNum("enjoyment", "");
+                    // Use convertShotRecord keys for lookup, unit-suffixed keys for output
+                    auto diffNumUnit = [&](const QString& srcKey, const QString& outKey, const QString& unit) {
+                        double a = prev[srcKey].toDouble(), b = curr[srcKey].toDouble();
+                        if (a != 0 && b != 0 && qAbs(a - b) > 0.01)
+                            diff[outKey] = QString("%1 -> %2 %3 (%4%5)")
+                                .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
+                                .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
+                    };
+                    diffNumUnit("doseWeight", "doseG", "g");
+                    diffNumUnit("finalWeight", "yieldG", "g");
+                    diffNumUnit("duration", "durationSec", "s");
+                    diffNumUnit("enjoyment", "enjoyment0to100", "");
 
                     // Only include if something changed
                     if (diff.size() > 2) // more than just fromShotId/toShotId

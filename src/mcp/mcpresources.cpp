@@ -82,8 +82,8 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
             QJsonObject result;
             if (mainController) {
                 result["filename"] = mainController->currentProfileName();
-                result["targetWeight"] = mainController->profileTargetWeight();
-                result["targetTemperature"] = mainController->profileTargetTemperature();
+                result["targetWeightG"] = mainController->profileTargetWeight();
+                result["targetTemperatureC"] = mainController->profileTargetTemperature();
             }
             return result;
         });
