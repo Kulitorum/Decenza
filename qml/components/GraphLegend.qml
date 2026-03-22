@@ -15,7 +15,7 @@ Item {
     Row {
         id: legendRow
         anchors.horizontalCenter: parent.horizontalCenter
-        spacing: Theme.spacingSmall
+        spacing: Theme.scaled(2)
 
         Repeater {
             model: [
@@ -29,8 +29,8 @@ Item {
 
             delegate: Rectangle {
                 required property var modelData
-                width: legendItemRow.width + Theme.spacingSmall * 2
-                height: legendItemRow.height + Theme.scaled(6)
+                width: legendItemRow.width + Theme.spacingMedium * 2
+                height: Math.max(Theme.scaled(44), legendItemRow.height + Theme.scaled(24))
                 radius: Theme.scaled(4)
                 color: "transparent"
                 opacity: legendRoot.graph[modelData.key] ? 1.0 : 0.4
@@ -39,7 +39,7 @@ Item {
                 Accessible.name: modelData.label
                 Accessible.checked: legendRoot.graph[modelData.key] ?? false
                 Accessible.focusable: true
-                Accessible.onPressAction: legendItemArea.clicked(null)
+                Accessible.onPressAction: legendItemArea.pressed(null)
 
                 Row {
                     id: legendItemRow
@@ -59,7 +59,10 @@ Item {
                 MouseArea {
                     id: legendItemArea
                     anchors.fill: parent
-                    onClicked: {
+                    // Use onPressed instead of onClicked — fires immediately before
+                    // the parent Flickable can steal the event for scrolling
+                    onPressed: function(mouse) {
+                        mouse.accepted = true
                         var newValue = !legendRoot.graph[modelData.key]
                         legendRoot.graph[modelData.key] = newValue
                         Settings.setValue("graph/" + modelData.key, newValue)

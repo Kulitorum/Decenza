@@ -316,6 +316,9 @@ Page {
                     weightData: editShotData.weight || []
                     weightFlowRateData: editShotData.weightFlowRate || []
                     resistanceData: editShotData.resistance || []
+                    pressureGoalData: editShotData.pressureGoal || []
+                    flowGoalData: editShotData.flowGoal || []
+                    temperatureGoalData: editShotData.temperatureGoal || []
                     phaseMarkers: editShotData.phases || []
                     maxTime: editShotData.duration || 60
                 }
@@ -382,8 +385,8 @@ Page {
                         }
 
                         onReleased: {
-                            // Save the height
                             Settings.setValue("shotMetadata/graphHeight", shotMetadataPage.graphHeight)
+                            flickable.returnToBounds()
                         }
                     }
                 }

@@ -82,6 +82,9 @@ Item {
                 temperatureData: root.shotData.temperature || []
                 weightData: root.shotData.weight || []
                 weightFlowRateData: root.shotData.weightFlowRate || []
+                pressureGoalData: root.shotData.pressureGoal || []
+                flowGoalData: root.shotData.flowGoal || []
+                temperatureGoalData: root.shotData.temperatureGoal || []
                 phaseMarkers: root.shotData.phases || []
                 maxTime: root.shotData.duration || 60
                 showLabels: root.shotShowLabels
@@ -134,6 +137,9 @@ Item {
                     temperatureData: root.shotData.temperature || []
                     weightData: root.shotData.weight || []
                     weightFlowRateData: root.shotData.weightFlowRate || []
+                    pressureGoalData: root.shotData.pressureGoal || []
+                    flowGoalData: root.shotData.flowGoal || []
+                    temperatureGoalData: root.shotData.temperatureGoal || []
                     phaseMarkers: root.shotData.phases || []
                     maxTime: root.shotData.duration || 60
                     showLabels: root.shotShowLabels

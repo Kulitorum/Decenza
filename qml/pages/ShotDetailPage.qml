@@ -41,6 +41,8 @@ Page {
         function onShotReady(id, shot) {
             if (id !== shotDetailPage.shotId) return
             shotData = shot
+            // Force ScrollView coordinate recalculation after data populates layout
+            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
         }
         function onShotDeleted(deletedId) {
             if (deletedId === shotDetailPage.shotId)
@@ -107,6 +109,7 @@ Page {
     }
 
     ScrollView {
+        id: scrollView
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -181,6 +184,9 @@ Page {
                     weightData: shotData.weight || []
                     weightFlowRateData: shotData.weightFlowRate || []
                     resistanceData: shotData.resistance || []
+                    pressureGoalData: shotData.pressureGoal || []
+                    flowGoalData: shotData.flowGoal || []
+                    temperatureGoalData: shotData.temperatureGoal || []
                     phaseMarkers: shotData.phases || []
                     maxTime: shotData.duration || 60
                     Accessible.ignored: true
@@ -262,6 +268,7 @@ Page {
 
                         onReleased: {
                             Settings.setValue("shotDetail/graphHeight", shotDetailPage.graphHeight)
+                            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
                         }
                     }
                 }
