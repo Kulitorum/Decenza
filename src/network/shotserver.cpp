@@ -1066,6 +1066,9 @@ if ($isAdmin) {
     Write-Host ""
 }
 
+# Refresh PATH from registry (picks up Node.js installed in a prior run)
+$env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+
 # Check for Node.js (needed for npx/mcp-remote)
 if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
     Write-Host "Node.js is required but not installed." -ForegroundColor Yellow
