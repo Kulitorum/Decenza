@@ -1892,40 +1892,55 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
 
 bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata)
 {
+    // Map camelCase metadata keys to DB column names.
+    // Only columns with keys present in the metadata map are updated,
+    // so partial updates don't wipe unspecified fields.
+    static const QList<QPair<QString, QString>> fieldMap = {
+        {"beanBrand",      "bean_brand"},
+        {"beanType",       "bean_type"},
+        {"roastDate",      "roast_date"},
+        {"roastLevel",     "roast_level"},
+        {"grinderBrand",   "grinder_brand"},
+        {"grinderModel",   "grinder_model"},
+        {"grinderBurrs",   "grinder_burrs"},
+        {"grinderSetting", "grinder_setting"},
+        {"drinkTds",       "drink_tds"},
+        {"drinkEy",        "drink_ey"},
+        {"enjoyment",      "enjoyment"},
+        {"espressoNotes",  "espresso_notes"},
+        {"barista",        "barista"},
+        {"doseWeight",     "dose_weight"},
+        {"finalWeight",    "final_weight"},
+        {"beverageType",   "beverage_type"},
+    };
+
+    // Build SET clause from only the keys present in metadata
+    QStringList setClauses;
+    for (const auto& [metaKey, dbCol] : fieldMap) {
+        if (metadata.contains(metaKey))
+            setClauses << QString("%1 = :%1").arg(dbCol);
+    }
+
+    if (setClauses.isEmpty()) {
+        qWarning() << "ShotHistoryStorage: No fields to update for shot" << shotId;
+        return false;
+    }
+
+    setClauses << "updated_at = strftime('%s', 'now')";
+
+    QString sql = QString("UPDATE shots SET %1 WHERE id = :id").arg(setClauses.join(", "));
+
     QSqlQuery query(db);
-    if (!query.prepare(R"(
-        UPDATE shots SET
-            bean_brand = :bean_brand, bean_type = :bean_type,
-            roast_date = :roast_date, roast_level = :roast_level,
-            grinder_brand = :grinder_brand, grinder_model = :grinder_model,
-            grinder_burrs = :grinder_burrs, grinder_setting = :grinder_setting,
-            drink_tds = :drink_tds, drink_ey = :drink_ey,
-            enjoyment = :enjoyment, espresso_notes = :espresso_notes,
-            barista = :barista, dose_weight = :dose_weight,
-            final_weight = :final_weight, beverage_type = :beverage_type,
-            updated_at = strftime('%s', 'now')
-        WHERE id = :id
-    )")) {
+    if (!query.prepare(sql)) {
         qWarning() << "ShotHistoryStorage: Metadata update prepare failed:" << query.lastError().text();
         return false;
     }
 
-    query.bindValue(":bean_brand", metadata.value("beanBrand").toString());
-    query.bindValue(":bean_type", metadata.value("beanType").toString());
-    query.bindValue(":roast_date", metadata.value("roastDate").toString());
-    query.bindValue(":roast_level", metadata.value("roastLevel").toString());
-    query.bindValue(":grinder_brand", metadata.value("grinderBrand").toString());
-    query.bindValue(":grinder_model", metadata.value("grinderModel").toString());
-    query.bindValue(":grinder_burrs", metadata.value("grinderBurrs").toString());
-    query.bindValue(":grinder_setting", metadata.value("grinderSetting").toString());
-    query.bindValue(":drink_tds", metadata.value("drinkTds").toDouble());
-    query.bindValue(":drink_ey", metadata.value("drinkEy").toDouble());
-    query.bindValue(":enjoyment", metadata.value("enjoyment").toInt());
-    query.bindValue(":espresso_notes", metadata.value("espressoNotes").toString());
-    query.bindValue(":barista", metadata.value("barista").toString());
-    query.bindValue(":dose_weight", metadata.value("doseWeight").toDouble());
-    query.bindValue(":final_weight", metadata.value("finalWeight").toDouble());
-    query.bindValue(":beverage_type", metadata.value("beverageType", "espresso").toString());
+    // Bind only the columns present in metadata
+    for (const auto& [metaKey, dbCol] : fieldMap) {
+        if (metadata.contains(metaKey))
+            query.bindValue(QString(":%1").arg(dbCol), metadata.value(metaKey));
+    }
     query.bindValue(":id", shotId);
 
     if (!query.exec()) {

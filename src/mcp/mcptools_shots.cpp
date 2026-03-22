@@ -30,7 +30,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 {"offset", QJsonObject{{"type", "integer"}, {"description", "Offset for pagination"}}},
                 {"profileName", QJsonObject{{"type", "string"}, {"description", "Filter by profile name (substring match)"}}},
                 {"beanBrand", QJsonObject{{"type", "string"}, {"description", "Filter by bean brand"}}},
-                {"minEnjoyment", QJsonObject{{"type", "integer"}, {"description", "Minimum enjoyment rating (0-100)"}}},
+                {"minEnjoyment", QJsonObject{{"type", "integer"}, {"description", "Minimum enjoyment rating (1-100, 0 or omit means no filter)"}}},
                 {"after", QJsonObject{{"type", "string"}, {"description", "Only shots after this ISO timestamp (e.g. 2026-03-15T00:00:00)"}}},
                 {"before", QJsonObject{{"type", "string"}, {"description", "Only shots before this ISO timestamp (e.g. 2026-03-21T23:59:59)"}}}
             }}
@@ -68,7 +68,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 if (db.open()) {
                     QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
                                   "duration_seconds, enjoyment, grinder_setting, grinder_model, "
-                                  "espresso_notes, bean_brand, bean_type, profile_kb_id "
+                                  "espresso_notes, bean_brand, bean_type "
                                   "FROM shots WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
 
@@ -80,7 +80,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         sql += " AND bean_brand LIKE :beanFilter";
                         countSql += " AND bean_brand LIKE :beanFilter";
                     }
-                    if (minEnjoyment >= 0) {
+                    if (minEnjoyment > 0) {
                         sql += " AND enjoyment >= :minEnjoyment";
                         countSql += " AND enjoyment >= :minEnjoyment";
                     }
@@ -141,14 +141,18 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         countQuery.bindValue(":before", beforeEpoch);
                     if (countQuery.exec() && countQuery.next())
                         totalCount = countQuery.value(0).toInt();
+                } else {
+                    result["error"] = "Failed to open shot database";
                 }
             }
             QSqlDatabase::removeDatabase(connName);
 
-            result["shots"] = shots;
-            result["count"] = shots.size();
-            result["total"] = totalCount;
-            result["offset"] = offset;
+            if (!result.contains("error")) {
+                result["shots"] = shots;
+                result["count"] = shots.size();
+                result["total"] = totalCount;
+                result["offset"] = offset;
+            }
             return result;
         },
         "read");
@@ -191,6 +195,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
+                } else {
+                    result["error"] = "Failed to open shot database";
                 }
             }
             QSqlDatabase::removeDatabase(connName);
@@ -242,6 +248,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         if (!shotMap.isEmpty())
                             shots.append(QJsonObject::fromVariantMap(shotMap));
                     }
+                } else {
+                    result["error"] = "Failed to open shot database";
                 }
             }
             QSqlDatabase::removeDatabase(connName);
@@ -276,10 +284,18 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     diffStr("grinderSetting");
                     diffStr("profileName");
                     diffStr("beanBrand");
-                    diffNum("doseWeight", "g");
-                    diffNum("finalWeight", "g");
-                    diffNum("duration", "s");
-                    diffNum("enjoyment", "");
+                    // Use convertShotRecord keys for lookup, unit-suffixed keys for output
+                    auto diffNumUnit = [&](const QString& srcKey, const QString& outKey, const QString& unit) {
+                        double a = prev[srcKey].toDouble(), b = curr[srcKey].toDouble();
+                        if (a != 0 && b != 0 && qAbs(a - b) > 0.01)
+                            diff[outKey] = QString("%1 -> %2 %3 (%4%5)")
+                                .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
+                                .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
+                    };
+                    diffNumUnit("doseWeight", "doseG", "g");
+                    diffNumUnit("finalWeight", "yieldG", "g");
+                    diffNumUnit("duration", "durationSec", "s");
+                    diffNumUnit("enjoyment", "enjoyment0to100", "");
 
                     // Only include if something changed
                     if (diff.size() > 2) // more than just fromShotId/toShotId
@@ -288,6 +304,80 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 if (!changes.isEmpty())
                     result["changes"] = changes;
             }
+
+            return result;
+        },
+        "read");
+
+    // shots_get_debug_log — read the per-shot debug log with pagination
+    registry->registerTool(
+        "shots_get_debug_log",
+        "Read the debug log captured during a shot extraction. Contains BLE frames, "
+        "phase transitions, stop-at-weight events, flow calibration, and all qDebug output "
+        "from the shot. Supports pagination for large logs.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"shotId", QJsonObject{{"type", "integer"}, {"description", "Shot ID"}}},
+                {"offset", QJsonObject{{"type", "integer"}, {"description", "Line number to start from (0-based). Default: 0"}}},
+                {"limit", QJsonObject{{"type", "integer"}, {"description", "Maximum lines to return (1-2000). Default: 500"}}}
+            }},
+            {"required", QJsonArray{"shotId"}}
+        },
+        [shotHistory](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!shotHistory || !shotHistory->isReady()) {
+                result["error"] = "Shot history not available";
+                return result;
+            }
+
+            qint64 shotId = args["shotId"].toInteger();
+            if (shotId <= 0) {
+                result["error"] = "Valid shotId is required";
+                return result;
+            }
+
+            qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
+            qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
+
+            const QString dbPath = shotHistory->databasePath();
+            const QString connName = QString("mcp_shot_debug_%1").arg(s_mcpShotConnCounter.fetchAndAddRelaxed(1));
+
+            {
+                QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+                db.setDatabaseName(dbPath);
+                if (db.open()) {
+                    QSqlQuery query(db);
+                    query.prepare("SELECT debug_log FROM shots WHERE id = ?");
+                    query.addBindValue(shotId);
+                    if (query.exec() && query.next()) {
+                        QString debugLog = query.value(0).toString();
+                        if (debugLog.isEmpty()) {
+                            result["error"] = "No debug log for shot " + QString::number(shotId);
+                        } else {
+                            QStringList allLines = debugLog.split('\n');
+                            qsizetype totalLines = allLines.size();
+
+                            QStringList chunk;
+                            for (qsizetype i = offset; i < qMin(offset + limit, totalLines); ++i)
+                                chunk.append(allLines[i]);
+
+                            result["shotId"] = shotId;
+                            result["offsetLines"] = static_cast<int>(offset);
+                            result["limitLines"] = static_cast<int>(limit);
+                            result["totalLines"] = static_cast<int>(totalLines);
+                            result["returnedLines"] = static_cast<int>(chunk.size());
+                            result["hasMore"] = (offset + chunk.size()) < totalLines;
+                            result["log"] = chunk.join('\n');
+                        }
+                    } else {
+                        result["error"] = "Shot not found: " + QString::number(shotId);
+                    }
+                } else {
+                    result["error"] = "Failed to open shot database";
+                }
+            }
+            QSqlDatabase::removeDatabase(connName);
 
             return result;
         },

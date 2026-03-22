@@ -68,38 +68,38 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 return result;
             }
 
-            // Map MCP parameter names to DB column names
+            // Keys must match what updateShotMetadataStatic() reads (camelCase)
             QVariantMap metadata;
             if (args.contains("enjoyment"))
                 metadata["enjoyment"] = qBound(0, args["enjoyment"].toInt(), 100);
             if (args.contains("notes"))
-                metadata["espresso_notes"] = args["notes"].toString();
+                metadata["espressoNotes"] = args["notes"].toString();
             if (args.contains("doseWeight"))
-                metadata["dose_weight"] = args["doseWeight"].toDouble();
+                metadata["doseWeight"] = args["doseWeight"].toDouble();
             if (args.contains("drinkWeight"))
-                metadata["drink_weight"] = args["drinkWeight"].toDouble();
+                metadata["finalWeight"] = args["drinkWeight"].toDouble();
             if (args.contains("beanBrand"))
-                metadata["bean_brand"] = args["beanBrand"].toString();
+                metadata["beanBrand"] = args["beanBrand"].toString();
             if (args.contains("beanType"))
-                metadata["bean_type"] = args["beanType"].toString();
+                metadata["beanType"] = args["beanType"].toString();
             if (args.contains("roastLevel"))
-                metadata["roast_level"] = args["roastLevel"].toString();
+                metadata["roastLevel"] = args["roastLevel"].toString();
             if (args.contains("roastDate"))
-                metadata["roast_date"] = args["roastDate"].toString();
+                metadata["roastDate"] = args["roastDate"].toString();
             if (args.contains("grinderBrand"))
-                metadata["grinder_brand"] = args["grinderBrand"].toString();
+                metadata["grinderBrand"] = args["grinderBrand"].toString();
             if (args.contains("grinderModel"))
-                metadata["grinder_model"] = args["grinderModel"].toString();
+                metadata["grinderModel"] = args["grinderModel"].toString();
             if (args.contains("grinderBurrs"))
-                metadata["grinder_burrs"] = args["grinderBurrs"].toString();
+                metadata["grinderBurrs"] = args["grinderBurrs"].toString();
             if (args.contains("grinderSetting"))
-                metadata["grinder_setting"] = args["grinderSetting"].toString();
+                metadata["grinderSetting"] = args["grinderSetting"].toString();
             if (args.contains("barista"))
                 metadata["barista"] = args["barista"].toString();
             if (args.contains("drinkTds"))
-                metadata["drink_tds"] = args["drinkTds"].toDouble();
+                metadata["drinkTds"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
-                metadata["drink_ey"] = args["drinkEy"].toDouble();
+                metadata["drinkEy"] = args["drinkEy"].toDouble();
 
             if (metadata.isEmpty()) {
                 result["error"] = "Provide at least one field to update";
@@ -210,9 +210,12 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
     // settings_set
     registry->registerTool(
         "settings_set",
-        "Update any app setting on the device. Covers all QML settings tabs: preferences, connections, "
-        "screensaver, accessibility, AI, espresso, steam, water, flush, DYE metadata, MQTT, "
-        "themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. "
+        "Update any app setting on the device. This is the tool to use when the user asks to change "
+        "grind size (dyeGrinderSetting), dose weight (dyeBeanWeight), drink/yield weight (targetWeight), "
+        "brew temperature (espressoTemperature), or any other setting. "
+        "Covers all QML settings tabs: preferences, connections, screensaver, accessibility, AI, "
+        "espresso, steam, water, flush, DYE metadata, MQTT, themes, visualizer, update, data, "
+        "history, language, debug, battery, heater, auto-favorites. "
         "API keys and passwords are excluded (sensitive). "
         "For temperature and weight changes on the active profile, this tool handles the profile update automatically. "
         "IMPORTANT: Only call this when the user explicitly asks to change settings on the machine. "
@@ -405,6 +408,14 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                     }
                     mainController->uploadRecipeProfile(currentParams);
                 }
+
+                // Sync QSettings so settings_get reads back the updated values.
+                // uploadRecipeProfile/uploadProfile update the profile object but
+                // don't write to QSettings (issue #527).
+                if (args.contains("espressoTemperature") && settings)
+                    settings->setEspressoTemperature(args["espressoTemperature"].toDouble());
+                if (args.contains("targetWeight") && settings)
+                    settings->setTargetWeight(args["targetWeight"].toDouble());
             }
 
             // === Steam ===
@@ -1044,28 +1055,4 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
         },
         "settings");
 
-    // dialing_suggest_change
-    registry->registerTool(
-        "dialing_suggest_change",
-        "Push a parameter change suggestion to the app (shown as a notification on the device). "
-        "IMPORTANT: Only call this when the user explicitly asks to send/push a suggestion to the app. "
-        "For discussion and analysis, respond in chat instead — do not push to the device.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"parameter", QJsonObject{{"type", "string"}, {"description", "What to change: grind, dose, yield, temperature, profile"}}},
-                {"suggestion", QJsonObject{{"type", "string"}, {"description", "The suggested change (e.g., 'Grind 2 clicks finer')"}}},
-                {"rationale", QJsonObject{{"type", "string"}, {"description", "Why this change is recommended"}}}
-            }},
-            {"required", QJsonArray{"parameter", "suggestion", "rationale"}}
-        },
-        [](const QJsonObject& args) -> QJsonObject {
-            QJsonObject result;
-            result["parameter"] = args["parameter"].toString();
-            result["suggestion"] = args["suggestion"].toString();
-            result["rationale"] = args["rationale"].toString();
-            result["status"] = "suggestion_displayed";
-            return result;
-        },
-        "control");
 }

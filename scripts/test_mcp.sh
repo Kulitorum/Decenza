@@ -306,10 +306,10 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare shots_update shots_delete profiles_list profiles_get_active profiles_get_detail profiles_get_params profiles_edit_params profiles_save profiles_delete profiles_create settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame profiles_set_active settings_set dialing_suggest_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_get_debug_log shots_compare shots_update shots_delete profiles_list profiles_get_active profiles_get_detail profiles_get_params profiles_edit_params profiles_save profiles_delete profiles_create settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame profiles_set_active settings_set scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
 
 # Verify removed tools are NOT registered
-REMOVED_TOOLS="dialing_apply_change shots_set_feedback"
+REMOVED_TOOLS="dialing_apply_change dialing_suggest_change shots_set_feedback"
 for tool in $REMOVED_TOOLS; do
     assert_ok "removed tool '$tool' NOT registered" "$TOOLS_JSON" \
         "'$tool' not in d"
@@ -420,6 +420,16 @@ print(d.get('profileName','')[:10])
             "d.get('count',0) > 0"
     fi
 
+    # Debug log
+    DEBUG_LOG_RAW=$(rpc 36 "tools/call" "{\"name\":\"shots_get_debug_log\",\"arguments\":{\"shotId\":$SHOT_ID}}")
+    DEBUG_LOG=$(echo "$DEBUG_LOG_RAW" | parse_tool_result)
+    assert_ok "shots_get_debug_log returns log or error" "$DEBUG_LOG" \
+        "'log' in d or 'error' in d"
+    if echo "$DEBUG_LOG" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); exit(0 if 'log' in d else 1)" 2>/dev/null; then
+        assert_ok "shots_get_debug_log has pagination fields" "$DEBUG_LOG" \
+            "'totalLines' in d and 'hasMore' in d and 'returnedLines' in d"
+    fi
+
     # Date range filter
     DATE_FILTERED_RAW=$(rpc 35 "tools/call" '{"name":"shots_list","arguments":{"limit":5,"after":"2026-01-01T00:00:00"}}')
     DATE_FILTERED=$(echo "$DATE_FILTERED_RAW" | parse_tool_result)
@@ -427,13 +437,18 @@ print(d.get('profileName','')[:10])
         "d.get('count',0) >= 0"
 else
     echo -e "  ${YELLOW}SKIP${NC} shot detail/compare tests (no shots in database)"
-    SKIP=$((SKIP + 3))
+    SKIP=$((SKIP + 4))
 fi
 
 # Invalid shot ID
 BAD_SHOT_RAW=$(rpc 34 "tools/call" '{"name":"shots_get_detail","arguments":{"shotId":999999}}')
 BAD_SHOT=$(echo "$BAD_SHOT_RAW" | parse_tool_result)
 assert_ok "shots_get_detail invalid ID returns error" "$BAD_SHOT" \
+    "'error' in d"
+
+BAD_DEBUG_RAW=$(rpc 37 "tools/call" '{"name":"shots_get_debug_log","arguments":{"shotId":999999}}')
+BAD_DEBUG=$(echo "$BAD_DEBUG_RAW" | parse_tool_result)
+assert_ok "shots_get_debug_log invalid ID returns error" "$BAD_DEBUG" \
     "'error' in d"
 
 echo
@@ -654,7 +669,7 @@ if [ "$LOG_TOTAL" -gt 20 ]; then
     LOG_PAGE2_RAW=$(rpc 96 "tools/call" "{\"name\":\"debug_get_log\",\"arguments\":{\"offset\":10,\"limit\":5}}")
     LOG_PAGE2=$(echo "$LOG_PAGE2_RAW" | parse_tool_result)
     assert_ok "debug_get_log pagination works" "$LOG_PAGE2" \
-        "d.get('offset') == 10 and d.get('returnedLines') == 5"
+        "d.get('offsetLines') == 10 and d.get('returnedLines') == 5"
 fi
 
 # Read unknown resource
@@ -724,69 +739,230 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
     create_session
 else
     echo -e "${CYAN}12. Write Tools (SKIPPED — access level < 2, set to Full Automation to test)${NC}"
-    SKIP=$((SKIP + 7))
+    SKIP=$((SKIP + 16))
 fi
 
 # shots_update (control category — level 1+, always available)
 if [ "$SHOT_ID" != "0" ] && [ -n "$SHOT_ID" ]; then
-    UPDATE_RAW=$(rpc 100 "tools/call" "{\"name\":\"shots_update\",\"arguments\":{\"shotId\":$SHOT_ID,\"enjoyment\":85,\"notes\":\"MCP test note\"}}")
+    # Save original values for restore
+    ORIG_DETAIL_RAW=$(rpc 100 "tools/call" "{\"name\":\"shots_get_detail\",\"arguments\":{\"shotId\":$SHOT_ID}}")
+    ORIG_DETAIL=$(echo "$ORIG_DETAIL_RAW" | parse_tool_result)
+    ORIG_ENJOYMENT=$(echo "$ORIG_DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('enjoyment',0))" 2>/dev/null)
+    ORIG_NOTES=$(echo "$ORIG_DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('espressoNotes',''))" 2>/dev/null)
+    ORIG_DOSE=$(echo "$ORIG_DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('doseWeight',0))" 2>/dev/null)
+    ORIG_BARISTA=$(echo "$ORIG_DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('barista',''))" 2>/dev/null)
+
+    # Test 1: enjoyment + notes
+    UPDATE_RAW=$(rpc 101 "tools/call" "{\"name\":\"shots_update\",\"arguments\":{\"shotId\":$SHOT_ID,\"enjoyment\":85,\"notes\":\"MCP test note\"}}")
     UPDATE=$(echo "$UPDATE_RAW" | parse_tool_result)
     assert_ok "shots_update saves metadata" "$UPDATE" \
         "d.get('success') == True"
+
+    # Read back to verify values actually persisted
+    VERIFY_RAW=$(rpc 102 "tools/call" "{\"name\":\"shots_get_detail\",\"arguments\":{\"shotId\":$SHOT_ID}}")
+    VERIFY=$(echo "$VERIFY_RAW" | parse_tool_result)
+    assert_ok "shots_update enjoyment persisted" "$VERIFY" \
+        "d.get('enjoyment') == 85"
+    assert_ok "shots_update notes persisted" "$VERIFY" \
+        "d.get('espressoNotes') == 'MCP test note'"
+
+    # Test 2: full metadata (doseWeight + barista)
+    UPDATE2_RAW=$(rpc 103 "tools/call" "{\"name\":\"shots_update\",\"arguments\":{\"shotId\":$SHOT_ID,\"doseWeight\":18.5,\"barista\":\"MCP Test\"}}")
+    UPDATE2=$(echo "$UPDATE2_RAW" | parse_tool_result)
+    assert_ok "shots_update full metadata accepted" "$UPDATE2" \
+        "d.get('success') == True"
+
+    VERIFY2_RAW=$(rpc 104 "tools/call" "{\"name\":\"shots_get_detail\",\"arguments\":{\"shotId\":$SHOT_ID}}")
+    VERIFY2=$(echo "$VERIFY2_RAW" | parse_tool_result)
+    assert_ok "shots_update doseWeight persisted" "$VERIFY2" \
+        "d.get('doseWeight') == 18.5"
+    assert_ok "shots_update barista persisted" "$VERIFY2" \
+        "d.get('barista') == 'MCP Test'"
+
+    # Test 3: extended metadata (beanBrand, grinderSetting — verifies camelCase key fix)
+    ORIG_BRAND=$(echo "$ORIG_DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('beanBrand',''))" 2>/dev/null)
+    ORIG_GSETTING=$(echo "$ORIG_DETAIL" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('grinderSetting',''))" 2>/dev/null)
+
+    UPDATE3_RAW=$(rpc 107 "tools/call" "{\"name\":\"shots_update\",\"arguments\":{\"shotId\":$SHOT_ID,\"beanBrand\":\"MCP Test Bean\",\"grinderSetting\":\"42\"}}")
+    UPDATE3=$(echo "$UPDATE3_RAW" | parse_tool_result)
+    assert_ok "shots_update extended metadata accepted" "$UPDATE3" \
+        "d.get('success') == True"
+
+    VERIFY3_RAW=$(rpc 108 "tools/call" "{\"name\":\"shots_get_detail\",\"arguments\":{\"shotId\":$SHOT_ID}}")
+    VERIFY3=$(echo "$VERIFY3_RAW" | parse_tool_result)
+    assert_ok "shots_update beanBrand persisted" "$VERIFY3" \
+        "d.get('beanBrand') == 'MCP Test Bean'"
+    assert_ok "shots_update grinderSetting persisted" "$VERIFY3" \
+        "d.get('grinderSetting') == '42'"
+
+    # Verify partial update didn't wipe other fields (the data-loss bug)
+    assert_ok "shots_update partial didn't wipe enjoyment" "$VERIFY3" \
+        "d.get('enjoyment') == 85"
+
+    # Restore all original values
+    rpc 109 "tools/call" "{\"name\":\"shots_update\",\"arguments\":{\"shotId\":$SHOT_ID,\"enjoyment\":$ORIG_ENJOYMENT,\"notes\":\"$ORIG_NOTES\",\"doseWeight\":$ORIG_DOSE,\"barista\":\"$ORIG_BARISTA\",\"beanBrand\":\"$ORIG_BRAND\",\"grinderSetting\":\"$ORIG_GSETTING\"}}" > /dev/null
 else
     echo -e "  ${YELLOW}SKIP${NC} shots_update (no shots)"
-    SKIP=$((SKIP + 1))
+    SKIP=$((SKIP + 11))
 fi
 
 # shots_update without data
-UPDATE_EMPTY_RAW=$(rpc 101 "tools/call" '{"name":"shots_update","arguments":{"shotId":1}}')
+UPDATE_EMPTY_RAW=$(rpc 106 "tools/call" '{"name":"shots_update","arguments":{"shotId":1}}')
 UPDATE_EMPTY=$(echo "$UPDATE_EMPTY_RAW" | parse_tool_result)
 assert_ok "shots_update requires at least one field" "$UPDATE_EMPTY" \
     "'error' in d"
 
-# dialing_suggest_change
-SUGGEST_RAW=$(rpc 102 "tools/call" '{"name":"dialing_suggest_change","arguments":{"parameter":"grind","suggestion":"Grind 2 clicks finer","rationale":"Shot was sour, indicating under-extraction"}}')
-SUGGEST=$(echo "$SUGGEST_RAW" | parse_tool_result)
-assert_ok "dialing_suggest_change returns suggestion" "$SUGGEST" \
-    "d.get('parameter') == 'grind' and d.get('status') == 'suggestion_displayed'"
-
 if [ "$HAS_SETTINGS_SET" = "1" ]; then
-    # settings_set (confirmed: true to pass chat confirmation gate)
-    SETW_RAW=$(rpc 103 "tools/call" '{"name":"settings_set","arguments":{"targetWeight":36.0,"confirmed":true}}')
+    # settings_set — save original, write, verify read-back, restore
+    ORIG_TW_RAW=$(rpc 110 "tools/call" '{"name":"settings_get","arguments":{"keys":["targetWeight"]}}')
+    ORIG_TW=$(echo "$ORIG_TW_RAW" | parse_tool_result)
+    ORIG_TW_VAL=$(echo "$ORIG_TW" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('targetWeightG',0))" 2>/dev/null)
+
+    SETW_RAW=$(rpc 111 "tools/call" '{"name":"settings_set","arguments":{"targetWeight":36.0,"confirmed":true}}')
     SETW=$(echo "$SETW_RAW" | parse_tool_result)
     assert_ok "settings_set updates targetWeight" "$SETW" \
         "d.get('success') == True and 'targetWeight' in d.get('updated',[])"
 
+    # Read back to verify (settings_set uses QueuedConnection + uploadProfile, needs time)
+    # Known failure: targetWeight triggers uploadProfile() which may asynchronously
+    # override the value from the profile's stored weight (issue #527)
+    sleep 1
+    VERIFY_TW_RAW=$(rpc 112 "tools/call" '{"name":"settings_get","arguments":{"keys":["targetWeight"]}}')
+    VERIFY_TW=$(echo "$VERIFY_TW_RAW" | parse_tool_result)
+    assert_ok "settings_set targetWeight persisted" "$VERIFY_TW" \
+        "d.get('targetWeightG') == 36.0"
+
+    # Restore
+    rpc 113 "tools/call" "{\"name\":\"settings_set\",\"arguments\":{\"targetWeight\":$ORIG_TW_VAL,\"confirmed\":true}}" > /dev/null
+
     # settings_set with no valid keys
-    SETW_EMPTY_RAW=$(rpc 104 "tools/call" '{"name":"settings_set","arguments":{"confirmed":true}}')
+    SETW_EMPTY_RAW=$(rpc 114 "tools/call" '{"name":"settings_set","arguments":{"confirmed":true}}')
     SETW_EMPTY=$(echo "$SETW_EMPTY_RAW" | parse_tool_result)
     assert_ok "settings_set with no keys returns error" "$SETW_EMPTY" \
         "'error' in d"
 
     # profiles_set_active with invalid profile
-    BAD_PROFILE_RAW=$(rpc 105 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"nonexistent_xyz","confirmed":true}}')
+    BAD_PROFILE_RAW=$(rpc 115 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"nonexistent_xyz","confirmed":true}}')
     BAD_PROFILE=$(echo "$BAD_PROFILE_RAW" | parse_tool_result)
     assert_ok "profiles_set_active rejects invalid profile" "$BAD_PROFILE" \
         "'error' in d"
 
-    # profiles_create + profiles_delete roundtrip
-    CREATE_RAW=$(rpc 106 "tools/call" '{"name":"profiles_create","arguments":{"editorType":"pressure","title":"_MCP Test Profile","confirmed":true}}')
+    # profiles_create + verify + delete + verify roundtrip
+    CREATE_RAW=$(rpc 116 "tools/call" '{"name":"profiles_create","arguments":{"editorType":"pressure","title":"_MCP Test Profile","confirmed":true}}')
     CREATE=$(echo "$CREATE_RAW" | parse_tool_result)
     assert_ok "profiles_create creates profile" "$CREATE" \
         "d.get('success') == True and d.get('editorType') == 'pressure'"
 
-    # Clean up: switch to default, then delete the test profile
-    CREATED_FILE=$(echo "$CREATE" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('filename',''))" 2>/dev/null)
-    rpc 108 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"default","confirmed":true}}' > /dev/null
+    # profiles_create response filename may be empty due to async profile switch (issue #527).
+    # Get the actual filename from profiles_get_active instead.
     sleep 1
+    ACTIVE_RAW=$(rpc 117 "tools/call" '{"name":"profiles_get_active","arguments":{}}')
+    ACTIVE=$(echo "$ACTIVE_RAW" | parse_tool_result)
+    CREATED_FILE=$(echo "$ACTIVE" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('filename',''))" 2>/dev/null)
+
     if [ -n "$CREATED_FILE" ]; then
-        DEL_RAW=$(rpc 109 "tools/call" "{\"name\":\"profiles_delete\",\"arguments\":{\"filename\":\"$CREATED_FILE\",\"confirmed\":true}}")
+        assert_ok "profiles_create made profile active" "$ACTIVE" \
+            "'_mcp_test_profile' in d.get('filename','').lower() or '_MCP' in d.get('title','')"
+
+        # Switch back to default before deleting
+        rpc 118 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"default","confirmed":true}}' > /dev/null
+        sleep 1
+
+        # Verify we're on default
+        VERIFY_DEFAULT_RAW=$(rpc 119 "tools/call" '{"name":"profiles_get_active","arguments":{}}')
+        VERIFY_DEFAULT=$(echo "$VERIFY_DEFAULT_RAW" | parse_tool_result)
+        assert_ok "profiles_set_active switched to default" "$VERIFY_DEFAULT" \
+            "'default' in d.get('filename','')"
+
+        # Delete the test profile
+        DEL_RAW=$(rpc 120 "tools/call" "{\"name\":\"profiles_delete\",\"arguments\":{\"filename\":\"$CREATED_FILE\",\"confirmed\":true}}")
         DEL=$(echo "$DEL_RAW" | parse_tool_result)
         assert_ok "profiles_delete removes created profile" "$DEL" \
             "d.get('success') == True"
+
+        # Verify profile is gone from list
+        VERIFY_LIST_RAW=$(rpc 121 "tools/call" '{"name":"profiles_list","arguments":{}}')
+        VERIFY_LIST=$(echo "$VERIFY_LIST_RAW" | parse_tool_result)
+        assert_ok "profiles_delete profile no longer in list" "$VERIFY_LIST" \
+            "'$CREATED_FILE' not in str(d.get('profiles',[]))"
     fi
-    # Verify we're back on default
+
+    # Fresh session to reset rate limiter
+    delete_session
+    create_session
+
+    # --- DYE metadata round-trip ---
+    # Save originals
+    ORIG_DYE_RAW=$(rpc 130 "tools/call" '{"name":"settings_get","arguments":{"keys":["dyeBeanBrand","dyeGrinderSetting"]}}')
+    ORIG_DYE=$(echo "$ORIG_DYE_RAW" | parse_tool_result)
+    ORIG_BEAN_BRAND=$(echo "$ORIG_DYE" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('dyeBeanBrand',''))" 2>/dev/null)
+    ORIG_GRIND=$(echo "$ORIG_DYE" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('dyeGrinderSetting',''))" 2>/dev/null)
+
+    SET_DYE_RAW=$(rpc 131 "tools/call" '{"name":"settings_set","arguments":{"dyeBeanBrand":"MCP Test Brand","dyeGrinderSetting":"99","confirmed":true}}')
+    SET_DYE=$(echo "$SET_DYE_RAW" | parse_tool_result)
+    assert_ok "settings_set DYE fields accepted" "$SET_DYE" \
+        "'dyeBeanBrand' in d.get('updated',[]) and 'dyeGrinderSetting' in d.get('updated',[])"
+
+    sleep 1
+    VERIFY_DYE_RAW=$(rpc 132 "tools/call" '{"name":"settings_get","arguments":{"keys":["dyeBeanBrand","dyeGrinderSetting"]}}')
+    VERIFY_DYE=$(echo "$VERIFY_DYE_RAW" | parse_tool_result)
+    assert_ok "settings_set dyeBeanBrand persisted" "$VERIFY_DYE" \
+        "d.get('dyeBeanBrand') == 'MCP Test Brand'"
+    assert_ok "settings_set dyeGrinderSetting persisted" "$VERIFY_DYE" \
+        "d.get('dyeGrinderSetting') == '99'"
+
+    # Restore
+    rpc 133 "tools/call" "{\"name\":\"settings_set\",\"arguments\":{\"dyeBeanBrand\":\"$ORIG_BEAN_BRAND\",\"dyeGrinderSetting\":\"$ORIG_GRIND\",\"confirmed\":true}}" > /dev/null
+
+    # --- profiles_edit_params round-trip ---
+    # Save current profile params, change temperature, verify, restore
+    ORIG_PARAMS_RAW=$(rpc 140 "tools/call" '{"name":"profiles_get_params","arguments":{}}')
+    ORIG_PARAMS=$(echo "$ORIG_PARAMS_RAW" | parse_tool_result)
+    ORIG_TEMP=$(echo "$ORIG_PARAMS" | python3 -c "
+import json,sys
+d = json.loads(sys.stdin.read())
+# Recipe profiles use pourTemperature, advanced use espresso_temperature in steps
+print(d.get('pourTemperature', d.get('espresso_temperature', 0)))
+" 2>/dev/null)
+    EDITOR_TYPE=$(echo "$ORIG_PARAMS" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('editorType',''))" 2>/dev/null)
+
+    if [ -n "$EDITOR_TYPE" ] && [ "$EDITOR_TYPE" != "advanced" ] && [ "$ORIG_TEMP" != "0" ]; then
+        NEW_TEMP=$(python3 -c "print(float($ORIG_TEMP) + 1)" 2>/dev/null)
+        EDIT_RAW=$(rpc 141 "tools/call" "{\"name\":\"profiles_edit_params\",\"arguments\":{\"pourTemperature\":$NEW_TEMP,\"confirmed\":true}}")
+        EDIT=$(echo "$EDIT_RAW" | parse_tool_result)
+        assert_ok "profiles_edit_params accepted" "$EDIT" \
+            "d.get('success') == True"
+
+        sleep 1
+        VERIFY_PARAMS_RAW=$(rpc 142 "tools/call" '{"name":"profiles_get_params","arguments":{}}')
+        VERIFY_PARAMS=$(echo "$VERIFY_PARAMS_RAW" | parse_tool_result)
+        assert_ok "profiles_edit_params temperature persisted" "$VERIFY_PARAMS" \
+            "abs(d.get('pourTemperature',0) - $NEW_TEMP) < 0.1"
+
+        # Restore
+        rpc 143 "tools/call" "{\"name\":\"profiles_edit_params\",\"arguments\":{\"pourTemperature\":$ORIG_TEMP,\"confirmed\":true}}" > /dev/null
+        sleep 0.5
+    else
+        echo -e "  ${YELLOW}SKIP${NC} profiles_edit_params (advanced profile or no temperature)"
+        SKIP=$((SKIP + 2))
+    fi
+
+    # --- profiles_save round-trip ---
+    # Ensure we're on the default profile (not the just-deleted test profile)
+    rpc 149 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"default","confirmed":true}}' > /dev/null
     sleep 0.5
+
+    SAVE_RAW=$(rpc 150 "tools/call" '{"name":"profiles_save","arguments":{"confirmed":true}}')
+    SAVE=$(echo "$SAVE_RAW" | parse_tool_result)
+    assert_ok "profiles_save accepted" "$SAVE" \
+        "d.get('success') == True"
+
+    # Verify profile is no longer modified
+    sleep 0.5
+    VERIFY_SAVED_RAW=$(rpc 151 "tools/call" '{"name":"profiles_get_active","arguments":{}}')
+    VERIFY_SAVED=$(echo "$VERIFY_SAVED_RAW" | parse_tool_result)
+    assert_ok "profiles_save cleared modified flag" "$VERIFY_SAVED" \
+        "d.get('modified') == False"
 fi
 
 echo
@@ -1116,14 +1292,46 @@ assert_ok "cross-category key filter returns exactly 3" "$CROSS" \
 
 # Write test (only if Full Automation)
 if [ "$HAS_SETTINGS_SET" = "1" ]; then
-    # Save + set + verify + restore autoSleepMinutes
+    # Save + set + verify read-back + restore autoSleepMinutes
     ORIG_SLEEP=$(echo "$CAT_PREF" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('autoSleepMinutes',60))" 2>/dev/null)
     SET_SLEEP_RAW=$(rpc 306 "tools/call" '{"name":"settings_set","arguments":{"autoSleepMinutes":30,"confirmed":true}}')
     SET_SLEEP=$(echo "$SET_SLEEP_RAW" | parse_tool_result)
     assert_ok "settings_set autoSleepMinutes accepted" "$SET_SLEEP" \
         "'autoSleepMinutes' in d.get('updated',[])"
+    # Read back to verify the value persisted
+    sleep 0.3
+    VERIFY_SLEEP_RAW=$(rpc 308 "tools/call" '{"name":"settings_get","arguments":{"keys":["autoSleepMinutes"]}}')
+    VERIFY_SLEEP=$(echo "$VERIFY_SLEEP_RAW" | parse_tool_result)
+    assert_ok "settings_set autoSleepMinutes persisted" "$VERIFY_SLEEP" \
+        "d.get('autoSleepMinutes') == 30"
     # Restore
     rpc 307 "tools/call" "{\"name\":\"settings_set\",\"arguments\":{\"autoSleepMinutes\":$ORIG_SLEEP,\"confirmed\":true}}" > /dev/null
+
+    # --- Cross-category write/verify round-trips ---
+
+    # Accessibility: tickVolume
+    ORIG_TICK_RAW=$(rpc 310 "tools/call" '{"name":"settings_get","arguments":{"keys":["tickVolume"]}}')
+    ORIG_TICK=$(echo "$ORIG_TICK_RAW" | parse_tool_result)
+    ORIG_TICK_VAL=$(echo "$ORIG_TICK" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('tickVolume',50))" 2>/dev/null)
+    rpc 311 "tools/call" '{"name":"settings_set","arguments":{"tickVolume":42,"confirmed":true}}' > /dev/null
+    sleep 0.5
+    VERIFY_TICK_RAW=$(rpc 312 "tools/call" '{"name":"settings_get","arguments":{"keys":["tickVolume"]}}')
+    VERIFY_TICK=$(echo "$VERIFY_TICK_RAW" | parse_tool_result)
+    assert_ok "settings_set tickVolume persisted" "$VERIFY_TICK" \
+        "d.get('tickVolume') == 42"
+    rpc 313 "tools/call" "{\"name\":\"settings_set\",\"arguments\":{\"tickVolume\":$ORIG_TICK_VAL,\"confirmed\":true}}" > /dev/null
+
+    # Screensaver: dimPercent
+    ORIG_DIM_RAW=$(rpc 314 "tools/call" '{"name":"settings_get","arguments":{"keys":["dimPercent"]}}')
+    ORIG_DIM=$(echo "$ORIG_DIM_RAW" | parse_tool_result)
+    ORIG_DIM_VAL=$(echo "$ORIG_DIM" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('dimPercent',50))" 2>/dev/null)
+    rpc 315 "tools/call" '{"name":"settings_set","arguments":{"dimPercent":25,"confirmed":true}}' > /dev/null
+    sleep 0.5
+    VERIFY_DIM_RAW=$(rpc 316 "tools/call" '{"name":"settings_get","arguments":{"keys":["dimPercent"]}}')
+    VERIFY_DIM=$(echo "$VERIFY_DIM_RAW" | parse_tool_result)
+    assert_ok "settings_set dimPercent persisted" "$VERIFY_DIM" \
+        "d.get('dimPercent') == 25"
+    rpc 317 "tools/call" "{\"name\":\"settings_set\",\"arguments\":{\"dimPercent\":$ORIG_DIM_VAL,\"confirmed\":true}}" > /dev/null
 fi
 
 echo

@@ -357,13 +357,7 @@ Expect: shotId > 0, shot object present, currentBean present, currentProfile pre
 Expect: profileKnowledge non-empty (if profile has knowledge base)
 ```
 
-### 7.2 dialing_suggest_change
-```
-Call: dialing_suggest_change (parameter: "grind", suggestion: "Test suggestion", rationale: "MCP test")
-Expect: status="suggestion_displayed", parameter="grind"
-```
-
-### 7.3 settings_set — DYE metadata (replaces dialing_apply_change)
+### 7.2 settings_set — DYE metadata (replaces dialing_apply_change)
 ```
 Call: settings_set (dyeGrinderSetting: "99", confirmed: true)
 Expect: updated includes "dyeGrinderSetting"

@@ -533,7 +533,7 @@ The app has accessibility support via `AccessibilityManager` (C++) with:
 
 ### Rules for Modifying Existing Components
 
-When touching existing code, **fix pre-existing accessibility violations on the lines you modify** — do not dismiss them as "pre-existing". If you add properties to a Text element inside an `Accessible.name`-bearing parent and that Text is missing `Accessible.ignored: true`, add it. Accessibility issues compound over time and each modification is an opportunity to fix them.
+When touching existing code, **fix pre-existing bugs and violations in the file you're modifying** — do not dismiss them as "pre-existing". A bad bug is a bad bug regardless of when it was introduced. This applies to all issue types: real bugs, data loss, accessibility violations, missing i18n, incorrect MCP field names, etc. In code review, score pre-existing issues on the same scale as new issues. If you add properties to a Text element inside an `Accessible.name`-bearing parent and that Text is missing `Accessible.ignored: true`, add it. Issues compound over time and each modification is an opportunity to fix them.
 
 ### TODO: Focus Order Improvements
 
