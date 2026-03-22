@@ -125,96 +125,80 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 
                     // --- Grinder context: mine shot history for setting range/step ---
                     QString grinderModel = shotData.contains("grinderModel") ? shotData["grinderModel"].toString() : QString();
+                    QString beverageType = shotData.value("beverageType", "espresso").toString();
+                    if (beverageType.isEmpty()) beverageType = "espresso";
                     if (!grinderModel.isEmpty()) {
                         QSqlQuery gQuery(db);
-                        gQuery.prepare("SELECT DISTINCT grinder_setting, beverage_type FROM shots "
-                                       "WHERE grinder_model = :model AND grinder_setting != ''");
+                        gQuery.prepare("SELECT DISTINCT grinder_setting FROM shots "
+                                       "WHERE grinder_model = :model AND beverage_type = :bev "
+                                       "AND grinder_setting != ''");
                         gQuery.bindValue(":model", grinderModel);
+                        gQuery.bindValue(":bev", beverageType);
                         if (gQuery.exec()) {
-                            // Collect settings grouped by beverage type
-                            QMap<QString, QStringList> settingsByBev;
+                            QJsonArray settingsArr;
+                            QList<double> numeric;
+                            bool allNumeric = true;
+
                             while (gQuery.next()) {
                                 QString s = gQuery.value(0).toString().trimmed();
-                                QString bev = gQuery.value(1).toString().trimmed();
                                 if (s.isEmpty()) continue;
-                                if (bev.isEmpty()) bev = "espresso";
-                                if (!settingsByBev[bev].contains(s))
-                                    settingsByBev[bev].append(s);
+                                settingsArr.append(s);
+                                bool ok;
+                                double v = s.toDouble(&ok);
+                                if (ok) {
+                                    if (!numeric.contains(v))
+                                        numeric.append(v);
+                                } else {
+                                    allNumeric = false;
+                                }
                             }
 
                             QJsonObject grinderCtx;
                             grinderCtx["model"] = grinderModel;
+                            grinderCtx["beverageType"] = beverageType;
+                            grinderCtx["settingsObserved"] = settingsArr;
+                            grinderCtx["isNumeric"] = allNumeric;
 
-                            // Build per-beverage-type context with range/step/direction
-                            QJsonObject bevRanges;
-                            for (auto it = settingsByBev.constBegin(); it != settingsByBev.constEnd(); ++it) {
-                                const QString& bev = it.key();
-                                const QStringList& settings = it.value();
+                            if (allNumeric && numeric.size() >= 2) {
+                                std::sort(numeric.begin(), numeric.end());
+                                grinderCtx["minSetting"] = numeric.first();
+                                grinderCtx["maxSetting"] = numeric.last();
 
-                                QJsonObject bevCtx;
-                                QJsonArray settingsArr;
-                                QList<double> numeric;
-                                bool allNumeric = true;
+                                double smallestStep = numeric.last() - numeric.first();
+                                for (qsizetype i = 1; i < numeric.size(); ++i) {
+                                    double diff = numeric[i] - numeric[i-1];
+                                    if (diff > 0 && diff < smallestStep)
+                                        smallestStep = diff;
+                                }
+                                grinderCtx["smallestStep"] = smallestStep;
 
-                                for (const auto& s : settings) {
-                                    settingsArr.append(s);
-                                    bool ok;
-                                    double v = s.toDouble(&ok);
-                                    if (ok) {
-                                        if (!numeric.contains(v))
-                                            numeric.append(v);
-                                    } else {
-                                        allNumeric = false;
+                                // Infer finer direction from duration correlation
+                                QSqlQuery finerQuery(db);
+                                finerQuery.prepare(
+                                    "SELECT grinder_setting, AVG(duration_seconds) FROM shots "
+                                    "WHERE grinder_model = :model AND beverage_type = :bev "
+                                    "AND grinder_setting IN (:min, :max) "
+                                    "AND duration_seconds > 5 "
+                                    "GROUP BY grinder_setting");
+                                finerQuery.bindValue(":model", grinderModel);
+                                finerQuery.bindValue(":bev", beverageType);
+                                finerQuery.bindValue(":min", QString::number(numeric.first()));
+                                finerQuery.bindValue(":max", QString::number(numeric.last()));
+                                double avgDurAtMin = 0, avgDurAtMax = 0;
+                                if (finerQuery.exec()) {
+                                    while (finerQuery.next()) {
+                                        double setting = finerQuery.value(0).toDouble();
+                                        double avgDur = finerQuery.value(1).toDouble();
+                                        if (qFuzzyCompare(setting, numeric.first()))
+                                            avgDurAtMin = avgDur;
+                                        else if (qFuzzyCompare(setting, numeric.last()))
+                                            avgDurAtMax = avgDur;
                                     }
                                 }
-
-                                bevCtx["settings"] = settingsArr;
-                                bevCtx["isNumeric"] = allNumeric;
-
-                                if (allNumeric && numeric.size() >= 2) {
-                                    std::sort(numeric.begin(), numeric.end());
-                                    bevCtx["minSetting"] = numeric.first();
-                                    bevCtx["maxSetting"] = numeric.last();
-
-                                    double smallestStep = numeric.last() - numeric.first();
-                                    for (qsizetype i = 1; i < numeric.size(); ++i) {
-                                        double diff = numeric[i] - numeric[i-1];
-                                        if (diff > 0 && diff < smallestStep)
-                                            smallestStep = diff;
-                                    }
-                                    bevCtx["smallestStep"] = smallestStep;
-
-                                    // Infer finer direction from duration correlation
-                                    QSqlQuery finerQuery(db);
-                                    finerQuery.prepare(
-                                        "SELECT grinder_setting, AVG(duration_seconds) FROM shots "
-                                        "WHERE grinder_model = :model AND beverage_type = :bev "
-                                        "AND grinder_setting IN (:min, :max) "
-                                        "AND duration_seconds > 5 "
-                                        "GROUP BY grinder_setting");
-                                    finerQuery.bindValue(":model", grinderModel);
-                                    finerQuery.bindValue(":bev", bev);
-                                    finerQuery.bindValue(":min", QString::number(numeric.first()));
-                                    finerQuery.bindValue(":max", QString::number(numeric.last()));
-                                    double avgDurAtMin = 0, avgDurAtMax = 0;
-                                    if (finerQuery.exec()) {
-                                        while (finerQuery.next()) {
-                                            double setting = finerQuery.value(0).toDouble();
-                                            double avgDur = finerQuery.value(1).toDouble();
-                                            if (qFuzzyCompare(setting, numeric.first()))
-                                                avgDurAtMin = avgDur;
-                                            else if (qFuzzyCompare(setting, numeric.last()))
-                                                avgDurAtMax = avgDur;
-                                        }
-                                    }
-                                    if (avgDurAtMin > 0 && avgDurAtMax > 0) {
-                                        bevCtx["finerDirection"] = (avgDurAtMin > avgDurAtMax) ? "lower" : "higher";
-                                    }
+                                if (avgDurAtMin > 0 && avgDurAtMax > 0) {
+                                    grinderCtx["finerDirection"] = (avgDurAtMin > avgDurAtMax) ? "lower" : "higher";
                                 }
-
-                                bevRanges[bev] = bevCtx;
                             }
-                            grinderCtx["beverageTypes"] = bevRanges;
 
                             result["grinderContext"] = grinderCtx;
                         }
