@@ -138,7 +138,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
         "control");
 
     // shots_delete
-    registry->registerTool(
+    registry->registerAsyncTool(
         "shots_delete",
         "Delete a shot by ID. This is permanent and cannot be undone.",
         QJsonObject{
@@ -149,30 +149,33 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             }},
             {"required", QJsonArray{"shotId"}}
         },
-        [shotHistory](const QJsonObject& args) -> QJsonObject {
-            QJsonObject result;
+        [shotHistory](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
-                result["error"] = "Shot history not available";
-                return result;
+                respond(QJsonObject{{"error", "Shot history not available"}});
+                return;
             }
 
             qint64 shotId = args["shotId"].toInteger();
             if (shotId <= 0) {
-                result["error"] = "Valid shotId is required";
-                return result;
+                respond(QJsonObject{{"error", "Valid shotId is required"}});
+                return;
             }
 
-            // requestDeleteShot is async — queues the delete on a background thread
-            shotHistory->requestDeleteShot(shotId);
+            // Connect to shotDeleted signal to respond after deletion completes
+            auto conn = std::make_shared<QMetaObject::Connection>();
+            *conn = QObject::connect(shotHistory, &ShotHistoryStorage::shotDeleted,
+                shotHistory, [respond, shotId, conn](qint64 deletedId) {
+                    if (deletedId != shotId) return;
+                    QObject::disconnect(*conn);
+                    respond(QJsonObject{{"success", true}, {"message", "Shot " + QString::number(shotId) + " deleted"}});
+                });
 
-            result["success"] = true;
-            result["message"] = "Shot " + QString::number(shotId) + " deletion queued";
-            return result;
+            shotHistory->requestDeleteShot(shotId);
         },
         "settings");
 
     // profiles_set_active
-    registry->registerTool(
+    registry->registerAsyncTool(
         "profiles_set_active",
         "Load and activate a profile on the machine by filename. "
         "IMPORTANT: Only call this when the user explicitly asks to change the active profile on the machine.",
@@ -184,36 +187,32 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             }},
             {"required", QJsonArray{"filename"}}
         },
-        [mainController](const QJsonObject& args) -> QJsonObject {
-            QJsonObject result;
+        [mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!mainController) {
-                result["error"] = "Controller not available";
-                return result;
+                respond(QJsonObject{{"error", "Controller not available"}});
+                return;
             }
 
             QString filename = args["filename"].toString();
             if (filename.isEmpty()) {
-                result["error"] = "filename is required";
-                return result;
+                respond(QJsonObject{{"error", "filename is required"}});
+                return;
             }
 
             if (!mainController->profileExists(filename)) {
-                result["error"] = "Profile not found: " + filename;
-                return result;
+                respond(QJsonObject{{"error", "Profile not found: " + filename}});
+                return;
             }
 
-            QMetaObject::invokeMethod(mainController, [mainController, filename]() {
+            QMetaObject::invokeMethod(mainController, [mainController, filename, respond]() {
                 mainController->loadProfile(filename);
+                respond(QJsonObject{{"success", true}, {"message", "Profile activated: " + filename}});
             }, Qt::QueuedConnection);
-
-            result["success"] = true;
-            result["message"] = "Profile activation queued: " + filename;
-            return result;
         },
         "settings");
 
     // settings_set
-    registry->registerTool(
+    registry->registerAsyncTool(
         "settings_set",
         "Update any app setting on the device. This is the tool to use when the user asks to change "
         "grind size (dyeGrinderSetting), dose weight (dyeBeanWeight), drink/yield weight (targetWeight), "
@@ -371,14 +370,16 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
         },
-        [mainController, settings, accessibility, screensaver, translation, battery](const QJsonObject& args) -> QJsonObject {
-            QJsonObject result;
+        [mainController, settings, accessibility, screensaver, translation, battery](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
-                result["error"] = "Settings not available";
-                return result;
+                respond(QJsonObject{{"error", "Settings not available"}});
+                return;
             }
 
             QStringList updated;
+            // Collect setter closures — executed together on the main thread after validation
+            QVector<std::function<void()>> setters;
+            auto addSetter = [&setters](std::function<void()> fn) { setters.append(std::move(fn)); };
 
             // === Espresso temperature / target weight (profile-aware) ===
             bool needsProfileUpdate = args.contains("espressoTemperature") || args.contains("targetWeight");
@@ -426,247 +427,247 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             // === Steam ===
             if (args.contains("steamTemperature")) {
                 double v = args["steamTemperature"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamTemperature(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setSteamTemperature(v); });
                 updated << "steamTemperature";
             }
             if (args.contains("steamTimeout")) {
                 int v = args["steamTimeout"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamTimeout(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setSteamTimeout(v); });
                 updated << "steamTimeout";
             }
             if (args.contains("steamFlowMlPerSec")) {
                 int v = static_cast<int>(args["steamFlowMlPerSec"].toDouble() * 100.0);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamFlow(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setSteamFlow(v); });
                 updated << "steamFlowMlPerSec";
             }
             if (args.contains("keepSteamHeaterOn")) {
                 bool v = args["keepSteamHeaterOn"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setKeepSteamHeaterOn(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setKeepSteamHeaterOn(v); });
                 updated << "keepSteamHeaterOn";
             }
             if (args.contains("steamAutoFlushSeconds")) {
                 int v = args["steamAutoFlushSeconds"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamAutoFlushSeconds(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setSteamAutoFlushSeconds(v); });
                 updated << "steamAutoFlushSeconds";
             }
             if (args.contains("steamTwoTapStop")) {
                 bool v = args["steamTwoTapStop"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamTwoTapStop(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setSteamTwoTapStop(v); });
                 updated << "steamTwoTapStop";
             }
 
             // === Hot water ===
             if (args.contains("waterTemperature")) {
                 double v = args["waterTemperature"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setWaterTemperature(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setWaterTemperature(v); });
                 updated << "waterTemperature";
             }
             if (args.contains("waterVolume")) {
                 int v = args["waterVolume"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setWaterVolume(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setWaterVolume(v); });
                 updated << "waterVolume";
             }
             if (args.contains("waterVolumeMode")) {
                 QString v = args["waterVolumeMode"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setWaterVolumeMode(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setWaterVolumeMode(v); });
                 updated << "waterVolumeMode";
             }
             if (args.contains("hotWaterFlowRateMlPerSec")) {
                 int v = static_cast<int>(args["hotWaterFlowRateMlPerSec"].toDouble() * 10.0);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHotWaterFlowRate(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setHotWaterFlowRate(v); });
                 updated << "hotWaterFlowRateMlPerSec";
             }
 
             // === Flush ===
             if (args.contains("flushFlowMlPerSec")) {
                 double v = args["flushFlowMlPerSec"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setFlushFlow(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setFlushFlow(v); });
                 updated << "flushFlowMlPerSec";
             }
             if (args.contains("flushSeconds")) {
                 double v = args["flushSeconds"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setFlushSeconds(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setFlushSeconds(v); });
                 updated << "flushSeconds";
             }
 
             // === DYE metadata ===
             if (args.contains("dyeBeanBrand")) {
                 QString v = args["dyeBeanBrand"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeBeanBrand(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeBeanBrand(v); });
                 updated << "dyeBeanBrand";
             }
             if (args.contains("dyeBeanType")) {
                 QString v = args["dyeBeanType"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeBeanType(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeBeanType(v); });
                 updated << "dyeBeanType";
             }
             if (args.contains("dyeRoastDate")) {
                 QString v = args["dyeRoastDate"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeRoastDate(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeRoastDate(v); });
                 updated << "dyeRoastDate";
             }
             if (args.contains("dyeRoastLevel")) {
                 QString v = args["dyeRoastLevel"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeRoastLevel(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeRoastLevel(v); });
                 updated << "dyeRoastLevel";
             }
             if (args.contains("dyeGrinderBrand")) {
                 QString v = args["dyeGrinderBrand"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeGrinderBrand(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeGrinderBrand(v); });
                 updated << "dyeGrinderBrand";
             }
             if (args.contains("dyeGrinderModel")) {
                 QString v = args["dyeGrinderModel"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeGrinderModel(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeGrinderModel(v); });
                 updated << "dyeGrinderModel";
             }
             if (args.contains("dyeGrinderBurrs")) {
                 QString v = args["dyeGrinderBurrs"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeGrinderBurrs(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeGrinderBurrs(v); });
                 updated << "dyeGrinderBurrs";
             }
             if (args.contains("dyeGrinderSetting")) {
                 QString v = args["dyeGrinderSetting"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeGrinderSetting(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeGrinderSetting(v); });
                 updated << "dyeGrinderSetting";
             }
             if (args.contains("dyeBeanWeight")) {
                 double v = args["dyeBeanWeight"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeBeanWeight(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeBeanWeight(v); });
                 updated << "dyeBeanWeight";
             }
             if (args.contains("dyeDrinkWeight")) {
                 double v = args["dyeDrinkWeight"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeDrinkWeight(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeDrinkWeight(v); });
                 updated << "dyeDrinkWeight";
             }
             if (args.contains("dyeDrinkTds")) {
                 double v = args["dyeDrinkTds"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeDrinkTds(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeDrinkTds(v); });
                 updated << "dyeDrinkTds";
             }
             if (args.contains("dyeDrinkEy")) {
                 double v = args["dyeDrinkEy"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeDrinkEy(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeDrinkEy(v); });
                 updated << "dyeDrinkEy";
             }
             if (args.contains("dyeEspressoEnjoyment")) {
                 int v = qBound(0, args["dyeEspressoEnjoyment"].toInt(), 100);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeEspressoEnjoyment(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeEspressoEnjoyment(v); });
                 updated << "dyeEspressoEnjoyment";
             }
             if (args.contains("dyeShotNotes")) {
                 QString v = args["dyeShotNotes"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeShotNotes(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeShotNotes(v); });
                 updated << "dyeShotNotes";
             }
             if (args.contains("dyeBarista")) {
                 QString v = args["dyeBarista"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDyeBarista(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDyeBarista(v); });
                 updated << "dyeBarista";
             }
 
             // === Preferences ===
             if (args.contains("themeMode")) {
                 QString v = args["themeMode"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setThemeMode(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setThemeMode(v); });
                 updated << "themeMode";
             }
             if (args.contains("darkThemeName")) {
                 QString v = args["darkThemeName"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDarkThemeName(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDarkThemeName(v); });
                 updated << "darkThemeName";
             }
             if (args.contains("lightThemeName")) {
                 QString v = args["lightThemeName"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setLightThemeName(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setLightThemeName(v); });
                 updated << "lightThemeName";
             }
             if (args.contains("autoSleepMinutes")) {
                 int v = args["autoSleepMinutes"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setValue("autoSleepMinutes", v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setValue("autoSleepMinutes", v); });
                 updated << "autoSleepMinutes";
             }
             if (args.contains("postShotReviewTimeout")) {
                 int v = args["postShotReviewTimeout"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setValue("postShotReviewTimeout", v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setValue("postShotReviewTimeout", v); });
                 updated << "postShotReviewTimeout";
             }
             if (args.contains("refillKitOverride")) {
                 int v = args["refillKitOverride"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setRefillKitOverride(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setRefillKitOverride(v); });
                 updated << "refillKitOverride";
             }
             if (args.contains("waterRefillPoint")) {
                 int v = args["waterRefillPoint"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setWaterRefillPoint(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setWaterRefillPoint(v); });
                 updated << "waterRefillPoint";
             }
             if (args.contains("waterLevelDisplayUnit")) {
                 QString v = args["waterLevelDisplayUnit"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setWaterLevelDisplayUnit(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setWaterLevelDisplayUnit(v); });
                 updated << "waterLevelDisplayUnit";
             }
             if (args.contains("useFlowScale")) {
                 bool v = args["useFlowScale"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setUseFlowScale(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setUseFlowScale(v); });
                 updated << "useFlowScale";
             }
             if (args.contains("screenBrightness")) {
                 double v = args["screenBrightness"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setScreenBrightness(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setScreenBrightness(v); });
                 updated << "screenBrightness";
             }
             if (args.contains("defaultShotRating")) {
                 int v = qBound(0, args["defaultShotRating"].toInt(), 100);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDefaultShotRating(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDefaultShotRating(v); });
                 updated << "defaultShotRating";
             }
             if (args.contains("headlessSkipPurgeConfirm")) {
                 bool v = args["headlessSkipPurgeConfirm"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeadlessSkipPurgeConfirm(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setHeadlessSkipPurgeConfirm(v); });
                 updated << "headlessSkipPurgeConfirm";
             }
             if (args.contains("launcherMode")) {
                 bool v = args["launcherMode"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setLauncherMode(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setLauncherMode(v); });
                 updated << "launcherMode";
             }
             if (args.contains("flowCalibrationMultiplier")) {
                 double v = args["flowCalibrationMultiplier"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setFlowCalibrationMultiplier(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setFlowCalibrationMultiplier(v); });
                 updated << "flowCalibrationMultiplier";
             }
             if (args.contains("autoFlowCalibration")) {
                 bool v = args["autoFlowCalibration"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoFlowCalibration(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoFlowCalibration(v); });
                 updated << "autoFlowCalibration";
             }
             if (args.contains("autoWakeEnabled")) {
                 bool v = args["autoWakeEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoWakeEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoWakeEnabled(v); });
                 updated << "autoWakeEnabled";
             }
             if (args.contains("autoWakeStayAwakeEnabled")) {
                 bool v = args["autoWakeStayAwakeEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoWakeStayAwakeEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoWakeStayAwakeEnabled(v); });
                 updated << "autoWakeStayAwakeEnabled";
             }
             if (args.contains("autoWakeStayAwakeMinutes")) {
                 int v = args["autoWakeStayAwakeMinutes"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoWakeStayAwakeMinutes(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoWakeStayAwakeMinutes(v); });
                 updated << "autoWakeStayAwakeMinutes";
             }
 
             // === Connections ===
             if (args.contains("usbSerialEnabled")) {
                 bool v = args["usbSerialEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setUsbSerialEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setUsbSerialEnabled(v); });
                 updated << "usbSerialEnabled";
             }
             if (args.contains("showScaleDialogs")) {
                 bool v = args["showScaleDialogs"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setShowScaleDialogs(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setShowScaleDialogs(v); });
                 updated << "showScaleDialogs";
             }
 
@@ -674,87 +675,87 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             if (screensaver) {
                 if (args.contains("screensaverType")) {
                     QString v = args["screensaverType"].toString();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setScreensaverType(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setScreensaverType(v); });
                     updated << "screensaverType";
                 }
                 if (args.contains("dimDelayMinutes")) {
                     int v = args["dimDelayMinutes"].toInt();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setDimDelayMinutes(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setDimDelayMinutes(v); });
                     updated << "dimDelayMinutes";
                 }
                 if (args.contains("dimPercent")) {
                     int v = args["dimPercent"].toInt();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setDimPercent(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setDimPercent(v); });
                     updated << "dimPercent";
                 }
                 if (args.contains("pipesSpeed")) {
                     double v = args["pipesSpeed"].toDouble();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setPipesSpeed(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setPipesSpeed(v); });
                     updated << "pipesSpeed";
                 }
                 if (args.contains("pipesCameraSpeed")) {
                     double v = args["pipesCameraSpeed"].toDouble();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setPipesCameraSpeed(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setPipesCameraSpeed(v); });
                     updated << "pipesCameraSpeed";
                 }
                 if (args.contains("pipesShowClock")) {
                     bool v = args["pipesShowClock"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setPipesShowClock(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setPipesShowClock(v); });
                     updated << "pipesShowClock";
                 }
                 if (args.contains("flipClockUse3D")) {
                     bool v = args["flipClockUse3D"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setFlipClockUse3D(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setFlipClockUse3D(v); });
                     updated << "flipClockUse3D";
                 }
                 if (args.contains("videosShowClock")) {
                     bool v = args["videosShowClock"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setVideosShowClock(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setVideosShowClock(v); });
                     updated << "videosShowClock";
                 }
                 if (args.contains("cacheEnabled")) {
                     bool v = args["cacheEnabled"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setCacheEnabled(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setCacheEnabled(v); });
                     updated << "cacheEnabled";
                 }
                 if (args.contains("attractorShowClock")) {
                     bool v = args["attractorShowClock"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setAttractorShowClock(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setAttractorShowClock(v); });
                     updated << "attractorShowClock";
                 }
                 if (args.contains("imageDisplayDuration")) {
                     int v = args["imageDisplayDuration"].toInt();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setImageDisplayDuration(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setImageDisplayDuration(v); });
                     updated << "imageDisplayDuration";
                 }
                 if (args.contains("showDateOnPersonal")) {
                     bool v = args["showDateOnPersonal"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setShowDateOnPersonal(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setShowDateOnPersonal(v); });
                     updated << "showDateOnPersonal";
                 }
                 if (args.contains("shotMapShape")) {
                     QString v = args["shotMapShape"].toString();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setShotMapShape(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setShotMapShape(v); });
                     updated << "shotMapShape";
                 }
                 if (args.contains("shotMapTexture")) {
                     QString v = args["shotMapTexture"].toString();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setShotMapTexture(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setShotMapTexture(v); });
                     updated << "shotMapTexture";
                 }
                 if (args.contains("shotMapShowClock")) {
                     bool v = args["shotMapShowClock"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setShotMapShowClock(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setShotMapShowClock(v); });
                     updated << "shotMapShowClock";
                 }
                 if (args.contains("shotMapShowProfiles")) {
                     bool v = args["shotMapShowProfiles"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setShotMapShowProfiles(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setShotMapShowProfiles(v); });
                     updated << "shotMapShowProfiles";
                 }
                 if (args.contains("shotMapShowTerminator")) {
                     bool v = args["shotMapShowTerminator"].toBool();
-                    QMetaObject::invokeMethod(screensaver, [screensaver, v]() { screensaver->setShotMapShowTerminator(v); }, Qt::QueuedConnection);
+                    addSetter([screensaver, v]() { screensaver->setShotMapShowTerminator(v); });
                     updated << "shotMapShowTerminator";
                 }
             }
@@ -763,42 +764,42 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             if (accessibility) {
                 if (args.contains("accessibilityEnabled")) {
                     bool v = args["accessibilityEnabled"].toBool();
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setEnabled(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setEnabled(v); });
                     updated << "accessibilityEnabled";
                 }
                 if (args.contains("ttsEnabled")) {
                     bool v = args["ttsEnabled"].toBool();
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setTtsEnabled(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setTtsEnabled(v); });
                     updated << "ttsEnabled";
                 }
                 if (args.contains("tickEnabled")) {
                     bool v = args["tickEnabled"].toBool();
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setTickEnabled(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setTickEnabled(v); });
                     updated << "tickEnabled";
                 }
                 if (args.contains("tickSoundIndex")) {
                     int v = args["tickSoundIndex"].toInt();
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setTickSoundIndex(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setTickSoundIndex(v); });
                     updated << "tickSoundIndex";
                 }
                 if (args.contains("tickVolume")) {
                     int v = qBound(0, args["tickVolume"].toInt(), 100);
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setTickVolume(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setTickVolume(v); });
                     updated << "tickVolume";
                 }
                 if (args.contains("extractionAnnouncementsEnabled")) {
                     bool v = args["extractionAnnouncementsEnabled"].toBool();
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setExtractionAnnouncementsEnabled(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setExtractionAnnouncementsEnabled(v); });
                     updated << "extractionAnnouncementsEnabled";
                 }
                 if (args.contains("extractionAnnouncementMode")) {
                     QString v = args["extractionAnnouncementMode"].toString();
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setExtractionAnnouncementMode(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setExtractionAnnouncementMode(v); });
                     updated << "extractionAnnouncementMode";
                 }
                 if (args.contains("extractionAnnouncementInterval")) {
                     int v = args["extractionAnnouncementInterval"].toInt();
-                    QMetaObject::invokeMethod(accessibility, [accessibility, v]() { accessibility->setExtractionAnnouncementInterval(v); }, Qt::QueuedConnection);
+                    addSetter([accessibility, v]() { accessibility->setExtractionAnnouncementInterval(v); });
                     updated << "extractionAnnouncementInterval";
                 }
             }
@@ -806,94 +807,94 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             // === AI ===
             if (args.contains("aiProvider")) {
                 QString v = args["aiProvider"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAiProvider(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAiProvider(v); });
                 updated << "aiProvider";
             }
             if (args.contains("mcpEnabled")) {
                 bool v = args["mcpEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMcpEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMcpEnabled(v); });
                 updated << "mcpEnabled";
             }
             if (args.contains("mcpAccessLevel")) {
                 int v = qBound(0, args["mcpAccessLevel"].toInt(), 2);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMcpAccessLevel(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMcpAccessLevel(v); });
                 updated << "mcpAccessLevel";
             }
             if (args.contains("mcpConfirmationLevel")) {
                 int v = qBound(0, args["mcpConfirmationLevel"].toInt(), 2);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMcpConfirmationLevel(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMcpConfirmationLevel(v); });
                 updated << "mcpConfirmationLevel";
             }
             if (args.contains("discussShotApp")) {
                 int v = qBound(0, args["discussShotApp"].toInt(), 5);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDiscussShotApp(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDiscussShotApp(v); });
                 updated << "discussShotApp";
             }
             if (args.contains("discussShotCustomUrl")) {
                 QString v = args["discussShotCustomUrl"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDiscussShotCustomUrl(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDiscussShotCustomUrl(v); });
                 updated << "discussShotCustomUrl";
             }
             if (args.contains("ollamaEndpoint")) {
                 QString v = args["ollamaEndpoint"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setOllamaEndpoint(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setOllamaEndpoint(v); });
                 updated << "ollamaEndpoint";
             }
             if (args.contains("ollamaModel")) {
                 QString v = args["ollamaModel"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setOllamaModel(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setOllamaModel(v); });
                 updated << "ollamaModel";
             }
             if (args.contains("openrouterModel")) {
                 QString v = args["openrouterModel"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setOpenrouterModel(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setOpenrouterModel(v); });
                 updated << "openrouterModel";
             }
 
             // === MQTT ===
             if (args.contains("mqttEnabled")) {
                 bool v = args["mqttEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttEnabled(v); });
                 updated << "mqttEnabled";
             }
             if (args.contains("mqttBrokerHost")) {
                 QString v = args["mqttBrokerHost"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttBrokerHost(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttBrokerHost(v); });
                 updated << "mqttBrokerHost";
             }
             if (args.contains("mqttBrokerPort")) {
                 int v = args["mqttBrokerPort"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttBrokerPort(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttBrokerPort(v); });
                 updated << "mqttBrokerPort";
             }
             if (args.contains("mqttUsername")) {
                 QString v = args["mqttUsername"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttUsername(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttUsername(v); });
                 updated << "mqttUsername";
             }
             if (args.contains("mqttBaseTopic")) {
                 QString v = args["mqttBaseTopic"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttBaseTopic(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttBaseTopic(v); });
                 updated << "mqttBaseTopic";
             }
             if (args.contains("mqttPublishInterval")) {
                 int v = args["mqttPublishInterval"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttPublishInterval(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttPublishInterval(v); });
                 updated << "mqttPublishInterval";
             }
             if (args.contains("mqttRetainMessages")) {
                 bool v = args["mqttRetainMessages"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttRetainMessages(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttRetainMessages(v); });
                 updated << "mqttRetainMessages";
             }
             if (args.contains("mqttHomeAssistantDiscovery")) {
                 bool v = args["mqttHomeAssistantDiscovery"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttHomeAssistantDiscovery(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttHomeAssistantDiscovery(v); });
                 updated << "mqttHomeAssistantDiscovery";
             }
             if (args.contains("mqttClientId")) {
                 QString v = args["mqttClientId"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setMqttClientId(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setMqttClientId(v); });
                 updated << "mqttClientId";
             }
             // mqttPassword excluded — sensitive
@@ -901,39 +902,39 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             // === Themes ===
             if (args.contains("activeThemeName")) {
                 QString v = args["activeThemeName"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setActiveThemeName(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setActiveThemeName(v); });
                 updated << "activeThemeName";
             }
             if (args.contains("activeShader")) {
                 QString v = args["activeShader"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setActiveShader(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setActiveShader(v); });
                 updated << "activeShader";
             }
 
             // === Visualizer ===
             if (args.contains("visualizerAutoUpload")) {
                 bool v = args["visualizerAutoUpload"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setVisualizerAutoUpload(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setVisualizerAutoUpload(v); });
                 updated << "visualizerAutoUpload";
             }
             if (args.contains("visualizerMinDuration")) {
                 double v = args["visualizerMinDuration"].toDouble();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setVisualizerMinDuration(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setVisualizerMinDuration(v); });
                 updated << "visualizerMinDuration";
             }
             if (args.contains("visualizerExtendedMetadata")) {
                 bool v = args["visualizerExtendedMetadata"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setVisualizerExtendedMetadata(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setVisualizerExtendedMetadata(v); });
                 updated << "visualizerExtendedMetadata";
             }
             if (args.contains("visualizerShowAfterShot")) {
                 bool v = args["visualizerShowAfterShot"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setVisualizerShowAfterShot(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setVisualizerShowAfterShot(v); });
                 updated << "visualizerShowAfterShot";
             }
             if (args.contains("visualizerClearNotesOnStart")) {
                 bool v = args["visualizerClearNotesOnStart"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setVisualizerClearNotesOnStart(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setVisualizerClearNotesOnStart(v); });
                 updated << "visualizerClearNotesOnStart";
             }
             // visualizerUsername/Password excluded — sensitive
@@ -941,122 +942,133 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             // === Update ===
             if (args.contains("autoCheckUpdates")) {
                 bool v = args["autoCheckUpdates"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoCheckUpdates(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoCheckUpdates(v); });
                 updated << "autoCheckUpdates";
             }
             if (args.contains("betaUpdatesEnabled")) {
                 bool v = args["betaUpdatesEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setBetaUpdatesEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setBetaUpdatesEnabled(v); });
                 updated << "betaUpdatesEnabled";
             }
 
             // === Data ===
             if (args.contains("webSecurityEnabled")) {
                 bool v = args["webSecurityEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setWebSecurityEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setWebSecurityEnabled(v); });
                 updated << "webSecurityEnabled";
             }
             if (args.contains("dailyBackupHour")) {
                 int v = qBound(0, args["dailyBackupHour"].toInt(), 23);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setDailyBackupHour(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setDailyBackupHour(v); });
                 updated << "dailyBackupHour";
             }
             if (args.contains("shotServerEnabled")) {
                 bool v = args["shotServerEnabled"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setShotServerEnabled(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setShotServerEnabled(v); });
                 updated << "shotServerEnabled";
             }
             if (args.contains("shotServerPort")) {
                 int v = args["shotServerPort"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setShotServerPort(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setShotServerPort(v); });
                 updated << "shotServerPort";
             }
 
             // === History ===
             if (args.contains("shotHistorySortField")) {
                 QString v = args["shotHistorySortField"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setShotHistorySortField(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setShotHistorySortField(v); });
                 updated << "shotHistorySortField";
             }
             if (args.contains("shotHistorySortDirection")) {
                 QString v = args["shotHistorySortDirection"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setShotHistorySortDirection(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setShotHistorySortDirection(v); });
                 updated << "shotHistorySortDirection";
             }
 
             // === Language ===
             if (translation && args.contains("currentLanguage")) {
                 QString v = args["currentLanguage"].toString();
-                QMetaObject::invokeMethod(translation, [translation, v]() { translation->setCurrentLanguage(v); }, Qt::QueuedConnection);
+                addSetter([translation, v]() { translation->setCurrentLanguage(v); });
                 updated << "currentLanguage";
             }
 
             // === Debug ===
             if (args.contains("simulationMode")) {
                 bool v = args["simulationMode"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSimulationMode(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setSimulationMode(v); });
                 updated << "simulationMode";
             }
 
             // === Battery ===
             if (battery && args.contains("chargingMode")) {
                 int v = args["chargingMode"].toInt();
-                QMetaObject::invokeMethod(battery, [battery, v]() { battery->setChargingMode(v); }, Qt::QueuedConnection);
+                addSetter([battery, v]() { battery->setChargingMode(v); });
                 updated << "chargingMode";
             }
 
             // === Heater calibration (display units × 10 = internal storage) ===
             if (args.contains("heaterIdleTempC")) {
                 int v = static_cast<int>(args["heaterIdleTempC"].toDouble() * 10.0);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterIdleTemp(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setHeaterIdleTemp(v); });
                 updated << "heaterIdleTempC";
             }
             if (args.contains("heaterWarmupFlowMlPerSec")) {
                 int v = static_cast<int>(args["heaterWarmupFlowMlPerSec"].toDouble() * 10.0);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterWarmupFlow(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setHeaterWarmupFlow(v); });
                 updated << "heaterWarmupFlowMlPerSec";
             }
             if (args.contains("heaterTestFlowMlPerSec")) {
                 int v = static_cast<int>(args["heaterTestFlowMlPerSec"].toDouble() * 10.0);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterTestFlow(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setHeaterTestFlow(v); });
                 updated << "heaterTestFlowMlPerSec";
             }
             if (args.contains("heaterWarmupTimeoutSec")) {
                 int v = static_cast<int>(args["heaterWarmupTimeoutSec"].toDouble() * 10.0);
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterWarmupTimeout(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setHeaterWarmupTimeout(v); });
                 updated << "heaterWarmupTimeoutSec";
             }
 
             // === Auto-favorites ===
             if (args.contains("autoFavoritesGroupBy")) {
                 QString v = args["autoFavoritesGroupBy"].toString();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoFavoritesGroupBy(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoFavoritesGroupBy(v); });
                 updated << "autoFavoritesGroupBy";
             }
             if (args.contains("autoFavoritesMaxItems")) {
                 int v = args["autoFavoritesMaxItems"].toInt();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoFavoritesMaxItems(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoFavoritesMaxItems(v); });
                 updated << "autoFavoritesMaxItems";
             }
             if (args.contains("autoFavoritesOpenBrewSettings")) {
                 bool v = args["autoFavoritesOpenBrewSettings"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoFavoritesOpenBrewSettings(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoFavoritesOpenBrewSettings(v); });
                 updated << "autoFavoritesOpenBrewSettings";
             }
             if (args.contains("autoFavoritesHideUnrated")) {
                 bool v = args["autoFavoritesHideUnrated"].toBool();
-                QMetaObject::invokeMethod(settings, [settings, v]() { settings->setAutoFavoritesHideUnrated(v); }, Qt::QueuedConnection);
+                addSetter([settings, v]() { settings->setAutoFavoritesHideUnrated(v); });
                 updated << "autoFavoritesHideUnrated";
             }
 
             if (updated.isEmpty()) {
-                result["error"] = "No valid settings provided";
-                return result;
+                respond(QJsonObject{{"error", "No valid settings provided"}});
+                return;
             }
 
+            QJsonObject result;
             result["success"] = true;
             result["updated"] = QJsonArray::fromStringList(updated);
-            return result;
+
+            if (setters.isEmpty()) {
+                // All changes were synchronous (e.g., profile temperature/weight)
+                respond(result);
+            } else {
+                // Execute all setters on the main thread, then respond
+                QMetaObject::invokeMethod(qApp, [setters, respond, result]() {
+                    for (const auto& setter : setters) setter();
+                    respond(result);
+                }, Qt::QueuedConnection);
+            }
         },
         "settings");
 
