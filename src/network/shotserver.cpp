@@ -1090,10 +1090,29 @@ if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
     }
 }
 
-$configDir = "$env:APPDATA\Claude"
+# Detect config path - Windows Store vs standard installation
+$configDir = $null
+$storeDir = Get-ChildItem "$env:LOCALAPPDATA\Packages" -Directory -Filter "Claude_*" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($storeDir) {
+    $storeConfigDir = Join-Path $storeDir.FullName "LocalCache\Roaming\Claude"
+    if (Test-Path (Join-Path $storeConfigDir "claude_desktop_config.json")) {
+        $configDir = $storeConfigDir
+    }
+}
+if (-not $configDir -and (Test-Path "$env:APPDATA\Claude\claude_desktop_config.json")) {
+    $configDir = "$env:APPDATA\Claude"
+}
+if (-not $configDir) {
+    # Neither config exists yet - prefer Store path if Store is installed, else standard
+    if ($storeDir) {
+        $configDir = Join-Path $storeDir.FullName "LocalCache\Roaming\Claude"
+        Write-Host "Detected Windows Store installation of Claude Desktop" -ForegroundColor Cyan
+    } else {
+        $configDir = "$env:APPDATA\Claude"
+    }
+}
 if (-not (Test-Path $configDir)) {
-    Write-Host "Config directory not found: $configDir" -ForegroundColor Yellow
-    Write-Host "Creating it now..."
+    Write-Host "Creating config directory: $configDir"
     New-Item -ItemType Directory -Path $configDir -Force | Out-Null
 }
 $configPath = "$configDir\claude_desktop_config.json"
@@ -1111,6 +1130,23 @@ $decenza = @{
 $config.mcpServers | Add-Member -NotePropertyName decenza -NotePropertyValue $decenza -Force
 $config | ConvertTo-Json -Depth 10 | Set-Content $configPath
 Write-Host "Config updated: $configPath"
+
+# Clean up stale config from wrong path (old script wrote to %APPDATA% for MSIX installs)
+if ($storeDir) {
+    $wrongPath = "$env:APPDATA\Claude\claude_desktop_config.json"
+    if ($configPath -ne $wrongPath -and (Test-Path $wrongPath)) {
+        $wrongConfig = Get-Content $wrongPath | ConvertFrom-Json
+        if ($wrongConfig.mcpServers -and $wrongConfig.mcpServers.decenza) {
+            $wrongConfig.mcpServers.PSObject.Properties.Remove('decenza')
+            if (($wrongConfig.mcpServers.PSObject.Properties | Measure-Object).Count -eq 0) {
+                $wrongConfig.PSObject.Properties.Remove('mcpServers')
+            }
+            $wrongConfig | ConvertTo-Json -Depth 10 | Set-Content $wrongPath
+            Write-Host "Cleaned up stale config from: $wrongPath" -ForegroundColor Yellow
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "Done! Restart Claude Desktop and ask:"
 Write-Host '  "What is the state of my espresso machine?"'
@@ -1188,8 +1224,17 @@ echo "Done! Restart Claude Desktop to apply."
             QString script = R"PS1(
 Write-Host "Removing Decenza MCP from Claude Desktop..."
 
-$configPath = "$env:APPDATA\Claude\claude_desktop_config.json"
-if (-not (Test-Path $configPath)) {
+# Detect config path - Windows Store vs standard installation
+$configPath = $null
+$storeDir = Get-ChildItem "$env:LOCALAPPDATA\Packages" -Directory -Filter "Claude_*" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($storeDir) {
+    $storePath = Join-Path $storeDir.FullName "LocalCache\Roaming\Claude\claude_desktop_config.json"
+    if (Test-Path $storePath) { $configPath = $storePath }
+}
+if (-not $configPath -and (Test-Path "$env:APPDATA\Claude\claude_desktop_config.json")) {
+    $configPath = "$env:APPDATA\Claude\claude_desktop_config.json"
+}
+if (-not $configPath) {
     Write-Host "Claude Desktop config not found - nothing to remove."
     exit 0
 }
