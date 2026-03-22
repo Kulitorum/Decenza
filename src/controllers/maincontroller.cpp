@@ -3096,6 +3096,9 @@ void MainController::onShotEnded() {
         : m_shotDataModel->rawTime();
 
     double doseWeight = m_settings->dyeBeanWeight();
+    // If DYE dose is unset (0), fall back to profile's recommended dose
+    if (doseWeight <= 0 && m_currentProfile.hasRecommendedDose())
+        doseWeight = m_currentProfile.recommendedDose();
 
     // Get final weight — use actual scale data if available, estimate from volume only
     // when no scale data was recorded at all (no scale connected)

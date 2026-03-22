@@ -315,6 +315,15 @@ void DE1Simulator::onSimulationTimerTick()
         // Simple steam simulation
         m_steamTemp = 140.0 + fractalNoise(elapsed * 0.5, 2) * 3.0;
         m_pressure = 1.5 + fractalNoise(elapsed * 2.0, 2) * 0.3;
+
+        // Emit shot samples so DE1Device.steamTemperature updates in QML
+        if (m_tickCount % 2 == 0) {
+            ShotSample sample;
+            sample.timestamp = QDateTime::currentMSecsSinceEpoch();
+            sample.steamTemp = m_steamTemp;
+            sample.groupPressure = m_pressure;
+            emit shotSampleReceived(sample);
+        }
     } else if (m_state == DE1::State::HotWater || m_state == DE1::State::HotWaterRinse) {
         // Simple hot water / flush simulation
         m_flow = 40.0 + fractalNoise(elapsed * 1.0, 2) * 5.0;
