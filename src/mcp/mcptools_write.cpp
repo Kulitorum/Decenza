@@ -408,6 +408,14 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                     }
                     mainController->uploadRecipeProfile(currentParams);
                 }
+
+                // Sync QSettings so settings_get reads back the updated values.
+                // uploadRecipeProfile/uploadProfile update the profile object but
+                // don't write to QSettings (issue #527).
+                if (args.contains("espressoTemperature") && settings)
+                    settings->setEspressoTemperature(args["espressoTemperature"].toDouble());
+                if (args.contains("targetWeight") && settings)
+                    settings->setTargetWeight(args["targetWeight"].toDouble());
             }
 
             // === Steam ===
