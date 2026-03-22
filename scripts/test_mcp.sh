@@ -337,14 +337,14 @@ assert_ok "machine_get_state returns firmwareVersion" "$STATE" \
 
 TELEM_RAW=$(rpc 21 "tools/call" '{"name":"machine_get_telemetry","arguments":{}}')
 TELEM=$(echo "$TELEM_RAW" | parse_tool_result)
-assert_ok "machine_get_telemetry returns pressure" "$TELEM" \
-    "'pressure' in d"
-assert_ok "machine_get_telemetry returns flow" "$TELEM" \
-    "'flow' in d"
-assert_ok "machine_get_telemetry returns temperature" "$TELEM" \
-    "'temperature' in d"
-assert_ok "machine_get_telemetry returns scaleWeight" "$TELEM" \
-    "'scaleWeight' in d"
+assert_ok "machine_get_telemetry returns pressureBar" "$TELEM" \
+    "'pressureBar' in d"
+assert_ok "machine_get_telemetry returns flowMlPerSec" "$TELEM" \
+    "'flowMlPerSec' in d"
+assert_ok "machine_get_telemetry returns temperatureC" "$TELEM" \
+    "'temperatureC' in d"
+assert_ok "machine_get_telemetry returns scaleWeightG" "$TELEM" \
+    "'scaleWeightG' in d"
 
 echo
 
@@ -376,9 +376,9 @@ d = json.loads(sys.stdin.read())
 print(json.dumps(d['shots'][0]))
 " 2>/dev/null)
     assert_ok "shot has profileName" "$FIRST_SHOT" "'profileName' in d"
-    assert_ok "shot has dose" "$FIRST_SHOT" "'dose' in d"
-    assert_ok "shot has yield" "$FIRST_SHOT" "'yield' in d"
-    assert_ok "shot has duration" "$FIRST_SHOT" "'duration' in d"
+    assert_ok "shot has doseG" "$FIRST_SHOT" "'doseG' in d"
+    assert_ok "shot has yieldG" "$FIRST_SHOT" "'yieldG' in d"
+    assert_ok "shot has durationSec" "$FIRST_SHOT" "'durationSec' in d"
     assert_ok "shot has timestamp" "$FIRST_SHOT" "'timestamp' in d"
 
     # Detail
@@ -448,8 +448,8 @@ assert_ok "profiles_get_active returns title" "$ACTIVE" \
     "'title' in d"
 assert_ok "profiles_get_active returns editorType" "$ACTIVE" \
     "'editorType' in d and len(d['editorType']) > 0"
-assert_ok "profiles_get_active returns targetWeight" "$ACTIVE" \
-    "'targetWeight' in d"
+assert_ok "profiles_get_active returns targetWeightG" "$ACTIVE" \
+    "'targetWeightG' in d"
 
 # profiles_get_params — editor-type-aware
 PARAMS_RAW=$(rpc 44 "tools/call" '{"name":"profiles_get_params","arguments":{}}')
@@ -490,12 +490,12 @@ echo -e "${CYAN}6. Settings${NC}"
 
 SETTINGS_RAW=$(rpc 50 "tools/call" '{"name":"settings_get","arguments":{}}')
 SETTINGS=$(echo "$SETTINGS_RAW" | parse_tool_result)
-assert_ok "settings_get returns espressoTemperature" "$SETTINGS" \
-    "'espressoTemperature' in d"
-assert_ok "settings_get returns targetWeight" "$SETTINGS" \
-    "'targetWeight' in d"
-assert_ok "settings_get returns steamTemperature" "$SETTINGS" \
-    "'steamTemperature' in d"
+assert_ok "settings_get returns espressoTemperatureC" "$SETTINGS" \
+    "'espressoTemperatureC' in d"
+assert_ok "settings_get returns targetWeightG" "$SETTINGS" \
+    "'targetWeightG' in d"
+assert_ok "settings_get returns steamTemperatureC" "$SETTINGS" \
+    "'steamTemperatureC' in d"
 assert_ok "settings_get returns DYE metadata" "$SETTINGS" \
     "'dyeBeanBrand' in d"
 
@@ -503,9 +503,9 @@ assert_ok "settings_get returns DYE metadata" "$SETTINGS" \
 FILTERED_SET_RAW=$(rpc 51 "tools/call" '{"name":"settings_get","arguments":{"keys":["espressoTemperature","targetWeight"]}}')
 FILTERED_SET=$(echo "$FILTERED_SET_RAW" | parse_tool_result)
 assert_ok "settings_get with keys filter works" "$FILTERED_SET" \
-    "'espressoTemperature' in d and 'targetWeight' in d"
+    "'espressoTemperatureC' in d and 'targetWeightG' in d"
 assert_ok "settings_get filter excludes other keys" "$FILTERED_SET" \
-    "'steamTemperature' not in d"
+    "'steamTemperatureC' not in d"
 
 echo
 
@@ -659,8 +659,8 @@ echo -e "${CYAN}10. Scale Tools${NC}"
 
 WEIGHT_RAW=$(rpc 96 "tools/call" '{"name":"scale_get_weight","arguments":{}}')
 WEIGHT=$(echo "$WEIGHT_RAW" | parse_tool_result)
-assert_ok "scale_get_weight returns weight or error" "$WEIGHT" \
-    "'weight' in d or 'error' in d"
+assert_ok "scale_get_weight returns weightG or error" "$WEIGHT" \
+    "'weightG' in d or 'error' in d"
 
 TARE_RAW=$(rpc 97 "tools/call" '{"name":"scale_tare","arguments":{}}')
 TARE=$(echo "$TARE_RAW" | parse_tool_result)

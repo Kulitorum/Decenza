@@ -47,7 +47,7 @@ Expect: phase exists, connected=true, waterLevelMl > 0, firmwareVersion non-empt
 ### 1.2 machine_get_telemetry
 ```
 Call: machine_get_telemetry
-Expect: temperature > 0, pressure/flow/weight are numbers
+Expect: temperatureC > 0, pressureBar/flowMlPerSec/scaleWeightG are numbers
 ```
 
 ## 2. Machine Control
@@ -100,7 +100,7 @@ Verify: editorType values include at least "pressure", "flow", "dflow", "aflow",
 ### 3.2 profiles_get_active
 ```
 Call: profiles_get_active
-Expect: filename non-empty, editorType non-empty, modified is boolean, targetWeight > 0
+Expect: filename non-empty, editorType non-empty, modified is boolean, targetWeightG > 0
 Save: note the filename and editorType as ORIGINAL_PROFILE and ORIGINAL_EDITOR
 ```
 
@@ -273,7 +273,7 @@ Expect: error — tool not found (removed in phase 15)
 ### 5.1 settings_get
 ```
 Call: settings_get
-Expect: espressoTemperature, targetWeight, steamTemperature, waterTemperature, dyeBeanBrand all present
+Expect: espressoTemperatureC, targetWeightG, steamTemperatureC, waterTemperatureC, dyeBeanBrand all present
 Save: note dyeBeanBrand as ORIGINAL_BRAND, dyeGrinderSetting as ORIGINAL_GRIND
 ```
 
