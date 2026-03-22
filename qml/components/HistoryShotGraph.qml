@@ -263,10 +263,10 @@ ChartView {
         for (var i = 0; i < weightFlowRateData.length; i++) {
             if (weightFlowRateData[i].y > maxVal) maxVal = weightFlowRateData[i].y
         }
-        for (var i = 0; i < pressureGoalData.length; i++) {
+        for (i = 0; i < pressureGoalData.length; i++) {
             if (pressureGoalData[i].y > maxVal) maxVal = pressureGoalData[i].y
         }
-        for (var i = 0; i < flowGoalData.length; i++) {
+        for (i = 0; i < flowGoalData.length; i++) {
             if (flowGoalData[i].y > maxVal) maxVal = flowGoalData[i].y
         }
         // Resistance excluded from axis scaling — values are clamped at source
@@ -559,7 +559,8 @@ ChartView {
             height: Theme.scaled(4)
             color: isFlowMode ? Theme.flowColor : Theme.pressureColor
             opacity: 0.8
-            visible: markerTime <= timeAxis.max && modelData.label !== "Start"
+            visible: markerTime <= timeAxis.max && modelData.label !== "Start" && modelData.label !== "End"
+            Accessible.ignored: true
         }
     }
 
@@ -567,7 +568,7 @@ ChartView {
     Text {
         x: chart.plotArea.x + chart.plotArea.width - width - Theme.spacingSmall
         y: chart.plotArea.y + chart.plotArea.height - height - Theme.scaled(12)
-        text: "Time (s)"
+        text: TranslationManager.translate("graph.timeAxis", "Time (s)")
         color: Theme.textSecondaryColor
         font: Theme.captionFont
         opacity: 0.7

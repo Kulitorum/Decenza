@@ -263,6 +263,7 @@ Page {
                         }
                         onReleased: {
                             Settings.setValue("autoFavoriteInfo/graphHeight", autoFavoriteInfoPage.graphHeight)
+                            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
                         }
                     }
                 }

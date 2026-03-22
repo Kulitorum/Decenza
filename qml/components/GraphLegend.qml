@@ -39,7 +39,13 @@ Item {
                 Accessible.name: modelData.label
                 Accessible.checked: legendRoot.graph[modelData.key] ?? false
                 Accessible.focusable: true
-                Accessible.onPressAction: legendItemArea.pressed(null)
+                Accessible.onPressAction: toggleVisibility()
+
+                function toggleVisibility() {
+                    var newValue = !legendRoot.graph[modelData.key]
+                    legendRoot.graph[modelData.key] = newValue
+                    Settings.setValue("graph/" + modelData.key, newValue)
+                }
 
                 Row {
                     id: legendItemRow
@@ -59,14 +65,8 @@ Item {
                 MouseArea {
                     id: legendItemArea
                     anchors.fill: parent
-                    // Use onPressed instead of onClicked — fires immediately before
-                    // the parent Flickable can steal the event for scrolling
-                    onPressed: function(mouse) {
-                        mouse.accepted = true
-                        var newValue = !legendRoot.graph[modelData.key]
-                        legendRoot.graph[modelData.key] = newValue
-                        Settings.setValue("graph/" + modelData.key, newValue)
-                    }
+                    preventStealing: true
+                    onClicked: toggleVisibility()
                 }
             }
         }
