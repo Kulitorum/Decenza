@@ -14,6 +14,7 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSet>
 #include <QJsonDocument>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -136,18 +137,19 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         gQuery.bindValue(":bev", beverageType);
                         if (gQuery.exec()) {
                             QJsonArray settingsArr;
-                            QList<double> numeric;
+                            QSet<double> numericSet;
                             bool allNumeric = true;
+                            bool hasAny = false;
 
                             while (gQuery.next()) {
                                 QString s = gQuery.value(0).toString().trimmed();
                                 if (s.isEmpty()) continue;
+                                hasAny = true;
                                 settingsArr.append(s);
                                 bool ok;
                                 double v = s.toDouble(&ok);
                                 if (ok) {
-                                    if (!numeric.contains(v))
-                                        numeric.append(v);
+                                    numericSet.insert(v);
                                 } else {
                                     allNumeric = false;
                                 }
@@ -157,8 +159,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             grinderCtx["model"] = grinderModel;
                             grinderCtx["beverageType"] = beverageType;
                             grinderCtx["settingsObserved"] = settingsArr;
-                            grinderCtx["isNumeric"] = allNumeric;
+                            if (hasAny) grinderCtx["isNumeric"] = allNumeric;
 
+                            QList<double> numeric(numericSet.begin(), numericSet.end());
                             if (allNumeric && numeric.size() >= 2) {
                                 std::sort(numeric.begin(), numeric.end());
                                 grinderCtx["minSetting"] = numeric.first();
@@ -190,7 +193,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             QJsonObject shotSummary;
             shotSummary["profileName"] = shotData["profileName"].toString();
             shotSummary["doseG"] = shotData["doseWeight"].toDouble();
-            shotSummary["yieldG"] = shotData["drinkWeight"].toDouble();
+            shotSummary["yieldG"] = shotData["finalWeight"].toDouble();
             shotSummary["durationSec"] = shotData["duration"].toDouble();
             shotSummary["enjoyment0to100"] = shotData["enjoyment"].toInt();
             shotSummary["notes"] = shotData["espressoNotes"].toString();
@@ -201,7 +204,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             shotSummary["grinderSetting"] = shotData["grinderSetting"].toString();
             shotSummary["grinderBurrs"] = shotData["grinderBurrs"].toString();
             double dose = shotData["doseWeight"].toDouble();
-            double yield = shotData["drinkWeight"].toDouble();
+            double yield = shotData["finalWeight"].toDouble();
             if (dose > 0)
                 shotSummary["ratio"] = QString("1:%1").arg(yield / dose, 0, 'f', 2);
             result["shot"] = shotSummary;

@@ -226,7 +226,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 // Steam
                 {"steamTemperature", QJsonObject{{"type", "number"}, {"description", "Steam temperature in Celsius"}}},
                 {"steamTimeout", QJsonObject{{"type", "integer"}, {"description", "Steam timeout in seconds"}}},
-                {"steamFlow", QJsonObject{{"type", "integer"}, {"description", "Steam flow setting"}}},
+                {"steamFlowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Steam flow rate in mL/s"}}},
                 {"keepSteamHeaterOn", QJsonObject{{"type", "boolean"}, {"description", "Keep steam heater on between operations"}}},
                 {"steamAutoFlushSeconds", QJsonObject{{"type", "integer"}, {"description", "Auto-flush after steam (0 to disable)"}}},
                 {"steamTwoTapStop", QJsonObject{{"type", "boolean"}, {"description", "Require two taps to stop steaming"}}},
@@ -234,9 +234,9 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"waterTemperature", QJsonObject{{"type", "number"}, {"description", "Hot water temperature in Celsius"}}},
                 {"waterVolume", QJsonObject{{"type", "integer"}, {"description", "Hot water volume in ml"}}},
                 {"waterVolumeMode", QJsonObject{{"type", "string"}, {"description", "Hot water mode: 'weight' or 'volume'"}}},
-                {"hotWaterFlowRate", QJsonObject{{"type", "integer"}, {"description", "Hot water flow rate"}}},
+                {"hotWaterFlowRateMlPerSec", QJsonObject{{"type", "number"}, {"description", "Hot water flow rate in mL/s (0.5-10.0)"}}},
                 // Flush
-                {"flushFlow", QJsonObject{{"type", "number"}, {"description", "Flush flow rate"}}},
+                {"flushFlowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Flush flow rate in mL/s (0-10)"}}},
                 {"flushSeconds", QJsonObject{{"type", "number"}, {"description", "Flush duration in seconds"}}},
                 // DYE metadata
                 {"dyeBeanBrand", QJsonObject{{"type", "string"}, {"description", "Bean brand"}}},
@@ -349,11 +349,11 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"simulationMode", QJsonObject{{"type", "boolean"}, {"description", "Enable DE1 simulator"}}},
                 // Battery
                 {"chargingMode", QJsonObject{{"type", "integer"}, {"description", "Smart charging mode"}}},
-                // Heater calibration
-                {"heaterIdleTemp", QJsonObject{{"type", "integer"}, {"description", "Heater idle temperature (raw firmware units)"}}},
-                {"heaterWarmupFlow", QJsonObject{{"type", "integer"}, {"description", "Heater warmup flow (raw firmware units)"}}},
-                {"heaterTestFlow", QJsonObject{{"type", "integer"}, {"description", "Heater test flow (raw firmware units)"}}},
-                {"heaterWarmupTimeout", QJsonObject{{"type", "integer"}, {"description", "Heater warmup timeout (raw firmware units)"}}},
+                // Heater calibration (values in display units — same as QML sliders)
+                {"heaterIdleTempC", QJsonObject{{"type", "number"}, {"description", "Heater idle temperature in Celsius (0.0-99.0)"}}},
+                {"heaterWarmupFlowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Heater warmup flow rate in mL/s (0.5-6.0)"}}},
+                {"heaterTestFlowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Heater test flow rate in mL/s (0.5-8.0)"}}},
+                {"heaterWarmupTimeoutSec", QJsonObject{{"type", "number"}, {"description", "Heater warmup timeout in seconds (1.0-30.0)"}}},
                 // Auto-favorites
                 {"autoFavoritesGroupBy", QJsonObject{{"type", "string"}, {"description", "Auto-favorites group by field"}}},
                 {"autoFavoritesMaxItems", QJsonObject{{"type", "integer"}, {"description", "Max auto-favorites items"}}},
@@ -418,10 +418,10 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamTimeout(v); }, Qt::QueuedConnection);
                 updated << "steamTimeout";
             }
-            if (args.contains("steamFlow")) {
-                int v = args["steamFlow"].toInt();
+            if (args.contains("steamFlowMlPerSec")) {
+                int v = static_cast<int>(args["steamFlowMlPerSec"].toDouble() * 100.0);
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setSteamFlow(v); }, Qt::QueuedConnection);
-                updated << "steamFlow";
+                updated << "steamFlowMlPerSec";
             }
             if (args.contains("keepSteamHeaterOn")) {
                 bool v = args["keepSteamHeaterOn"].toBool();
@@ -455,17 +455,17 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setWaterVolumeMode(v); }, Qt::QueuedConnection);
                 updated << "waterVolumeMode";
             }
-            if (args.contains("hotWaterFlowRate")) {
-                int v = args["hotWaterFlowRate"].toInt();
+            if (args.contains("hotWaterFlowRateMlPerSec")) {
+                int v = static_cast<int>(args["hotWaterFlowRateMlPerSec"].toDouble() * 10.0);
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHotWaterFlowRate(v); }, Qt::QueuedConnection);
-                updated << "hotWaterFlowRate";
+                updated << "hotWaterFlowRateMlPerSec";
             }
 
             // === Flush ===
-            if (args.contains("flushFlow")) {
-                double v = args["flushFlow"].toDouble();
+            if (args.contains("flushFlowMlPerSec")) {
+                double v = args["flushFlowMlPerSec"].toDouble();
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setFlushFlow(v); }, Qt::QueuedConnection);
-                updated << "flushFlow";
+                updated << "flushFlowMlPerSec";
             }
             if (args.contains("flushSeconds")) {
                 double v = args["flushSeconds"].toDouble();
@@ -989,26 +989,26 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 updated << "chargingMode";
             }
 
-            // === Heater calibration ===
-            if (args.contains("heaterIdleTemp")) {
-                int v = args["heaterIdleTemp"].toInt();
+            // === Heater calibration (display units × 10 = internal storage) ===
+            if (args.contains("heaterIdleTempC")) {
+                int v = static_cast<int>(args["heaterIdleTempC"].toDouble() * 10.0);
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterIdleTemp(v); }, Qt::QueuedConnection);
-                updated << "heaterIdleTemp";
+                updated << "heaterIdleTempC";
             }
-            if (args.contains("heaterWarmupFlow")) {
-                int v = args["heaterWarmupFlow"].toInt();
+            if (args.contains("heaterWarmupFlowMlPerSec")) {
+                int v = static_cast<int>(args["heaterWarmupFlowMlPerSec"].toDouble() * 10.0);
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterWarmupFlow(v); }, Qt::QueuedConnection);
-                updated << "heaterWarmupFlow";
+                updated << "heaterWarmupFlowMlPerSec";
             }
-            if (args.contains("heaterTestFlow")) {
-                int v = args["heaterTestFlow"].toInt();
+            if (args.contains("heaterTestFlowMlPerSec")) {
+                int v = static_cast<int>(args["heaterTestFlowMlPerSec"].toDouble() * 10.0);
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterTestFlow(v); }, Qt::QueuedConnection);
-                updated << "heaterTestFlow";
+                updated << "heaterTestFlowMlPerSec";
             }
-            if (args.contains("heaterWarmupTimeout")) {
-                int v = args["heaterWarmupTimeout"].toInt();
+            if (args.contains("heaterWarmupTimeoutSec")) {
+                int v = static_cast<int>(args["heaterWarmupTimeoutSec"].toDouble() * 10.0);
                 QMetaObject::invokeMethod(settings, [settings, v]() { settings->setHeaterWarmupTimeout(v); }, Qt::QueuedConnection);
-                updated << "heaterWarmupTimeout";
+                updated << "heaterWarmupTimeoutSec";
             }
 
             // === Auto-favorites ===

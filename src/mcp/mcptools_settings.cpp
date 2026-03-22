@@ -68,11 +68,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("postShotReviewTimeout", "preferences")) result["postShotReviewTimeout"] = settings->value("postShotReviewTimeout", 31).toInt();
             if (include("keepSteamHeaterOn", "preferences")) result["keepSteamHeaterOn"] = settings->keepSteamHeaterOn();
             if (include("steamAutoFlushSeconds", "preferences")) result["steamAutoFlushSeconds"] = settings->steamAutoFlushSeconds();
-            if (include("refillKitOverride", "preferences")) {
-                static const char* refillLabels[] = {"off", "on", "auto"};
-                int v = settings->refillKitOverride();
-                result["refillKitOverride"] = (v >= 0 && v <= 2) ? QString(refillLabels[v]) : QString::number(v);
-            }
+            if (include("refillKitOverride", "preferences")) result["refillKitOverride"] = settings->refillKitOverride();
             if (include("waterRefillPoint", "preferences")) result["waterRefillPoint"] = settings->waterRefillPoint();
             if (include("waterLevelDisplayUnit", "preferences")) result["waterLevelDisplayUnit"] = settings->waterLevelDisplayUnit();
             if (include("useFlowScale", "preferences")) result["useFlowScale"] = settings->useFlowScale();
@@ -131,16 +127,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // === AI ===
             if (include("aiProvider", "ai")) result["aiProvider"] = settings->aiProvider();
             if (include("mcpEnabled", "ai")) result["mcpEnabled"] = settings->mcpEnabled();
-            if (include("mcpAccessLevel", "ai")) {
-                static const char* accessLabels[] = {"monitor", "control", "full"};
-                int v = settings->mcpAccessLevel();
-                result["mcpAccessLevel"] = (v >= 0 && v <= 2) ? QString(accessLabels[v]) : QString::number(v);
-            }
-            if (include("mcpConfirmationLevel", "ai")) {
-                static const char* confirmLabels[] = {"none", "dangerous", "all"};
-                int v = settings->mcpConfirmationLevel();
-                result["mcpConfirmationLevel"] = (v >= 0 && v <= 2) ? QString(confirmLabels[v]) : QString::number(v);
-            }
+            if (include("mcpAccessLevel", "ai")) result["mcpAccessLevel"] = settings->mcpAccessLevel();
+            if (include("mcpConfirmationLevel", "ai")) result["mcpConfirmationLevel"] = settings->mcpConfirmationLevel();
             if (include("discussShotApp", "ai")) result["discussShotApp"] = settings->discussShotApp();
             if (include("discussShotCustomUrl", "ai")) result["discussShotCustomUrl"] = settings->discussShotCustomUrl();
             if (include("ollamaEndpoint", "ai")) result["ollamaEndpoint"] = settings->ollamaEndpoint();
@@ -149,25 +137,25 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             // API keys excluded — sensitive
 
             // === Espresso ===
-            if (include("espressoTemperatureC", "espresso")) result["espressoTemperatureC"] = settings->espressoTemperature();
-            if (include("targetWeightG", "espresso")) result["targetWeightG"] = settings->targetWeight();
+            if (include("espressoTemperature", "espresso")) result["espressoTemperatureC"] = settings->espressoTemperature();
+            if (include("targetWeight", "espresso")) result["targetWeightG"] = settings->targetWeight();
             if (include("lastUsedRatio", "espresso")) result["lastUsedRatio"] = settings->lastUsedRatio();
             if (include("currentProfile", "espresso")) result["currentProfile"] = settings->currentProfile();
 
             // === Steam ===
-            if (include("steamTemperatureC", "steam")) result["steamTemperatureC"] = settings->steamTemperature();
-            if (include("steamTimeoutSec", "steam")) result["steamTimeoutSec"] = settings->steamTimeout();
-            if (include("steamFlowMlPerSec", "steam")) result["steamFlowMlPerSec"] = settings->steamFlow();
+            if (include("steamTemperature", "steam")) result["steamTemperatureC"] = settings->steamTemperature();
+            if (include("steamTimeout", "steam")) result["steamTimeoutSec"] = settings->steamTimeout();
+            if (include("steamFlow", "steam")) result["steamFlowMlPerSec"] = settings->steamFlow() / 100.0;
             if (include("steamDisabled", "steam")) result["steamDisabled"] = settings->steamDisabled();
 
             // === Hot Water ===
-            if (include("waterTemperatureC", "water")) result["waterTemperatureC"] = settings->waterTemperature();
-            if (include("waterVolumeMl", "water")) result["waterVolumeMl"] = settings->waterVolume();
+            if (include("waterTemperature", "water")) result["waterTemperatureC"] = settings->waterTemperature();
+            if (include("waterVolume", "water")) result["waterVolumeMl"] = settings->waterVolume();
             if (include("waterVolumeMode", "water")) result["waterVolumeMode"] = settings->waterVolumeMode();
-            if (include("hotWaterFlowRateMlPerSec", "water")) result["hotWaterFlowRateMlPerSec"] = settings->hotWaterFlowRate();
+            if (include("hotWaterFlowRate", "water")) result["hotWaterFlowRateMlPerSec"] = settings->hotWaterFlowRate() / 10.0;
 
             // === Flush ===
-            if (include("flushFlowMlPerSec", "flush")) result["flushFlowMlPerSec"] = settings->flushFlow();
+            if (include("flushFlow", "flush")) result["flushFlowMlPerSec"] = settings->flushFlow();
             if (include("flushSeconds", "flush")) result["flushSeconds"] = settings->flushSeconds();
 
             // === DYE (bean/grinder metadata) ===
@@ -243,11 +231,11 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 if (include("chargingMode", "battery")) result["chargingMode"] = battery->chargingMode();
             }
 
-            // === Heater calibration (firmware stores as tenths — divide by 10 for display units) ===
-            if (include("heaterIdleTempC", "heater")) result["heaterIdleTempC"] = settings->heaterIdleTemp() / 10.0;
-            if (include("heaterWarmupFlowMlPerSec", "heater")) result["heaterWarmupFlowMlPerSec"] = settings->heaterWarmupFlow() / 10.0;
-            if (include("heaterTestFlowMlPerSec", "heater")) result["heaterTestFlowMlPerSec"] = settings->heaterTestFlow() / 10.0;
-            if (include("heaterWarmupTimeoutSec", "heater")) result["heaterWarmupTimeoutSec"] = settings->heaterWarmupTimeout() / 10.0;
+            // === Heater calibration (stored as tenths internally — divide by 10 to match QML display) ===
+            if (include("heaterIdleTemp", "heater")) result["heaterIdleTempC"] = settings->heaterIdleTemp() / 10.0;
+            if (include("heaterWarmupFlow", "heater")) result["heaterWarmupFlowMlPerSec"] = settings->heaterWarmupFlow() / 10.0;
+            if (include("heaterTestFlow", "heater")) result["heaterTestFlowMlPerSec"] = settings->heaterTestFlow() / 10.0;
+            if (include("heaterWarmupTimeout", "heater")) result["heaterWarmupTimeoutSec"] = settings->heaterWarmupTimeout() / 10.0;
 
             // === Auto-favorites ===
             if (include("autoFavoritesGroupBy", "autofavorites")) result["autoFavoritesGroupBy"] = settings->autoFavoritesGroupBy();
