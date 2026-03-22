@@ -306,10 +306,10 @@ print(json.dumps([t['name'] for t in tools]))
 assert_ok "tools/list returns array" "$TOOLS_RESP" \
     "isinstance(d.get('result',{}).get('tools'), list)"
 
-EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_compare shots_update shots_delete profiles_list profiles_get_active profiles_get_detail profiles_get_params profiles_edit_params profiles_save profiles_delete profiles_create settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame profiles_set_active settings_set dialing_suggest_change scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
+EXPECTED_TOOLS="machine_get_state machine_get_telemetry shots_list shots_get_detail shots_get_debug_log shots_compare shots_update shots_delete profiles_list profiles_get_active profiles_get_detail profiles_get_params profiles_edit_params profiles_save profiles_delete profiles_create settings_get dialing_get_context machine_wake machine_sleep machine_start_espresso machine_start_steam machine_start_hot_water machine_start_flush machine_stop machine_skip_frame profiles_set_active settings_set scale_tare scale_timer_start scale_timer_stop scale_timer_reset scale_get_weight devices_list devices_scan devices_connect_scale devices_connection_status debug_get_log"
 
 # Verify removed tools are NOT registered
-REMOVED_TOOLS="dialing_apply_change shots_set_feedback"
+REMOVED_TOOLS="dialing_apply_change dialing_suggest_change shots_set_feedback"
 for tool in $REMOVED_TOOLS; do
     assert_ok "removed tool '$tool' NOT registered" "$TOOLS_JSON" \
         "'$tool' not in d"
@@ -420,6 +420,16 @@ print(d.get('profileName','')[:10])
             "d.get('count',0) > 0"
     fi
 
+    # Debug log
+    DEBUG_LOG_RAW=$(rpc 36 "tools/call" "{\"name\":\"shots_get_debug_log\",\"arguments\":{\"shotId\":$SHOT_ID}}")
+    DEBUG_LOG=$(echo "$DEBUG_LOG_RAW" | parse_tool_result)
+    assert_ok "shots_get_debug_log returns log or error" "$DEBUG_LOG" \
+        "'log' in d or 'error' in d"
+    if echo "$DEBUG_LOG" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); exit(0 if 'log' in d else 1)" 2>/dev/null; then
+        assert_ok "shots_get_debug_log has pagination fields" "$DEBUG_LOG" \
+            "'totalLines' in d and 'hasMore' in d and 'returnedLines' in d"
+    fi
+
     # Date range filter
     DATE_FILTERED_RAW=$(rpc 35 "tools/call" '{"name":"shots_list","arguments":{"limit":5,"after":"2026-01-01T00:00:00"}}')
     DATE_FILTERED=$(echo "$DATE_FILTERED_RAW" | parse_tool_result)
@@ -427,13 +437,18 @@ print(d.get('profileName','')[:10])
         "d.get('count',0) >= 0"
 else
     echo -e "  ${YELLOW}SKIP${NC} shot detail/compare tests (no shots in database)"
-    SKIP=$((SKIP + 3))
+    SKIP=$((SKIP + 4))
 fi
 
 # Invalid shot ID
 BAD_SHOT_RAW=$(rpc 34 "tools/call" '{"name":"shots_get_detail","arguments":{"shotId":999999}}')
 BAD_SHOT=$(echo "$BAD_SHOT_RAW" | parse_tool_result)
 assert_ok "shots_get_detail invalid ID returns error" "$BAD_SHOT" \
+    "'error' in d"
+
+BAD_DEBUG_RAW=$(rpc 37 "tools/call" '{"name":"shots_get_debug_log","arguments":{"shotId":999999}}')
+BAD_DEBUG=$(echo "$BAD_DEBUG_RAW" | parse_tool_result)
+assert_ok "shots_get_debug_log invalid ID returns error" "$BAD_DEBUG" \
     "'error' in d"
 
 echo
@@ -743,12 +758,6 @@ UPDATE_EMPTY_RAW=$(rpc 101 "tools/call" '{"name":"shots_update","arguments":{"sh
 UPDATE_EMPTY=$(echo "$UPDATE_EMPTY_RAW" | parse_tool_result)
 assert_ok "shots_update requires at least one field" "$UPDATE_EMPTY" \
     "'error' in d"
-
-# dialing_suggest_change
-SUGGEST_RAW=$(rpc 102 "tools/call" '{"name":"dialing_suggest_change","arguments":{"parameter":"grind","suggestion":"Grind 2 clicks finer","rationale":"Shot was sour, indicating under-extraction"}}')
-SUGGEST=$(echo "$SUGGEST_RAW" | parse_tool_result)
-assert_ok "dialing_suggest_change returns suggestion" "$SUGGEST" \
-    "d.get('parameter') == 'grind' and d.get('status') == 'suggestion_displayed'"
 
 if [ "$HAS_SETTINGS_SET" = "1" ]; then
     # settings_set (confirmed: true to pass chat confirmation gate)

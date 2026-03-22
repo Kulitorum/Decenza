@@ -210,9 +210,12 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
     // settings_set
     registry->registerTool(
         "settings_set",
-        "Update any app setting on the device. Covers all QML settings tabs: preferences, connections, "
-        "screensaver, accessibility, AI, espresso, steam, water, flush, DYE metadata, MQTT, "
-        "themes, visualizer, update, data, history, language, debug, battery, heater, auto-favorites. "
+        "Update any app setting on the device. This is the tool to use when the user asks to change "
+        "grind size (dyeGrinderSetting), dose weight (dyeBeanWeight), drink/yield weight (targetWeight), "
+        "brew temperature (espressoTemperature), or any other setting. "
+        "Covers all QML settings tabs: preferences, connections, screensaver, accessibility, AI, "
+        "espresso, steam, water, flush, DYE metadata, MQTT, themes, visualizer, update, data, "
+        "history, language, debug, battery, heater, auto-favorites. "
         "API keys and passwords are excluded (sensitive). "
         "For temperature and weight changes on the active profile, this tool handles the profile update automatically. "
         "IMPORTANT: Only call this when the user explicitly asks to change settings on the machine. "
@@ -1044,28 +1047,4 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
         },
         "settings");
 
-    // dialing_suggest_change
-    registry->registerTool(
-        "dialing_suggest_change",
-        "Push a parameter change suggestion to the app (shown as a notification on the device). "
-        "IMPORTANT: Only call this when the user explicitly asks to send/push a suggestion to the app. "
-        "For discussion and analysis, respond in chat instead — do not push to the device.",
-        QJsonObject{
-            {"type", "object"},
-            {"properties", QJsonObject{
-                {"parameter", QJsonObject{{"type", "string"}, {"description", "What to change: grind, dose, yield, temperature, profile"}}},
-                {"suggestion", QJsonObject{{"type", "string"}, {"description", "The suggested change (e.g., 'Grind 2 clicks finer')"}}},
-                {"rationale", QJsonObject{{"type", "string"}, {"description", "Why this change is recommended"}}}
-            }},
-            {"required", QJsonArray{"parameter", "suggestion", "rationale"}}
-        },
-        [](const QJsonObject& args) -> QJsonObject {
-            QJsonObject result;
-            result["parameter"] = args["parameter"].toString();
-            result["suggestion"] = args["suggestion"].toString();
-            result["rationale"] = args["rationale"].toString();
-            result["status"] = "suggestion_displayed";
-            return result;
-        },
-        "control");
 }

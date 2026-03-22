@@ -292,4 +292,76 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             return result;
         },
         "read");
+
+    // shots_get_debug_log — read the per-shot debug log with pagination
+    registry->registerTool(
+        "shots_get_debug_log",
+        "Read the debug log captured during a shot extraction. Contains BLE frames, "
+        "phase transitions, stop-at-weight events, flow calibration, and all qDebug output "
+        "from the shot. Supports pagination for large logs.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"shotId", QJsonObject{{"type", "integer"}, {"description", "Shot ID"}}},
+                {"offset", QJsonObject{{"type", "integer"}, {"description", "Line number to start from (0-based). Default: 0"}}},
+                {"limit", QJsonObject{{"type", "integer"}, {"description", "Maximum lines to return (1-2000). Default: 500"}}}
+            }},
+            {"required", QJsonArray{"shotId"}}
+        },
+        [shotHistory](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!shotHistory || !shotHistory->isReady()) {
+                result["error"] = "Shot history not available";
+                return result;
+            }
+
+            qint64 shotId = args["shotId"].toInteger();
+            if (shotId <= 0) {
+                result["error"] = "Valid shotId is required";
+                return result;
+            }
+
+            qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
+            qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
+
+            const QString dbPath = shotHistory->databasePath();
+            const QString connName = QString("mcp_shot_debug_%1").arg(s_mcpShotConnCounter.fetchAndAddRelaxed(1));
+
+            {
+                QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connName);
+                db.setDatabaseName(dbPath);
+                if (db.open()) {
+                    QSqlQuery query(db);
+                    query.prepare("SELECT debug_log FROM shots WHERE id = ?");
+                    query.addBindValue(shotId);
+                    if (query.exec() && query.next()) {
+                        QString debugLog = query.value(0).toString();
+                        if (debugLog.isEmpty()) {
+                            result["error"] = "No debug log for shot " + QString::number(shotId);
+                        } else {
+                            QStringList allLines = debugLog.split('\n');
+                            qsizetype totalLines = allLines.size();
+
+                            QStringList chunk;
+                            for (qsizetype i = offset; i < qMin(offset + limit, totalLines); ++i)
+                                chunk.append(allLines[i]);
+
+                            result["shotId"] = shotId;
+                            result["offset"] = static_cast<int>(offset);
+                            result["limit"] = static_cast<int>(limit);
+                            result["totalLines"] = static_cast<int>(totalLines);
+                            result["returnedLines"] = static_cast<int>(chunk.size());
+                            result["hasMore"] = (offset + chunk.size()) < totalLines;
+                            result["log"] = chunk.join('\n');
+                        }
+                    } else {
+                        result["error"] = "Shot not found: " + QString::number(shotId);
+                    }
+                }
+            }
+            QSqlDatabase::removeDatabase(connName);
+
+            return result;
+        },
+        "read");
 }

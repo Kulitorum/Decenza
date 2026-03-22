@@ -86,8 +86,8 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, dialing_get_context |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, dialing_suggest_change |
+| `read` | 0 (Monitor) | machine_get_state, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, settings_get, dialing_get_context |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update |
 | `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set |
 
 ### Tool → Confirmation Level Mapping
@@ -111,7 +111,6 @@ Two confirmation mechanisms are used depending on where the user is:
 | shots_delete | **Confirm** | Confirm | Chat |
 | settings_set | **Confirm** | Confirm | Chat |
 | shots_update | No confirm | No confirm | — |
-| dialing_suggest_change | No confirm | No confirm | — |
 
 When confirmation level is 0 (None), all tools execute immediately regardless of mechanism.
 
@@ -171,6 +170,7 @@ This avoids holding HTTP connections and works naturally with the conversational
 |------|-------------|----------|
 | `shots_list` | List shots with filters (limit, offset, profile, bean, enjoyment, after/before date range) | read |
 | `shots_get_detail` | Full shot record with time-series data | read |
+| `shots_get_debug_log` | Per-shot debug log (BLE frames, phase transitions, SAW events, flow calibration). Paginated with offset/limit. | read |
 | `shots_compare` | Side-by-side comparison of 2+ shots with auto-computed change diffs (grind, dose, yield, duration) | read |
 | `shots_update` | Update any metadata field on a shot: enjoyment, notes, dose, yield, bean info, grinder info, barista, TDS, EY. Same fields the QML shot editor can change. Replaces the old `shots_set_feedback`. | control |
 | `shots_delete` | Delete a shot by ID. Permanent and cannot be undone. | settings |
@@ -201,7 +201,7 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 | Tool | Description | Category |
 |------|-------------|----------|
 | `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with same profile family via `ShotHistoryStorage::getRecentShotsByKbId()`) + bean metadata + dial-in reference tables (`docs/ESPRESSO_DIAL_IN_REFERENCE.md`). This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. | read |
-| `dialing_suggest_change` | Suggest a parameter change to the user with rationale (e.g. "Grind 2 clicks finer to reduce sourness"). Returns the suggestion as structured data. The app shows it as a toast/notification via `McpServer::suggestionReceived` signal → QML handler. Track whether a suggestion is currently displayed via an event-based boolean (`m_suggestionPending`), set when the signal fires and cleared by QML `onSuggestionDismissed` callback. Do NOT use a timer to clear this flag. If a new suggestion arrives while one is displayed, replace the current toast. | control |
+| ~~`dialing_suggest_change`~~ | **Removed.** Was a no-op stub that returned `"suggestion_displayed"` without actually displaying anything or changing settings. The AI mistakenly treated it as applying changes (e.g., grind size). Use `settings_set` to change grind (`dyeGrinderSetting`), dose (`dyeBeanWeight`), yield (`targetWeight`), temperature (`espressoTemperature`), etc. | — |
 | ~~`dialing_apply_change`~~ | **Removed.** Was a convenience wrapper that duplicated `settings_set` + `profiles_set_active`. Caused the advanced-profile-corruption bug due to duplicated code paths. Use `settings_set` for temp/weight/DYE changes and `profiles_set_active` for profile switches. | — |
 
 **Design note — why one read tool instead of four:** An earlier version had separate `dialing_get_shot_summary`, `dialing_get_history`, `dialing_get_profile_knowledge`, and `dialing_get_context` tools. These were consolidated into just `dialing_get_context` because: (1) the MCP client almost always needs all the context together, (2) fewer tools means better MCP client compatibility and less confusion for the AI, (3) the individual data is still available via generic tools (`shots_get_detail`, `profiles_get_detail`, `settings_get`) if needed. The `dialing_get_context` tool accepts optional parameters to control what's included (e.g., `shot_id` to analyze a specific shot instead of the most recent, `history_limit` to control how many prior shots to include).
@@ -211,9 +211,9 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 1. User pulls a shot → AI gets notified via SSE (`decenza://shots/recent` resource update)
 2. AI calls `dialing_get_context` to get the full picture (shot data, profile knowledge, history, reference tables)
 3. AI analyzes the shot using its own reasoning (no cloud API call needed — the AI IS the reasoning engine)
-4. AI calls `dialing_suggest_change` to show a recommendation in the app
-5. If user approves (via confirmation dialog), AI calls `dialing_apply_change` to adjust settings
-6. AI can ask the user how the shot tasted and call `shots_set_feedback` to record enjoyment/notes
+4. AI responds in chat with its recommendation
+5. If user approves, AI calls `settings_set` to adjust grind/dose/yield/temperature
+6. AI can ask the user how the shot tasted and call `shots_update` to record enjoyment/notes
 7. Next shot: repeat, with the AI seeing the progression via `dialing_get_context` history
 
 **What context is available to the MCP AI:**
@@ -553,7 +553,7 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 6. ~~**Dial-in read tool**: dialing_get_context — the highest-value tool for AI dial-in conversations. Bundles shot summary, history, profile knowledge, bean metadata, and reference tables.~~ ✅
 7. ~~**Machine control tools**: start/stop operations with access-level gating. Note: start commands only work on DE1 v1.0 headless machines — most machines with GHC require physical button press.~~ ✅
 8. ~~**Resources + SSE**: Resource registry, subscriptions, notification wiring (especially `decenza://shots/recent` for dial-in flow).~~ ✅
-9. ~~**Write tools**: shots_set_feedback, dialing_suggest_change, dialing_apply_change, profiles_set_active, settings_set — all with access-level gating.~~ ✅
+9. ~~**Write tools**: shots_update, profiles_set_active, settings_set — all with access-level gating.~~ ✅
 10. ~~**Polish**: Rate limiting, session cleanup, session limits, API key auth, setup page with install scripts, Claude Desktop integration, help dialog, bridge script.~~ ✅
 
 11. ~~**Scale control tools**: `scale_tare`, `scale_timer_start`, `scale_timer_stop`, `scale_timer_reset`, `scale_get_weight`. Category: control.~~ ✅
@@ -620,7 +620,7 @@ Before adding new tools, consolidate existing ones to reduce tool count and avoi
 
 #### Consolidate `dialing_apply_change` into `settings_set` + `profiles_set_active`
 
-`dialing_apply_change` is a convenience wrapper that duplicates code from `settings_set` (temperature, weight, grinder, bean metadata) and `profiles_set_active` (profile switching). The duplication caused the advanced-profile-corruption bug (fix had to be applied in both places). Removing it simplifies the API — an AI can achieve the same result by calling the individual tools. `dialing_get_context` and `dialing_suggest_change` remain (they have unique functionality).
+`dialing_apply_change` is a convenience wrapper that duplicates code from `settings_set` (temperature, weight, grinder, bean metadata) and `profiles_set_active` (profile switching). The duplication caused the advanced-profile-corruption bug (fix had to be applied in both places). Removing it simplifies the API — an AI can achieve the same result by calling the individual tools. `dialing_get_context` remains (it has unique functionality). `dialing_suggest_change` was also removed — it was a no-op stub.
 
 **Tools removed**: `dialing_apply_change`
 **Migration**: Callers use `settings_set` for temp/weight/DYE changes + `profiles_set_active` for profile switches.
