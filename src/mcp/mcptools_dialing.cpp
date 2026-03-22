@@ -30,8 +30,12 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     registry->registerTool(
         "dialing_get_context",
         "Get full dial-in context: recent shot summary, dial-in history (last N shots with same profile), "
-        "profile knowledge, bean/grinder metadata, and reference tables. This is the primary read tool "
-        "for dial-in conversations — a single call gives everything needed to analyze a shot and suggest changes.",
+        "profile knowledge, bean/grinder metadata, grinder context (observed settings range and step size), "
+        "and reference tables. This is the primary read tool for dial-in conversations — a single call gives "
+        "everything needed to analyze a shot and suggest changes. Grinder settings are shown as the user "
+        "entered them — may be numbers, letters, click counts, or grinder-specific notation like Eureka "
+        "multi-turn (1+4 = 1 rotation + position 4). The grinderContext block shows the range and step "
+        "size observed in the user's own shot history.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -118,6 +122,86 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         }
                         result["dialInHistory"] = historyArr;
                     }
+
+                    // --- Grinder context: mine shot history for setting range/step ---
+                    QString grinderModel = shotData.contains("grinderModel") ? shotData["grinderModel"].toString() : QString();
+                    if (!grinderModel.isEmpty()) {
+                        QSqlQuery gQuery(db);
+                        gQuery.prepare("SELECT DISTINCT grinder_setting FROM shots "
+                                       "WHERE grinder_model = :model AND grinder_setting != '' "
+                                       "ORDER BY timestamp DESC LIMIT 50");
+                        gQuery.bindValue(":model", grinderModel);
+                        if (gQuery.exec()) {
+                            QJsonArray settingsObserved;
+                            QList<double> numericSettings;
+                            bool allNumeric = true;
+
+                            QStringList settingStrings;
+                            while (gQuery.next()) {
+                                QString s = gQuery.value(0).toString().trimmed();
+                                if (!s.isEmpty() && !settingStrings.contains(s))
+                                    settingStrings.append(s);
+                            }
+
+                            for (const auto& s : settingStrings) {
+                                settingsObserved.append(s);
+                                bool ok;
+                                double v = s.toDouble(&ok);
+                                if (ok)
+                                    numericSettings.append(v);
+                                else
+                                    allNumeric = false;
+                            }
+
+                            QJsonObject grinderCtx;
+                            grinderCtx["model"] = grinderModel;
+                            grinderCtx["settingsObserved"] = settingsObserved;
+                            grinderCtx["isNumeric"] = allNumeric;
+
+                            if (allNumeric && numericSettings.size() >= 2) {
+                                std::sort(numericSettings.begin(), numericSettings.end());
+                                grinderCtx["minSetting"] = numericSettings.first();
+                                grinderCtx["maxSetting"] = numericSettings.last();
+
+                                // Compute smallest step between distinct sorted values
+                                double smallestStep = numericSettings.last() - numericSettings.first();
+                                for (qsizetype i = 1; i < numericSettings.size(); ++i) {
+                                    double diff = numericSettings[i] - numericSettings[i-1];
+                                    if (diff > 0 && diff < smallestStep)
+                                        smallestStep = diff;
+                                }
+                                grinderCtx["smallestStep"] = smallestStep;
+
+                                // Infer finer direction: query avg duration at min vs max setting
+                                QSqlQuery finerQuery(db);
+                                finerQuery.prepare(
+                                    "SELECT grinder_setting, AVG(duration_seconds) FROM shots "
+                                    "WHERE grinder_model = :model AND grinder_setting IN (:min, :max) "
+                                    "AND duration_seconds > 5 "
+                                    "GROUP BY grinder_setting");
+                                finerQuery.bindValue(":model", grinderModel);
+                                finerQuery.bindValue(":min", QString::number(numericSettings.first()));
+                                finerQuery.bindValue(":max", QString::number(numericSettings.last()));
+                                double avgDurAtMin = 0, avgDurAtMax = 0;
+                                if (finerQuery.exec()) {
+                                    while (finerQuery.next()) {
+                                        double setting = finerQuery.value(0).toDouble();
+                                        double avgDur = finerQuery.value(1).toDouble();
+                                        if (qFuzzyCompare(setting, numericSettings.first()))
+                                            avgDurAtMin = avgDur;
+                                        else if (qFuzzyCompare(setting, numericSettings.last()))
+                                            avgDurAtMax = avgDur;
+                                    }
+                                }
+                                if (avgDurAtMin > 0 && avgDurAtMax > 0) {
+                                    // Finer grind = longer shot time
+                                    grinderCtx["finerDirection"] = (avgDurAtMin > avgDurAtMax) ? "lower" : "higher";
+                                }
+                            }
+
+                            result["grinderContext"] = grinderCtx;
+                        }
+                    }
                 }
             }
             QSqlDatabase::removeDatabase(connName);
@@ -131,10 +215,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             result["shotId"] = shotId;
             QJsonObject shotSummary;
             shotSummary["profileName"] = shotData["profileName"].toString();
-            shotSummary["dose"] = shotData["doseWeight"].toDouble();
-            shotSummary["yield"] = shotData["drinkWeight"].toDouble();
-            shotSummary["duration"] = shotData["duration"].toDouble();
-            shotSummary["enjoyment"] = shotData["enjoyment"].toInt();
+            shotSummary["doseG"] = shotData["doseWeight"].toDouble();
+            shotSummary["yieldG"] = shotData["drinkWeight"].toDouble();
+            shotSummary["durationSec"] = shotData["duration"].toDouble();
+            shotSummary["enjoyment0to100"] = shotData["enjoyment"].toInt();
             shotSummary["notes"] = shotData["espressoNotes"].toString();
             shotSummary["beanBrand"] = shotData["beanBrand"].toString();
             shotSummary["beanType"] = shotData["beanType"].toString();
@@ -174,7 +258,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 bean["grinderModel"] = settings->dyeGrinderModel();
                 bean["grinderBurrs"] = settings->dyeGrinderBurrs();
                 bean["grinderSetting"] = settings->dyeGrinderSetting();
-                bean["doseWeight"] = settings->dyeBeanWeight();
+                bean["doseWeightG"] = settings->dyeBeanWeight();
                 result["currentBean"] = bean;
             }
 
@@ -182,10 +266,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             if (mainController) {
                 QJsonObject profileInfo;
                 profileInfo["filename"] = mainController->currentProfileName();
-                profileInfo["targetWeight"] = mainController->profileTargetWeight();
-                profileInfo["targetTemperature"] = mainController->profileTargetTemperature();
+                profileInfo["targetWeightG"] = mainController->profileTargetWeight();
+                profileInfo["targetTemperatureC"] = mainController->profileTargetTemperature();
                 if (mainController->profileHasRecommendedDose())
-                    profileInfo["recommendedDose"] = mainController->profileRecommendedDose();
+                    profileInfo["recommendedDoseG"] = mainController->profileRecommendedDose();
                 result["currentProfile"] = profileInfo;
             }
 
