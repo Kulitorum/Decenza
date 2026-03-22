@@ -80,15 +80,17 @@ public class DecenzaActivity extends QtActivity {
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             // DeadSystemException means Android's Bluetooth system service died
             // (deep sleep, OEM power management, system_server crash).
-            // If it happened on the BLE thread, write a flag file so the C++ side
-            // can detect it and trigger BLE recovery (disconnect + reconnect).
+            // Create a flag file so the C++ side can detect it and trigger BLE
+            // recovery (disconnect + reconnect). This fires on any thread — we
+            // don't filter by thread name since DeadSystemException only occurs
+            // when Android system services die, which always affects BLE.
             // Don't crash the app — the rest of the app is fine, only BLE is dead.
             if (isDeadSystemException(throwable)) {
                 Log.w(TAG, "DeadSystemException on thread " + thread.getName()
                         + " — Bluetooth system died, signaling BLE recovery");
                 try {
                     File flagFile = new File(getFilesDir(), "ble_dead_system");
-                    new FileWriter(flagFile).close();
+                    flagFile.createNewFile();
                     Log.w(TAG, "Wrote BLE recovery flag: " + flagFile.getAbsolutePath());
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to write BLE recovery flag: " + e.getMessage());

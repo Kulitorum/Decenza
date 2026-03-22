@@ -707,9 +707,8 @@ int main(int argc, char *argv[])
     auto* bleRecoveryTimer = new QTimer();
     bleRecoveryTimer->setInterval(10000);
     QObject::connect(bleRecoveryTimer, &QTimer::timeout,
-                     [&bleManager, &de1Device, &settings]() {
-        // Java getFilesDir() = /data/data/<pkg>/files/ on Android
-        // QStandardPaths::AppDataLocation = /data/data/<pkg>/files/ on Android
+                     [&bleManager, &de1Device]() {
+        // Use same path as CrashHandler (proven to match Java getFilesDir())
         QString flagPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                          + "/ble_dead_system";
         QFile flagFile(flagPath);
