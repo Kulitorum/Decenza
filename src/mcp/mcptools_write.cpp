@@ -105,7 +105,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
 
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, metadata, respond]() {
+            QThread* thread = QThread::create([dbPath, shotId, metadata, respond, shotHistory]() {
                 bool ok = false;
                 withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
                     ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
