@@ -1036,12 +1036,17 @@ assert_ok "deleted session auto-recovers with new session" "$POST_DEL" \
 DEL_SID=$(grep -i 'Mcp-Session-Id' /tmp/mcp_del_headers 2>/dev/null | head -1 | awk '{print $2}' | tr -d '\r\n')
 if [ -n "$DEL_SID" ]; then
     ALL_SESSIONS+=("$DEL_SID")
+    SESSION="$DEL_SID"  # Update SESSION to the auto-recovered one
 fi
 
 echo
 
 # ─── 18. Settings Parity (Phase 16) ───
 echo -e "${CYAN}18. Settings Parity${NC}"
+
+# Clean session for settings parity tests
+delete_session
+create_session
 
 # Category filter
 CAT_PREF_RAW=$(rpc 300 "tools/call" '{"name":"settings_get","arguments":{"category":"preferences"}}')
