@@ -68,38 +68,38 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 return result;
             }
 
-            // Map MCP parameter names to DB column names
+            // Keys must match what updateShotMetadataStatic() reads (camelCase)
             QVariantMap metadata;
             if (args.contains("enjoyment"))
                 metadata["enjoyment"] = qBound(0, args["enjoyment"].toInt(), 100);
             if (args.contains("notes"))
-                metadata["espresso_notes"] = args["notes"].toString();
+                metadata["espressoNotes"] = args["notes"].toString();
             if (args.contains("doseWeight"))
-                metadata["dose_weight"] = args["doseWeight"].toDouble();
+                metadata["doseWeight"] = args["doseWeight"].toDouble();
             if (args.contains("drinkWeight"))
-                metadata["drink_weight"] = args["drinkWeight"].toDouble();
+                metadata["finalWeight"] = args["drinkWeight"].toDouble();
             if (args.contains("beanBrand"))
-                metadata["bean_brand"] = args["beanBrand"].toString();
+                metadata["beanBrand"] = args["beanBrand"].toString();
             if (args.contains("beanType"))
-                metadata["bean_type"] = args["beanType"].toString();
+                metadata["beanType"] = args["beanType"].toString();
             if (args.contains("roastLevel"))
-                metadata["roast_level"] = args["roastLevel"].toString();
+                metadata["roastLevel"] = args["roastLevel"].toString();
             if (args.contains("roastDate"))
-                metadata["roast_date"] = args["roastDate"].toString();
+                metadata["roastDate"] = args["roastDate"].toString();
             if (args.contains("grinderBrand"))
-                metadata["grinder_brand"] = args["grinderBrand"].toString();
+                metadata["grinderBrand"] = args["grinderBrand"].toString();
             if (args.contains("grinderModel"))
-                metadata["grinder_model"] = args["grinderModel"].toString();
+                metadata["grinderModel"] = args["grinderModel"].toString();
             if (args.contains("grinderBurrs"))
-                metadata["grinder_burrs"] = args["grinderBurrs"].toString();
+                metadata["grinderBurrs"] = args["grinderBurrs"].toString();
             if (args.contains("grinderSetting"))
-                metadata["grinder_setting"] = args["grinderSetting"].toString();
+                metadata["grinderSetting"] = args["grinderSetting"].toString();
             if (args.contains("barista"))
                 metadata["barista"] = args["barista"].toString();
             if (args.contains("drinkTds"))
-                metadata["drink_tds"] = args["drinkTds"].toDouble();
+                metadata["drinkTds"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
-                metadata["drink_ey"] = args["drinkEy"].toDouble();
+                metadata["drinkEy"] = args["drinkEy"].toDouble();
 
             if (metadata.isEmpty()) {
                 result["error"] = "Provide at least one field to update";

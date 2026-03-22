@@ -301,8 +301,8 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 QJsonObject result;
                 result["session"] = static_cast<int>(sessionIdx);
                 result["sessionTimestamp"] = sessions[sessionIdx].timestamp;
-                result["offset"] = static_cast<int>(offset);
-                result["limit"] = static_cast<int>(limit);
+                result["offsetLines"] = static_cast<int>(offset);
+                result["limitLines"] = static_cast<int>(limit);
                 result["sessionLines"] = static_cast<int>(sessLines);
                 result["returnedLines"] = static_cast<int>(sessionLines.size());
                 result["hasMore"] = (offset + sessionLines.size()) < sessLines;
@@ -322,8 +322,8 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
             QStringList lines = logger->getPersistedLogChunk(offset, limit, &totalLines);
 
             QJsonObject result;
-            result["offset"] = static_cast<int>(offset);
-            result["limit"] = static_cast<int>(limit);
+            result["offsetLines"] = static_cast<int>(offset);
+            result["limitLines"] = static_cast<int>(limit);
             result["totalLines"] = static_cast<int>(totalLines);
             result["returnedLines"] = static_cast<int>(lines.size());
             result["hasMore"] = (offset + lines.size()) < totalLines;

@@ -669,7 +669,7 @@ if [ "$LOG_TOTAL" -gt 20 ]; then
     LOG_PAGE2_RAW=$(rpc 96 "tools/call" "{\"name\":\"debug_get_log\",\"arguments\":{\"offset\":10,\"limit\":5}}")
     LOG_PAGE2=$(echo "$LOG_PAGE2_RAW" | parse_tool_result)
     assert_ok "debug_get_log pagination works" "$LOG_PAGE2" \
-        "d.get('offset') == 10 and d.get('returnedLines') == 5"
+        "d.get('offsetLines') == 10 and d.get('returnedLines') == 5"
 fi
 
 # Read unknown resource

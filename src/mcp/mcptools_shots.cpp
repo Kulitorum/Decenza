@@ -347,8 +347,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                                 chunk.append(allLines[i]);
 
                             result["shotId"] = shotId;
-                            result["offset"] = static_cast<int>(offset);
-                            result["limit"] = static_cast<int>(limit);
+                            result["offsetLines"] = static_cast<int>(offset);
+                            result["limitLines"] = static_cast<int>(limit);
                             result["totalLines"] = static_cast<int>(totalLines);
                             result["returnedLines"] = static_cast<int>(chunk.size());
                             result["hasMore"] = (offset + chunk.size()) < totalLines;
@@ -357,6 +357,8 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
+                } else {
+                    result["error"] = "Failed to open shot database";
                 }
             }
             QSqlDatabase::removeDatabase(connName);
