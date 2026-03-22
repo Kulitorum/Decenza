@@ -823,7 +823,9 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
     assert_ok "settings_set updates targetWeight" "$SETW" \
         "d.get('success') == True and 'targetWeight' in d.get('updated',[])"
 
-    # Read back to verify (settings_set uses QueuedConnection, needs time to persist)
+    # Read back to verify (settings_set uses QueuedConnection + uploadProfile, needs time)
+    # Known failure: targetWeight triggers uploadProfile() which may asynchronously
+    # override the value from the profile's stored weight (issue #527)
     sleep 1
     VERIFY_TW_RAW=$(rpc 112 "tools/call" '{"name":"settings_get","arguments":{"keys":["targetWeight"]}}')
     VERIFY_TW=$(echo "$VERIFY_TW_RAW" | parse_tool_result)
@@ -946,6 +948,10 @@ print(d.get('pourTemperature', d.get('espresso_temperature', 0)))
     fi
 
     # --- profiles_save round-trip ---
+    # Ensure we're on the default profile (not the just-deleted test profile)
+    rpc 149 "tools/call" '{"name":"profiles_set_active","arguments":{"filename":"default","confirmed":true}}' > /dev/null
+    sleep 0.5
+
     SAVE_RAW=$(rpc 150 "tools/call" '{"name":"profiles_save","arguments":{"confirmed":true}}')
     SAVE=$(echo "$SAVE_RAW" | parse_tool_result)
     assert_ok "profiles_save accepted" "$SAVE" \
