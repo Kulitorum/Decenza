@@ -885,6 +885,10 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
             "'$CREATED_FILE' not in str(d.get('profiles',[]))"
     fi
 
+    # Fresh session to reset rate limiter
+    delete_session
+    create_session
+
     # --- DYE metadata round-trip ---
     # Save originals
     ORIG_DYE_RAW=$(rpc 130 "tools/call" '{"name":"settings_get","arguments":{"keys":["dyeBeanBrand","dyeGrinderSetting"]}}')
