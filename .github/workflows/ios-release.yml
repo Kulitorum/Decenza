@@ -209,13 +209,28 @@ jobs:
           retention-days: 1
           overwrite: true
 
+      - name: Find dSYMs
+        run: |
+          echo "# Checking xcarchive dSYMs directory:"
+          ls -la $RUNNER_TEMP/Decenza.xcarchive/dSYMs/ 2>/dev/null || echo "(empty or missing)"
+          echo ""
+          echo "# Checking build output:"
+          ls -la build/ios/Release-iphoneos/*.dSYM 2>/dev/null || echo "(not in build output)"
+          echo ""
+          echo "# Searching workspace for all .dSYM bundles:"
+          find $GITHUB_WORKSPACE -name "*.dSYM" -type d 2>/dev/null || echo "(none found in workspace)"
+          find $RUNNER_TEMP -name "*.dSYM" -type d 2>/dev/null || echo "(none found in runner temp)"
+
       - name: Upload dSYMs for crash symbolication
         uses: actions/upload-artifact@v7
         with:
           name: Decenza-iOS-dSYMs
-          path: ${{ runner.temp }}/Decenza.xcarchive/dSYMs/
+          path: |
+            ${{ runner.temp }}/Decenza.xcarchive/dSYMs/
+            build/ios/Release-iphoneos/*.dSYM
           retention-days: 90
           overwrite: true
+          if-no-files-found: warn
 
       - name: Cleanup keychain
         if: always()
