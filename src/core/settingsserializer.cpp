@@ -344,6 +344,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     machineTuning["hotWaterFlowRate"] = settings->hotWaterFlowRate();
     machineTuning["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
     machineTuning["autoFlowCalibration"] = settings->autoFlowCalibration();
+    machineTuning["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
     QJsonObject perProfileMap = settings->allProfileFlowCalibrations();
     if (!perProfileMap.isEmpty()) {
         machineTuning["perProfileFlowCalibration"] = perProfileMap;
@@ -755,6 +756,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
         if (mt.contains("autoFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
             settings->setAutoFlowCalibration(mt["autoFlowCalibration"].toBool());
+        }
+        if (mt.contains("ignoreVolumeWithScale")) {
+            settings->setIgnoreVolumeWithScale(mt["ignoreVolumeWithScale"].toBool());
         }
         if (mt.contains("perProfileFlowCalibration") && !excludeKeys.contains("flowCalibration")) {
             QJsonObject perProfile = mt["perProfileFlowCalibration"].toObject();

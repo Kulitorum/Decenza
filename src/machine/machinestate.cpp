@@ -594,6 +594,11 @@ void MachineState::checkStopAtVolume() {
     if (m_stopAtVolumeTriggered) return;
     if (!m_tareCompleted) return;  // Don't check until tare has happened
 
+    // Skip volume-based stop when a BLE scale is connected and
+    // the user has opted in. The scale's weight-based stop is more accurate.
+    if (m_settings && m_settings->ignoreVolumeWithScale()
+        && m_scale && m_scale->isConnected() && !m_scale->isFlowScale()) return;
+
     double target = m_targetVolume;
     if (target <= 0) return;
 

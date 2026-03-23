@@ -277,6 +277,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"launcherMode", QJsonObject{{"type", "boolean"}, {"description", "Enable kiosk/launcher mode (Android only)"}}},
                 {"flowCalibrationMultiplier", QJsonObject{{"type", "number"}, {"description", "Flow calibration multiplier"}}},
                 {"autoFlowCalibration", QJsonObject{{"type", "boolean"}, {"description", "Enable automatic flow calibration"}}},
+                {"ignoreVolumeWithScale", QJsonObject{{"type", "boolean"}, {"description", "Ignore stop-at-volume when a BLE scale is connected"}}},
                 {"autoWakeEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable auto-wake schedule"}}},
                 {"autoWakeStayAwakeEnabled", QJsonObject{{"type", "boolean"}, {"description", "Stay awake after auto-wake"}}},
                 {"autoWakeStayAwakeMinutes", QJsonObject{{"type", "integer"}, {"description", "Stay awake duration in minutes"}}},
@@ -642,6 +643,11 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 bool v = args["autoFlowCalibration"].toBool();
                 addSetter([settings, v]() { settings->setAutoFlowCalibration(v); });
                 updated << "autoFlowCalibration";
+            }
+            if (args.contains("ignoreVolumeWithScale")) {
+                bool v = args["ignoreVolumeWithScale"].toBool();
+                addSetter([settings, v]() { settings->setIgnoreVolumeWithScale(v); });
+                updated << "ignoreVolumeWithScale";
             }
             if (args.contains("autoWakeEnabled")) {
                 bool v = args["autoWakeEnabled"].toBool();

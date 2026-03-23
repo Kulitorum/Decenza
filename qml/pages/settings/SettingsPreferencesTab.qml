@@ -1028,6 +1028,53 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Ignore Stop-at-Volume with Scale
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: ignoreVolumeContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: ignoreVolumeContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: TranslationManager.translate("settings.preferences.ignoreVolumeWithScale", "Ignore Stop-at-Volume with Scale")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                            Accessible.ignored: true
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.ignoreVolumeDesc",
+                                    "When a Bluetooth scale is connected, ignore the profile's volume limit and stop by weight only")
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                color: Theme.textSecondaryColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(12)
+                                Accessible.ignored: true
+                            }
+
+                            StyledSwitch {
+                                checked: Settings.ignoreVolumeWithScale
+                                accessibleName: TranslationManager.translate("settings.preferences.ignoreVolumeWithScale", "Ignore stop-at-volume with scale")
+                                onToggled: Settings.ignoreVolumeWithScale = checked
+                            }
+                        }
+                    }
+                }
+
                 // Water Level Status
                 Rectangle {
                     id: waterLevelCard

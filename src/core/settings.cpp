@@ -3663,6 +3663,17 @@ void Settings::setAutoFlowCalibration(bool enabled) {
     }
 }
 
+bool Settings::ignoreVolumeWithScale() const {
+    return m_settings.value("espresso/ignoreVolumeWithScale", false).toBool();
+}
+
+void Settings::setIgnoreVolumeWithScale(bool enabled) {
+    if (ignoreVolumeWithScale() != enabled) {
+        m_settings.setValue("espresso/ignoreVolumeWithScale", enabled);
+        emit ignoreVolumeWithScaleChanged();
+    }
+}
+
 double Settings::profileFlowCalibration(const QString& profileFilename) const {
     QJsonObject map = allProfileFlowCalibrations();
     if (map.contains(profileFilename)) {

@@ -78,6 +78,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("launcherMode", "preferences")) result["launcherMode"] = settings->launcherMode();
             if (include("flowCalibrationMultiplier", "preferences")) result["flowCalibrationMultiplier"] = settings->flowCalibrationMultiplier();
             if (include("autoFlowCalibration", "preferences")) result["autoFlowCalibration"] = settings->autoFlowCalibration();
+            if (include("ignoreVolumeWithScale", "preferences")) result["ignoreVolumeWithScale"] = settings->ignoreVolumeWithScale();
             if (include("autoWakeEnabled", "preferences")) result["autoWakeEnabled"] = settings->autoWakeEnabled();
             if (include("autoWakeStayAwakeEnabled", "preferences")) result["autoWakeStayAwakeEnabled"] = settings->autoWakeStayAwakeEnabled();
             if (include("autoWakeStayAwakeMinutes", "preferences")) result["autoWakeStayAwakeMinutes"] = settings->autoWakeStayAwakeMinutes();

@@ -224,6 +224,9 @@ class Settings : public QObject {
     Q_PROPERTY(bool autoFlowCalibration READ autoFlowCalibration WRITE setAutoFlowCalibration NOTIFY autoFlowCalibrationChanged)
     Q_PROPERTY(int perProfileFlowCalVersion READ perProfileFlowCalVersion NOTIFY perProfileFlowCalibrationChanged)
 
+    // Ignore stop-at-volume when a BLE scale is providing weight data
+    Q_PROPERTY(bool ignoreVolumeWithScale READ ignoreVolumeWithScale WRITE setIgnoreVolumeWithScale NOTIFY ignoreVolumeWithScaleChanged)
+
     // SAW (Stop-at-Weight) learning
     Q_PROPERTY(double sawLearnedLag READ sawLearnedLag NOTIFY sawLearnedLagChanged)
 
@@ -771,6 +774,8 @@ public:
     void setFlowCalibrationMultiplier(double multiplier);
     bool autoFlowCalibration() const;
     void setAutoFlowCalibration(bool enabled);
+    bool ignoreVolumeWithScale() const;
+    void setIgnoreVolumeWithScale(bool enabled);
     double profileFlowCalibration(const QString& profileFilename) const;
     bool setProfileFlowCalibration(const QString& profileFilename, double multiplier);
     Q_INVOKABLE void clearProfileFlowCalibration(const QString& profileFilename);
@@ -957,6 +962,7 @@ signals:
     void mqttClientIdChanged();
     void flowCalibrationMultiplierChanged();
     void autoFlowCalibrationChanged();
+    void ignoreVolumeWithScaleChanged();
     void perProfileFlowCalibrationChanged();
     void sawLearnedLagChanged();
     void layoutConfigurationChanged();
