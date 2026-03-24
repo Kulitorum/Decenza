@@ -246,6 +246,7 @@ add_decenza_test(tst_profilemanager
 )
 target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick Qt6::Qml)
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
+target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 
