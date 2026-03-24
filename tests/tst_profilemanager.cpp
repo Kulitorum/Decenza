@@ -4,12 +4,24 @@
 #include <QJsonObject>
 #include <QJsonArray>
 
+#include <QQmlEngine>
+#include <QQmlContext>
+#include <QQmlExpression>
+
 #include "mocks/McpTestFixture.h"
+#include "mcp/mcpresourceregistry.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/binarycodec.h"
 #include "profile/recipeparams.h"
 
 using namespace DE1::Characteristic;
+
+// Forward declaration — implemented in mcpresources.cpp
+class MemoryMonitor;
+class ShotHistoryStorage;
+void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
+                          MachineState* machineState, ProfileManager* profileManager,
+                          ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor);
 
 // Direct tests for ProfileManager — the core class extracted in the refactor.
 // Verifies the profile lifecycle (load, state, save, upload, signals) works
@@ -362,6 +374,131 @@ private slots:
         double groupTemp = BinaryCodec::decodeU16P8(encoded);
         QVERIFY2(qAbs(groupTemp - 95.0) < 0.5,
                  qPrintable(QString("Group temp with override should be ~95.0, got %1").arg(groupTemp)));
+    }
+    // === MCP resource: decenza://profiles/active ===
+
+    void mcpResourceActiveProfileReturnsFilenameAndTitle() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Espresso");
+
+        McpResourceRegistry resources;
+        registerMcpResources(&resources, &f.device, &f.machineState,
+                             &f.profileManager, nullptr, nullptr);
+
+        QString error;
+        QJsonObject result = resources.readResource("decenza://profiles/active", error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+
+        // "filename" should be baseProfileName (the filename, not display title)
+        // "title" should be currentProfileName (display title)
+        QVERIFY2(result.contains("title"), "Active profile resource must include 'title'");
+        QCOMPARE(result["title"].toString(), "D-Flow / Espresso");
+
+        // filename may be empty for JSON-loaded profiles (no disk file),
+        // but the field must exist
+        QVERIFY2(result.contains("filename"), "Active profile resource must include 'filename'");
+    }
+
+    void mcpResourceActiveProfileReturnsTemperatureAndWeight() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 40.0, 91.5);
+
+        McpResourceRegistry resources;
+        registerMcpResources(&resources, &f.device, &f.machineState,
+                             &f.profileManager, nullptr, nullptr);
+
+        QString error;
+        QJsonObject result = resources.readResource("decenza://profiles/active", error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(result["targetWeightG"].toDouble(), 40.0);
+        QCOMPARE(result["targetTemperatureC"].toDouble(), 91.5);
+    }
+
+    // === QML binding smoke test ===
+    // Verifies that ProfileManager properties resolve to real values when
+    // registered as a QML context property. Would have caught the 3 QML bugs
+    // from the PR #562 code review (previousProfileName, currentProfile,
+    // typeof guard).
+
+    void qmlBindingsResolveCorrectly() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / QML Test", 36.0, 93.0);
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("ProfileManager", &f.profileManager);
+
+        auto evaluate = [&](const QString& expr) -> QVariant {
+            QQmlExpression qmlExpr(engine.rootContext(), nullptr, expr);
+            bool isUndefined = false;
+            QVariant result = qmlExpr.evaluate(&isUndefined);
+            if (isUndefined)
+                return QVariant();  // null signals "undefined"
+            return result;
+        };
+
+        // Core properties must not be undefined
+        QVERIFY2(!evaluate("ProfileManager.currentProfileName").isNull(),
+                 "ProfileManager.currentProfileName must not be undefined in QML");
+        QCOMPARE(evaluate("ProfileManager.currentProfileName").toString(), "D-Flow / QML Test");
+
+        QVERIFY2(!evaluate("ProfileManager.profileModified").isNull(),
+                 "ProfileManager.profileModified must not be undefined in QML");
+
+        QVERIFY2(!evaluate("ProfileManager.targetWeight").isNull(),
+                 "ProfileManager.targetWeight must not be undefined in QML");
+        QCOMPARE(evaluate("ProfileManager.targetWeight").toDouble(), 36.0);
+
+        QVERIFY2(!evaluate("ProfileManager.profileTargetTemperature").isNull(),
+                 "ProfileManager.profileTargetTemperature must not be undefined in QML");
+        QCOMPARE(evaluate("ProfileManager.profileTargetTemperature").toDouble(), 93.0);
+
+        QVERIFY2(!evaluate("ProfileManager.isCurrentProfileRecipe").isNull(),
+                 "ProfileManager.isCurrentProfileRecipe must not be undefined in QML");
+
+        QVERIFY2(!evaluate("ProfileManager.currentEditorType").isNull(),
+                 "ProfileManager.currentEditorType must not be undefined in QML");
+        QCOMPARE(evaluate("ProfileManager.currentEditorType").toString(), "dflow");
+
+        QVERIFY2(!evaluate("ProfileManager.brewByRatioActive").isNull(),
+                 "ProfileManager.brewByRatioActive must not be undefined in QML");
+
+        QVERIFY2(!evaluate("ProfileManager.profileTargetWeight").isNull(),
+                 "ProfileManager.profileTargetWeight must not be undefined in QML");
+
+        QVERIFY2(!evaluate("ProfileManager.baseProfileName").isNull(),
+                 "ProfileManager.baseProfileName must not be undefined in QML");
+    }
+
+    void qmlMethodsCallable() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Methods Test");
+
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("ProfileManager", &f.profileManager);
+
+        auto evaluate = [&](const QString& expr) -> QVariant {
+            QQmlExpression qmlExpr(engine.rootContext(), nullptr, expr);
+            bool isUndefined = false;
+            QVariant result = qmlExpr.evaluate(&isUndefined);
+            if (isUndefined)
+                return QVariant();
+            return result;
+        };
+
+        // Q_INVOKABLE methods must be callable (not undefined)
+        QVariant result = evaluate("ProfileManager.getCurrentProfile()");
+        QVERIFY2(!result.isNull(), "ProfileManager.getCurrentProfile() must be callable from QML");
+
+        result = evaluate("ProfileManager.frameCount()");
+        QVERIFY2(!result.isNull(), "ProfileManager.frameCount() must be callable from QML");
+        QCOMPARE(result.toInt(), 2);
+
+        result = evaluate("ProfileManager.previousProfileName()");
+        // May return empty string but must not be undefined
+        QVERIFY2(!result.isNull(), "ProfileManager.previousProfileName() must be callable from QML");
+
+        result = evaluate("ProfileManager.getOrConvertRecipeParams()");
+        QVERIFY2(!result.isNull(), "ProfileManager.getOrConvertRecipeParams() must be callable from QML");
     }
 };
 
