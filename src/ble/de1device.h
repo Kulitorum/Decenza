@@ -262,4 +262,8 @@ private:
     bool m_sawStopWritePending = false;
     qint64 m_lastSawTriggerMs = 0;
     qint64 m_lastSawWriteMs = 0;
+
+#ifdef DECENZA_TESTING
+    friend class tst_SAV;
+#endif
 };

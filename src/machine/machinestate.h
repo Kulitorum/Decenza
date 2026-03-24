@@ -166,4 +166,8 @@ private:
     QTimer* m_weightTrailingTimer = nullptr;          // Trailing-edge for scaleWeightChanged
     QElapsedTimer m_flowRateEmitTimer;               // Throttle gate for scaleFlowRateChanged
     QTimer* m_flowRateTrailingTimer = nullptr;        // Trailing-edge for scaleFlowRateChanged
+
+#ifdef DECENZA_TESTING
+    friend class tst_SAV;
+#endif
 };

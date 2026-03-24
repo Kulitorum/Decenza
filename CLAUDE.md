@@ -440,6 +440,10 @@ See `docs/CLAUDE_MD/DATA_MIGRATION.md` for architecture, REST endpoints, and imp
 
 See `docs/CLAUDE_MD/VISUALIZER.md` for DYE metadata, profile import, visualizer format, ProfileSaveHelper, and filename generation.
 
+## Unit Testing
+
+See `docs/CLAUDE_MD/TESTING.md` for the test framework, architecture, mock strategy, and how to add new tests. Tests use Qt Test (QTest) with `friend class` access behind `#ifdef DECENZA_TESTING`. Build with `-DBUILD_TESTS=ON`.
+
 ## BLE Protocol Notes
 
 See `docs/CLAUDE_MD/BLE_PROTOCOL.md` for UUIDs, retry mechanism, shot debug logging, battery management, and steam heater control.

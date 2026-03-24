@@ -32,6 +32,10 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# Unit tests — build with: cmake -DBUILD_TESTS=ON ...
+# Run with: ctest --output-on-failure
+option(BUILD_TESTS "Build unit tests" OFF)
+
 # Address Sanitizer — catches use-after-free, heap overflow, etc.
 # Enable in Qt Creator: Projects → Build → CMake → add ENABLE_ASAN=ON
 # Or configure from CLI: cmake ... -DENABLE_ASAN=ON
@@ -880,4 +884,9 @@ if(WIN32)
         "${CMAKE_SOURCE_DIR}/installer/version.iss"
         @ONLY
     )
+endif()
+
+# Unit tests (separate executables, not linked to main app)
+if(BUILD_TESTS)
+    add_subdirectory(tests)
 endif()
