@@ -219,13 +219,31 @@ add_decenza_test(tst_sav
     ${SIMULATOR_SOURCES}
 )
 
-# --- MCP tool tests (ProfileManager + MockTransport) ---
-# Shared MOC for all MCP tests (MockTransport.h and de1transport.h have Q_OBJECT)
+# --- Shared MOC for tests using MockTransport (ProfileManager, MCP tool tests) ---
 qt6_wrap_cpp(TST_MCP_MOC_SOURCES
     mocks/MockTransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
 )
+
+# --- tst_profilemanager: Direct ProfileManager lifecycle, signals, BLE upload ---
+find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+add_decenza_test(tst_profilemanager
+    tst_profilemanager.cpp
+    ${TST_MCP_MOC_SOURCES}
+    ${PROFILEMANAGER_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${MACHINE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_profilemanager PRIVATE Qt6::Charts Qt6::Quick)
+target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- MCP tool tests (ProfileManager + MockTransport) ---
 
 # --- tst_mcptools_profiles: Profile MCP tools, PR #561 BLE upload regression ---
 find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
