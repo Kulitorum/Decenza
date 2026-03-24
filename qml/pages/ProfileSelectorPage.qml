@@ -226,7 +226,7 @@ Page {
                             var list = Settings.favoriteProfiles  // Create dependency
                             return Settings.isFavoriteProfile(modelData.name)
                         }
-                        property bool isCurrentProfile: modelData.name === MainController.currentProfile
+                        property bool isCurrentProfile: modelData.name === ProfileManager.currentProfileName
 
                         // Source-based colors
                         property color sourceColor: isBuiltIn ? Theme.sourceBadgeBlueColor :      // Blue for Decent

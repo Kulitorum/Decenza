@@ -1583,7 +1583,7 @@ Page {
     }
 
     function loadCurrentProfile() {
-        // Load profile data from MainController
+        // Load profile data from ProfileManager
         var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
             profile = loadedProfile

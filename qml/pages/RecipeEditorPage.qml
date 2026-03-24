@@ -144,7 +144,7 @@ Page {
     }
 
 
-    // Load profile data from MainController
+    // Load profile data from ProfileManager
     function loadCurrentProfile() {
         recipe = ProfileManager.getOrConvertRecipeParams()
 

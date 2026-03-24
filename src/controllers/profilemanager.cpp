@@ -637,7 +637,7 @@ bool ProfileManager::deleteProfile(const QString& filename) {
         if (m_settings && m_settings->isFavoriteProfile(filename)) {
             // Find index and remove
             QVariantList favorites = m_settings->favoriteProfiles();
-            for (int i = 0; i < favorites.size(); ++i) {
+            for (qsizetype i = 0; i < favorites.size(); ++i) {
                 if (favorites[i].toMap()["filename"].toString() == filename) {
                     m_settings->removeFavoriteProfile(i);
                     break;
@@ -1753,7 +1753,7 @@ void ProfileManager::addFrame(int afterIndex) {
     newFrame.exitIf = false;
 
     bool added = false;
-    if (afterIndex < 0 || afterIndex >= m_currentProfile.steps().size()) {
+    if (afterIndex < 0 || static_cast<qsizetype>(afterIndex) >= m_currentProfile.steps().size()) {
         // Add at end
         added = m_currentProfile.addStep(newFrame);
     } else {
@@ -1779,7 +1779,7 @@ void ProfileManager::addFrame(int afterIndex) {
 }
 
 void ProfileManager::deleteFrame(int index) {
-    if (index < 0 || index >= m_currentProfile.steps().size()) {
+    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
         qWarning() << "Cannot delete frame: invalid index" << index;
         return;
     }
@@ -1807,7 +1807,7 @@ void ProfileManager::deleteFrame(int index) {
 }
 
 void ProfileManager::moveFrameUp(int index) {
-    if (index <= 0 || index >= m_currentProfile.steps().size()) {
+    if (index <= 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
         return;  // Can't move up if already at top or invalid
     }
 
@@ -1825,7 +1825,7 @@ void ProfileManager::moveFrameUp(int index) {
 }
 
 void ProfileManager::moveFrameDown(int index) {
-    if (index < 0 || index >= m_currentProfile.steps().size() - 1) {
+    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size() - 1) {
         return;  // Can't move down if already at bottom or invalid
     }
 
@@ -1843,7 +1843,7 @@ void ProfileManager::moveFrameDown(int index) {
 }
 
 void ProfileManager::duplicateFrame(int index) {
-    if (index < 0 || index >= m_currentProfile.steps().size()) {
+    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
         qWarning() << "Cannot duplicate frame: invalid index" << index;
         return;
     }
@@ -1872,7 +1872,7 @@ void ProfileManager::duplicateFrame(int index) {
 }
 
 void ProfileManager::setFrameProperty(int index, const QString& property, const QVariant& value) {
-    if (index < 0 || index >= m_currentProfile.steps().size()) {
+    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
         qWarning() << "setFrameProperty: invalid index" << index;
         return;
     }
@@ -1920,7 +1920,7 @@ void ProfileManager::setFrameProperty(int index, const QString& property, const 
 }
 
 QVariantMap ProfileManager::getFrameAt(int index) const {
-    if (index < 0 || index >= m_currentProfile.steps().size()) {
+    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
         return QVariantMap();
     }
 

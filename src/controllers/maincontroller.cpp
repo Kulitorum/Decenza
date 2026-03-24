@@ -512,10 +512,7 @@ void MainController::applyRefillKitOverride() {
 }
 
 void MainController::applyFlowCalibration() {
-    if (!m_device || !m_device->isConnected() || !m_settings) return;
-
-    double multiplier = m_settings->effectiveFlowCalibration(m_profileManager->baseProfileName());
-    m_device->setFlowCalibrationMultiplier(multiplier);
+    m_profileManager->applyFlowCalibration();
 }
 
 void MainController::computeAutoFlowCalibration() {

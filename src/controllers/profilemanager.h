@@ -152,10 +152,9 @@ signals:
     void targetWeightChanged();
     void profilesChanged();
     void allBuiltInProfileListChanged();
-    void flowCalibrationAutoUpdated(const QString& profileTitle, double oldValue, double newValue);
 
     // Emitted when uploadCurrentProfile() is blocked during active phase.
-    // MainController connects to this to forward to ShotDebugLogger.
+    // Connect to ShotDebugLogger for diagnostics.
     void profileUploadBlocked(const QString& phaseString, const QString& stackTrace);
 
 private:
@@ -187,7 +186,7 @@ private:
     bool m_profileUploadPending = false;
 
 #ifdef DECENZA_TESTING
-    friend class tst_McpTools;
-    friend class tst_ProfileManager;
+    friend class tst_McpToolsProfiles;
+    friend class tst_McpToolsWrite;
 #endif
 };

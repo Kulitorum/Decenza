@@ -1444,6 +1444,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                 }
             });
 
+            if (*destroyed) return;
             QMetaObject::invokeMethod(
                 this,
                 [this, results = std::move(results), serial, isAppend, totalCount, destroyed]() mutable {

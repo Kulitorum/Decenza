@@ -78,7 +78,8 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
         [profileManager]() -> QJsonObject {
             QJsonObject result;
             if (profileManager) {
-                result["filename"] = profileManager->currentProfileName();
+                result["filename"] = profileManager->baseProfileName();
+                result["title"] = profileManager->currentProfileName();
                 result["targetWeightG"] = profileManager->profileTargetWeight();
                 result["targetTemperatureC"] = profileManager->profileTargetTemperature();
             }

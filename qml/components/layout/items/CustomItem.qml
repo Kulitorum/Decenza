@@ -109,7 +109,7 @@ Item {
         if ((_needsMachineData || _needsScaleData) && typeof MachineState !== "undefined") {
             void(MachineState.phase)
         }
-        if (_needsControllerData && typeof MainController !== "undefined") {
+        if (_needsControllerData && typeof ProfileManager !== "undefined") {
             void(ProfileManager.targetWeight); void(ProfileManager.currentProfileName)
             void(ProfileManager.profileTargetTemperature)
             void(ProfileManager.brewByRatio); void(ProfileManager.brewByRatioDose)
@@ -173,12 +173,12 @@ Item {
         result = result.replace(/%VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.cumulativeVolume.toFixed(0) : "—")
         result = result.replace(/%POUR_VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.pourVolume.toFixed(0) : "—")
         result = result.replace(/%PREINFUSION_VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.preinfusionVolume.toFixed(0) : "—")
-        // Controller
-        result = result.replace(/%TARGET_WEIGHT%/g, typeof MainController !== "undefined" ? ProfileManager.targetWeight.toFixed(1) : "—")
-        result = result.replace(/%PROFILE%/g, typeof MainController !== "undefined" ? ProfileManager.currentProfileName : "—")
-        result = result.replace(/%TARGET_TEMP%/g, typeof MainController !== "undefined" ? ProfileManager.profileTargetTemperature.toFixed(1) : "—")
-        result = result.replace(/%RATIO%/g, typeof MainController !== "undefined" ? ProfileManager.brewByRatio.toFixed(1) : "—")
-        result = result.replace(/%DOSE%/g, typeof MainController !== "undefined" ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
+        // Profile (ProfileManager)
+        result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" ? ProfileManager.targetWeight.toFixed(1) : "—")
+        result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.currentProfileName : "—")
+        result = result.replace(/%TARGET_TEMP%/g, typeof ProfileManager !== "undefined" ? ProfileManager.profileTargetTemperature.toFixed(1) : "—")
+        result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatio.toFixed(1) : "—")
+        result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device
         result = result.replace(/%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
         // Grinder
@@ -356,7 +356,7 @@ Item {
                         DE1Device.disconnect()
                     break
                 case "previousProfile":
-                    var prevName = MainController.previousProfileName()
+                    var prevName = ProfileManager.previousProfileName()
                     if (prevName)
                         ProfileManager.loadProfile(prevName)
                     break
