@@ -48,6 +48,81 @@ set(SIMULATOR_SOURCES
     ${CMAKE_SOURCE_DIR}/src/simulator/de1simulator.cpp
 )
 
+# Standalone codec source (for lightweight tests that only need BLE encoding)
+set(CODEC_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/ble/protocol/binarycodec.cpp
+)
+
+# --- tst_binarycodec: BLE codec encode/decode tests (minimal deps) ---
+add_decenza_test(tst_binarycodec
+    tst_binarycodec.cpp
+    ${CODEC_SOURCES}
+)
+
+# --- tst_profile: Profile JSON/TCL parsing, frame generation, BLE encoding ---
+add_decenza_test(tst_profile
+    tst_profile.cpp
+    ${PROFILE_SOURCES}
+    ${CODEC_SOURCES}
+)
+
+# --- tst_profileframe: ProfileFrame JSON/TCL/flags tests (minimal deps) ---
+add_decenza_test(tst_profileframe
+    tst_profileframe.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profileframe.cpp
+    ${CODEC_SOURCES}
+)
+
+# --- tst_machinestate: Phase transitions, volume reset, signals ---
+qt6_wrap_cpp(TST_MACHINESTATE_MOC_SOURCES
+    mocks/MockScaleDevice.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+)
+add_decenza_test(tst_machinestate
+    tst_machinestate.cpp
+    ${TST_MACHINESTATE_MOC_SOURCES}
+    ${MACHINE_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
+# --- tst_recipeparams: RecipeParams serialization, validation, clamping ---
+add_decenza_test(tst_recipeparams
+    tst_recipeparams.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/recipeparams.cpp
+)
+
+# --- tst_settings: Settings persistence and defaults ---
+add_decenza_test(tst_settings
+    tst_settings.cpp
+    ${CORE_SOURCES}
+)
+
+# --- tst_recipegenerator: Frame generation vs de1app stock profiles ---
+add_decenza_test(tst_recipegenerator
+    tst_recipegenerator.cpp
+    ${PROFILE_SOURCES}
+    ${CODEC_SOURCES}
+)
+
+# --- tst_shotsettings: ShotSettings BLE wire format ---
+qt6_wrap_cpp(TST_SHOTSETTINGS_MOC_SOURCES
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+)
+add_decenza_test(tst_shotsettings
+    tst_shotsettings.cpp
+    ${TST_SHOTSETTINGS_MOC_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
 # --- tst_saw: WeightProcessor SAW tests (minimal deps) ---
 add_decenza_test(tst_saw
     tst_saw.cpp
