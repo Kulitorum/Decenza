@@ -596,10 +596,11 @@ void MachineState::checkStopAtVolume() {
     if (m_stopAtVolumeTriggered) return;
     if (!m_tareCompleted) return;  // Don't check until tare has happened
 
-    // Skip volume-based stop when a BLE scale is connected and
-    // the user has opted in. The scale's weight-based stop is more accurate.
+    // Skip volume-based stop when a physical scale is configured and the user has
+    // opted in. Uses "configured" (scaleAddress non-empty) not "connected" so a
+    // momentary BLE disconnect mid-shot doesn't re-enable SAV unexpectedly.
     if (m_settings && m_settings->ignoreVolumeWithScale()
-        && m_scale && m_scale->isConnected() && !m_scale->isFlowScale()) return;
+        && !m_settings->scaleAddress().isEmpty()) return;
 
     // Skip SAV for basic profiles when a physical scale is configured (matches de1app's
     // skip_sav_check / expecting_present). Beta testing in de1app revealed basic profiles
