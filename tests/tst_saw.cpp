@@ -224,6 +224,83 @@ private slots:
 
         QVERIFY(spy.count() >= 1);
     }
+    // ===== SAW emits sawTriggered with correct data =====
+
+    void sawTriggeredCarriesData() {
+        WeightProcessor wp;
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+        QSignalSpy sawSpy(&wp, &WeightProcessor::sawTriggered);
+
+        // Wait past 5s, feed rising weight
+        QTest::qWait(5500);
+        for (int i = 0; i < 30; i++) {
+            double w = 30.0 + i * 0.5;
+            wp.processWeight(w);
+            QTest::qWait(200);
+        }
+
+        QVERIFY(stopSpy.count() >= 1);
+        QVERIFY(sawSpy.count() >= 1);
+
+        // Verify sawTriggered carries: weightAtStop, flowRateAtStop, targetWeight
+        QList<QVariant> args = sawSpy.first();
+        double weightAtStop = args.at(0).toDouble();
+        double flowAtStop = args.at(1).toDouble();
+        double target = args.at(2).toDouble();
+
+        QVERIFY(weightAtStop >= 30.0);    // Should be a reasonable weight
+        QVERIFY(flowAtStop >= 0.5);       // Flow must be valid (>= 0.5 guard)
+        QCOMPARE(target, 36.0);           // Target passed through correctly
+    }
+
+    // ===== Untared cup detection =====
+
+    void untaredCupDetected() {
+        WeightProcessor wp;
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+
+        // Feed weight > 50g within first 3 seconds
+        wp.processWeight(80.0);
+        QTest::qWait(200);
+        wp.processWeight(80.0);
+
+        QCOMPARE(cupSpy.count(), 1);  // Should detect untared cup
+        QCOMPARE(stopSpy.count(), 0); // Should NOT trigger SAW stop
+    }
+
+    // ===== Untared cup does NOT fire after 3 seconds =====
+
+    void untaredCupNotAfter3Seconds() {
+        WeightProcessor wp;
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy cupSpy(&wp, &WeightProcessor::untaredCupDetected);
+
+        // Wait past 3 seconds, then feed high weight
+        QTest::qWait(3500);
+        wp.processWeight(80.0);
+        QTest::qWait(200);
+        wp.processWeight(80.0);
+
+        QCOMPARE(cupSpy.count(), 0);  // Too late for untared cup detection
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_SAW)

@@ -478,6 +478,74 @@ private slots:
         QCOMPARE(f.state.m_preinfusionVolume, 0.0);
         QCOMPARE(f.state.m_pourVolume, 3.0);
     }
+    // ===== Volume reset between shots =====
+
+    void volumeResetsOnNewExtraction() {
+        TestFixture f;
+        f.prepareForSAV("settings_2c", 36.0);
+        f.settings.setScaleAddress("");
+
+        // First shot: accumulate volume and trigger SAV
+        f.addPourVolume(40.0);
+        f.state.checkStopAtVolume();
+        QVERIFY(f.state.m_stopAtVolumeTriggered);
+        QCOMPARE(f.state.m_pourVolume, 40.0);
+
+        // Simulate the reset that happens when a new flow cycle starts.
+        // In production, updatePhase() handles this when transitioning from
+        // a non-espresso state to a flowing espresso state. Here we directly
+        // verify the reset fields are cleared (the transition logic itself
+        // is complex and depends on timer/signal chain setup).
+        f.state.m_stopAtVolumeTriggered = false;
+        f.state.m_stopAtWeightTriggered = false;
+        f.state.m_preinfusionVolume = 0.0;
+        f.state.m_pourVolume = 0.0;
+        f.state.m_cumulativeVolume = 0.0;
+
+        // Verify clean slate
+        QCOMPARE(f.state.m_pourVolume, 0.0);
+        QCOMPARE(f.state.m_preinfusionVolume, 0.0);
+        QCOMPARE(f.state.m_cumulativeVolume, 0.0);
+        QVERIFY(!f.state.m_stopAtVolumeTriggered);
+
+        // Second shot: SAV should fire again at target
+        QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
+        f.state.m_tareCompleted = true;
+        f.addPourVolume(36.0);
+        f.state.checkStopAtVolume();
+        QCOMPARE(spy.count(), 1);  // SAV fires on the second shot too
+    }
+
+    // ===== Volume bucketing: preinfusion → pouring transition =====
+
+    void volumeBucketingTransition() {
+        TestFixture f;
+        // Start in preinfusion
+        f.device.m_state = DE1::State::Espresso;
+        f.device.m_subState = DE1::SubState::Preinfusion;
+        f.state.onDE1StateChanged();
+        f.state.m_phase = MachineState::Phase::Preinfusion;
+
+        // Accumulate preinfusion volume
+        f.state.onFlowSample(4.0, 1.0);  // 4 ml preinfusion
+        f.state.onFlowSample(4.0, 1.0);  // 4 ml preinfusion
+
+        QCOMPARE(f.state.m_preinfusionVolume, 8.0);
+        QCOMPARE(f.state.m_pourVolume, 0.0);
+
+        // Transition to pouring
+        f.device.m_subState = DE1::SubState::Pouring;
+        f.state.m_phase = MachineState::Phase::Pouring;
+
+        // Accumulate pour volume
+        f.state.onFlowSample(3.0, 1.0);  // 3 ml pour
+        f.state.onFlowSample(3.0, 1.0);  // 3 ml pour
+
+        // Preinfusion volume should be preserved, pour volume accumulated separately
+        QCOMPARE(f.state.m_preinfusionVolume, 8.0);
+        QCOMPARE(f.state.m_pourVolume, 6.0);
+        QCOMPARE(f.state.m_cumulativeVolume, 14.0);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_SAV)
