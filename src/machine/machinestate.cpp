@@ -542,7 +542,7 @@ void MachineState::onScaleWeightChanged(double weight) {
         }
     }
     // Hot water: MachineState handles stop-at-weight (ShotTimingController not active)
-    // Espresso: ShotTimingController handles stop-at-weight (with proper 1.5s lag compensation)
+    // Espresso: WeightProcessor handles SAW on worker thread (adaptive lag via learned drip data)
     if (state == DE1::State::HotWater) {
         checkStopAtWeightHotWater(weight);
     }
