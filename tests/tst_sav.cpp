@@ -227,11 +227,20 @@ private slots:
         QCOMPARE(spy.count(), 1);  // Advanced profiles: SAV active with scale
     }
 
-    // ===== ignoreVolumeWithScale: SAV skipped when ON + scale configured =====
+    // ===== ignoreVolumeWithScale: SAV skipped across all profile types =====
+
+    void ignoreVolumeWithScaleSkipsSAV_data() {
+        QTest::addColumn<QString>("profileType");
+        QTest::newRow("settings_2a") << "settings_2a";
+        QTest::newRow("settings_2b") << "settings_2b";
+        QTest::newRow("settings_2c") << "settings_2c";
+        QTest::newRow("settings_2c2") << "settings_2c2";
+    }
 
     void ignoreVolumeWithScaleSkipsSAV() {
+        QFETCH(QString, profileType);
         TestFixture f;
-        f.prepareForSAV("settings_2c", 36.0);
+        f.prepareForSAV(profileType, 36.0);
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
         f.settings.setIgnoreVolumeWithScale(true);
 
@@ -239,14 +248,23 @@ private slots:
         f.addPourVolume(40.0);
         f.state.checkStopAtVolume();
 
-        QCOMPARE(spy.count(), 0);  // User opted out of SAV
+        QCOMPARE(spy.count(), 0);  // User opted out of SAV for all profile types
     }
 
     // ===== ignoreVolumeWithScale: SAV active when ON but no scale configured =====
 
+    void ignoreVolumeWithScaleNoEffect_data() {
+        QTest::addColumn<QString>("profileType");
+        QTest::newRow("settings_2a") << "settings_2a";
+        QTest::newRow("settings_2b") << "settings_2b";
+        QTest::newRow("settings_2c") << "settings_2c";
+        QTest::newRow("settings_2c2") << "settings_2c2";
+    }
+
     void ignoreVolumeWithScaleNoEffect() {
+        QFETCH(QString, profileType);
         TestFixture f;
-        f.prepareForSAV("settings_2c", 36.0);
+        f.prepareForSAV(profileType, 36.0);
         f.settings.setScaleAddress("");
         f.settings.setIgnoreVolumeWithScale(true);
 
@@ -259,9 +277,18 @@ private slots:
 
     // ===== ignoreVolumeWithScale: SAV active when OFF + scale configured =====
 
+    void ignoreVolumeOffSavActive_data() {
+        QTest::addColumn<QString>("profileType");
+        // Basic profiles skip SAV via the basic-profile guard, not ignoreVolume
+        // So only test advanced profiles where the setting is the only opt-out
+        QTest::newRow("settings_2c") << "settings_2c";
+        QTest::newRow("settings_2c2") << "settings_2c2";
+    }
+
     void ignoreVolumeOffSavActive() {
+        QFETCH(QString, profileType);
         TestFixture f;
-        f.prepareForSAV("settings_2c", 36.0);
+        f.prepareForSAV(profileType, 36.0);
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
         f.settings.setIgnoreVolumeWithScale(false);
 
@@ -269,7 +296,22 @@ private slots:
         f.addPourVolume(40.0);
         f.state.checkStopAtVolume();
 
-        QCOMPARE(spy.count(), 1);  // Setting OFF — SAV still active
+        QCOMPARE(spy.count(), 1);  // Setting OFF — SAV still active for advanced profiles
+    }
+
+    // ===== ignoreVolumeWithScale does NOT affect hot water SAV =====
+
+    void ignoreVolumeDoesNotAffectHotWater() {
+        TestFixture f;
+        f.prepareForHotWaterSAV();
+        f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
+        f.settings.setIgnoreVolumeWithScale(true);  // ON — but hot water should still work
+
+        QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
+        f.addPourVolume(250.0);
+        f.state.checkStopAtVolumeHotWater();
+
+        QCOMPARE(spy.count(), 1);  // Hot water SAV ignores the setting — 250ml safety fires
     }
 
     // ===== Hot Water SAV: 250 ml safety net with scale =====
@@ -325,6 +367,78 @@ private slots:
         f.state.checkStopAtVolumeHotWater();
 
         QCOMPARE(spy.count(), 0);
+    }
+
+    // ===== Hot Water SAV fires only once =====
+
+    void hotWaterSavFiresOnlyOnce() {
+        TestFixture f;
+        f.prepareForHotWaterSAV();
+        f.settings.setScaleAddress("");
+        f.settings.setWaterVolume(200);
+
+        QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
+        f.addPourVolume(200.0);
+        f.state.checkStopAtVolumeHotWater();
+        f.addPourVolume(210.0);
+        f.state.checkStopAtVolumeHotWater();
+
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // ===== Hot Water SAV disabled when waterVolume == 0 =====
+
+    void hotWaterSavDisabledWhenZero() {
+        TestFixture f;
+        f.prepareForHotWaterSAV();
+        f.settings.setScaleAddress("");
+        f.settings.setWaterVolume(0);
+
+        QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
+        f.addPourVolume(500.0);
+        f.state.checkStopAtVolumeHotWater();
+
+        QCOMPARE(spy.count(), 0);
+    }
+
+    // ===== Hot Water volume routing: flow goes to pourVolume via onFlowSample =====
+
+    void hotWaterVolumeRouting() {
+        TestFixture f;
+        f.device.m_state = DE1::State::HotWater;
+        f.device.m_subState = DE1::SubState::Pouring;
+        f.state.onDE1StateChanged();
+        f.state.onDE1SubStateChanged();
+        f.state.m_phase = MachineState::Phase::HotWater;
+
+        f.state.onFlowSample(5.0, 1.0);  // 5 ml
+
+        QCOMPARE(f.state.m_pourVolume, 5.0);
+        QCOMPARE(f.state.m_preinfusionVolume, 0.0);  // Hot water has no preinfusion
+    }
+
+    // ===== Hot Water SAV triggers via onFlowSample integration =====
+
+    void hotWaterSavViaFlowSample() {
+        TestFixture f;
+        f.device.m_state = DE1::State::HotWater;
+        f.device.m_subState = DE1::SubState::Pouring;
+        f.state.onDE1StateChanged();
+        f.state.onDE1SubStateChanged();
+        f.state.m_phase = MachineState::Phase::HotWater;
+        f.state.m_tareCompleted = true;
+        f.settings.setScaleAddress("");
+        f.settings.setWaterVolume(100);
+
+        QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
+
+        // Feed flow samples that accumulate to 100 ml
+        for (int i = 0; i < 20; i++) {
+            f.state.onFlowSample(5.0, 1.0);  // 5 ml per sample
+        }
+
+        QCOMPARE(spy.count(), 1);  // Should fire when pourVolume reaches 100 ml
+        QVERIFY(f.state.m_pourVolume >= 100.0);
     }
 
     // ===== Volume bucketing: preinfusion phase → preinfusion volume =====
