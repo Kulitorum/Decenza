@@ -1,8 +1,4 @@
 #include <QtTest>
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
 
 #include "profile/profile.h"
 #include "profile/profileframe.h"
@@ -11,31 +7,12 @@
 
 // Test RecipeGenerator frame generation against de1app behavior.
 // D-Flow/A-Flow profiles in de1app are EDITED in-place by update_D-Flow/update_A-Flow,
-// not regenerated from scratch. So golden-file tests compare generator output against
-// the stored recipe params + de1app formulas, not against the saved frame values
-// (which may have been manually tweaked in de1app's UI).
+// not regenerated from scratch. So tests compare generator output against the stored
+// recipe params + de1app formulas, not against saved frame values (which may have been
+// manually tweaked in de1app's UI).
 
 class tst_RecipeGenerator : public QObject {
     Q_OBJECT
-
-private:
-    // Load recipe params from a built-in profile JSON
-    static RecipeParams loadRecipeFromProfile(const QString& filename) {
-        QString path = QStringLiteral(":/profiles/") + filename;
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly)) {
-            // Try filesystem path for non-resource builds
-            path = QStringLiteral("resources/profiles/") + filename;
-            file.setFileName(path);
-            if (!file.open(QIODevice::ReadOnly)) {
-                qWarning() << "Could not open profile:" << filename;
-                return RecipeParams();
-            }
-        }
-        QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        QJsonObject recipe = doc.object()["recipe"].toObject();
-        return RecipeParams::fromJson(recipe);
-    }
 
 private slots:
 
@@ -149,13 +126,14 @@ private slots:
     // ==========================================
 
     void aflowFrameCountDefault() {
+        // de1app A_Flow/plugin.tcl update_A-Flow: always 9 frames:
+        //   Pre Fill, Fill, Infuse, 2nd Fill, Pause,
+        //   Ramp Up, Ramp Down, Pouring Start, Pouring
         RecipeParams recipe;
         recipe.editorType = EditorType::AFlow;
         recipe.applyEditorDefaults();
         QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
-        // A-Flow default: Pre Fill + Fill + Infuse + Pressure Up + Pressure Decline +
-        //                 Flow Start + Flow Extraction = 7 minimum
-        QVERIFY(frames.size() >= 7);
+        QCOMPARE(frames.size(), 9);
     }
 
     void aflowSecondFillActivatesFrames() {

@@ -29,7 +29,7 @@ add_decenza_test(tst_machinestate tst_machinestate.cpp
 
 - [ ] `phaseMapping_data` — data-driven test across all DE1::State → Phase mappings:
   - Sleep → Sleep
-  - Idle → Idle
+  - Idle/Ready → Ready (Phase::Idle is only the fallback for unrecognized substates)
   - Espresso/Preinfusion → Preinfusion
   - Espresso/Pouring → Pouring
   - Steam → Steaming
@@ -118,7 +118,7 @@ add_decenza_test(tst_profileframe tst_profileframe.cpp
 - [ ] `flagsFlowNoExit` — flow pump, no exit → CtrlF | IgnoreLimit
 - [ ] `flagsPressureExitPressureOver` — pressure, exit_pressure_over → DoCompare | DC_GT | IgnoreLimit
 - [ ] `flagsFlowExitPressureOver` — flow, exit_pressure_over → CtrlF | DoCompare | DC_GT | IgnoreLimit
-- [ ] `flagsFlowExitFlowUnder` — flow, exit_flow_under → CtrlF | DoCompare | DC_CompF
+- [ ] `flagsFlowExitFlowUnder` — flow, exit_flow_under → CtrlF | DoCompare | DC_CompF | IgnoreLimit = 0x4B
 - [ ] `flagsPressureExitFlowOver` — pressure, exit_flow_over → DoCompare | DC_GT | DC_CompF
 - [ ] `flagsSmoothTransition` — transition=smooth → Interpolate flag set
 - [ ] `flagsWaterSensor` — sensor=water → TMixTemp flag set

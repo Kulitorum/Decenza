@@ -7,7 +7,7 @@
 // Test DE1Device::setShotSettings BLE wire format.
 // Expected byte values from de1app binary.tcl return_de1_packed_steam_hotwater_settings.
 //
-// de1app wire format (8 bytes written to SHOT_SETTINGS characteristic):
+// de1app wire format (9 bytes written to SHOT_SETTINGS characteristic: 7 x U8 + 1 x U16):
 //   [0] SteamSettings = 0 (flags, unused)
 //   [1] TargetSteamTemp = U8P0(steamTemp)
 //   [2] TargetSteamLength = U8P0(steamDuration)

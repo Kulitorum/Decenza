@@ -46,7 +46,7 @@ add_decenza_test(tst_binarycodec tst_binarycodec.cpp ${CODEC_SOURCES})
 - [ ] Round-trip: {0, 5.0, 12.7, 12.75, 13.0, 60.0, 127.0}
 - [ ] Boundary: 12.74 vs 12.75 (sign bit flips encoding range)
 - [ ] Short duration (<12.75): 0.1s resolution
-- [ ] Long duration (≥12.75): 0.5s resolution
+- [ ] Long duration (≥12.75): 1s resolution (de1app uses integer round)
 
 **U10P0 (volume limit):**
 - [ ] Encode 0 → bit 10 set (0x0400)
@@ -125,7 +125,7 @@ add_decenza_test(tst_profile tst_profile.cpp ${PROFILE_SOURCES} ${CODEC_SOURCES}
 
 - [ ] `flagsPressureNoExit` — pressure pump, no exit: IgnoreLimit only
 - [ ] `flagsFlowWithPressureOver` — flow pump, exit pressure_over: CtrlF|DoCompare|DC_GT|IgnoreLimit
-- [ ] `flagsFlowUnder` — flow_under: DoCompare|DC_CompF (no DC_GT)
+- [ ] `flagsFlowUnder` — flow pump, exit flow_under: CtrlF|DoCompare|DC_CompF|IgnoreLimit = 0x4B
 - [ ] `flagsSmoothWaterSensor` — transition=smooth, sensor=water: Interpolate|TMixTemp
 
 #### RecipeGenerator (de1app `dflow_generate_frames`)
