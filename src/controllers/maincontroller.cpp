@@ -1041,6 +1041,7 @@ void MainController::loadProfile(const QString& profileName) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
+        m_machineState->setPreinfuseFrameCount(m_currentProfile.preinfuseFrameCount());
     }
 
     // Upload to machine if connected (for frame-based mode)
@@ -1090,6 +1091,7 @@ bool MainController::loadProfileFromJson(const QString& jsonContent) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
+        m_machineState->setPreinfuseFrameCount(m_currentProfile.preinfuseFrameCount());
     }
 
     // Upload to machine if connected (for frame-based mode)
@@ -1718,6 +1720,7 @@ void MainController::uploadRecipeProfile(const QVariantMap& recipeParams) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
+        m_machineState->setPreinfuseFrameCount(m_currentProfile.preinfuseFrameCount());
     }
 
     // Mark as modified
@@ -1880,6 +1883,7 @@ void MainController::createNewProfileWithEditorType(EditorType type, const QStri
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
+        m_machineState->setPreinfuseFrameCount(m_currentProfile.preinfuseFrameCount());
     }
 
     emit currentProfileChanged();
@@ -2176,6 +2180,7 @@ void MainController::createNewProfile(const QString& title) {
         m_machineState->setTargetWeight(m_currentProfile.targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
+        m_machineState->setPreinfuseFrameCount(m_currentProfile.preinfuseFrameCount());
     }
 
     emit currentProfileChanged();
@@ -3676,6 +3681,11 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
         m_frameStartTime = time;  // Record start time of new frame
         m_lastFrameNumber = sample.frameNumber;
         m_currentFrameName = frameName;  // Store for accessibility QML binding
+
+        // Update MachineState's frame tracking for volume bucketing (SAV count_start)
+        if (m_machineState) {
+            m_machineState->setCurrentFrame(sample.frameNumber);
+        }
 
         // Notify of frame change (tick sound + transition reason for UI pill)
         emit frameChanged(frameIndex, frameName, transitionReason);

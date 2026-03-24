@@ -310,6 +310,7 @@ void MachineState::updatePhase() {
                 m_hotWaterTareTimeMs = 0;
                 m_hotWaterMaxEffectiveWeight = 0.0;
                 m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
+                m_currentFrame = -1;     // Reset frame tracking for volume bucketing
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
                 m_cumulativeVolume = 0.0;
@@ -357,6 +358,7 @@ void MachineState::updatePhase() {
                     m_stopAtWeightTriggered = false;
                     m_stopAtVolumeTriggered = false;
                     m_stopAtTimeTriggered = false;
+                    m_currentFrame = -1;     // Reset frame tracking for volume bucketing
                     m_preinfusionVolume = 0.0;
                     m_pourVolume = 0.0;
                     m_cumulativeVolume = 0.0;
@@ -640,12 +642,17 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
         m_scale->addFlowSample(flowRate, deltaTime);
     }
 
-    // Integrate flow to track volume (ml), split by phase like de1app
-    // flowRate is in ml/s, deltaTime is in seconds
+    // Integrate flow to track volume (ml), split by frame number (matches de1app).
+    // de1app uses final_desired_shot_volume_advanced_count_start to determine when
+    // pour volume counting begins. Frames before count_start are preinfusion volume.
+    // This is frame-based, NOT phase-based, because the DE1 firmware can report
+    // Pouring substate before reaching the count_start frame.
     double volumeDelta = flowRate * deltaTime;
     if (volumeDelta > 0) {
-        // Split volume by phase: preinfusion vs pouring (matches de1app behavior)
-        if (m_phase == Phase::Preinfusion) {
+        bool isPreinfusionVolume = (state == DE1::State::Espresso)
+            ? (m_currentFrame < m_preinfuseFrameCount)
+            : (m_phase == Phase::Preinfusion);  // Non-espresso: use phase as before
+        if (isPreinfusionVolume) {
             m_preinfusionVolume += volumeDelta;
             int roundedMl = static_cast<int>(m_preinfusionVolume);
             if (roundedMl != m_lastEmittedPreinfusionVolumeMl) {
