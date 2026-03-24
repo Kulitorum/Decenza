@@ -67,6 +67,7 @@ public:
     void setTimingController(ShotTimingController* controller);
     void setTargetWeight(double weight);
     void setTargetVolume(double volume);
+    void setProfileType(const QString& type) { m_profileType = type; }
     // Scale accessors (forward from current scale)
     double scaleWeight() const;
     double scaleFlowRate() const;
@@ -124,6 +125,7 @@ private:
     double m_shotTime = 0.0;
     double m_targetWeight = 36.0;
     double m_targetVolume = 0.0;
+    QString m_profileType = "settings_2c";
     double m_cumulativeVolume = 0.0;    // Total volume from flow meter (preinfusion + pour)
     int m_lastEmittedCumulativeVolumeMl = -1;  // Throttle: only emit when rounded ml changes
     double m_preinfusionVolume = 0.0;   // Volume during preinfusion substate (ml)

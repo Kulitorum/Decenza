@@ -599,19 +599,20 @@ void MachineState::checkStopAtVolume() {
     if (m_settings && m_settings->ignoreVolumeWithScale()
         && m_scale && m_scale->isConnected() && !m_scale->isFlowScale()) return;
 
+    // Skip SAV for basic profiles when a physical scale is configured (matches de1app's
+    // skip_sav_check / expecting_present). Beta testing in de1app revealed basic profiles
+    // have unrealistically low volume targets that trigger early stops. Uses "configured"
+    // not "connected" so a momentary BLE disconnect doesn't re-enable SAV mid-session.
+    bool isBasicProfile = (m_profileType == QLatin1String("settings_2a")
+                        || m_profileType == QLatin1String("settings_2b"));
+    if (isBasicProfile && m_settings && !m_settings->scaleAddress().isEmpty()) return;
+
     double target = m_targetVolume;
     if (target <= 0) return;
 
-    // Get current flow rate for lag compensation
-    double flowRate = smoothedScaleFlowRate();
-    if (flowRate > 10.0) flowRate = 10.0;  // Cap to reasonable range
-    if (flowRate < 0) flowRate = 0;
-
-    // Use same lag compensation as weight-based stop
-    double lagSeconds = 0.5;
-    double lagCompensation = flowRate * lagSeconds;
-
-    if (m_pourVolume >= (target - lagCompensation)) {
+    // No lag compensation for SAV (matches de1app). Volume is already imprecise
+    // from the flow sensor, and de1app uses a raw comparison intentionally.
+    if (m_pourVolume >= target) {
         m_stopAtVolumeTriggered = true;
         emit targetVolumeReached();
 

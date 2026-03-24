@@ -190,7 +190,11 @@ void WeightProcessor::processWeight(double weight)
             m_lastLowFlowLogMs = wallClock;
         }
     }
-    if (pastPreinfusion && !m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5) {
+    // Ignore SAW for the first 5 seconds of extraction (matches de1app).
+    // Prevents false triggers from tare settling, puck swelling, scale noise.
+    double extractionElapsed = (m_extractionStartTime > 0) ? (wallClock - m_extractionStartTime) / 1000.0 : 0.0;
+    if (pastPreinfusion && !m_stopTriggered && m_targetWeight > 0 && flowRateShort >= 0.5
+        && extractionElapsed > 5.0) {
         // Log once when flow becomes valid — confirms de-jitter is working
         if (!m_flowBecameValidLogged && m_extractionStartTime > 0) {
             m_flowBecameValidLogged = true;
