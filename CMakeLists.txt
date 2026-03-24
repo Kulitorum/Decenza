@@ -246,6 +246,7 @@ set(SOURCES
     src/profile/recipeanalyzer.cpp
     src/models/shotdatamodel.cpp
     src/controllers/maincontroller.cpp
+    src/controllers/profilemanager.cpp
     src/controllers/directcontroller.cpp
     src/controllers/shottimingcontroller.cpp
     src/screensaver/screensavervideomanager.cpp
@@ -380,6 +381,7 @@ set(HEADERS
     src/profile/recipeanalyzer.h
     src/models/shotdatamodel.h
     src/controllers/maincontroller.h
+    src/controllers/profilemanager.h
     src/controllers/directcontroller.h
     src/controllers/shottimingcontroller.h
     src/screensaver/screensavervideomanager.h
