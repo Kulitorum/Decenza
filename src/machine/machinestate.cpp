@@ -642,17 +642,13 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
         m_scale->addFlowSample(flowRate, deltaTime);
     }
 
-    // Integrate flow to track volume (ml), split by frame number (matches de1app).
-    // de1app uses final_desired_shot_volume_advanced_count_start to determine when
-    // pour volume counting begins. Frames before count_start are preinfusion volume.
-    // This is frame-based, NOT phase-based, because the DE1 firmware can report
-    // Pouring substate before reaching the count_start frame.
+    // Integrate flow to track volume (ml), split by DE1 substate (matches de1app).
+    // de1app routes volume by substate: preinfusion → preinfusion_volume,
+    // pouring → pour_volume. Other substates (heating, stabilising) are ignored.
+    // flowRate is in ml/s, deltaTime is in seconds.
     double volumeDelta = flowRate * deltaTime;
     if (volumeDelta > 0) {
-        bool isPreinfusionVolume = (state == DE1::State::Espresso)
-            ? (m_currentFrame >= 0 && m_currentFrame < m_preinfuseFrameCount)
-            : (m_phase == Phase::Preinfusion);  // Non-espresso: use phase as before
-        if (isPreinfusionVolume) {
+        if (m_phase == Phase::Preinfusion) {
             m_preinfusionVolume += volumeDelta;
             int roundedMl = static_cast<int>(m_preinfusionVolume);
             if (roundedMl != m_lastEmittedPreinfusionVolumeMl) {
