@@ -2,12 +2,12 @@
 #include "mcptoolregistry.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
-#include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 
 #include <QJsonObject>
 
 void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineState* machineState,
-                          MainController* mainController)
+                          ProfileManager* profileManager)
 {
     // machine_wake
     registry->registerTool(
@@ -66,7 +66,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             {"temperature", QJsonObject{{"type", "number"}, {"description", "Override temperature for this shot (Celsius)"}}},
             {"grind", QJsonObject{{"type", "string"}, {"description", "Override grind setting for this shot"}}}
         }}},
-        [device, machineState, mainController](const QJsonObject& args) -> QJsonObject {
+        [device, machineState, profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!device || !device->isConnected()) {
                 result["error"] = "Machine not connected";
@@ -84,12 +84,12 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             // Apply brew overrides if provided — same as QML BrewDialog
             bool hasOverrides = args.contains("dose") || args.contains("yield") ||
                                 args.contains("temperature") || args.contains("grind");
-            if (hasOverrides && mainController) {
+            if (hasOverrides && profileManager) {
                 double dose = args.contains("dose") ? args["dose"].toDouble() : 0;
                 double yield = args.contains("yield") ? args["yield"].toDouble() : 0;
                 double temperature = args.contains("temperature") ? args["temperature"].toDouble() : 0;
                 QString grind = args["grind"].toString();
-                mainController->activateBrewWithOverrides(dose, yield, temperature, grind);
+                profileManager->activateBrewWithOverrides(dose, yield, temperature, grind);
             }
 
             device->startEspresso();

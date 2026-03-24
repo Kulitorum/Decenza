@@ -2,6 +2,7 @@
 #include "mcptoolregistry.h"
 #include "../history/shothistorystorage.h"
 #include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 #include "../ai/aimanager.h"
 #include "../ai/shotsummarizer.h"
 #include "../core/settings.h"
@@ -33,6 +34,7 @@ struct DialingDbResult {
 };
 
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
+                          ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, Settings* settings)
 {
     // dialing_get_context
@@ -52,7 +54,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 {"history_limit", QJsonObject{{"type", "integer"}, {"description", "Number of prior shots with same profile to include (default 5, max 20)"}}}
             }}
         },
-        [mainController, shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [mainController, profileManager, shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Shot history not available"}});
                 return;
@@ -68,7 +70,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
             const QString dbPath = shotHistory->databasePath();
 
             QThread* thread = QThread::create(
-                [dbPath, shotId, historyLimit, mainController, settings, respond]() {
+                [dbPath, shotId, historyLimit, mainController, profileManager, settings, respond]() {
                 // --- All SQL runs on this background thread ---
                 DialingDbResult dbResult;
 
@@ -201,7 +203,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 // --- Deliver results to main thread for final assembly ---
                 // Main-thread work: settings access, AI analysis, profile info
                 QMetaObject::invokeMethod(qApp,
-                    [respond, dbResult, resolvedShotId, mainController, settings]() {
+                    [respond, dbResult, resolvedShotId, mainController, profileManager, settings]() {
 
                     if (dbResult.shotData.isEmpty()) {
                         respond(QJsonObject{{"error", "Shot not found: " + QString::number(resolvedShotId)}});
@@ -276,13 +278,13 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     }
 
                     // --- Current profile info ---
-                    if (mainController) {
+                    if (profileManager) {
                         QJsonObject profileInfo;
-                        profileInfo["filename"] = mainController->currentProfileName();
-                        profileInfo["targetWeightG"] = mainController->profileTargetWeight();
-                        profileInfo["targetTemperatureC"] = mainController->profileTargetTemperature();
-                        if (mainController->profileHasRecommendedDose())
-                            profileInfo["recommendedDoseG"] = mainController->profileRecommendedDose();
+                        profileInfo["filename"] = profileManager->currentProfileName();
+                        profileInfo["targetWeightG"] = profileManager->profileTargetWeight();
+                        profileInfo["targetTemperatureC"] = profileManager->profileTargetTemperature();
+                        if (profileManager->profileHasRecommendedDose())
+                            profileInfo["recommendedDoseG"] = profileManager->profileRecommendedDose();
                         result["currentProfile"] = profileInfo;
                     }
 

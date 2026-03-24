@@ -784,6 +784,7 @@ int main(int argc, char *argv[])
     mcpServer.setDE1Device(&de1Device);
     mcpServer.setMachineState(&machineState);
     mcpServer.setMainController(&mainController);
+    mcpServer.setProfileManager(mainController.profileManager());
     mcpServer.setShotHistoryStorage(mainController.shotHistory());
     mcpServer.setBLEManager(&bleManager);
     mcpServer.setSettings(&settings);

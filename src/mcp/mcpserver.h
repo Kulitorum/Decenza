@@ -17,6 +17,7 @@ class McpResourceRegistry;
 class DE1Device;
 class MachineState;
 class MainController;
+class ProfileManager;
 class ShotHistoryStorage;
 class BLEManager;
 class Settings;
@@ -47,6 +48,7 @@ public:
     void setDE1Device(DE1Device* device) { m_device = device; }
     void setMachineState(MachineState* state) { m_machineState = state; }
     void setMainController(MainController* controller) { m_mainController = controller; }
+    void setProfileManager(ProfileManager* mgr) { m_profileManager = mgr; }
     void setShotHistoryStorage(ShotHistoryStorage* storage) { m_shotHistory = storage; }
     void setBLEManager(BLEManager* ble) { m_bleManager = ble; }
     void setSettings(Settings* settings) { m_settings = settings; }
@@ -116,6 +118,7 @@ private:
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
     MainController* m_mainController = nullptr;
+    ProfileManager* m_profileManager = nullptr;
     ShotHistoryStorage* m_shotHistory = nullptr;
     BLEManager* m_bleManager = nullptr;
     Settings* m_settings = nullptr;

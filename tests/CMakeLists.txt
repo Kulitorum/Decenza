@@ -141,6 +141,16 @@ target_compile_definitions(tst_blefidelity PRIVATE
     PROFILES_DIR="${CMAKE_SOURCE_DIR}/resources/profiles"
 )
 
+# ProfileManager sources (for MCP tool tests)
+set(PROFILEMANAGER_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/controllers/profilemanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/profilestorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
+)
+
 # History sources (ShotHistoryStorage + transitive deps)
 set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
@@ -208,3 +218,53 @@ add_decenza_test(tst_sav
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
 )
+
+# --- MCP tool tests (ProfileManager + MockTransport) ---
+# Shared MOC for all MCP tests (MockTransport.h and de1transport.h have Q_OBJECT)
+qt6_wrap_cpp(TST_MCP_MOC_SOURCES
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
+)
+
+# --- tst_mcptools_profiles: Profile MCP tools, PR #561 BLE upload regression ---
+find_package(Qt6 REQUIRED COMPONENTS Charts Quick)
+add_decenza_test(tst_mcptools_profiles
+    tst_mcptools_profiles.cpp
+    ${TST_MCP_MOC_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_profiles.cpp
+    ${PROFILEMANAGER_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${MACHINE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcptools_profiles PRIVATE Qt6::Charts Qt6::Quick)
+target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---
+# mcptools_write.cpp includes all write tools, pulling in Accessibility/Screensaver/Translation/Battery
+find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia)
+add_decenza_test(tst_mcptools_write
+    tst_mcptools_write.cpp
+    ${TST_MCP_MOC_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_write.cpp
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${MACHINE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcptools_write PRIVATE Qt6::Charts Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia)
+target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})

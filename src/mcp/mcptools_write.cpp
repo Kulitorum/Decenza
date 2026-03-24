@@ -1,7 +1,7 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../history/shothistorystorage.h"
-#include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 #include "../core/settings.h"
 #include "../core/accessibilitymanager.h"
 #include "../core/translationmanager.h"
@@ -19,7 +19,7 @@
 
 #include "../core/dbutils.h"
 
-void registerWriteTools(McpToolRegistry* registry, MainController* mainController,
+void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
@@ -187,8 +187,8 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
             }},
             {"required", QJsonArray{"filename"}}
         },
-        [mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
-            if (!mainController) {
+        [profileManager](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!profileManager) {
                 respond(QJsonObject{{"error", "Controller not available"}});
                 return;
             }
@@ -199,13 +199,13 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 return;
             }
 
-            if (!mainController->profileExists(filename)) {
+            if (!profileManager->profileExists(filename)) {
                 respond(QJsonObject{{"error", "Profile not found: " + filename}});
                 return;
             }
 
-            QMetaObject::invokeMethod(mainController, [mainController, filename, respond]() {
-                mainController->loadProfile(filename);
+            QMetaObject::invokeMethod(profileManager, [profileManager, filename, respond]() {
+                profileManager->loadProfile(filename);
                 respond(QJsonObject{{"success", true}, {"message", "Profile activated: " + filename}});
             }, Qt::QueuedConnection);
         },
@@ -371,7 +371,7 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
         },
-        [mainController, settings, accessibility, screensaver, translation, battery](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [profileManager, settings, accessibility, screensaver, translation, battery](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
@@ -384,10 +384,10 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
 
             // === Espresso temperature / target weight (profile-aware) ===
             bool needsProfileUpdate = args.contains("espressoTemperature") || args.contains("targetWeight");
-            if (needsProfileUpdate && mainController) {
-                QString editorType = mainController->currentEditorType();
+            if (needsProfileUpdate && profileManager) {
+                QString editorType = profileManager->currentEditorType();
                 if (editorType == "advanced") {
-                    QVariantMap profileData = mainController->getCurrentProfile();
+                    QVariantMap profileData = profileManager->getCurrentProfile();
                     if (args.contains("espressoTemperature")) {
                         profileData["espresso_temperature"] = args["espressoTemperature"].toDouble();
                         updated << "espressoTemperature";
@@ -396,9 +396,9 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                         profileData["target_weight"] = args["targetWeight"].toDouble();
                         updated << "targetWeight";
                     }
-                    mainController->uploadProfile(profileData);
+                    profileManager->uploadProfile(profileData);
                 } else {
-                    QVariantMap currentParams = mainController->getOrConvertRecipeParams();
+                    QVariantMap currentParams = profileManager->getOrConvertRecipeParams();
                     if (args.contains("espressoTemperature")) {
                         double v = args["espressoTemperature"].toDouble();
                         currentParams["fillTemperature"] = v;
@@ -413,9 +413,9 @@ void registerWriteTools(McpToolRegistry* registry, MainController* mainControlle
                         currentParams["targetWeight"] = args["targetWeight"].toDouble();
                         updated << "targetWeight";
                     }
-                    mainController->uploadRecipeProfile(currentParams);
+                    profileManager->uploadRecipeProfile(currentParams);
                 }
-                mainController->uploadCurrentProfile();  // MCP is one-shot, upload immediately
+                profileManager->uploadCurrentProfile();  // MCP is one-shot, upload immediately
 
                 // Sync QSettings so settings_get reads back the updated values.
                 // uploadRecipeProfile/uploadProfile update the profile object but

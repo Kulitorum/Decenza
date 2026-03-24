@@ -5,7 +5,7 @@
 
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
-#include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 #include "../profile/profile.h"
 #include "../profile/recipeparams.h"
 
@@ -13,19 +13,19 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 
-void registerProfileTools(McpToolRegistry* registry, MainController* mainController)
+void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager)
 {
     // profiles_list
     registry->registerTool(
         "profiles_list",
         "List all available profiles with their names and filenames",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [mainController](const QJsonObject&) -> QJsonObject {
+        [profileManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) return result;
+            if (!profileManager) return result;
 
             QJsonArray profiles;
-            QVariantList all = mainController->availableProfiles();
+            QVariantList all = profileManager->availableProfiles();
             for (const QVariant& v : all) {
                 QVariantMap pm = v.toMap();
                 QJsonObject p;
@@ -45,21 +45,21 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
         "profiles_get_active",
         "Get the currently active profile name and details",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [mainController](const QJsonObject&) -> QJsonObject {
+        [profileManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) return result;
+            if (!profileManager) return result;
 
-            result["filename"] = mainController->baseProfileName();
-            result["modified"] = mainController->isProfileModified();
+            result["filename"] = profileManager->baseProfileName();
+            result["modified"] = profileManager->isProfileModified();
 
-            QVariantMap profile = mainController->getCurrentProfile();
+            QVariantMap profile = profileManager->getCurrentProfile();
             if (!profile.isEmpty()) {
                 result["title"] = profile["title"].toString();
-                result["editorType"] = mainController->currentEditorType();
-                result["targetWeightG"] = mainController->profileTargetWeight();
-                result["targetTemperatureC"] = mainController->profileTargetTemperature();
-                if (mainController->profileHasRecommendedDose())
-                    result["recommendedDoseG"] = mainController->profileRecommendedDose();
+                result["editorType"] = profileManager->currentEditorType();
+                result["targetWeightG"] = profileManager->profileTargetWeight();
+                result["targetTemperatureC"] = profileManager->profileTargetTemperature();
+                if (profileManager->profileHasRecommendedDose())
+                    result["recommendedDoseG"] = profileManager->profileRecommendedDose();
             }
             return result;
         },
@@ -76,9 +76,9 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
             }},
             {"required", QJsonArray{"filename"}}
         },
-        [mainController](const QJsonObject& args) -> QJsonObject {
+        [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) return result;
+            if (!profileManager) return result;
 
             QString filename = args["filename"].toString();
             if (filename.isEmpty()) {
@@ -86,7 +86,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 return result;
             }
 
-            QVariantMap profile = mainController->getProfileByFilename(filename);
+            QVariantMap profile = profileManager->getProfileByFilename(filename);
             if (profile.isEmpty()) {
                 result["error"] = "Profile not found: " + filename;
                 return result;
@@ -107,17 +107,17 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
         "pressure/flow: simple profile params (preinfusion, hold, decline, per-step temps). "
         "advanced: full profile data with individual frame/step details (same as the advanced editor).",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
-        [mainController](const QJsonObject&) -> QJsonObject {
+        [profileManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) return result;
+            if (!profileManager) return result;
 
-            result["filename"] = mainController->baseProfileName();
-            QVariantMap profile = mainController->getCurrentProfile();
+            result["filename"] = profileManager->baseProfileName();
+            QVariantMap profile = profileManager->getCurrentProfile();
             if (!profile.isEmpty())
                 result["title"] = profile["title"].toString();
 
             // Use the same authoritative method the app uses to determine editor type
-            QString editorType = mainController->currentEditorType();
+            QString editorType = profileManager->currentEditorType();
             result["editorType"] = editorType;
 
             if (editorType == "advanced") {
@@ -131,7 +131,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
             } else {
                 // Recipe editors (dflow, aflow, pressure, flow): show RecipeParams
                 // filtered to only the fields the editor displays
-                QVariantMap params = mainController->getOrConvertRecipeParams();
+                QVariantMap params = profileManager->getOrConvertRecipeParams();
                 RecipeParams recipe = RecipeParams::fromVariantMap(params);
                 QJsonObject recipeJson = recipe.toJson();
 
@@ -240,34 +240,34 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
         },
-        [mainController](const QJsonObject& args) -> QJsonObject {
+        [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) {
+            if (!profileManager) {
                 result["error"] = "Controller not available";
                 return result;
             }
 
             // Use the same authoritative method the app uses to determine editor type
-            QString editorType = mainController->currentEditorType();
+            QString editorType = profileManager->currentEditorType();
 
             if (editorType == "advanced") {
                 // Advanced path: use uploadProfile() — same as ProfileEditorPage
-                QVariantMap profileData = mainController->getCurrentProfile();
+                QVariantMap profileData = profileManager->getCurrentProfile();
                 for (auto it = args.begin(); it != args.end(); ++it) {
                     if (it.key() == "confirmed") continue;
                     profileData[it.key()] = it.value().toVariant();
                 }
-                mainController->uploadProfile(profileData);
-                mainController->uploadCurrentProfile();  // MCP is one-shot, upload immediately
+                profileManager->uploadProfile(profileData);
+                profileManager->uploadCurrentProfile();  // MCP is one-shot, upload immediately
             } else {
                 // Recipe path: use uploadRecipeProfile() — same as RecipeEditorPage/SimpleProfileEditorPage
-                QVariantMap currentParams = mainController->getOrConvertRecipeParams();
+                QVariantMap currentParams = profileManager->getOrConvertRecipeParams();
                 for (auto it = args.begin(); it != args.end(); ++it) {
                     if (it.key() == "confirmed") continue;
                     currentParams[it.key()] = it.value().toVariant();
                 }
-                mainController->uploadRecipeProfile(currentParams);
-                mainController->uploadCurrentProfile();  // MCP is one-shot, upload immediately
+                profileManager->uploadRecipeProfile(currentParams);
+                profileManager->uploadCurrentProfile();  // MCP is one-shot, upload immediately
             }
 
             result["success"] = true;
@@ -292,9 +292,9 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
             }}
         },
-        [mainController](const QJsonObject& args) -> QJsonObject {
+        [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) {
+            if (!profileManager) {
                 result["error"] = "Controller not available";
                 return result;
             }
@@ -313,7 +313,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 }
 
                 // Tool handlers run on the main thread (via ShotServer), so call directly
-                bool success = mainController->saveProfileAs(filename, title);
+                bool success = profileManager->saveProfileAs(filename, title);
 
                 if (success) {
                     result["success"] = true;
@@ -324,13 +324,13 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 }
             } else {
                 // Save in place under base filename (currentProfileName() includes * prefix when modified)
-                QString currentFilename = mainController->baseProfileName();
+                QString currentFilename = profileManager->baseProfileName();
                 if (currentFilename.isEmpty()) {
                     result["error"] = "No active profile to save";
                     return result;
                 }
 
-                bool success = mainController->saveProfile(currentFilename);
+                bool success = profileManager->saveProfile(currentFilename);
 
                 if (success) {
                     result["success"] = true;
@@ -359,9 +359,9 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
             }},
             {"required", QJsonArray{"filename"}}
         },
-        [mainController](const QJsonObject& args) -> QJsonObject {
+        [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) {
+            if (!profileManager) {
                 result["error"] = "Controller not available";
                 return result;
             }
@@ -372,16 +372,16 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
                 return result;
             }
 
-            if (!mainController->profileExists(filename)) {
+            if (!profileManager->profileExists(filename)) {
                 result["error"] = "Profile not found: " + filename;
                 return result;
             }
 
-            bool deleted = mainController->deleteProfile(filename);
+            bool deleted = profileManager->deleteProfile(filename);
             if (deleted) {
                 result["success"] = true;
                 result["message"] = "Profile deleted: " + filename;
-            } else if (mainController->profileExists(filename)) {
+            } else if (profileManager->profileExists(filename)) {
                 // Profile still exists after delete — it's a built-in (can't be fully removed)
                 result["success"] = true;
                 result["message"] = "Local overrides removed — profile reverted to built-in version: " + filename;
@@ -409,9 +409,9 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
             }},
             {"required", QJsonArray{"editorType", "title"}}
         },
-        [mainController](const QJsonObject& args) -> QJsonObject {
+        [profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
-            if (!mainController) {
+            if (!profileManager) {
                 result["error"] = "Controller not available";
                 return result;
             }
@@ -433,15 +433,15 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
 
             // Route to the same creation functions as the QML UI
             if (editorType == "dflow") {
-                mainController->createNewRecipe(title);
+                profileManager->createNewRecipe(title);
             } else if (editorType == "aflow") {
-                mainController->createNewAFlowRecipe(title);
+                profileManager->createNewAFlowRecipe(title);
             } else if (editorType == "pressure") {
-                mainController->createNewPressureProfile(title);
+                profileManager->createNewPressureProfile(title);
             } else if (editorType == "flow") {
-                mainController->createNewFlowProfile(title);
+                profileManager->createNewFlowProfile(title);
             } else if (editorType == "advanced") {
-                mainController->createNewProfile(title);
+                profileManager->createNewProfile(title);
             } else {
                 result["error"] = "Invalid editorType: " + editorType + ". Must be dflow, aflow, pressure, flow, or advanced.";
                 return result;
@@ -450,7 +450,7 @@ void registerProfileTools(McpToolRegistry* registry, MainController* mainControl
             result["success"] = true;
             result["message"] = "Profile created: " + title;
             result["editorType"] = editorType;
-            result["filename"] = mainController->baseProfileName();
+            result["filename"] = profileManager->baseProfileName();
             return result;
         },
         "settings");
