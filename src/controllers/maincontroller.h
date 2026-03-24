@@ -4,6 +4,7 @@
 #include <QVariantList>
 #include <QMap>
 #include <QTimer>
+#include "profilemanager.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -32,24 +33,6 @@ class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
 struct ShotSample;
-
-// Profile source enumeration
-enum class ProfileSource {
-    BuiltIn,      // Shipped with app in :/profiles/
-    Downloaded,   // Downloaded from visualizer.coffee
-    UserCreated   // Created or edited by user
-};
-
-// Profile metadata for filtering and display
-struct ProfileInfo {
-    QString filename;
-    QString title;
-    QString beverageType;
-    QString editorType;   // "dflow", "aflow", "pressure", "flow", "advanced"
-    ProfileSource source;
-    bool isRecipeMode = false;
-    bool hasKnowledgeBase = false;
-};
 
 class MainController : public QObject {
     Q_OBJECT
@@ -104,27 +87,49 @@ public:
                            ProfileStorage* profileStorage = nullptr,
                            QObject* parent = nullptr);
 
-    QString currentProfileName() const;
+    // ProfileManager accessor
+    ProfileManager* profileManager() const { return m_profileManager; }
+
+    // Profile state — delegated to ProfileManager
+    QString currentProfileName() const { return m_profileManager->currentProfileName(); }
+    QString baseProfileName() const { return m_profileManager->baseProfileName(); }
+    Q_INVOKABLE QString previousProfileName() const { return m_profileManager->previousProfileName(); }
+    bool isProfileModified() const { return m_profileManager->isProfileModified(); }
+    bool isCurrentProfileRecipe() const { return m_profileManager->isCurrentProfileRecipe(); }
+    QString currentEditorType() const { return m_profileManager->currentEditorType(); }
+    static bool isDFlowTitle(const QString& title) { return ProfileManager::isDFlowTitle(title); }
+    static bool isAFlowTitle(const QString& title) { return ProfileManager::isAFlowTitle(title); }
+
+    // Target weight / brew-by-ratio — delegated to ProfileManager
+    double targetWeight() const { return m_profileManager->targetWeight(); }
+    void setTargetWeight(double weight) { m_profileManager->setTargetWeight(weight); }
+    bool brewByRatioActive() const { return m_profileManager->brewByRatioActive(); }
+    double brewByRatioDose() const { return m_profileManager->brewByRatioDose(); }
+    double brewByRatio() const { return m_profileManager->brewByRatio(); }
+    Q_INVOKABLE void activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind) { m_profileManager->activateBrewWithOverrides(dose, yield, temperature, grind); }
+    Q_INVOKABLE void clearBrewOverrides() { m_profileManager->clearBrewOverrides(); }
+
+    // Profile catalog — delegated to ProfileManager
+    QVariantList availableProfiles() const { return m_profileManager->availableProfiles(); }
+    QVariantList selectedProfiles() const { return m_profileManager->selectedProfiles(); }
+    QVariantList allBuiltInProfiles() const { return m_profileManager->allBuiltInProfiles(); }
+    QVariantList cleaningProfiles() const { return m_profileManager->cleaningProfiles(); }
+    QVariantList downloadedProfiles() const { return m_profileManager->downloadedProfiles(); }
+    QVariantList userCreatedProfiles() const { return m_profileManager->userCreatedProfiles(); }
+    QVariantList allProfilesList() const { return m_profileManager->allProfilesList(); }
+
+    // Profile accessors — delegated to ProfileManager
+    const Profile& currentProfile() const { return m_profileManager->currentProfile(); }
+    Profile currentProfileObject() const { return m_profileManager->currentProfileObject(); }
+    Profile* currentProfilePtr() { return m_profileManager->currentProfilePtr(); }
+    double profileTargetTemperature() const { return m_profileManager->profileTargetTemperature(); }
+    double profileTargetWeight() const { return m_profileManager->profileTargetWeight(); }
+    bool profileHasRecommendedDose() const { return m_profileManager->profileHasRecommendedDose(); }
+    double profileRecommendedDose() const { return m_profileManager->profileRecommendedDose(); }
+
+    // Non-profile accessors (remain on MainController)
     double filteredGoalPressure() const { return m_filteredGoalPressure; }
     double filteredGoalFlow() const { return m_filteredGoalFlow; }
-
-    QString baseProfileName() const { return m_baseProfileName; }
-    Q_INVOKABLE QString previousProfileName() const { return m_previousProfileName; }
-    bool isProfileModified() const { return m_profileModified; }
-    double targetWeight() const;
-    void setTargetWeight(double weight);
-    bool brewByRatioActive() const;
-    double brewByRatioDose() const;
-    double brewByRatio() const;
-    Q_INVOKABLE void activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind);
-    Q_INVOKABLE void clearBrewOverrides();
-    QVariantList availableProfiles() const;
-    QVariantList selectedProfiles() const;
-    QVariantList allBuiltInProfiles() const;
-    QVariantList cleaningProfiles() const;
-    QVariantList downloadedProfiles() const;
-    QVariantList userCreatedProfiles() const;
-    QVariantList allProfilesList() const;
     VisualizerUploader* visualizer() const { return m_visualizer; }
     VisualizerImporter* visualizerImporter() const { return m_visualizerImporter; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
@@ -141,13 +146,8 @@ public:
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
-    Profile* currentProfilePtr() { return &m_currentProfile; }
     bool isSawSettling() const;
     QString currentFrameName() const { return m_currentFrameName; }
-    bool isCurrentProfileRecipe() const;
-    QString currentEditorType() const;
-    static bool isDFlowTitle(const QString& title);  // Check if title indicates D-Flow profile
-    static bool isAFlowTitle(const QString& title);  // Check if title indicates A-Flow profile
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
     ProfileConverter* profileConverter() const { return m_profileConverter; }
@@ -161,64 +161,52 @@ public:
     DatabaseBackupManager* backupManager() const { return m_backupManager; }
     LocationProvider* locationProvider() const { return m_locationProvider; }
     qint64 lastSavedShotId() const { return m_lastSavedShotId; }
-    double profileTargetTemperature() const { return m_currentProfile.espressoTemperature(); }
-    double profileTargetWeight() const { return m_currentProfile.targetWeight(); }
-    bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }
-    double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }
-
-    const Profile& currentProfile() const { return m_currentProfile; }
-    Profile currentProfileObject() const { return m_currentProfile; }
 
     // For simulator integration
     void handleShotSample(const ShotSample& sample) { onShotSampleReceived(sample); }
 
-    Q_INVOKABLE QVariantMap getCurrentProfile() const;
-    Q_INVOKABLE void markProfileClean();  // Called after save
-    Q_INVOKABLE QString titleToFilename(const QString& title) const;
-    Q_INVOKABLE QString findProfileByTitle(const QString& title) const;  // Returns filename or empty string
-    Q_INVOKABLE bool profileExists(const QString& filename) const;
-    Q_INVOKABLE bool deleteProfile(const QString& filename);  // Delete user/downloaded profile
-    Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;  // Load profile for preview (without setting as current)
-    Q_INVOKABLE void loadShotWithMetadata(qint64 shotId);  // Load profile + bean info from history shot
+    // Profile CRUD — forwarded to ProfileManager for QML compatibility
+    Q_INVOKABLE QVariantMap getCurrentProfile() const { return m_profileManager->getCurrentProfile(); }
+    Q_INVOKABLE void markProfileClean() { m_profileManager->markProfileClean(); }
+    Q_INVOKABLE QString titleToFilename(const QString& title) const { return m_profileManager->titleToFilename(title); }
+    Q_INVOKABLE QString findProfileByTitle(const QString& title) const { return m_profileManager->findProfileByTitle(title); }
+    Q_INVOKABLE bool profileExists(const QString& filename) const { return m_profileManager->profileExists(filename); }
+    Q_INVOKABLE bool deleteProfile(const QString& filename) { return m_profileManager->deleteProfile(filename); }
+    Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const { return m_profileManager->getProfileByFilename(filename); }
+    Q_INVOKABLE void loadShotWithMetadata(qint64 shotId);  // Stays on MC (uses shot history)
 
     // Clipboard
     Q_INVOKABLE void copyToClipboard(const QString& text);
     Q_INVOKABLE QString pasteFromClipboard() const;
 
-    // Recipe Editor methods
-    Q_INVOKABLE void uploadRecipeProfile(const QVariantMap& recipeParams);
-    Q_INVOKABLE QVariantMap getOrConvertRecipeParams();
-    Q_INVOKABLE void createNewRecipe(const QString& title = "New Recipe");
-    Q_INVOKABLE void createNewAFlowRecipe(const QString& title = "New A-Flow Recipe");
-    Q_INVOKABLE void createNewPressureProfile(const QString& title = "New Pressure Profile");
-    Q_INVOKABLE void createNewFlowProfile(const QString& title = "New Flow Profile");
-    // Profile mode conversion
-    Q_INVOKABLE void convertCurrentProfileToAdvanced(); // D-Flow -> Advanced (expands capabilities)
+    // Recipe Editor methods — forwarded to ProfileManager
+    Q_INVOKABLE void uploadRecipeProfile(const QVariantMap& recipeParams) { m_profileManager->uploadRecipeProfile(recipeParams); }
+    Q_INVOKABLE QVariantMap getOrConvertRecipeParams() { return m_profileManager->getOrConvertRecipeParams(); }
+    Q_INVOKABLE void createNewRecipe(const QString& title = "New Recipe") { m_profileManager->createNewRecipe(title); }
+    Q_INVOKABLE void createNewAFlowRecipe(const QString& title = "New A-Flow Recipe") { m_profileManager->createNewAFlowRecipe(title); }
+    Q_INVOKABLE void createNewPressureProfile(const QString& title = "New Pressure Profile") { m_profileManager->createNewPressureProfile(title); }
+    Q_INVOKABLE void createNewFlowProfile(const QString& title = "New Flow Profile") { m_profileManager->createNewFlowProfile(title); }
+    Q_INVOKABLE void convertCurrentProfileToAdvanced() { m_profileManager->convertCurrentProfileToAdvanced(); }
 
-    // === D-Flow Frame Editor Methods ===
-    // Frame operations
-    Q_INVOKABLE void addFrame(int afterIndex = -1);       // Add new frame after index (-1 = at end)
-    Q_INVOKABLE void deleteFrame(int index);              // Delete frame at index
-    Q_INVOKABLE void moveFrameUp(int index);              // Move frame up (swap with previous)
-    Q_INVOKABLE void moveFrameDown(int index);            // Move frame down (swap with next)
-    Q_INVOKABLE void duplicateFrame(int index);           // Duplicate frame at index
-
-    // Frame property editing
-    Q_INVOKABLE void setFrameProperty(int index, const QString& property, const QVariant& value);
-    Q_INVOKABLE QVariantMap getFrameAt(int index) const;  // Get frame as QVariantMap for QML
-    Q_INVOKABLE int frameCount() const;                   // Number of frames in current profile
-
-    // New profile creation
-    Q_INVOKABLE void createNewProfile(const QString& title = "New Profile");
+    // Frame operations — forwarded to ProfileManager
+    Q_INVOKABLE void addFrame(int afterIndex = -1) { m_profileManager->addFrame(afterIndex); }
+    Q_INVOKABLE void deleteFrame(int index) { m_profileManager->deleteFrame(index); }
+    Q_INVOKABLE void moveFrameUp(int index) { m_profileManager->moveFrameUp(index); }
+    Q_INVOKABLE void moveFrameDown(int index) { m_profileManager->moveFrameDown(index); }
+    Q_INVOKABLE void duplicateFrame(int index) { m_profileManager->duplicateFrame(index); }
+    Q_INVOKABLE void setFrameProperty(int index, const QString& property, const QVariant& value) { m_profileManager->setFrameProperty(index, property, value); }
+    Q_INVOKABLE QVariantMap getFrameAt(int index) const { return m_profileManager->getFrameAt(index); }
+    Q_INVOKABLE int frameCount() const { return m_profileManager->frameCount(); }
+    Q_INVOKABLE void createNewProfile(const QString& title = "New Profile") { m_profileManager->createNewProfile(title); }
 
 public slots:
-    void loadProfile(const QString& profileName);
-    Q_INVOKABLE bool loadProfileFromJson(const QString& jsonContent);  // Load profile from JSON string (e.g., from shot history)
-    void refreshProfiles();
-    Q_INVOKABLE void uploadCurrentProfile();
-    Q_INVOKABLE void uploadProfile(const QVariantMap& profileData);
-    Q_INVOKABLE bool saveProfile(const QString& filename);
-    Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);
+    void loadProfile(const QString& profileName) { m_profileManager->loadProfile(profileName); }
+    Q_INVOKABLE bool loadProfileFromJson(const QString& jsonContent) { return m_profileManager->loadProfileFromJson(jsonContent); }
+    void refreshProfiles() { m_profileManager->refreshProfiles(); }
+    Q_INVOKABLE void uploadCurrentProfile() { m_profileManager->uploadCurrentProfile(); }
+    Q_INVOKABLE void uploadProfile(const QVariantMap& profileData) { m_profileManager->uploadProfile(profileData); }
+    Q_INVOKABLE bool saveProfile(const QString& filename) { return m_profileManager->saveProfile(filename); }
+    Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title) { return m_profileManager->saveProfileAs(filename, title); }
 
     void applySteamSettings();
     void applyHotWaterSettings();
@@ -241,7 +229,7 @@ public slots:
     // Start heating steam heater (ignores keepSteamHeaterOn - for when user wants to steam)
     Q_INVOKABLE void startSteamHeating();
 
-    // Turn off steam heater (sends 0°C)
+    // Turn off steam heater (sends 0 C)
     Q_INVOKABLE void turnOffSteamHeater();
 
     void onEspressoCycleStarted();
@@ -296,16 +284,6 @@ private slots:
     void onShotSampleReceived(const ShotSample& sample);
 
 private:
-    void loadDefaultProfile();
-    void updateProfileKnowledgeBaseId();  // Compute and set AI KB ID on m_currentProfile
-    void migrateProfileFolders();
-    void migrateProfileFormat();
-    void migrateRecipeFrames();
-    void applyRecipeToScalarFields(const RecipeParams& recipe);
-    void createNewProfileWithEditorType(EditorType type, const QString& title);
-    QString profilesPath() const;
-    QString userProfilesPath() const;
-    QString downloadedProfilesPath() const;
     void applyAllSettings();
     void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord);
     void applyWaterRefillLevel();
@@ -316,6 +294,8 @@ private:
     void updateGlobalFromPerProfileMedian();
     double getGroupTemperature() const;
     void sendMachineSettings();
+
+    ProfileManager* m_profileManager = nullptr;
 
     QNetworkAccessManager* m_networkManager = nullptr;
     Settings* m_settings = nullptr;
@@ -330,11 +310,6 @@ private:
     BLEManager* m_bleManager = nullptr;
     FlowScale* m_flowScale = nullptr;  // Shadow FlowScale for comparison logging
 
-    Profile m_currentProfile;
-    QStringList m_availableProfiles;
-    QMap<QString, QString> m_profileTitles;  // filename -> display title
-    QMap<QString, QString> m_profileJsonCache;  // filename -> JSON (populated by refreshProfiles, consumed by loadProfile)
-    QList<ProfileInfo> m_allProfiles;  // Complete list with metadata
     double m_shotStartTime = 0;
     double m_lastSampleTime = 0;  // For delta time calculation (DE1's raw timer)
     double m_lastShotTime = 0;    // Last shot sample time relative to shot start (for weight sync)
@@ -349,12 +324,8 @@ private:
     double m_lastFlow = 0;           // Last sample flow (for transition reason inference)
     bool m_tareDone = false;  // Track if we've tared for this shot
 
-    QString m_baseProfileName;
-    QString m_previousProfileName;
-    bool m_profileModified = false;
     QString m_currentFrameName;  // For accessibility announcements
 
-    bool m_profileUploadPending = false;  // Set when upload blocked during active phase; cleared on successful upload or disconnect
     QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 
     // DYE: pending shot data for delayed upload
