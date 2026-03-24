@@ -956,7 +956,7 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     data[3] = BinaryCodec::encodeU8P0(hotWaterTemp);
     data[4] = BinaryCodec::encodeU8P0(hotWaterVolume);
     data[5] = BinaryCodec::encodeU8P0(60);  // TargetHotWaterLength
-    data[6] = BinaryCodec::encodeU8P0(36);  // TargetEspressoVol
+    data[6] = BinaryCodec::encodeU8P0(200);  // TargetEspressoVol (safety limit, matches de1app)
 
     uint16_t groupTempEncoded = BinaryCodec::encodeU16P8(groupTemp);
     data[7] = (groupTempEncoded >> 8) & 0xFF;

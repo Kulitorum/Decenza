@@ -570,7 +570,7 @@ Dialog {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: TranslationManager.translate("brewDialog.yieldLabel", "Yield:")
+                        text: TranslationManager.translate("brewDialog.stopAtWeightLabel", "Stop at weight:")
                         font: Theme.bodyFont
                         color: Theme.textSecondaryColor
                         Layout.alignment: Qt.AlignVCenter
@@ -590,7 +590,7 @@ Dialog {
                         // Color changes based on whether value is auto-calculated or manually set
                         valueColor: root.targetManuallySet ? Theme.primaryColor : Theme.weightColor
                         accentColor: root.targetManuallySet ? Theme.primaryColor : Theme.weightColor
-                        accessibleName: TranslationManager.translate("brewDialog.yieldWeight", "Yield weight") + (root.targetManuallySet ? TranslationManager.translate("brewDialog.manual", " (manual)") : TranslationManager.translate("brewDialog.calculated", " (calculated)"))
+                        accessibleName: TranslationManager.translate("brewDialog.stopAtWeight", "Stop at weight") + (root.targetManuallySet ? TranslationManager.translate("brewDialog.manual", " (manual)") : TranslationManager.translate("brewDialog.calculated", " (calculated)"))
                         onValueModified: function(newValue) {
                             root.targetManuallySet = true  // Mark as manually set
                             root.targetValue = newValue
@@ -605,7 +605,7 @@ Dialog {
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(56)
                         text: TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
-                        accessibleName: TranslationManager.translate("brewDialog.saveYieldToProfile", "Save yield to profile")
+                        accessibleName: TranslationManager.translate("brewDialog.saveStopWeightToProfile", "Save stop-at-weight to profile")
                         primary: true
                         enabled: root.targetValue !== root.profileTargetWeight
                         onClicked: {
@@ -633,7 +633,7 @@ Dialog {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: TranslationManager.translate("brewDialog.profileDefaultAccessible", "Profile default yield: %1 grams").arg(root.profileTargetWeight.toFixed(0))
+                    Accessible.name: TranslationManager.translate("brewDialog.profileDefaultStopWeight", "Profile default stop-at-weight: %1 grams").arg(root.profileTargetWeight.toFixed(0))
                 }
             }
 
