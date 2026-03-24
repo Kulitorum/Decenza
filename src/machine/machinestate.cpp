@@ -632,12 +632,13 @@ void MachineState::checkStopAtVolumeHotWater() {
     if (!m_settings) return;
     if (!m_tareCompleted) return;  // Don't check until tare has happened
 
-    // Match de1app's hot water SAV logic:
-    // - Scale configured: target = 250 ml (huge safety net, SAW does the real stopping)
+    // Hot water SAV logic (based on de1app but improved):
+    // - Scale configured: safety net above the user's target so SAW stops first.
+    //   Uses max(waterVolume + 50, 250) to handle large volumes (de1app hardcodes 250).
     // - No scale: target = waterVolume setting (app-side volume stop is primary)
     double target;
     if (!m_settings->scaleAddress().isEmpty()) {
-        target = 250.0;
+        target = qMax(static_cast<double>(m_settings->waterVolume()) + 50.0, 250.0);
     } else {
         target = m_settings->waterVolume();
     }

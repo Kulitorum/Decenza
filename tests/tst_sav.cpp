@@ -305,21 +305,25 @@ private slots:
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
+        f.settings.setWaterVolume(200);
         f.settings.setIgnoreVolumeWithScale(true);  // ON — but hot water should still work
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
+        // Safety net = max(200+50, 250) = 250
         f.addPourVolume(250.0);
         f.state.checkStopAtVolumeHotWater();
 
-        QCOMPARE(spy.count(), 1);  // Hot water SAV ignores the setting — 250ml safety fires
+        QCOMPARE(spy.count(), 1);  // Hot water SAV ignores the setting — safety net fires
     }
 
-    // ===== Hot Water SAV: 250 ml safety net with scale =====
+    // ===== Hot Water SAV: safety net with scale (default volume) =====
 
     void hotWaterSavSafetyNetWithScale() {
         TestFixture f;
         f.prepareForHotWaterSAV();
         f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
+        f.settings.setWaterVolume(200);
+        // Safety net = max(200+50, 250) = 250
 
         QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
 
@@ -330,6 +334,28 @@ private slots:
 
         // At 250 ml — should fire
         f.addPourVolume(250.0);
+        f.state.checkStopAtVolumeHotWater();
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // ===== Hot Water SAV: safety net scales with large water volume =====
+
+    void hotWaterSavSafetyNetLargeVolume() {
+        TestFixture f;
+        f.prepareForHotWaterSAV();
+        f.settings.setScaleAddress("AA:BB:CC:DD:EE:FF");
+        f.settings.setWaterVolume(300);
+        // Safety net = max(300+50, 250) = 350
+
+        QSignalSpy spy(&f.state, &MachineState::targetVolumeReached);
+
+        // At 300 ml — should NOT fire (safety net is 350, not 250)
+        f.addPourVolume(300.0);
+        f.state.checkStopAtVolumeHotWater();
+        QCOMPARE(spy.count(), 0);
+
+        // At 350 ml — should fire
+        f.addPourVolume(350.0);
         f.state.checkStopAtVolumeHotWater();
         QCOMPARE(spy.count(), 1);
     }
