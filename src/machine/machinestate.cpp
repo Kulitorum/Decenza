@@ -650,7 +650,7 @@ void MachineState::onFlowSample(double flowRate, double deltaTime) {
     double volumeDelta = flowRate * deltaTime;
     if (volumeDelta > 0) {
         bool isPreinfusionVolume = (state == DE1::State::Espresso)
-            ? (m_currentFrame < m_preinfuseFrameCount)
+            ? (m_currentFrame >= 0 && m_currentFrame < m_preinfuseFrameCount)
             : (m_phase == Phase::Preinfusion);  // Non-espresso: use phase as before
         if (isPreinfusionVolume) {
             m_preinfusionVolume += volumeDelta;

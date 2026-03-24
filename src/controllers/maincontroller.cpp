@@ -1524,6 +1524,8 @@ void MainController::uploadProfile(const QVariantMap& profileData) {
         m_currentProfile.setTargetVolume(profileData["target_volume"].toDouble());
         if (m_machineState) {
             m_machineState->setTargetVolume(m_currentProfile.targetVolume());
+            m_machineState->setProfileType(m_currentProfile.profileType());
+            m_machineState->setPreinfuseFrameCount(m_currentProfile.preinfuseFrameCount());
         }
     }
     if (profileData.contains("has_recommended_dose")) {
